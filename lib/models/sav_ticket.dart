@@ -26,13 +26,13 @@ class BrokenPart {
 
 class SavTicket {
   final String? id;
-  // ADDED: The new service type field
   final String serviceType;
   final String savCode;
   final String clientId;
   final String clientName;
-  final String storeId;
-  final String storeName;
+  // ✅ CHANGED: Made storeId and storeName optional (nullable)
+  final String? storeId;
+  final String? storeName;
   final DateTime pickupDate;
   final List<String> pickupTechnicianIds;
   final List<String> pickupTechnicianNames;
@@ -50,13 +50,13 @@ class SavTicket {
 
   SavTicket({
     this.id,
-    // ADDED: New required parameter in the constructor
     required this.serviceType,
     required this.savCode,
     required this.clientId,
     required this.clientName,
-    required this.storeId,
-    required this.storeName,
+    // ✅ CHANGED: Removed 'required'
+    this.storeId,
+    this.storeName,
     required this.pickupDate,
     required this.pickupTechnicianIds,
     required this.pickupTechnicianNames,
@@ -75,11 +75,11 @@ class SavTicket {
 
   Map<String, dynamic> toJson() {
     return {
-      // ADDED: Save service type to Firestore
       'serviceType': serviceType,
       'savCode': savCode,
       'clientId': clientId,
       'clientName': clientName,
+      // ✅ CHANGED: Now saves optional fields
       'storeId': storeId,
       'storeName': storeName,
       'pickupDate': Timestamp.fromDate(pickupDate),
@@ -108,13 +108,13 @@ class SavTicket {
 
     return SavTicket(
       id: doc.id,
-      // ADDED: Read service type from Firestore, with a default for old tickets
       serviceType: data['serviceType'] as String? ?? 'Service Technique',
       savCode: data['savCode'] as String,
       clientId: data['clientId'] as String,
       clientName: data['clientName'] as String,
-      storeId: data['storeId'] as String,
-      storeName: data['storeName'] as String,
+      // ✅ CHANGED: Now reads optional fields
+      storeId: data['storeId'] as String?,
+      storeName: data['storeName'] as String?,
       pickupDate: (data['pickupDate'] as Timestamp).toDate(),
       pickupTechnicianIds: List<String>.from(data['pickupTechnicianIds'] ?? []),
       pickupTechnicianNames: List<String>.from(data['pickupTechnicianNames'] ?? []),

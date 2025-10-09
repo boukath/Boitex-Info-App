@@ -45,7 +45,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   bool _isLoadingProducts = false;
   String? _selectedProductId;
 
-  // ✅ CHANGED: Removed _mockUsers. Added _availableTechnicians.
   List<UserViewModel> _availableTechnicians = [];
   bool _isLoadingTechnicians = true;
   List<UserViewModel> _selectedTechnicians = [];
@@ -65,7 +64,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   void initState() {
     super.initState();
     _fetchClients();
-    _fetchAvailableTechnicians(); // ✅ ADDED: Fetch technicians on init
+    _fetchAvailableTechnicians();
   }
 
   @override
@@ -87,7 +86,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       if (mounted) setState(() { _clients = snapshot.docs; _isLoadingClients = false; });
     } catch (e) {
       if (mounted) setState(() { _isLoadingClients = false; });
-      // Consider adding error handling for the user here
     }
   }
 
@@ -103,40 +101,26 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       if (mounted) setState(() { _stores = snapshot.docs; _isLoadingStores = false; });
     } catch (e) {
       if (mounted) setState(() { _isLoadingStores = false; });
-      // Consider adding error handling for the user here
     }
   }
-
-
-
-// Replace the _fetchAvailableTechnicians function with this final version
 
   Future<void> _fetchAvailableTechnicians() async {
     setState(() { _isLoadingTechnicians = true; });
     try {
       final List<String> includedRoles = [
-        'Admin',
-        'Responsable Administratif',
-        'Responsable Commercial',
-        'Responsable Technique',
-        'Responsable IT',
-        'Chef de Projet',
-        'Technicien ST',
-        'Technicien IT',
+        'Admin', 'Responsable Administratif', 'Responsable Commercial',
+        'Responsable Technique', 'Responsable IT', 'Chef de Projet',
+        'Technicien ST', 'Technicien IT',
       ];
-
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .where('role', whereIn: includedRoles)
           .orderBy('role')
-      // ✅ THE FINAL FIX IS HERE: Changed orderBy('name') to orderBy('displayName')
           .orderBy('displayName')
           .get();
-
       final List<UserViewModel> fetchedUsers = snapshot.docs
           .map((doc) => UserViewModel(id: doc.id, name: doc['displayName']))
           .toList();
-
       if (mounted) {
         setState(() {
           _availableTechnicians = fetchedUsers;
@@ -146,10 +130,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     } catch (e) {
       if (mounted) {
         setState(() { _isLoadingTechnicians = false; });
-        // This will now print the exact error, which is helpful for debugging
-        print("Error fetching technicians: $e");
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Erreur lors du chargement des techniciens.'))
+            SnackBar(content: Text('Erreur lors du chargement des techniciens: $e'))
         );
       }
     }
@@ -157,36 +139,21 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
   Future<void> _fetchCategoriesForMainSection(String mainCategory) async {
     setState(() {
-      _isLoadingSubCategories = true;
-      _subCategories = [];
-      _selectedSubCategory = null;
-      _products = [];
-      _selectedProductId = null;
+      _isLoadingSubCategories = true; _subCategories = []; _selectedSubCategory = null;
+      _products = []; _selectedProductId = null;
     });
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('produits')
-          .where('mainCategory', isEqualTo: mainCategory)
-          .get();
-
-      final categoriesSet = <String>{};
-      for (var doc in snapshot.docs) {
-        categoriesSet.add(doc.data()['categorie'] as String);
-      }
-
-      final sortedList = categoriesSet.toList();
-      sortedList.sort();
-
-      if (mounted) {
-        setState(() {
-          _subCategories = sortedList;
-          _isLoadingSubCategories = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() { _isLoadingSubCategories = false; });
-      // Consider adding error handling for the user here
+    final snapshot = await FirebaseFirestore.instance
+        .collection('produits')
+        .where('mainCategory', isEqualTo: mainCategory)
+        .get();
+    final categoriesSet = <String>{};
+    for (var doc in snapshot.docs) {
+      categoriesSet.add(doc.data()['categorie'] as String);
+    }
+    final sortedList = categoriesSet.toList();
+    sortedList.sort();
+    if (mounted) {
+      setState(() { _subCategories = sortedList; _isLoadingSubCategories = false; });
     }
   }
 
@@ -201,7 +168,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       if (mounted) setState(() { _products = snapshot.docs; _isLoadingProducts = false; });
     } catch (e) {
       if (mounted) setState(() { _isLoadingProducts = false; });
-      // Consider adding error handling for the user here
     }
   }
 
@@ -229,28 +195,21 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   Future<void> _pickItemPhotos() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: true);
     if (result != null) {
-      setState(() {
-        _pickedItemPhotos = result.paths.map((path) => File(path!)).toList();
-      });
+      setState(() { _pickedItemPhotos = result.paths.map((path) => File(path!)).toList(); });
     }
   }
 
+  // ✅ CHANGED: Updated save logic to handle optional store
   Future<void> _saveTicket() async {
     if (!_formKey.currentState!.validate()) return;
     if (_signatureController.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('La signature du gérant est requise.'))
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La signature du gérant est requise.')));
       return;
     }
-
     setState(() { _isLoading = true; });
     try {
       final currentYear = DateTime.now().year;
-      final counterRef = FirebaseFirestore.instance
-          .collection('counters')
-          .doc('sav_tickets_$currentYear');
-
+      final counterRef = FirebaseFirestore.instance.collection('counters').doc('sav_tickets_$currentYear');
       final newCode = await FirebaseFirestore.instance.runTransaction((transaction) async {
         final counterSnap = await transaction.get(counterRef);
         final currentCount = (counterSnap.data()?['count'] as int?) ?? 0;
@@ -274,16 +233,21 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       }
 
       final clientDoc = _clients.firstWhere((doc) => doc.id == _selectedClientId);
-      final storeDoc = _stores.firstWhere((doc) => doc.id == _selectedStoreId);
       final productDoc = _products.firstWhere((doc) => doc.id == _selectedProductId);
+
+      String? storeName;
+      if (_selectedStoreId != null) {
+        final storeDoc = _stores.firstWhere((doc) => doc.id == _selectedStoreId);
+        storeName = "${storeDoc['name']} - ${storeDoc['location']}";
+      }
 
       final newTicket = SavTicket(
         serviceType: widget.serviceType,
         savCode: newCode,
         clientId: _selectedClientId!,
         clientName: clientDoc['name'],
-        storeId: _selectedStoreId!,
-        storeName: "${storeDoc['name']} - ${storeDoc['location']}",
+        storeId: _selectedStoreId,
+        storeName: storeName,
         pickupDate: _pickupDate ?? DateTime.now(),
         pickupTechnicianIds: _selectedTechnicians.map((u) => u.id).toList(),
         pickupTechnicianNames: _selectedTechnicians.map((u) => u.name).toList(),
@@ -294,23 +258,19 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         storeManagerName: _managerNameController.text,
         storeManagerSignatureUrl: signatureUrl,
         status: 'Nouveau',
-        createdBy: 'Current User Name', // Placeholder
+        createdBy: 'Current User Name',
         createdAt: DateTime.now(),
       );
 
       await FirebaseFirestore.instance.collection('sav_tickets').add(newTicket.toJson());
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Ticket SAV créé avec succès!'))
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ticket SAV créé avec succès!')));
         Navigator.of(context).pop();
       }
     } catch (e) {
       if(mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e'))
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     } finally {
       if(mounted) {
@@ -364,12 +324,35 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 validator: (value) => value == null ? 'Veuillez sélectionner un client' : null,
               ),
               const SizedBox(height: 16),
+
+              // ✅ ADDED: The new optional Store dropdown
+              DropdownButtonFormField<String>(
+                value: _selectedStoreId,
+                isExpanded: true,
+                items: _stores.map((doc) {
+                  final name = doc['name'];
+                  final location = doc['location'];
+                  return DropdownMenuItem(value: doc.id, child: Text('$name - $location'));
+                }).toList(),
+                onChanged: _selectedClientId == null ? null : (value) => setState(() { _selectedStoreId = value; }),
+                decoration: InputDecoration(
+                  labelText: 'Magasin (Optionnel)',
+                  border: defaultBorder,
+                  focusedBorder: focusedBorder,
+                  prefixIcon: _isLoadingStores ? const Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()) : null,
+                ),
+                // No validator makes it optional
+              ),
+              const SizedBox(height: 16),
+
               TextFormField(
                 controller: _managerNameController,
                 decoration: InputDecoration(labelText: 'Nom du Gérant', border: defaultBorder, focusedBorder: focusedBorder),
                 validator: (value) => value!.isEmpty ? 'Veuillez entrer le nom du gérant' : null,
               ),
               const Divider(height: 40),
+
+              // ... (The rest of the form remains the same)
 
               const Text('Détails de la Récupération', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
               const SizedBox(height: 16),
@@ -381,7 +364,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              // ✅ CHANGED: Use _availableTechnicians for the MultiSelectDialogField
               MultiSelectDialogField<UserViewModel>(
                 items: _availableTechnicians.map((user) => MultiSelectItem(user, user.name)).toList(),
                 title: const Text("Techniciens"),
