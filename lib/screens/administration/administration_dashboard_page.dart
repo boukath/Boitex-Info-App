@@ -21,7 +21,6 @@ import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart'
 class AdministrationDashboardPage extends StatelessWidget {
   final String displayName;
   final String userRole;
-
   const AdministrationDashboardPage({
     super.key,
     required this.displayName,
@@ -33,8 +32,8 @@ class AdministrationDashboardPage extends StatelessWidget {
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
       final isDesktop = width >= 1200;
-      final isTablet  = width >= 800 && width < 1200;
-      final canSeeMgmt = <String>[
+      final isTablet = width >= 800 && width < 1200;
+      final canSeeMgmt = [
         'PDG',
         'Admin',
         'Responsable Administratif',
@@ -56,265 +55,94 @@ class AdministrationDashboardPage extends StatelessWidget {
       BuildContext context, bool canSeeMgmt, double width) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      body: Stack(
-        children: [
-          Row(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Sidebar
-              Container(
-                width: 280,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
+              // Top bar
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.pop(context),
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 20,
-                      offset: const Offset(2, 0),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Administration',
+                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: const Color(0xFF1E3A8A),
+                    child: Text(
+                      displayName.isNotEmpty
+                          ? displayName[0].toUpperCase()
+                          : 'U',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    // Logo & Title
-                    Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        children: [
-                          Image.asset(
-                            'assets/images/logo.png',
-                            width: 140,
-                            height: 140,
-                            fit: BoxFit.contain,
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'BoitexInfo',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // User info card
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(16),
-                          border:
-                          Border.all(color: Colors.white.withOpacity(0.2)),
-                        ),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 24,
-                              backgroundColor: Colors.white,
-                              child: Text(
-                                displayName.isNotEmpty
-                                    ? displayName[0].toUpperCase()
-                                    : 'U',
-                                style: const TextStyle(
-                                  color: Color(0xFF1E3A8A),
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 20,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    displayName,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    userRole,
-                                    style: TextStyle(
-                                      color: Colors.white.withOpacity(0.7),
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                    // Logout button
-                    Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: ElevatedButton.icon(
-                        onPressed: () => FirebaseAuth.instance.signOut(),
-                        icon: const Icon(Icons.logout_rounded, size: 20),
-                        label: const Text('Déconnexion'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white.withOpacity(0.1),
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-
-              // Main content
-              Expanded(
-                child: Column(
-                  children: [
-                    // Top Bar
-                    Container(
-                      height: 80,
-                      padding: const EdgeInsets.symmetric(horizontal: 40),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Tableau de Bord',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                'Vue d\'ensemble',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const Spacer(),
-                          CircleAvatar(
-                            radius: 20,
-                            backgroundColor: const Color(0xFF3B82F6),
-                            child: Text(
-                              displayName.isNotEmpty
-                                  ? displayName[0].toUpperCase()
-                                  : 'U',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Dashboard body
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(40),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Bienvenue, $displayName 👋',
-                              style: const TextStyle(
-                                fontSize: 36,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 40),
-
-                            // Responsive quick actions grid
-                            LayoutBuilder(builder: (ctx, box) {
-                              int cols = 2;
-                              final w = box.maxWidth;
-                              if (w >= 1600) cols = 5;
-                              else if (w >= 1200) cols = 4;
-                              else if (w >= 900) cols = 3;
-                              return GridView.count(
-                                crossAxisCount: cols,
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                mainAxisSpacing: 24,
-                                crossAxisSpacing: 24,
-                                childAspectRatio: 1.3,
-                                children: _buildQuickActions(context),
-                              );
-                            }),
-
-                            const SizedBox(height: 32),
-                            const Text(
-                              'Vue d\'ensemble',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1E293B),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-
-                            Wrap(
-                              spacing: 20,
-                              runSpacing: 20,
-                              children: [
-                                const _ReplacementRequestsCard(),
-                                if (canSeeMgmt)
-                                  _RequisitionPipelineCard(userRole: userRole),
-                                if (canSeeMgmt) const _PendingBillingCard(),
-                                if (canSeeMgmt)
-                                  const _PendingReplacementsCard(),
-                                if (canSeeMgmt) const _LivraisonsCard(),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              const SizedBox(height: 24),
+              Text(
+                'Bienvenue, $displayName 👋',
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
               ),
+              const SizedBox(height: 32),
+              // Quick actions grid
+              LayoutBuilder(builder: (ctx, box) {
+                final w = box.maxWidth;
+                int cols = 3;
+                if (w >= 1600) cols = 6;
+                else if (w >= 1200) cols = 5;
+                else if (w >= 900) cols = 4;
+                return GridView.count(
+                  crossAxisCount: cols,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 24,
+                  crossAxisSpacing: 24,
+                  childAspectRatio: 1.4,
+                  children: _buildQuickActions(context),
+                );
+              }),
+              const SizedBox(height: 40),
+              const Text(
+                'Vue d\'ensemble',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+              ),
+              const SizedBox(height: 20),
+              // Responsive stats grid (no overflow)
+              LayoutBuilder(builder: (ctx, box) {
+                final w = box.maxWidth;
+                int cols;
+                if (w >= 1800) cols = 5;
+                else if (w >= 1400) cols = 4;
+                else if (w >= 1000) cols = 3;
+                else cols = 2;
+                return GridView.count(
+                  crossAxisCount: cols,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 24,
+                  crossAxisSpacing: 24,
+                  childAspectRatio: 240 / 140,
+                  children: [
+                    const _ReplacementRequestsCard(),
+                    if (canSeeMgmt) _RequisitionPipelineCard(userRole: userRole),
+                    if (canSeeMgmt) const _PendingBillingCard(),
+                    if (canSeeMgmt) const _PendingReplacementsCard(),
+                    if (canSeeMgmt) const _LivraisonsCard(),
+                  ],
+                );
+              }),
+              const SizedBox(height: 40),
             ],
           ),
-
-          // Back button in top-left corner
-          Positioned(
-            top: 16,
-            left: 16,
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.black87),
-              tooltip: 'Retour',
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -328,16 +156,55 @@ class AdministrationDashboardPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildMobileHeader(context),
-              const SizedBox(height: 24),
-              _buildQuickActionsGrid(context),
-              const SizedBox(height: 24),
-              const Text(
-                'Tâches Urgentes',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Administration',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.history),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ActivityLogPage()),
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 24),
+              LayoutBuilder(builder: (ctx, box) {
+                final cols = (kIsWeb && box.maxWidth >= 900) ? 4 : 2;
+                return GridView.count(
+                  crossAxisCount: cols,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  childAspectRatio: 1.3,
+                  children: _buildQuickActions(context),
+                );
+              }),
+              const SizedBox(height: 24),
+              const Text('Tâches Urgentes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
-              _buildStatCardsMobile(context, canSeeMgmt),
+              Column(
+                children: [
+                  const _ReplacementRequestsCard(),
+                  if (canSeeMgmt) _RequisitionPipelineCard(userRole: userRole),
+                  if (canSeeMgmt) const _PendingBillingCard(),
+                  if (canSeeMgmt) const _PendingReplacementsCard(),
+                  if (canSeeMgmt) const _LivraisonsCard(),
+                ].map((card) => Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: card,
+                )).toList(),
+              ),
               const SizedBox(height: 80),
             ],
           ),
@@ -346,40 +213,13 @@ class AdministrationDashboardPage extends StatelessWidget {
     );
   }
 
-  Widget _buildMobileHeader(BuildContext context) {
-    return Row(
-      children: [
-        IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        const Expanded(
-          child: Text(
-            'Administration',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.history),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ActivityLogPage()),
-          ),
-        ),
-      ],
-    );
-  }
-
   List<Widget> _buildQuickActions(BuildContext context) {
-    final actions = <_ActionItem>[
+    return [
       _ActionItem(
         Icons.note_add_rounded,
         'Nouveau Projet',
         const Color(0xFF10B981),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const AddProjectPage()),
-        ),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
       ),
       _ActionItem(
         Icons.store_rounded,
@@ -387,9 +227,7 @@ class AdministrationDashboardPage extends StatelessWidget {
         const Color(0xFF3B82F6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => ManageClientsPage(userRole: userRole),
-          ),
+          MaterialPageRoute(builder: (_) => ManageClientsPage(userRole: userRole)),
         ),
       ),
       _ActionItem(
@@ -398,146 +236,83 @@ class AdministrationDashboardPage extends StatelessWidget {
         const Color(0xFF8B5CF6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => ManageProjectsPage(userRole: userRole),
-          ),
+          MaterialPageRoute(builder: (_) => ManageProjectsPage(userRole: userRole)),
         ),
       ),
       _ActionItem(
         Icons.inventory_2_rounded,
         'Produits',
         const Color(0xFF14B8A6),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ProductCatalogPage()),
-        ),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
       ),
       _ActionItem(
         Icons.warehouse_rounded,
         'Stock',
         const Color(0xFF6366F1),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const StockPage()),
-        ),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockPage())),
       ),
       _ActionItem(
         Icons.assignment_rounded,
         'Missions',
         const Color(0xFFA855F7),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ManageMissionsPage()),
-        ),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
       ),
       _ActionItem(
         Icons.local_shipping_rounded,
         'Livraisons',
         const Color(0xFFF59E0B),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const LivraisonsHubPage()),
-        ),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
       ),
     ];
-    return actions.map((a) => _buildActionCard(context, a)).toList();
-  }
-
-  Widget _buildQuickActionsGrid(BuildContext context) {
-    final cross = kIsWeb && MediaQuery.of(context).size.width >= 900 ? 4 : 2;
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: cross,
-      mainAxisSpacing: 16,
-      crossAxisSpacing: 16,
-      childAspectRatio: 1.3,
-      children: _buildQuickActions(context),
-    );
-  }
-
-  Widget _buildActionCard(BuildContext context, _ActionItem action) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: action.onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [action.color, action.color.withOpacity(0.8)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: action.color.withOpacity(0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(action.icon, color: Colors.white, size: 22),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                action.label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatCardsMobile(BuildContext context, bool canSeeMgmt) {
-    final cards = <Widget>[
-      const _ReplacementRequestsCard(),
-      if (canSeeMgmt) ...[
-        _RequisitionPipelineCard(userRole: userRole),
-        const _PendingBillingCard(),
-        const _PendingReplacementsCard(),
-        const _LivraisonsCard(),
-      ],
-    ];
-    return Column(
-      children: cards
-          .map((card) => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: card,
-      ))
-          .toList(),
-    );
   }
 }
 
-class _ActionItem {
+class _ActionItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
   final VoidCallback onTap;
   const _ActionItem(this.icon, this.label, this.color, this.onTap);
+
+  @override
+  Widget build(BuildContext context) {
+    final bool webWide = kIsWeb && MediaQuery.of(context).size.width >= 900;
+    final iconSize = webWide ? 36.0 : 28.0;
+    final textSize = webWide ? 18.0 : 13.0;
+    final padding = webWide ? 16.0 : 12.0;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: EdgeInsets.all(padding),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(padding),
+              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: color, size: iconSize),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(fontSize: textSize, fontWeight: FontWeight.w600, color: Colors.grey.shade800),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// Stat card classes (_ReplacementRequestsCard, _RequisitionPipelineCard, etc.) remain unchanged.
+// Stat cards and _buildPremiumCard remain unchanged...
 
 // STAT CARDS
 

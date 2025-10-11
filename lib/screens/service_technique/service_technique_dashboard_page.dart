@@ -30,7 +30,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
       final isWideWeb = kIsWeb && width >= 900;
 
       if (isWideWeb) {
-        // Web‐optimized layout
+        // Web‐optimized horizontal layout
         return Scaffold(
           backgroundColor: Colors.grey.shade50,
           body: SafeArea(
@@ -39,7 +39,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // App bar replacement
+                  // Top bar
                   Row(
                     children: [
                       IconButton(
@@ -49,10 +49,8 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
                       const SizedBox(width: 8),
                       const Text(
                         'Service Technique',
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style:
+                        TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),
                       CircleAvatar(
@@ -63,22 +61,15 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
                               ? displayName[0].toUpperCase()
                               : 'U',
                           style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 24),
-
-                  // Welcome card
                   _buildWelcomeCard(),
-
                   const SizedBox(height: 32),
-
-                  // Responsive quick actions grid
+                  // Responsive quick‐actions grid
                   LayoutBuilder(builder: (ctx, box) {
                     final w = box.maxWidth;
                     int cols = 3;
@@ -95,21 +86,31 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
                       children: _buildQuickActions(context),
                     );
                   }),
-
                   const SizedBox(height: 40),
-
-                  // Statistics cards in wrap
-                  Wrap(
-                    spacing: 24,
-                    runSpacing: 24,
-                    children: [
-                      _InterventionsCard(userRole: userRole),
-                      _InstallationsCard(userRole: userRole),
-                      _SavTicketsCard(userRole: userRole),
-                      _ReadyReplacementsCard(userRole: userRole),
-                      _MissionsCard(userRole: userRole),
-                    ],
-                  ),
+                  // Responsive stats grid (no overflow)
+                  LayoutBuilder(builder: (ctx, box) {
+                    final w = box.maxWidth;
+                    int cols;
+                    if (w >= 1800) cols = 5;
+                    else if (w >= 1400) cols = 4;
+                    else if (w >= 1000) cols = 3;
+                    else cols = 2;
+                    return GridView.count(
+                      crossAxisCount: cols,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 24,
+                      crossAxisSpacing: 24,
+                      childAspectRatio: 240 / 140,
+                      children: [
+                        _InterventionsCard(userRole: userRole),
+                        _InstallationsCard(userRole: userRole),
+                        _SavTicketsCard(userRole: userRole),
+                        _ReadyReplacementsCard(userRole: userRole),
+                        _MissionsCard(userRole: userRole),
+                      ],
+                    );
+                  }),
                 ],
               ),
             ),
@@ -117,7 +118,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
         );
       }
 
-      // Mobile layout unchanged
+      // Mobile version
       return Scaffold(
         backgroundColor: Colors.grey.shade50,
         body: SafeArea(
@@ -125,27 +126,22 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
             slivers: [
               SliverAppBar(
                 expandedHeight: 120,
-                floating: false,
                 pinned: true,
                 backgroundColor: const Color(0xFF1e40af),
                 flexibleSpace: FlexibleSpaceBar(
                   title: Text(
                     'Service Technique',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold),
                   ),
                   background: Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
+                        colors: [Color(0xFF1e40af), Color(0xFF3b82f6)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF1e40af),
-                          Color(0xFF3b82f6),
-                        ],
                       ),
                     ),
                   ),
@@ -205,18 +201,14 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
                 Text(
                   'Bienvenue, $displayName',
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 const Text(
                   'Gérez les interventions et installations',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
                 ),
               ],
             ),
@@ -227,11 +219,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.engineering,
-              color: Colors.white,
-              size: 32,
-            ),
+            child: const Icon(Icons.engineering, color: Colors.white, size: 32),
           ),
         ],
       ),
@@ -310,8 +298,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
             () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                ManageMissionsPage(serviceType: 'Service Technique'),
+            builder: (_) => ManageMissionsPage(serviceType: 'Service Technique'),
           ),
         ),
       ),
@@ -322,8 +309,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
             () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-            const LivraisonsHubPage(serviceType: 'Service Technique'),
+            builder: (_) => const LivraisonsHubPage(serviceType: 'Service Technique'),
           ),
         ),
       ),
@@ -342,9 +328,9 @@ class _ActionItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool webWide = kIsWeb && MediaQuery.of(context).size.width >= 900;
-    final iconSize = webWide ? 36.0 : 28.0;
-    final textSize = webWide ? 18.0 : 13.0;
-    final padding = webWide ? 16.0 : 12.0;
+    final double iconSize = webWide ? 36 : 28;
+    final double textSize = webWide ? 18 : 13;
+    final double padding = webWide ? 16 : 12;
 
     return InkWell(
       onTap: onTap,
@@ -391,12 +377,88 @@ class _ActionItem extends StatelessWidget {
   }
 }
 
-// Then the stat cards (_InterventionsCard, _InstallationsCard, etc.) remain unchanged.
+Widget _buildPremiumCard({
+  required BuildContext context,
+  required String title,
+  required IconData icon,
+  required Color color,
+  Stream<QuerySnapshot>? stream,
+  VoidCallback? onTap,
+  Widget? customBody,
+}) {
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 240,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10)),
+                    child: Icon(icon, color: color, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    title,
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800),
+                  ),
+                ],
+              ),
+            ),
+            if (stream != null)
+              Padding(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: stream,
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                    final count = snapshot.data!.docs.length;
+                    return Text(
+                      '$count',
+                      style: TextStyle(
+                          fontSize: 32, fontWeight: FontWeight.bold, color: color),
+                    );
+                  },
+                ),
+              )
+            else if (customBody != null) ...[
+              customBody,
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
-// UPDATED: Show only "Nouveau" count (Option A)
 class _InterventionsCard extends StatelessWidget {
   final String userRole;
-
   const _InterventionsCard({required this.userRole});
 
   @override
@@ -424,10 +486,8 @@ class _InterventionsCard extends StatelessWidget {
   }
 }
 
-// UPDATED: Show only "Nouveau" count (Option A)
 class _InstallationsCard extends StatelessWidget {
   final String userRole;
-
   const _InstallationsCard({required this.userRole});
 
   @override
@@ -455,10 +515,8 @@ class _InstallationsCard extends StatelessWidget {
   }
 }
 
-// UPDATED: Show only "Nouveau" count (Option A)
 class _SavTicketsCard extends StatelessWidget {
   final String userRole;
-
   const _SavTicketsCard({required this.userRole});
 
   @override
@@ -475,11 +533,7 @@ class _SavTicketsCard extends StatelessWidget {
           .snapshots(),
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => SavListPage(
-            serviceType: 'Service Technique',
-          ),
-        ),
+        MaterialPageRoute(builder: (_) => SavListPage(serviceType: 'Service Technique')),
       ),
     );
   }
@@ -487,7 +541,6 @@ class _SavTicketsCard extends StatelessWidget {
 
 class _ReadyReplacementsCard extends StatelessWidget {
   final String userRole;
-
   const _ReadyReplacementsCard({required this.userRole});
 
   @override
@@ -504,9 +557,7 @@ class _ReadyReplacementsCard extends StatelessWidget {
           .snapshots(),
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => const ReadyReplacementsListPage(serviceType: 'Service Technique'),
-        ),
+        MaterialPageRoute(builder: (_) => const ReadyReplacementsListPage(serviceType: 'Service Technique')),
       ),
     );
   }
@@ -514,7 +565,6 @@ class _ReadyReplacementsCard extends StatelessWidget {
 
 class _MissionsCard extends StatelessWidget {
   final String userRole;
-
   const _MissionsCard({required this.userRole});
 
   @override
@@ -527,149 +577,12 @@ class _MissionsCard extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('missions')
           .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', whereIn: ['En cours', 'Planifiée']).snapshots(),
+          .where('status', whereIn: ['En cours', 'Planifiée'])
+          .snapshots(),
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => ManageMissionsPage(
-            serviceType: 'Service Technique',
-          ),
-        ),
+        MaterialPageRoute(builder: (_) => ManageMissionsPage(serviceType: 'Service Technique')),
       ),
     );
   }
-}
-
-Widget _buildPremiumCard({
-  required BuildContext context,
-  required String title,
-  required IconData icon,
-  required Color color,
-  Stream<QuerySnapshot>? stream,
-  VoidCallback? onTap,
-  Widget? customBody,
-}) {
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(icon, color: color, size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (customBody != null) ...[
-              customBody,
-              const SizedBox(height: 8),
-            ] else if (stream != null) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: stream,
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    final count = snapshot.data!.docs.length;
-                    return Text(
-                      '$count',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-Widget _buildMiniStat(
-    BuildContext context,
-    String label,
-    Stream<QuerySnapshot> stream,
-    VoidCallback onTap,
-    ) {
-  return InkWell(
-    onTap: onTap,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        children: [
-          StreamBuilder<QuerySnapshot>(
-            stream: stream,
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const SizedBox(
-                  height: 24,
-                  width: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                );
-              }
-
-              final count = snapshot.data!.docs.length;
-              return Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade800,
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }
