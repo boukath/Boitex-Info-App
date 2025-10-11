@@ -1,19 +1,18 @@
 // lib/screens/home/home_page.dart
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:boitex_info_app/screens/service_technique/service_technique_dashboard_page.dart';
 import 'package:boitex_info_app/screens/administration/administration_dashboard_page.dart';
 import 'package:boitex_info_app/screens/service_it/service_it_dashboard_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/api/firebase_api.dart';
-import 'package:animated_gradient/animated_gradient.dart';
-import 'package:boitex_info_app/screens/home/widgets/animated_service_card.dart';
 
 class HomePage extends StatefulWidget {
   final String userRole;
   final String displayName;
-
   const HomePage({
     super.key,
     required this.userRole,
@@ -32,10 +31,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _setupNotifications() async {
-    final firebaseApi = FirebaseApi();
-    await firebaseApi.initNotifications();
-    await firebaseApi.subscribeToTopics(widget.userRole);
-    await firebaseApi.saveTokenForCurrentUser();
+    final api = FirebaseApi();
+    await api.initNotifications();
+    // On web, unsubscribeFromTopic is not supported
+    try {
+      await api.unsubscribeFromAllTopics();
+      await api.subscribeToTopics(widget.userRole);
+    } catch (_) {
+      // ignore on web
+    }
+    await api.saveTokenForCurrentUser();
   }
 
   @override
@@ -53,16 +58,16 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: const Color(0xFFF8FAFC),
       body: Row(
         children: [
-          // MODERN SIDEBAR WITH BIG TRANSPARENT LOGO
+          // Sidebar
           Container(
             width: 280,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
+              gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xFF1e3a8a),
-                  const Color(0xFF3b82f6),
+                  Color(0xFF1e3a8a),
+                  Color(0xFF3b82f6),
                 ],
               ),
               boxShadow: [
@@ -75,12 +80,11 @@ class _HomePageState extends State<HomePage> {
             ),
             child: Column(
               children: [
-                // Logo Section - BIG AND TRANSPARENT
+                // Logo
                 Container(
                   padding: const EdgeInsets.all(32),
                   child: Column(
                     children: [
-                      // YOUR BIG LOGO WITHOUT BACKGROUND
                       Image.asset(
                         'assets/images/logo.png',
                         width: 140,
@@ -100,7 +104,7 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
-                // User Card
+                // User card
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
                   padding: const EdgeInsets.all(20),
@@ -115,8 +119,14 @@ class _HomePageState extends State<HomePage> {
                         radius: 24,
                         backgroundColor: Colors.white,
                         child: Text(
-                          widget.displayName.isNotEmpty ? widget.displayName[0].toUpperCase() : 'U',
-                          style: const TextStyle(color: Color(0xFF1e3a8a), fontWeight: FontWeight.bold, fontSize: 20),
+                          widget.displayName.isNotEmpty
+                              ? widget.displayName[0].toUpperCase()
+                              : 'U',
+                          style: const TextStyle(
+                            color: Color(0xFF1e3a8a),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -124,8 +134,22 @@ class _HomePageState extends State<HomePage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(widget.displayName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
-                            Text(widget.userRole, style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
+                            Text(
+                              widget.displayName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              widget.userRole,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 12,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -138,8 +162,9 @@ class _HomePageState extends State<HomePage> {
                   padding: const EdgeInsets.all(20),
                   child: ElevatedButton.icon(
                     onPressed: () async {
-                      final firebaseApi = FirebaseApi();
-                      await firebaseApi.unsubscribeFromAllTopics();
+                      try {
+                        await FirebaseApi().unsubscribeFromAllTopics();
+                      } catch (_) {}
                       await FirebaseAuth.instance.signOut();
                     },
                     icon: const Icon(Icons.logout_rounded, size: 20),
@@ -148,14 +173,17 @@ class _HomePageState extends State<HomePage> {
                       backgroundColor: Colors.white.withOpacity(0.1),
                       foregroundColor: Colors.white,
                       minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          // MAIN CONTENT
+
+          // Main content
           Expanded(
             child: Column(
               children: [
@@ -165,7 +193,12 @@ class _HomePageState extends State<HomePage> {
                   padding: const EdgeInsets.symmetric(horizontal: 40),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                      ),
+                    ],
                   ),
                   child: Row(
                     children: [
@@ -173,8 +206,20 @@ class _HomePageState extends State<HomePage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text('Tableau de Bord', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                          Text('Vue d\'ensemble', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                          Text(
+                            'Tableau de Bord',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Vue d\'ensemble',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey,
+                            ),
+                          ),
                         ],
                       ),
                       const Spacer(),
@@ -182,23 +227,33 @@ class _HomePageState extends State<HomePage> {
                         radius: 20,
                         backgroundColor: const Color(0xFF3b82f6),
                         child: Text(
-                          widget.displayName.isNotEmpty ? widget.displayName[0].toUpperCase() : 'U',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          widget.displayName.isNotEmpty
+                              ? widget.displayName[0].toUpperCase()
+                              : 'U',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                // Content
+
+                // Dashboard grid
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(40),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Bienvenue, ${widget.displayName} 👋', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        const Text('Sélectionnez un service pour commencer', style: TextStyle(fontSize: 16, color: Colors.grey)),
+                        Text(
+                          'Bienvenue, ${widget.displayName} 👋',
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const SizedBox(height: 40),
                         GridView.count(
                           crossAxisCount: 3,
@@ -223,25 +278,62 @@ class _HomePageState extends State<HomePage> {
 
   List<Widget> _buildPremiumCards() {
     final cards = <Widget>[];
+
     if (RolePermissions.canSeeAdminCard(widget.userRole)) {
-      cards.add(_premiumCard(Icons.admin_panel_settings_rounded, 'Administration', 'Gestion', [const Color(0xFF6366f1), const Color(0xFF8b5cf6)], () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (context) => AdministrationDashboardPage(displayName: widget.displayName, userRole: widget.userRole)));
-      }));
+      cards.add(_premiumCard(
+        Icons.admin_panel_settings_rounded,
+        'Administration',
+        [const Color(0xFF6366f1), const Color(0xFF8b5cf6)],
+            () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => AdministrationDashboardPage(
+              displayName: widget.displayName,
+              userRole: widget.userRole,
+            ),
+          ));
+        },
+      ));
     }
     if (RolePermissions.canSeeTechServiceCard(widget.userRole)) {
-      cards.add(_premiumCard(Icons.engineering_rounded, 'Service Technique', 'Interventions', [const Color(0xFF10b981), const Color(0xFF059669)], () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (context) => ServiceTechniqueDashboardPage(displayName: widget.displayName, userRole: widget.userRole)));
-      }));
+      cards.add(_premiumCard(
+        Icons.engineering_rounded,
+        'Service Technique',
+        [const Color(0xFF10b981), const Color(0xFF059669)],
+            () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ServiceTechniqueDashboardPage(
+              displayName: widget.displayName,
+              userRole: widget.userRole,
+            ),
+          ));
+        },
+      ));
     }
     if (RolePermissions.canSeeITServiceCard(widget.userRole)) {
-      cards.add(_premiumCard(Icons.computer_rounded, 'Service IT', 'Infrastructure', [const Color(0xFF06b6d4), const Color(0xFF0891b2)], () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (context) => ServiceItDashboardPage(displayName: widget.displayName, userRole: widget.userRole)));
-      }));
+      cards.add(_premiumCard(
+        Icons.computer_rounded,
+        'Service IT',
+        [const Color(0xFF06b6d4), const Color(0xFF0891b2)],
+            () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ServiceItDashboardPage(
+              displayName: widget.displayName,
+              userRole: widget.userRole,
+            ),
+          ));
+        },
+      ));
     }
+
     return cards;
   }
 
-  Widget _premiumCard(IconData icon, String title, String subtitle, List<Color> colors, VoidCallback onTap) {
+  Widget _premiumCard(
+      IconData icon,
+      String title,
+      List<Color> colors,
+      VoidCallback onTap,
+      ) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -250,7 +342,13 @@ class _HomePageState extends State<HomePage> {
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: colors),
             borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: colors[0].withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))],
+            boxShadow: [
+              BoxShadow(
+                color: colors[0].withOpacity(0.3),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
           padding: const EdgeInsets.all(28),
           child: Column(
@@ -259,15 +357,19 @@ class _HomePageState extends State<HomePage> {
             children: [
               Container(
                 padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(14)),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 child: Icon(icon, color: Colors.white, size: 32),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                  Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13)),
-                ],
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -278,62 +380,152 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildMobileLayout() {
     return Scaffold(
-      body: AnimatedGradient(
-        colors: [Colors.grey.shade50, Colors.grey.shade200],
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Bienvenue, ${widget.displayName}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                        Text(widget.userRole, style: const TextStyle(fontSize: 14, color: Colors.grey)),
-                      ],
-                    ),
-                    IconButton(icon: const Icon(Icons.logout), onPressed: () async {
-                      await FirebaseApi().unsubscribeFromAllTopics();
-                      await FirebaseAuth.instance.signOut();
-                    }),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: _buildMobileCards(),
-                ),
-              ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF1E3A8A),
+              Color(0xFF3B82F6),
             ],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Bienvenue, ${widget.displayName}',
+                  style: const TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  widget.userRole,
+                  style: const TextStyle(
+                    fontFamily: 'Roboto',
+                    fontSize: 16,
+                    color: Colors.white70,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Expanded(
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: [
+                      if (RolePermissions.canSeeAdminCard(widget.userRole))
+                        _serviceCard(
+                          Icons.admin_panel_settings_rounded,
+                          'Administration',
+                          [const Color(0xFF6366F1), const Color(0xFF8B5CF6)],
+                              () {
+                            Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => AdministrationDashboardPage(
+                                displayName: widget.displayName,
+                                userRole: widget.userRole,
+                              ),
+                            ));
+                          },
+                        ),
+                      if (RolePermissions.canSeeAdminCard(widget.userRole))
+                        const SizedBox(height: 20),
+                      if (RolePermissions.canSeeTechServiceCard(widget.userRole))
+                        _serviceCard(
+                          Icons.engineering_rounded,
+                          'Service Technique',
+                          [const Color(0xFF10B981), const Color(0xFF059669)],
+                              () {
+                            Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => ServiceTechniqueDashboardPage(
+                                displayName: widget.displayName,
+                                userRole: widget.userRole,
+                              ),
+                            ));
+                          },
+                        ),
+                      if (RolePermissions.canSeeTechServiceCard(
+                          widget.userRole))
+                        const SizedBox(height: 20),
+                      if (RolePermissions.canSeeITServiceCard(widget.userRole))
+                        _serviceCard(
+                          Icons.computer_rounded,
+                          'Service IT',
+                          [const Color(0xFF06B6D4), const Color(0xFF0891B2)],
+                              () {
+                            Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => ServiceItDashboardPage(
+                                displayName: widget.displayName,
+                                userRole: widget.userRole,
+                              ),
+                            ));
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  List<Widget> _buildMobileCards() {
-    final cards = <Widget>[];
-    if (RolePermissions.canSeeAdminCard(widget.userRole)) {
-      cards.add(AnimatedServiceCard(icon: Icons.admin_panel_settings_outlined, title: 'Administration', color: Colors.blue.shade700, onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (context) => AdministrationDashboardPage(displayName: widget.displayName, userRole: widget.userRole)));
-      }));
-      cards.add(const SizedBox(height: 16));
-    }
-    if (RolePermissions.canSeeTechServiceCard(widget.userRole)) {
-      cards.add(AnimatedServiceCard(icon: Icons.support_agent_outlined, title: 'Service Technique', color: Colors.green.shade700, onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (context) => ServiceTechniqueDashboardPage(displayName: widget.displayName, userRole: widget.userRole)));
-      }));
-      cards.add(const SizedBox(height: 16));
-    }
-    if (RolePermissions.canSeeITServiceCard(widget.userRole)) {
-      cards.add(AnimatedServiceCard(icon: Icons.computer_outlined, title: 'Service IT', color: Colors.cyan.shade700, onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (context) => ServiceItDashboardPage(displayName: widget.displayName, userRole: widget.userRole)));
-      }));
-    }
-    return cards;
+  Widget _serviceCard(
+      IconData icon,
+      String title,
+      List<Color> colors,
+      VoidCallback onTap,
+      ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 120,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: colors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 16,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(icon, size: 32, color: Colors.white),
+            ),
+            const SizedBox(width: 16),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

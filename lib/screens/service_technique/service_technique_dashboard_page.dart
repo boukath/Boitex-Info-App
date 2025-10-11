@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_list_page.dart';
@@ -24,71 +25,157 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            // App Bar
-            SliverAppBar(
-              expandedHeight: 120,
-              floating: false,
-              pinned: true,
-              backgroundColor: const Color(0xFF1e40af),
-              flexibleSpace: FlexibleSpaceBar(
-                title: Text(
-                  'Service Technique',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: kIsWeb ? 24 : 20,
-                    fontWeight: FontWeight.bold,
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      final isWideWeb = kIsWeb && width >= 900;
+
+      if (isWideWeb) {
+        // Web‐optimized layout
+        return Scaffold(
+          backgroundColor: Colors.grey.shade50,
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // App bar replacement
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Service Technique',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: const Color(0xFF3b82f6),
+                        child: Text(
+                          displayName.isNotEmpty
+                              ? displayName[0].toUpperCase()
+                              : 'U',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                background: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        const Color(0xFF1e40af),
-                        const Color(0xFF3b82f6),
-                      ],
+
+                  const SizedBox(height: 24),
+
+                  // Welcome card
+                  _buildWelcomeCard(),
+
+                  const SizedBox(height: 32),
+
+                  // Responsive quick actions grid
+                  LayoutBuilder(builder: (ctx, box) {
+                    final w = box.maxWidth;
+                    int cols = 3;
+                    if (w >= 1600) cols = 6;
+                    else if (w >= 1400) cols = 5;
+                    else if (w >= 1100) cols = 4;
+                    return GridView.count(
+                      crossAxisCount: cols,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 24,
+                      crossAxisSpacing: 24,
+                      childAspectRatio: 1.5,
+                      children: _buildQuickActions(context),
+                    );
+                  }),
+
+                  const SizedBox(height: 40),
+
+                  // Statistics cards in wrap
+                  Wrap(
+                    spacing: 24,
+                    runSpacing: 24,
+                    children: [
+                      _InterventionsCard(userRole: userRole),
+                      _InstallationsCard(userRole: userRole),
+                      _SavTicketsCard(userRole: userRole),
+                      _ReadyReplacementsCard(userRole: userRole),
+                      _MissionsCard(userRole: userRole),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+
+      // Mobile layout unchanged
+      return Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        body: SafeArea(
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 120,
+                floating: false,
+                pinned: true,
+                backgroundColor: const Color(0xFF1e40af),
+                flexibleSpace: FlexibleSpaceBar(
+                  title: Text(
+                    'Service Technique',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  background: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFF1e40af),
+                          Color(0xFF3b82f6),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-
-            // Content
-            SliverPadding(
-              padding: const EdgeInsets.all(16),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  // Welcome Card
-                  _buildWelcomeCard(),
-                  const SizedBox(height: 20),
-
-                  // Quick Actions Grid
-                  _buildQuickActionsGrid(context),
-                  const SizedBox(height: 20),
-
-                  // Statistics Cards
-                  _InterventionsCard(userRole: userRole),
-                  const SizedBox(height: 16),
-                  _InstallationsCard(userRole: userRole),
-                  const SizedBox(height: 16),
-                  _SavTicketsCard(userRole: userRole),
-                  const SizedBox(height: 16),
-                  _ReadyReplacementsCard(userRole: userRole),
-                  const SizedBox(height: 16),
-                  _MissionsCard(userRole: userRole),
-                ]),
+              SliverPadding(
+                padding: const EdgeInsets.all(16),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _buildWelcomeCard(),
+                    const SizedBox(height: 20),
+                    _buildQuickActionsGrid(context),
+                    const SizedBox(height: 20),
+                    _InterventionsCard(userRole: userRole),
+                    const SizedBox(height: 16),
+                    _InstallationsCard(userRole: userRole),
+                    const SizedBox(height: 16),
+                    _SavTicketsCard(userRole: userRole),
+                    const SizedBox(height: 16),
+                    _ReadyReplacementsCard(userRole: userRole),
+                    const SizedBox(height: 16),
+                    _MissionsCard(userRole: userRole),
+                  ]),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   Widget _buildWelcomeCard() {
@@ -155,87 +242,92 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: kIsWeb ? 4 : 2,
+      crossAxisCount: 2,
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
-      childAspectRatio: kIsWeb ? 1.5 : 1.2,
-      children: [
-        _ActionItem(
-          Icons.construction_rounded,
-          'Interventions',
-          const Color(0xFF10b981),
-              () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InterventionListPage(
-                userRole: userRole,
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        ),
-        _ActionItem(
-          Icons.router_rounded,
-          'Installations',
-          const Color(0xFF3b82f6),
-              () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InstallationListPage(
-                userRole: userRole,
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        ),
-        _ActionItem(
-          Icons.support_agent_rounded,
-          'Tickets SAV',
-          const Color(0xFFf59e0b),
-              () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SavListPage(
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        ),
-        _ActionItem(
-          Icons.assignment_rounded,
-          'Missions',
-          const Color(0xFF8b5cf6),
-              () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ManageMissionsPage(
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        ),
-        _ActionItem(
-          Icons.history_rounded,
-          'Historique',
-          const Color(0xFF64748b),
-              () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const HistoricInterventionsPage(serviceType: 'Service Technique'),
-            ),
-          ),
-        ),
-        _ActionItem(
-          Icons.local_shipping_rounded,
-          'Livraisons',
-          const Color(0xFFec4899),
-              () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const LivraisonsHubPage(serviceType: 'Service Technique')),
-          ),
-        ),
-      ],
+      childAspectRatio: 1.2,
+      children: _buildQuickActions(context),
     );
+  }
+
+  List<Widget> _buildQuickActions(BuildContext context) {
+    return [
+      _ActionItem(
+        Icons.construction_rounded,
+        'Interventions',
+        const Color(0xFF10b981),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InterventionListPage(
+              userRole: userRole,
+              serviceType: 'Service Technique',
+            ),
+          ),
+        ),
+      ),
+      _ActionItem(
+        Icons.router_rounded,
+        'Installations',
+        const Color(0xFF3b82f6),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InstallationListPage(
+              userRole: userRole,
+              serviceType: 'Service Technique',
+            ),
+          ),
+        ),
+      ),
+      _ActionItem(
+        Icons.support_agent_rounded,
+        'Tickets SAV',
+        const Color(0xFFf59e0b),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SavListPage(serviceType: 'Service Technique'),
+          ),
+        ),
+      ),
+      _ActionItem(
+        Icons.inventory_2_rounded,
+        'Remplacements',
+        const Color(0xFFec4899),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const ReadyReplacementsListPage(serviceType: 'Service Technique'),
+          ),
+        ),
+      ),
+      _ActionItem(
+        Icons.assignment_rounded,
+        'Missions',
+        const Color(0xFF8b5cf6),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                ManageMissionsPage(serviceType: 'Service Technique'),
+          ),
+        ),
+      ),
+      _ActionItem(
+        Icons.local_shipping_rounded,
+        'Livraisons',
+        const Color(0xFFec4899),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const LivraisonsHubPage(serviceType: 'Service Technique'),
+          ),
+        ),
+      ),
+    ];
   }
 }
 
@@ -249,52 +341,57 @@ class _ActionItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withOpacity(0.3)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
+    final bool webWide = kIsWeb && MediaQuery.of(context).size.width >= 900;
+    final iconSize = webWide ? 36.0 : 28.0;
+    final textSize = webWide ? 18.0 : 13.0;
+    final padding = webWide ? 16.0 : 12.0;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: EdgeInsets.all(padding),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: EdgeInsets.all(padding),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: color, size: 28),
+              child: Icon(icon, color: color, size: iconSize),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: textSize,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
               ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade800,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
+
+// Then the stat cards (_InterventionsCard, _InstallationsCard, etc.) remain unchanged.
 
 // UPDATED: Show only "Nouveau" count (Option A)
 class _InterventionsCard extends StatelessWidget {

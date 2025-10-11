@@ -6,9 +6,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:signature/signature.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
-import 'package:boitex_info_app/utils/report_generator.dart';
+// ✅ ADDED: Import the new PDF service
+import 'package:boitex_info_app/services/intervention_pdf_service.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
 
 // Data model for users in the multi-select dropdown
 class AppUser {
@@ -34,76 +37,98 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   late TextEditingController _managerPhoneController;
   late TextEditingController _diagnosticController;
   late TextEditingController _workDoneController;
-  late String _currentStatus;
-  late String _initialStatus;
-  TimeOfDay? _arrivalTime;
-  TimeOfDay? _departureTime;
-  bool _isLoading = false;
   late SignatureController _signatureController;
+
   String? _signatureImageUrl;
-  List<AppUser> _techniciansList = [];
+  String _currentStatus = 'Nouveau';
+  List<AppUser> _allTechnicians = [];
   List<AppUser> _selectedTechnicians = [];
-  bool _isLoadingTechnicians = true;
+  bool _isLoading = false;
+
+  // Define the status options based on the intervention's current status
+  List<String> get statusOptions {
+    final current = widget.interventionDoc['status'];
+    if (current == 'Clôturé' || current == 'Facturé') {
+      return ['Clôturé', 'Facturé'];
+    }
+    return ['Nouveau', 'En cours', 'Terminé', 'En attente', 'Clôturé'];
+  }
+
+  bool get isReadOnly => ['Clôturé', 'Facturé'].contains(_currentStatus);
 
   @override
   void initState() {
     super.initState();
     final data = widget.interventionDoc.data() as Map<String, dynamic>;
 
-    _currentStatus = data['status'] ?? 'Inconnu';
-    _initialStatus = data['status'] ?? 'Inconnu';
-    _managerNameController = TextEditingController(text: data['report_managerName']);
-    _managerPhoneController = TextEditingController(text: data['report_managerPhone']);
-    _diagnosticController = TextEditingController(text: data['report_diagnostic']);
-    _workDoneController = TextEditingController(text: data['report_workDone']);
+    _managerNameController = TextEditingController(text: data['managerName']);
+    _managerPhoneController = TextEditingController(text: data['managerPhone']);
+    _diagnosticController = TextEditingController(text: data['diagnostic']);
+    _workDoneController = TextEditingController(text: data['workDone']);
+    _signatureController = SignatureController();
+    _signatureImageUrl = data['signatureUrl'];
+    _currentStatus = data['status'] ?? 'Nouveau';
 
-    if (data['report_arrivalTime'] != null) {
-      _arrivalTime = TimeOfDay.fromDateTime((data['report_arrivalTime'] as Timestamp).toDate());
-    }
-    if (data['report_departureTime'] != null) {
-      _departureTime = TimeOfDay.fromDateTime((data['report_departureTime'] as Timestamp).toDate());
-    }
-
-    _signatureController = SignatureController(
-      penStrokeWidth: 3,
-      penColor: Colors.black,
-      exportBackgroundColor: Colors.white,
-    );
-    _signatureImageUrl = data['report_signatureImageUrl'];
-
-    _fetchTechnicians(data['report_technicians'] as List<dynamic>?);
+    _fetchTechnicians().then((_) {
+      // Initialize selected technicians after fetching all users
+      final List<dynamic> assignedTechnicians = data['assignedTechnicians'] ?? [];
+      _selectedTechnicians = _allTechnicians.where((tech) {
+        return assignedTechnicians.any((assigned) => assigned['uid'] == tech.uid);
+      }).toList();
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
-  Future<void> _fetchTechnicians(List<dynamic>? savedTechnicians) async {
+  Future<void> _fetchTechnicians() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('users')
-          .where('role', whereIn: [
-        'Responsable Technique', 'Responsable IT', 'Chef de Projet',
-        'Technique Technicien', 'Technicien IT'
-      ]).get();
+      final querySnapshot = await FirebaseFirestore.instance.collection('users').get();
+      _allTechnicians = querySnapshot.docs.map((doc) => AppUser(uid: doc.id, displayName: doc.data()['displayName'] ?? 'No Name')).toList();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur de chargement des techniciens: $e')));
+    }
+  }
 
-      final allTechnicians = snapshot.docs.map((doc) {
-        return AppUser(uid: doc.id, displayName: doc.data()['displayName']);
-      }).toList();
+  Future<void> _saveReport() async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
 
-      final initiallySelected = <AppUser>[];
-      if (savedTechnicians != null) {
-        for (var savedTech in savedTechnicians) {
-          final foundTech = allTechnicians.where((t) => t.uid == savedTech['uid']);
-          if (foundTech.isNotEmpty) {
-            initiallySelected.add(foundTech.first);
-          }
+    try {
+      String? newSignatureUrl = _signatureImageUrl;
+      if (_signatureController.isNotEmpty) {
+        final signatureBytes = await _signatureController.toPngBytes();
+        if (signatureBytes != null) {
+          final storageRef = FirebaseStorage.instance.ref().child('signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png');
+          final uploadTask = storageRef.putData(signatureBytes);
+          final snapshot = await uploadTask.whenComplete(() => {});
+          newSignatureUrl = await snapshot.ref.getDownloadURL();
         }
       }
 
-      if(mounted) setState(() {
-        _techniciansList = allTechnicians;
-        _selectedTechnicians = initiallySelected;
-        _isLoadingTechnicians = false;
-      });
+      final reportData = {
+        'managerName': _managerNameController.text.trim(),
+        'managerPhone': _managerPhoneController.text.trim(),
+        'diagnostic': _diagnosticController.text.trim(),
+        'workDone': _workDoneController.text.trim(),
+        'signatureUrl': newSignatureUrl,
+        'status': _currentStatus,
+        'assignedTechnicians': _selectedTechnicians.map((tech) => {'uid': tech.uid, 'name': tech.displayName}).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        if (_currentStatus == 'Clôturé' && widget.interventionDoc['status'] != 'Clôturé') 'closedAt': FieldValue.serverTimestamp(),
+      };
+
+      await widget.interventionDoc.reference.update(reportData);
+
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rapport enregistré avec succès!')));
+      Navigator.of(context).pop();
+
     } catch (e) {
-      print("Error fetching technicians: $e");
-      if(mounted) setState(() { _isLoadingTechnicians = false; });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -117,187 +142,214 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     super.dispose();
   }
 
-  Future<void> _selectTime(BuildContext context, bool isArrivalTime) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: isArrivalTime ? (_arrivalTime ?? TimeOfDay.now()) : (_departureTime ?? TimeOfDay.now()),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isArrivalTime) { _arrivalTime = picked; }
-        else { _departureTime = picked; }
-      });
-    }
-  }
-
-  Future<void> _saveReport() async {
-    setState(() { _isLoading = true; });
+  // ✅ NEW: PDF Generation and Sharing Logic
+  Future<void> _generateAndSharePdf() async {
+    setState(() => _isLoading = true);
     try {
-      final interventionDate = (widget.interventionDoc['interventionDate'] as Timestamp).toDate();
-      String? signatureUrlToSave = _signatureImageUrl;
-      if (_signatureController.isNotEmpty) {
-        final Uint8List? data = await _signatureController.toPngBytes();
-        if (data != null) {
-          final storageRef = FirebaseStorage.instance.ref().child('signatures/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png');
-          await storageRef.putData(data);
-          signatureUrlToSave = await storageRef.getDownloadURL();
-        }
-      }
-      final techniciansToSave = _selectedTechnicians.map((user) => {'uid': user.uid, 'displayName': user.displayName}).toList();
-      await FirebaseFirestore.instance
-          .collection('interventions')
-          .doc(widget.interventionDoc.id)
-          .update({
-        'status': _currentStatus,
-        'report_managerName': _managerNameController.text,
-        'report_managerPhone': _managerPhoneController.text,
-        'report_diagnostic': _diagnosticController.text,
-        'report_workDone': _workDoneController.text,
-        'report_arrivalTime': _arrivalTime != null ? Timestamp.fromDate(DateTime(interventionDate.year, interventionDate.month, interventionDate.day, _arrivalTime!.hour, _arrivalTime!.minute)) : null,
-        'report_departureTime': _departureTime != null ? Timestamp.fromDate(DateTime(interventionDate.year, interventionDate.month, interventionDate.day, _departureTime!.hour, _departureTime!.minute)) : null,
-        'report_signatureImageUrl': signatureUrlToSave,
-        'report_technicians': techniciansToSave,
-      });
-      if(mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rapport enregistré avec succès'), backgroundColor: Colors.green));
+      final data = widget.interventionDoc.data() as Map<String, dynamic>;
 
-        if (_currentStatus == 'Terminé' || _currentStatus == 'Clôturé') {
-          Navigator.of(context).pop();
-        } else {
-          setState(() {
-            _initialStatus = _currentStatus;
-            _signatureImageUrl = signatureUrlToSave;
-            if(_signatureController.isNotEmpty) { _signatureController.clear(); }
-          });
+      // Fetch signature image if it exists
+      Uint8List? signatureBytes;
+      if (data['signatureUrl'] != null) {
+        final response = await http.get(Uri.parse(data['signatureUrl']));
+        if (response.statusCode == 200) {
+          signatureBytes = response.bodyBytes;
         }
       }
+
+      final Map<String, dynamic> pdfData = {
+        ...data,
+        'signatureUrl': signatureBytes,
+      };
+
+      await InterventionPdfService.generateAndSharePdf(pdfData);
+
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la génération du PDF : $e')),
+      );
     } finally {
-      if(mounted) setState(() { _isLoading = false; });
+      setState(() => _isLoading = false);
     }
   }
 
-  void _shareReport() {
-    final data = widget.interventionDoc.data() as Map<String, dynamic>;
-    Share.share('Rapport d\'intervention pour ${data['clientName']} - ${data['interventionCode']}');
-  }
+  Future<void> _generateAndPrintPdf() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = widget.interventionDoc.data() as Map<String, dynamic>;
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 24.0, bottom: 8.0),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
-      ),
-    );
+      Uint8List? signatureBytes;
+      if (data['signatureUrl'] != null) {
+        final response = await http.get(Uri.parse(data['signatureUrl']));
+        if (response.statusCode == 200) {
+          signatureBytes = response.bodyBytes;
+        }
+      }
+
+      final Map<String, dynamic> pdfData = {
+        ...data,
+        'signatureUrl': signatureBytes,
+      };
+
+      await InterventionPdfService.generateAndPrintPdf(pdfData);
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.interventionDoc.data() as Map<String, dynamic>;
-    final bool isReadOnly = _initialStatus == 'Terminé' || _initialStatus == 'Clôturé';
-    const Color primaryColor = Colors.blue;
-    final OutlineInputBorder defaultBorder = OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.grey.shade300),
-      borderRadius: BorderRadius.circular(12.0),
-    );
-    final OutlineInputBorder focusedBorder = OutlineInputBorder(
-      borderSide: const BorderSide(color: primaryColor, width: 2.0),
-      borderRadius: BorderRadius.circular(12.0),
-    );
-
-    // MODIFIED: Create the list of dropdown options dynamically
-    final List<String> statusOptions = ['Nouveau', 'En cours', 'En attente', 'Terminé'];
-    // If the intervention is ALREADY 'Clôturé', add it to the list
-    // so the dropdown can display it. Otherwise, it's not an option.
-    if (_initialStatus == 'Clôturé') {
-      statusOptions.add('Clôturé');
-    }
+    final interventionData = widget.interventionDoc.data() as Map<String, dynamic>;
+    final primaryColor = Theme.of(context).primaryColor;
+    final createdAt = (interventionData['createdAt'] as Timestamp).toDate();
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Détails ${data['interventionCode']}'),
-        backgroundColor: primaryColor,
-        actions: isReadOnly ? [
-          IconButton(icon: const Icon(Icons.picture_as_pdf), tooltip: 'Exporter en PDF', onPressed: () => ReportGenerator.generateAndSharePdf(data)),
-          IconButton(icon: const Icon(Icons.share), tooltip: 'Partager', onPressed: _shareReport),
-        ] : null,
+        title: Text(interventionData['interventionCode'] ?? 'Détails'),
+        // ✅ ADDED: PDF and Share icons in the AppBar
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            onPressed: _isLoading ? null : _generateAndPrintPdf,
+            tooltip: 'Aperçu PDF',
+          ),
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: _isLoading ? null : _generateAndSharePdf,
+            tooltip: 'Partager PDF',
+          ),
+        ],
       ),
-      body: ListView(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSummaryCard(interventionData, createdAt, primaryColor),
+            const SizedBox(height: 24),
+            _buildReportForm(primaryColor),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt, Color primaryColor) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Demandé par ${data['creatorName']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Client: ${data['clientName']} - Magasin: ${data['storeName']}', style: const TextStyle(color: Colors.black54)),
+            const SizedBox(height: 4),
+            Text('Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}', style: const TextStyle(color: Colors.black54)),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 12),
+            const Text('Description du Problème:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(data['problemDescription'] ?? 'Non spécifié'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReportForm(Color primaryColor) {
+    final defaultBorder = OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.grey));
+    final focusedBorder = OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryColor, width: 2));
+
+    return Form(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ... The rest of your UI remains the same ...
-          _buildSectionHeader('Résumé de la Demande'),
-          ListTile(
-            title: const Text('Client / Magasin'),
-            subtitle: Text('${data['clientName']}\n${data['storeName']} - ${data['storeLocation']}', style: const TextStyle(fontSize: 16)),
-            isThreeLine: true,
+          const Text('Rapport d\'Intervention', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _managerNameController,
+            readOnly: isReadOnly,
+            decoration: InputDecoration(labelText: 'Nom du contact sur site', border: defaultBorder, focusedBorder: focusedBorder),
           ),
-          ListTile(
-            title: const Text('Date d\'intervention'),
-            subtitle: Text(DateFormat('dd MMMM yyyy', 'fr_FR').format((data['interventionDate'] as Timestamp).toDate()), style: const TextStyle(fontSize: 16)),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _managerPhoneController,
+            readOnly: isReadOnly,
+            decoration: InputDecoration(labelText: 'Téléphone du contact', border: defaultBorder, focusedBorder: focusedBorder),
+            keyboardType: TextInputType.phone,
           ),
-          ListTile(
-            title: const Text('Description du problème'),
-            subtitle: Text(data['description'], style: const TextStyle(fontSize: 16)),
+          const SizedBox(height: 16),
+
+          // Multi-select for technicians
+          MultiSelectDialogField<AppUser>(
+            items: _allTechnicians.map((tech) => MultiSelectItem(tech, tech.displayName)).toList(),
+            title: const Text("Techniciens"),
+            selectedColor: primaryColor,
+            buttonText: const Text("Techniciens Assignés"),
+            onConfirm: (results) {
+              if (!isReadOnly) {
+                setState(() {
+                  _selectedTechnicians = results;
+                });
+              }
+            },
+            initialValue: _selectedTechnicians,
+            chipDisplay: MultiSelectChipDisplay(
+              onTap: (value) {
+                if (!isReadOnly) {
+                  setState(() {
+                    _selectedTechnicians.remove(value);
+                  });
+                }
+              },
+            ),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey, width: 1),
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
 
-          _buildSectionHeader('Techniciens'),
-          if (_isLoadingTechnicians)
-            const Center(child: CircularProgressIndicator())
-          else if (!isReadOnly)
-            MultiSelectDialogField<AppUser>(
-              items: _techniciansList.map((user) => MultiSelectItem(user, user.displayName)).toList(),
-              initialValue: _selectedTechnicians,
-              title: const Text("Sélectionner Techniciens"),
-              buttonText: const Text("Techniciens affectés"),
-              buttonIcon: const Icon(Icons.people),
-              decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(12)),
-              onConfirm: (results) => setState(() { _selectedTechnicians = results; }),
-              chipDisplay: MultiSelectChipDisplay(
-                onTap: (value) => setState(() { _selectedTechnicians.remove(value); }),
-              ),
-            )
-          else if (_selectedTechnicians.isNotEmpty)
-              ListTile(
-                leading: const Icon(Icons.people),
-                title: const Text("Techniciens affectés"),
-                subtitle: Text(_selectedTechnicians.map((e) => e.displayName).join(', ')),
-              ),
-
-          _buildSectionHeader('Rapport d\'Intervention'),
           const SizedBox(height: 16),
-          TextFormField(controller: _managerNameController, readOnly: isReadOnly, decoration: InputDecoration(labelText: 'Nom du responsable', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor))),
+          TextFormField(
+            controller: _diagnosticController,
+            readOnly: isReadOnly,
+            decoration: InputDecoration(labelText: 'Diagnostique / Panne Signalée', border: defaultBorder, focusedBorder: focusedBorder, alignLabelWithHint: true),
+            maxLines: 4,
+          ),
           const SizedBox(height: 16),
-          TextFormField(controller: _managerPhoneController, readOnly: isReadOnly, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: 'Numéro du responsable', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor))),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(child: InkWell(onTap: isReadOnly ? null : () => _selectTime(context, true), child: InputDecorator(
-              decoration: InputDecoration(labelText: 'Heure d\'arrivée', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)),
-              child: Text(_arrivalTime?.format(context) ?? 'Non définie'),
-            ))),
-            const SizedBox(width: 16),
-            Expanded(child: InkWell(onTap: isReadOnly ? null : () => _selectTime(context, false), child: InputDecorator(
-              decoration: InputDecoration(labelText: 'Heure de départ', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)),
-              child: Text(_departureTime?.format(context) ?? 'Non définie'),
-            ))),
-          ]),
-          const SizedBox(height: 16),
-          TextFormField(controller: _diagnosticController, readOnly: isReadOnly, decoration: InputDecoration(labelText: 'Diagnostic', border: defaultBorder, focusedBorder: focusedBorder, alignLabelWithHint: true, floatingLabelStyle: const TextStyle(color: primaryColor)), maxLines: 4),
-          const SizedBox(height: 16),
-          TextFormField(controller: _workDoneController, readOnly: isReadOnly, decoration: InputDecoration(labelText: 'Travaux effectués', border: defaultBorder, focusedBorder: focusedBorder, alignLabelWithHint: true, floatingLabelStyle: const TextStyle(color: primaryColor)), maxLines: 4),
-
-          _buildSectionHeader('Signature du Responsable'),
+          TextFormField(
+            controller: _workDoneController,
+            readOnly: isReadOnly,
+            decoration: InputDecoration(labelText: 'Travaux Effectués', border: defaultBorder, focusedBorder: focusedBorder, alignLabelWithHint: true),
+            maxLines: 4,
+          ),
+          const SizedBox(height: 24),
+          const Text('Signature du Client', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Container(
-            height: 150,
-            decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
-            child: isReadOnly && _signatureImageUrl != null
-                ? Image.network(_signatureImageUrl!, fit: BoxFit.contain)
-                : Signature(controller: _signatureController, backgroundColor: Colors.grey[200]!),
-          ),
-          if(!isReadOnly)
+
+          if (_signatureImageUrl != null && _signatureController.isEmpty)
+            Container(
+                height: 150,
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(12)),
+                child: Center(child: Image.network(_signatureImageUrl!))
+            )
+          else if (!isReadOnly)
+            Signature(
+              controller: _signatureController,
+              height: 150,
+              backgroundColor: Colors.grey[200]!,
+            ),
+
+          if (!isReadOnly)
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
@@ -312,8 +364,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           const SizedBox(height: 24),
           DropdownButtonFormField<String>(
             value: _currentStatus,
-            decoration: InputDecoration(border: defaultBorder, focusedBorder: focusedBorder, labelText: 'Statut de l\'intervention'),
-            // MODIFIED: Use the dynamic list of options
+            decoration: InputDecoration(border: defaultBorder, focusedBorder: focusedBorder, labelText: 'Statut de l\\\'intervention'),
             items: statusOptions.map((String status) => DropdownMenuItem<String>(value: status, child: Text(status))).toList(),
             onChanged: isReadOnly ? null : (newValue) => setState(() { _currentStatus = newValue!; }),
           ),
