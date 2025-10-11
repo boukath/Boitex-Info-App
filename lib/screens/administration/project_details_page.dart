@@ -1,5 +1,4 @@
 // lib/screens/administration/project_details_page.dart
-// UPDATED: Year-based installation numbering (INST-1/2025, INST-2/2025, etc.)
 
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -13,6 +12,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
+// ✅ ADDED: Import for our new proposals page
+import 'package:boitex_info_app/screens/administration/system_proposals_page.dart';
 
 class ProjectDetailsPage extends StatefulWidget {
   final String projectId;
@@ -131,33 +132,23 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // ✅ UPDATED: Year-based installation code generation
-  // ═══════════════════════════════════════════════════════════════
   Future<void> _createInstallationTask(Map<String, dynamic> projectData) async {
     setState(() => _isActionInProgress = true);
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        // Get current year
         final currentYear = DateTime.now().year;
-
-        // Use year-specific counter: installation_counter_2025
         final counterRef = FirebaseFirestore.instance
             .collection('counters')
             .doc('installation_counter_$currentYear');
 
         final counterDoc = await transaction.get(counterRef);
-
-        // Get count for this year (starts at 0 if doesn't exist)
         final newCount = (counterDoc.data()?['count'] as int? ?? 0) + 1;
-
-        // Generate code with year: INST-1/2025
         final installationCode = 'INST-$newCount/$currentYear';
 
         final newInstallationRef = FirebaseFirestore.instance.collection('installations').doc();
 
         transaction.set(newInstallationRef, {
-          'installationCode': installationCode, // NEW: Installation code with year
+          'installationCode': installationCode,
           'projectId': widget.projectId,
           'clientId': projectData['clientId'],
           'clientName': projectData['clientName'],
@@ -167,23 +158,15 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           'initialRequest': projectData['initialRequest'],
           'technicalEvaluation': projectData['technical_evaluation'],
           'orderedProducts': projectData['orderedProducts'],
-          'serviceType': projectData['serviceType'], // Include service type
+          'serviceType': projectData['serviceType'],
           'status': 'À Planifier',
           'createdAt': Timestamp.now(),
         });
 
-        // Update year-specific counter
-        transaction.set(
-            counterRef,
-            {'count': newCount},
-            SetOptions(merge: true)
-        );
-
-        // Update project status
+        transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
         final projectRef = FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
         transaction.update(projectRef, {'status': 'Transféré à l\'Installation'});
 
-        // Navigate after transaction completes
         if (mounted) {
           final newInstallationDoc = await newInstallationRef.get();
           Navigator.of(context).pushReplacement(
@@ -255,24 +238,17 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 ],
               ),
               if (technicalEvaluation != null && technicalEvaluation.isNotEmpty)
-                ...technicalEvaluation.asMap().entries.map((entry) {
-                  int idx = entry.key;
-                  Map<String, dynamic> evalData = Map<String, dynamic>.from(entry.value);
-                  return _buildInfoCard(
-                    title: 'Évaluation Technique - Entrée #${idx + 1}',
+                _buildInfoCard(
+                    title: 'Évaluation Technique',
                     icon: Icons.square_foot_outlined,
                     children: [
-                      ListTile(title: Text(evalData['entranceType'] ?? 'N/A'), subtitle: const Text('Type d\'entrée')),
-                      ListTile(title: Text(evalData['doorType'] ?? 'N/A'), subtitle: const Text('Type de porte')),
-                      ListTile(title: Text('${evalData['entranceLength'] ?? 'N/A'} m'), subtitle: const Text('Longeur entrée')),
-                      ListTile(title: Text('${evalData['entranceWidth'] ?? 'N/A'} m'), subtitle: const Text('Largeur entrée')),
-                      if(evalData['doorLength'] != null) ListTile(title: Text('${evalData['doorLength']} m'), subtitle: const Text('Longeur porte')),
-                      if(evalData['doorWidth'] != null) ListTile(title: Text('${evalData['doorWidth']} m'), subtitle: const Text('Largeur porte')),
-                      ListTile(title: Text((evalData['hasPower'] ?? false) ? 'Oui' : 'Non'), subtitle: const Text('Prise 220V')),
-                      ListTile(title: Text((evalData['hasConduit'] ?? false) ? 'Oui' : 'Non'), subtitle: const Text('Gaine au sol')),
-                    ],
-                  );
-                }),
+                      for (var evalData in technicalEvaluation.map((e) => Map<String, dynamic>.from(e)))
+                        ListTile(
+                          title: Text('Largeur de l\'entrée: ${evalData['entranceWidth'] ?? 'N/A'} m'),
+                          subtitle: Text(evalData['entranceType'] ?? 'Type inconnu'),
+                        ),
+                    ]
+                ),
               if (orderedProducts != null && orderedProducts.isNotEmpty)
                 _buildInfoCard(
                   title: 'Produits Commandés',
@@ -391,6 +367,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
+  // ✅ UPDATED: The action buttons now include the proposals button
   Widget _buildActionButtons(String status, String userRole, Map<String, dynamic> projectData) {
     if (_isActionInProgress) {
       return const Center(child: CircularProgressIndicator());
@@ -398,18 +375,39 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
     List<Widget> buttons = [];
 
+    // Technical Evaluation Button
     if (status == 'Nouvelle Demande' && RolePermissions.canPerformTechnicalEvaluation(userRole)) {
       buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => TechnicalEvaluationPage(projectId: widget.projectId))), icon: const Icon(Icons.rule), label: const Text('Ajouter l\'Évaluation Technique'))));
     }
 
+    // ✅ ADDED: System Proposals Button
+    if (status == 'Évaluation Technique Terminé' && RolePermissions.canUploadDevis(userRole)) {
+      final technicalEvaluation = projectData['technical_evaluation'] as List<dynamic>?;
+      if (technicalEvaluation != null && technicalEvaluation.isNotEmpty) {
+        final entranceWidthStr = technicalEvaluation[0]['entranceWidth'] ?? '0';
+        final entranceWidth = double.tryParse(entranceWidthStr) ?? 0.0;
+
+        if (entranceWidth > 0) {
+          buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => SystemProposalsPage(entranceWidth: entranceWidth))),
+            icon: const Icon(Icons.calculate_outlined),
+            label: const Text('Calculer les Configurations'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+          )));
+          buttons.add(const SizedBox(height: 12)); // Spacer
+        }
+      }
+    }
+
+    // Upload Devis Button
     if (status == 'Évaluation Technique Terminé' && RolePermissions.canUploadDevis(userRole)) {
       buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _uploadDevis, icon: const Icon(Icons.upload_file_outlined), label: const Text('Devis'))));
     }
 
+    // Other buttons remain the same...
     if (status == 'Devis Envoyé' && RolePermissions.canUploadDevis(userRole)) {
       buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _showApprovalDialog, icon: const Icon(Icons.check), label: const Text('Confirmer l\'Approbation Client'))));
     }
-
     if (status == 'Finalisation de la Commande' && RolePermissions.canUploadDevis(userRole)) {
       buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(
           onPressed: () => _showProductFinalizationDialog(projectData['orderedProducts'] ?? []),
@@ -417,7 +415,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           label: const Text('Définir les Produits Commandés')
       )));
     }
-
     if (status == 'À Planifier' && RolePermissions.canScheduleInstallation(userRole)) {
       buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(
         onPressed: () => _createInstallationTask(projectData),
@@ -439,17 +436,13 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 class _OrderFinalizationDialog extends StatefulWidget {
   final String projectId;
   final List<dynamic> existingItems;
-
   const _OrderFinalizationDialog({required this.projectId, required this.existingItems});
-
   @override
   State<_OrderFinalizationDialog> createState() => _OrderFinalizationDialogState();
 }
-
 class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
   late List<ProductSelection> _selectedProducts;
   bool _isSaving = false;
-
   @override
   void initState() {
     super.initState();
@@ -459,7 +452,6 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
       quantity: item['quantity'],
     )).toList();
   }
-
   Future<void> _finalizeOrder() async {
     setState(() => _isSaving = true);
     try {
@@ -469,7 +461,6 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
           final productRef = FirebaseFirestore.instance.collection('produits').doc(product.productId);
           productSnaps[product.productId] = await transaction.get(productRef);
         }
-
         for (var product in _selectedProducts) {
           final snap = productSnaps[product.productId]!;
           final currentStock = (snap.data() as Map<String, dynamic>?)?['quantiteEnStock'] ?? 0;
@@ -478,14 +469,12 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
           }
           transaction.update(snap.reference, {'quantiteEnStock': currentStock - product.quantity});
         }
-
         final projectRef = FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
         transaction.update(projectRef, {
           'orderedProducts': _selectedProducts.map((p) => {'productId': p.productId, 'productName': p.productName, 'quantity': p.quantity}).toList(),
           'status': 'À Planifier',
         });
       });
-
       if(mounted) Navigator.of(context).pop();
     } catch (e) {
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
@@ -493,7 +482,6 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
       if(mounted) setState(() => _isSaving = false);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     return AlertDialog(

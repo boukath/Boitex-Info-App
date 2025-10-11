@@ -1,36 +1,65 @@
 // lib/screens/administration/technical_evaluation_page.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as path;
 
-// A data model to hold the information for a single entrance
 class EntranceData {
   String? entranceType;
   String? doorType;
-  final TextEditingController entranceLengthController = TextEditingController();
+  List<File> photos = [];
+
+  bool? isPowerAvailable;
+  final TextEditingController powerNotesController = TextEditingController();
+
+  // ✅ ADDED: New boolean for the trench question
+  bool? isFloorFinalized;
+  bool? isConduitAvailable;
+  bool? canMakeTrench;
+
+  bool? hasObstacles;
+  final TextEditingController obstacleNotesController = TextEditingController();
   final TextEditingController entranceWidthController = TextEditingController();
-  final TextEditingController doorLengthController = TextEditingController();
-  final TextEditingController doorWidthController = TextEditingController();
-  bool hasPower = false;
-  bool hasConduit = false;
+
+  bool? hasMetalStructures;
+  bool? hasOtherSystems;
 
   void dispose() {
-    entranceLengthController.dispose();
+    powerNotesController.dispose();
+    obstacleNotesController.dispose();
     entranceWidthController.dispose();
-    doorLengthController.dispose();
-    doorWidthController.dispose();
   }
 
-  Map<String, dynamic> toMap() {
+  Future<Map<String, dynamic>> toMap(String projectId, int entranceIndex) async {
+    List<String> photoUrls = [];
+    for (var file in photos) {
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('technical_evaluations/$projectId/entrance_$entranceIndex/$fileName');
+      await ref.putFile(file);
+      final url = await ref.getDownloadURL();
+      photoUrls.add(url);
+    }
+
     return {
       'entranceType': entranceType,
       'doorType': doorType,
-      'entranceLength': entranceLengthController.text,
+      'photos': photoUrls,
+      'isPowerAvailable': isPowerAvailable,
+      'powerNotes': powerNotesController.text,
+      'isFloorFinalized': isFloorFinalized,
+      'isConduitAvailable': isConduitAvailable,
+      // ✅ ADDED: Save the new field
+      'canMakeTrench': canMakeTrench,
+      'hasObstacles': hasObstacles,
+      'obstacleNotes': obstacleNotesController.text,
       'entranceWidth': entranceWidthController.text,
-      'doorLength': doorType != 'sans porte' ? doorLengthController.text : null,
-      'doorWidth': doorType != 'sans porte' ? doorWidthController.text : null,
-      'hasPower': hasPower,
-      'hasConduit': hasConduit,
+      'hasMetalStructures': hasMetalStructures,
+      'hasOtherSystems': hasOtherSystems,
     };
   }
 }
@@ -46,7 +75,6 @@ class TechnicalEvaluationPage extends StatefulWidget {
 class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
   final List<EntranceData> _entrances = [];
   bool _isLoading = false;
-  // NEW: Define theme color
   static const Color primaryColor = Colors.deepPurple;
 
   @override
@@ -76,11 +104,31 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     });
   }
 
+  Future<void> _pickPhotos(int entranceIndex) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+
+    if (result != null) {
+      setState(() {
+        _entrances[entranceIndex].photos.addAll(
+          result.paths.map((path) => File(path!)).toList(),
+        );
+      });
+    }
+  }
+
   Future<void> _saveEvaluation() async {
     setState(() { _isLoading = true; });
     try {
-      final List<Map<String, dynamic>> evaluationData =
-      _entrances.map((entrance) => entrance.toMap()).toList();
+      final List<Map<String, dynamic>> evaluationData = await Future.wait(
+        _entrances.asMap().entries.map((entry) {
+          int index = entry.key;
+          EntranceData entrance = entry.value;
+          return entrance.toMap(widget.projectId, index);
+        }).toList(),
+      );
 
       await FirebaseFirestore.instance.collection('projects').doc(widget.projectId).update({
         'technical_evaluation': evaluationData,
@@ -91,11 +139,13 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
         Navigator.of(context).pop();
       }
     } catch (e) {
-      print("Erreur lors de l'enregistrement de l'évaluation: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red),
-      );
-      setState(() { _isLoading = false; });
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if(mounted) setState(() { _isLoading = false; });
     }
   }
 
@@ -117,7 +167,6 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
               },
             ),
           ),
-          // MODIFIED: Styled the bottom action area
           Container(
             padding: const EdgeInsets.all(16.0),
             decoration: BoxDecoration(
@@ -153,20 +202,17 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     );
   }
 
-  // MODIFIED: This entire card widget is redesigned for a better look
   Widget _buildEntranceCard(int index) {
     final entrance = _entrances[index];
-    final OutlineInputBorder focusedBorder = OutlineInputBorder(borderSide: const BorderSide(color: primaryColor, width: 2.0), borderRadius: BorderRadius.circular(12.0));
     final OutlineInputBorder defaultBorder = OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12.0));
 
     return Card(
       elevation: 2.0,
       margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -180,10 +226,11 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
               ],
             ),
             const Divider(height: 24),
+
             DropdownButtonFormField<String>(
               value: entrance.entranceType,
               hint: const Text('Type d\'entrée'),
-              decoration: InputDecoration(border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)),
+              decoration: InputDecoration(border: defaultBorder),
               items: ['Porte battante', 'Porte Automatique', 'Entree Libre'].map((String value) {
                 return DropdownMenuItem<String>(value: value, child: Text(value));
               }).toList(),
@@ -193,61 +240,183 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
             DropdownButtonFormField<String>(
               value: entrance.doorType,
               hint: const Text('Type de porte'),
-              decoration: InputDecoration(border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)),
+              decoration: InputDecoration(border: defaultBorder),
               items: ['porte vitrée', 'porte metalique', 'sans porte'].map((String value) {
                 return DropdownMenuItem<String>(value: value, child: Text(value));
               }).toList(),
               onChanged: (value) => setState(() => entrance.doorType = value),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(child: TextFormField(controller: entrance.entranceLengthController, decoration: InputDecoration(labelText: 'Longeur entrée (m)', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)), keyboardType: TextInputType.number)),
-                const SizedBox(width: 16),
-                Expanded(child: TextFormField(controller: entrance.entranceWidthController, decoration: InputDecoration(labelText: 'Largeur entrée (m)', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)), keyboardType: TextInputType.number)),
-              ],
-            ),
-            if (entrance.doorType != null && entrance.doorType != 'sans porte')
-              Padding(
-                padding: const EdgeInsets.only(top: 16.0),
-                child: Row(
-                  children: [
-                    Expanded(child: TextFormField(controller: entrance.doorLengthController, decoration: InputDecoration(labelText: 'Longeur porte (m)', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)), keyboardType: TextInputType.number)),
-                    const SizedBox(width: 16),
-                    Expanded(child: TextFormField(controller: entrance.doorWidthController, decoration: InputDecoration(labelText: 'Largeur porte (m)', border: defaultBorder, focusedBorder: focusedBorder, floatingLabelStyle: const TextStyle(color: primaryColor)), keyboardType: TextInputType.number)),
-                  ],
-                ),
+
+            // Accordion Sections
+            _buildExpansionSection(
+              title: 'Alimentation Électrique',
+              icon: Icons.power,
+              child: Column(
+                children: [
+                  _buildYesNoQuestion(
+                    question: 'Prise 220V disponible à moins de 2m ?',
+                    value: entrance.isPowerAvailable,
+                    onChanged: (val) => setState(() => entrance.isPowerAvailable = val),
+                  ),
+                  if (entrance.isPowerAvailable == false)
+                    _buildConditionalTextField(
+                      controller: entrance.powerNotesController,
+                      labelText: 'Emplacement de la source la plus proche',
+                    ),
+                ],
               ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              title: const Text('Prise 220V disponible'),
-              value: entrance.hasPower,
-              onChanged: (value) => setState(() => entrance.hasPower = value),
-              contentPadding: EdgeInsets.zero,
-              activeColor: primaryColor,
             ),
-            SwitchListTile(
-              title: const Text('Tube/Gaine au sol disponible'),
-              value: entrance.hasConduit,
-              onChanged: (value) => setState(() => entrance.hasConduit = value),
-              contentPadding: EdgeInsets.zero,
-              activeColor: primaryColor,
+            // ✅ UPDATED: The "Sol et Passage" section now has the new conditional questions
+            _buildExpansionSection(
+              title: 'Sol et Passage des Câbles',
+              icon: Icons.electrical_services,
+              child: Column(
+                children: [
+                  _buildYesNoQuestion(
+                    question: 'L\'état du sol est-il finalisé ?',
+                    value: entrance.isFloorFinalized,
+                    onChanged: (val) => setState(() => entrance.isFloorFinalized = val),
+                  ),
+                  // Only show the next question if the floor is finalized
+                  if (entrance.isFloorFinalized == true)
+                    _buildYesNoQuestion(
+                      question: 'Un fourreau vide est-il disponible ?',
+                      value: entrance.isConduitAvailable,
+                      onChanged: (val) => setState(() => entrance.isConduitAvailable = val),
+                    ),
+                  // Only show the final question if the conduit is NOT available
+                  if (entrance.isConduitAvailable == false)
+                    _buildYesNoQuestion(
+                      question: 'Le client autorise-t-il une saignée ?',
+                      value: entrance.canMakeTrench,
+                      onChanged: (val) => setState(() => entrance.canMakeTrench = val),
+                    ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () { /* Add image picking logic here later */ },
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: const Text('Ajouter des Photos'),
-                style: OutlinedButton.styleFrom(
-                    foregroundColor: primaryColor,
-                    side: const BorderSide(color: primaryColor)
-                ),
+            _buildExpansionSection(
+              title: 'Zone d\'Installation et Obstacles',
+              icon: Icons.warning_amber_rounded,
+              child: Column(
+                children: [
+                  _buildYesNoQuestion(
+                    question: 'Y a-t-il des obstacles (portes, rideaux) ?',
+                    value: entrance.hasObstacles,
+                    onChanged: (val) => setState(() => entrance.hasObstacles = val),
+                  ),
+                  if (entrance.hasObstacles == true)
+                    _buildConditionalTextField(
+                      controller: entrance.obstacleNotesController,
+                      labelText: 'Veuillez les décrire',
+                    ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: entrance.entranceWidthController,
+                    decoration: const InputDecoration(labelText: 'Mesure de la largeur de l\'entrée (m)', border: OutlineInputBorder()),
+                    keyboardType: TextInputType.number,
+                  ),
+                ],
+              ),
+            ),
+            _buildExpansionSection(
+              title: 'Environnement et Interférences',
+              icon: Icons.wifi_tethering,
+              child: Column(
+                children: [
+                  _buildYesNoQuestion(
+                    question: 'Grandes structures métalliques à proximité ?',
+                    value: entrance.hasMetalStructures,
+                    onChanged: (val) => setState(() => entrance.hasMetalStructures = val),
+                  ),
+                  _buildYesNoQuestion(
+                    question: 'Autres systèmes électroniques présents ?',
+                    value: entrance.hasOtherSystems,
+                    onChanged: (val) => setState(() => entrance.hasOtherSystems = val),
+                  ),
+                ],
+              ),
+            ),
+            _buildExpansionSection(
+              title: 'Photos et Notes',
+              icon: Icons.camera_alt_outlined,
+              child: Column(
+                children: [
+                  if (entrance.photos.isNotEmpty)
+                    Container(
+                      height: 100,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: entrance.photos.length,
+                        itemBuilder: (context, photoIndex) {
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: Image.file(entrance.photos[photoIndex], width: 100, height: 100, fit: BoxFit.cover),
+                          );
+                        },
+                      ),
+                    ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickPhotos(index),
+                      icon: const Icon(Icons.add_a_photo_outlined),
+                      label: const Text('Ajouter des Photos'),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildExpansionSection({required String title, required IconData icon, required Widget child}) {
+    return ExpansionTile(
+      leading: Icon(icon, color: primaryColor),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+      childrenPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      children: [child],
+    );
+  }
+
+  Widget _buildYesNoQuestion({required String question, required bool? value, required ValueChanged<bool> onChanged}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(question, style: const TextStyle(fontSize: 14)),
+        const SizedBox(height: 8),
+        ToggleButtons(
+          isSelected: [value == true, value == false],
+          onPressed: (index) {
+            onChanged(index == 0);
+          },
+          borderRadius: BorderRadius.circular(8),
+          selectedColor: Colors.white,
+          fillColor: primaryColor,
+          children: const [
+            Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Text('Oui')),
+            Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Text('Non')),
+          ],
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildConditionalTextField({required TextEditingController controller, required String labelText}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: TextFormField(
+        controller: controller,
+        decoration: InputDecoration(
+          labelText: labelText,
+          border: const OutlineInputBorder(),
+        ),
+        maxLines: 2,
       ),
     );
   }

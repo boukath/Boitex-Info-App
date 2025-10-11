@@ -47,7 +47,12 @@ const collectionsToWatchForCreation = [
   "interventions",
   "installations",
   "livraisons",
+  "projects",
+  "requisitions",
+
 ];
+
+// Replace the entire forEach block with this correctly formatted version
 
 collectionsToWatchForCreation.forEach((collection) => {
   exports[`on${collection}Created`] = onDocumentCreated(
@@ -57,63 +62,64 @@ collectionsToWatchForCreation.forEach((collection) => {
       if (!snapshot) return;
 
       const data = snapshot.data();
-
-      // Determine the correct topic based on serviceType
-      const serviceType = data.serviceType;
-      let targetTopic = "";
-
-      if (serviceType === "Service Technique") {
-        targetTopic = TECH_ST_TOPIC;
-      } else if (serviceType === "Service IT") {
-        targetTopic = TECH_IT_TOPIC;
-      }
-
-      // Get details
-      const code = data.interventionCode || data.blCode || "N/A";
-      const client = data.clientName || "N/A";
-      const storeName = data.storeName || "N/A";
-      const storeLocation = data.storeLocation || data.destinationName || "";
-
-      // Choose emoji based on collection type
+      let title = "";
+      let body = "";
       let emoji = "📋";
-      if (collection === "interventions") emoji = "🔧";
-      if (collection === "installations") emoji = "⚙️";
-      if (collection === "livraisons") emoji = "📦";
 
-      // Build location string
-      let locationInfo = "";
-      if (storeName !== "N/A") {
-        if (storeLocation) {
-          locationInfo = ` | ${storeName} (${storeLocation})`;
-        } else {
-          locationInfo = ` | ${storeName}`;
+      if (collection === "requisitions") {
+        emoji = "🛒";
+        title = `${emoji} Nouvelle Demande d'Achat`;
+        const code = data.requisitionCode || "N/A";
+        const requester = data.requestedBy || "N/A";
+        body = `${code} | Demande D'achat: ${requester}`;
+      } else {
+        const serviceType = data.serviceType;
+        let targetTopic = "";
+
+        if (serviceType === "Service Technique") {
+          targetTopic = TECH_ST_TOPIC;
+        } else if (serviceType === "Service IT") {
+          targetTopic = TECH_IT_TOPIC;
+        }
+
+        const code = data.interventionCode || data.blCode || data.requisitionCode || "N/A";
+        const client = data.clientName || "N/A";
+        const storeName = data.storeName || "N/A";
+        const storeLocation = data.storeLocation || data.destinationName || "";
+
+        if (collection === "interventions") emoji = "🔧";
+        if (collection === "installations") emoji = "⚙️";
+        if (collection === "livraisons") emoji = "📦";
+        if (collection === "projects") emoji = "🏗️";
+
+        let locationInfo = "";
+        if (storeName !== "N/A") {
+          if (storeLocation) {
+            locationInfo = ` | ${storeName} (${storeLocation})`;
+          } else {
+            locationInfo = ` | ${storeName}`;
+          }
+        }
+
+        title = `${emoji} Nouveau Ticket: ${collection.slice(0, -1)}`;
+        body = `${code} | ${client}${locationInfo}`;
+
+        if (targetTopic) {
+          // ✅ FIXED: Removed extra spaces inside the braces
+          const techMessage = {
+            notification: {title, body},
+            data: {docId: snapshot.id, collection: collection, type: "new_task"},
+            topic: targetTopic,
+          };
+          try {
+            await admin.messaging().send(techMessage);
+            console.log(`Sent notification to ${targetTopic}`);
+          } catch (error) {
+            console.error(`Error sending to ${targetTopic}:`, error);
+          }
         }
       }
 
-      const title = `${emoji} Nouveau Ticket: ${collection.slice(0, -1)}`;
-      const body = `${code} | ${client}${locationInfo}`;
-
-      // Send to the relevant technician group
-      if (targetTopic) {
-        const message = {
-          notification: {title, body},
-          data: {
-            docId: snapshot.id,
-            collection: collection,
-            type: "new_task",
-          },
-          topic: targetTopic,
-        };
-
-        try {
-          await admin.messaging().send(message);
-          console.log(`Sent notification to ${targetTopic}`);
-        } catch (error) {
-          console.error(`Error sending to ${targetTopic}:`, error);
-        }
-      }
-
-      // Also notify managers
       await notifyManagers(title, body);
     }
   );
@@ -261,7 +267,7 @@ collectionsToWatchForUpdates.forEach((collection) => {
       if (!event.data) return;
 
       const after = event.data.after.data();
-      const code = after.interventionCode || after.savCode || after.blCode || after.clientName || "N/A";
+      const code = after.requisitionCode || after.interventionCode || after.savCode || after.blCode || after.clientName || "N/A";
       const status = after.status || after.requestStatus || "Inconnu";
 
       // Notify managers about the status change

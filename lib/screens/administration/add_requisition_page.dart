@@ -50,6 +50,8 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
     }
   }
 
+  // Replace the entire _saveRequisition function with this
+
   Future<void> _saveRequisition() async {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez ajouter au moins un produit.')));
@@ -66,13 +68,27 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final creatorName = userDoc.data()?['displayName'] ?? user.email ?? 'Utilisateur inconnu';
 
-      await FirebaseFirestore.instance.collection('requisitions').add({
-        'requestedBy': creatorName,
-        'requestedByUid': user.uid,
-        'createdAt': Timestamp.now(),
-        'status': "En attente d'approbation",
-        'items': _items.map((item) => item.toJson()).toList(),
+      // ✅ ADDED: The new code generation logic
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final currentYear = DateTime.now().year;
+        final counterRef = FirebaseFirestore.instance.collection('counters').doc('requisition_counter_$currentYear');
+        final counterSnap = await transaction.get(counterRef);
+        final newCount = (counterSnap.data()?['count'] as int? ?? 0) + 1;
+        final newCode = 'CM-$newCount/$currentYear';
+
+        final requisitionRef = FirebaseFirestore.instance.collection('requisitions').doc();
+        transaction.set(requisitionRef, {
+          'requisitionCode': newCode, // The new unique code
+          'requestedBy': creatorName,
+          'requestedByUid': user.uid,
+          'createdAt': Timestamp.now(),
+          'status': "En attente d'approbation",
+          'items': _items.map((item) => item.toJson()).toList(),
+        });
+
+        transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
       });
+
       if(mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demande d\'achat envoyée pour approbation.')));
@@ -149,6 +165,8 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
 }
 
 
+// Paste this entire block at the bottom of add_requisition_page.dart, replacing the old _AddItemDialog
+
 class _AddItemDialog extends StatefulWidget {
   const _AddItemDialog();
   @override
@@ -156,20 +174,18 @@ class _AddItemDialog extends StatefulWidget {
 }
 
 class _AddItemDialogState extends State<_AddItemDialog> {
-  List<String> _categories = [];
-  List<QueryDocumentSnapshot> _productsForCategory = [];
-  bool _isLoadingCategories = true;
+  // State for the new 3-level selection
+  final List<String> _mainCategories = ['Antivol', 'TPV', 'Compteur Client'];
+  String? _selectedMainCategory;
+  List<String> _subCategories = [];
+  bool _isLoadingSubCategories = false;
+  String? _selectedSubCategory;
+  List<DocumentSnapshot> _products = [];
   bool _isLoadingProducts = false;
-  String? _selectedCategory;
   DocumentSnapshot? _selectedProduct;
-  final _quantityController = TextEditingController();
-  final _dialogFormKey = GlobalKey<FormState>();
 
-  @override
-  void initState() {
-    super.initState();
-    _fetchProductCategories();
-  }
+  final _quantityController = TextEditingController(text: "1");
+  final _dialogFormKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
@@ -177,22 +193,45 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     super.dispose();
   }
 
-  Future<void> _fetchProductCategories() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('produits').get();
-      final categories = snapshot.docs.map((doc) => doc.data()['categorie'] as String?).where((c) => c != null && c.isNotEmpty).toSet().toList();
-      categories.sort();
-      if (mounted) setState(() { _categories = categories.cast<String>(); _isLoadingCategories = false; });
-    } catch (e) {
-      if (mounted) setState(() { _isLoadingCategories = false; });
+  Future<void> _fetchCategoriesForMainSection(String mainCategory) async {
+    setState(() {
+      _isLoadingSubCategories = true;
+      _subCategories = [];
+      _selectedSubCategory = null;
+      _products = [];
+      _selectedProduct = null;
+    });
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('produits')
+        .where('mainCategory', isEqualTo: mainCategory)
+        .get();
+
+    final categoriesSet = <String>{};
+    for (var doc in snapshot.docs) {
+      categoriesSet.add(doc.data()['categorie'] as String);
+    }
+
+    final sortedList = categoriesSet.toList();
+    sortedList.sort();
+
+    if (mounted) {
+      setState(() {
+        _subCategories = sortedList;
+        _isLoadingSubCategories = false;
+      });
     }
   }
 
-  Future<void> _fetchProductsForCategory(String category) async {
-    setState(() { _isLoadingProducts = true; _productsForCategory = []; _selectedProduct = null; });
+  Future<void> _fetchProductsForSubCategory(String category) async {
+    setState(() { _isLoadingProducts = true; _products = []; _selectedProduct = null; });
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('produits').where('categorie', isEqualTo: category).orderBy('nom').get();
-      if (mounted) setState(() { _productsForCategory = snapshot.docs; _isLoadingProducts = false; });
+      final snapshot = await FirebaseFirestore.instance
+          .collection('produits')
+          .where('categorie', isEqualTo: category)
+          .orderBy('nom')
+          .get();
+      if (mounted) setState(() { _products = snapshot.docs; _isLoadingProducts = false; });
     } catch (e) {
       if (mounted) setState(() { _isLoadingProducts = false; });
     }
@@ -209,22 +248,46 @@ class _AddItemDialogState extends State<_AddItemDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // 1. Main Section Dropdown
               DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                onChanged: (val) { if(val != null) { setState(() => _selectedCategory = val); _fetchProductsForCategory(val); } },
-                decoration: InputDecoration(labelText: 'Catégorie', border: const OutlineInputBorder()),
+                value: _selectedMainCategory,
+                items: _mainCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                onChanged: (val) {
+                  if(val != null) {
+                    setState(() => _selectedMainCategory = val);
+                    _fetchCategoriesForMainSection(val);
+                  }
+                },
+                decoration: const InputDecoration(labelText: 'Section Principale', border: OutlineInputBorder()),
                 validator: (v) => v == null ? 'Requis' : null,
               ),
               const SizedBox(height: 16),
+
+              // 2. Sub-Category Dropdown
+              DropdownButtonFormField<String>(
+                value: _selectedSubCategory,
+                items: _subCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                onChanged: _selectedMainCategory == null || _isLoadingSubCategories ? null : (val) {
+                  if (val != null) {
+                    setState(() => _selectedSubCategory = val);
+                    _fetchProductsForSubCategory(val);
+                  }
+                },
+                decoration: const InputDecoration(labelText: 'Catégorie', border: OutlineInputBorder()),
+                validator: (v) => v == null ? 'Requis' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // 3. Product Dropdown
               DropdownButtonFormField<DocumentSnapshot>(
                 value: _selectedProduct,
-                items: _productsForCategory.map((p) => DropdownMenuItem(value: p, child: Text(p['nom']))).toList(),
-                onChanged: _selectedCategory == null ? null : (val) => setState(() => _selectedProduct = val),
-                decoration: InputDecoration(labelText: 'Produit', border: const OutlineInputBorder()),
+                items: _products.map((p) => DropdownMenuItem(value: p, child: Text(p['nom']))).toList(),
+                onChanged: _selectedSubCategory == null || _isLoadingProducts ? null : (val) => setState(() => _selectedProduct = val),
+                decoration: const InputDecoration(labelText: 'Produit', border: OutlineInputBorder()),
                 validator: (v) => v == null ? 'Requis' : null,
               ),
               const SizedBox(height: 16),
+
               TextFormField(
                 controller: _quantityController,
                 decoration: const InputDecoration(labelText: 'Quantité', border: OutlineInputBorder()),

@@ -2,9 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:boitex_info_app/screens/administration/billing_history_page.dart';
-// ADDED: Import for the new replacement history page
 import 'package:boitex_info_app/screens/administration/replacement_history_page.dart';
-
+import 'package:boitex_info_app/screens/administration/requisition_history_page.dart';
 
 class ActivityLogPage extends StatelessWidget {
   const ActivityLogPage({super.key});
@@ -30,12 +29,13 @@ class ActivityLogPage extends StatelessWidget {
             color: Colors.teal,
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const BillingHistoryPage()),
+                MaterialPageRoute(
+                  builder: (_) => const BillingHistoryPage(),
+                ),
               );
             },
           ),
           const SizedBox(height: 16),
-          // ADDED: The new card for Replacement History
           _buildHistoryCategoryCard(
             context: context,
             title: 'Historique des Remplacements',
@@ -44,7 +44,24 @@ class ActivityLogPage extends StatelessWidget {
             color: Colors.red,
             onTap: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const ReplacementHistoryPage()),
+                MaterialPageRoute(
+                  builder: (_) => const ReplacementHistoryPage(),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildHistoryCategoryCard(
+            context: context,
+            title: 'Historique des Achats',
+            subtitle: 'Consulter les commandes reçues',
+            icon: Icons.shopping_bag_rounded,
+            color: Colors.blue,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const RequisitionHistoryPage(),
+                ),
               );
             },
           ),
@@ -72,7 +89,10 @@ class ActivityLogPage extends StatelessWidget {
           backgroundColor: color.withOpacity(0.1),
           child: Icon(icon, color: color, size: 28),
         ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
       ),

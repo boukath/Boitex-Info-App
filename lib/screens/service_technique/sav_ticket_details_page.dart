@@ -438,7 +438,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     return Column(
       children: [
         ListTile(title: const Text('Client'), subtitle: Text(_currentTicket.clientName)),
-        ListTile(title: const Text('Magasin'), subtitle: Text(_currentTicket.storeName)),
+        ListTile(title: const Text('Magasin'), subtitle: Text(_currentTicket.storeName ?? 'N/A')),
         ListTile(title: const Text('Produit'), subtitle: Text(_currentTicket.productName)),
         ListTile(title: const Text('Numéro de Série'), subtitle: Text(_currentTicket.serialNumber)),
         ListTile(

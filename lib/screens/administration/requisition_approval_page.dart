@@ -1,3 +1,5 @@
+// lib/screens/administration/requisition_approval_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -20,7 +22,6 @@ class RequisitionApprovalPage extends StatelessWidget {
             .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
-          // **THE FIX IS HERE**: These checks handle all possible states before trying to access data.
           if (snapshot.hasError) {
             return const Center(child: Text('Une erreur est survenue.'));
           }
@@ -46,13 +47,16 @@ class RequisitionApprovalPage extends StatelessWidget {
                 margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.inventory)),
-                  title: Text('Demandé par: ${reqData['requestedBy'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(
-                    '${items.length} article(s) | ${reqData['justification'] ?? ''}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  leading: const CircleAvatar(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    child: Icon(Icons.inventory),
                   ),
+                  title: Text(
+                      reqData['requisitionCode'] ?? 'Demandé par: ${reqData['requestedBy'] ?? ''}',
+                      style: const TextStyle(fontWeight: FontWeight.bold)
+                  ),
+                  subtitle: Text('${items.length} article(s)'),
                   trailing: Text(DateFormat('dd/MM/yy').format(createdAt)),
                   onTap: () {
                     Navigator.of(context).push(

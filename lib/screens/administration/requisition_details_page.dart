@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:boitex_info_app/screens/administration/add_requisition_page.dart';
+import 'package:boitex_info_app/screens/administration/confirm_receipt_page.dart';
 
 class RequisitionDetailsPage extends StatefulWidget {
   final String requisitionId;
@@ -24,8 +26,9 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
   bool _isLoading = true;
   bool _isActionInProgress = false;
 
-  late List<TextEditingController> _quantityControllers;
   bool _isEditMode = false;
+  List<Map<String, dynamic>> _editableItems = [];
+  late List<TextEditingController> _quantityControllers;
 
   @override
   void initState() {
@@ -36,14 +39,26 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
   @override
   void dispose() {
     if (_isEditMode) {
-      for (var controller in _quantityControllers) {
-        controller.dispose();
-      }
+      _disposeControllers();
     }
     super.dispose();
   }
 
+  void _initializeControllers() {
+    _quantityControllers = _editableItems.map((item) {
+      return TextEditingController(text: item['quantity'].toString());
+    }).toList();
+  }
+
+  void _disposeControllers() {
+    for (var controller in _quantityControllers) {
+      controller.dispose();
+    }
+  }
+
   Future<void> _fetchRequisitionDetails() async {
+    if(!mounted) return;
+    setState(() => _isLoading = true);
     try {
       final doc = await FirebaseFirestore.instance.collection('requisitions').doc(widget.requisitionId).get();
       if (mounted) {
@@ -57,39 +72,28 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
     }
   }
 
-  void _initializeControllers() {
-    // ... same as before
-    if (_requisitionData == null) return;
-    final items = List<Map<String, dynamic>>.from(_requisitionData!['items']);
-    _quantityControllers = items.map((item) {
-      return TextEditingController(text: item['quantity'].toString());
-    }).toList();
-  }
-
-  void _toggleEditMode() {
-    // ... same as before
+  void _toggleEditMode({bool cancel = false}) {
     setState(() {
       _isEditMode = !_isEditMode;
       if (_isEditMode) {
+        _editableItems = List<Map<String, dynamic>>.from(
+            (_requisitionData!['items'] as List).map((item) => Map<String, dynamic>.from(item))
+        );
         _initializeControllers();
       } else {
-        for (var controller in _quantityControllers) {
-          controller.dispose();
-        }
+        _disposeControllers();
       }
     });
   }
 
   Future<void> _saveChanges() async {
-    // ... same as before
     setState(() => _isActionInProgress = true);
     try {
-      final items = List<Map<String, dynamic>>.from(_requisitionData!['items']);
       final List<Map<String, dynamic>> updatedItems = [];
-      for (int i = 0; i < items.length; i++) {
+      for (int i = 0; i < _editableItems.length; i++) {
         updatedItems.add({
-          'productName': items[i]['productName'],
-          'productId': items[i]['productId'],
+          'productName': _editableItems[i]['productName'],
+          'productId': _editableItems[i]['productId'],
           'quantity': int.tryParse(_quantityControllers[i].text) ?? 0,
         });
       }
@@ -105,14 +109,43 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
     }
   }
 
+  Future<void> _showAddItemDialog() async {
+    final result = await showDialog<RequisitionItem>(
+      context: context,
+      builder: (ctx) => const _AddItemDialog(),
+    );
+
+    if (result != null) {
+      setState(() {
+        if (!_editableItems.any((item) => item['productId'] == result.id)) {
+          _editableItems.add(result.toJson());
+          _quantityControllers.add(TextEditingController(text: result.quantity.toString()));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce produit est déjà dans la liste.')));
+        }
+      });
+    }
+  }
+
+  void _deleteItem(int index) {
+    setState(() {
+      _editableItems.removeAt(index);
+      _quantityControllers.removeAt(index).dispose();
+    });
+  }
+
   Future<void> _updateRequisitionStatus(String newStatus) async {
-    // ... same as before
     setState(() => _isActionInProgress = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
+
       final logEntry = {
         'action': newStatus,
-        'user': user?.displayName ?? 'Utilisateur inconnu',
+        'user': userName,
         'timestamp': Timestamp.now(),
       };
       await FirebaseFirestore.instance.collection('requisitions').doc(widget.requisitionId).update({
@@ -130,105 +163,36 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
     }
   }
 
-  // MODIFIED: This function now contains the full backorder notification logic.
-  Future<void> _confirmReceiptAndUpdateStock() async {
-    setState(() => _isActionInProgress = true);
-    try {
-      final items = List<Map<String, dynamic>>.from(_requisitionData!['items']);
-      final user = FirebaseAuth.instance.currentUser;
-      List<String> backorderedProducts = [];
-
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        // --- READ PHASE ---
-        final List<DocumentReference> productRefs = items.map((item) {
-          return FirebaseFirestore.instance.collection('produits').doc(item['productId']);
-        }).toList();
-        final List<DocumentSnapshot> productSnaps = await Future.wait(productRefs.map((ref) => transaction.get(ref)));
-
-        // --- WRITE PHASE ---
-        for (int i = 0; i < items.length; i++) {
-          final item = items[i];
-          final productRef = productRefs[i];
-          final productSnap = productSnaps[i];
-          final productData = productSnap.data() as Map<String, dynamic>?;
-
-          final currentStock = productData?['quantiteEnStock'] ?? 0;
-
-          // Check for backorder BEFORE updating stock
-          if (currentStock < 0) {
-            backorderedProducts.add(productData?['nom'] ?? 'Produit inconnu');
-            // Find and update the associated replacement request
-            final replacementReqQuery = await FirebaseFirestore.instance
-                .collection('replacementRequests')
-                .where('productName', isEqualTo: productData?['nom'])
-                .where('requestStatus', whereIn: ['Approuvé - Bon de commande reçu', 'Approuvé - Confirmation téléphonique'])
-                .limit(1)
-                .get();
-
-            if (replacementReqQuery.docs.isNotEmpty) {
-              transaction.update(replacementReqQuery.docs.first.reference, {
-                'requestStatus': 'Approuvé - Produit en stock'
-              });
-            }
-          }
-
-          final newStock = currentStock + item['quantity'];
-          transaction.update(productRef, {'quantiteEnStock': newStock});
-
-          final historyRef = productRef.collection('stock_history').doc();
-          transaction.set(historyRef, {
-            'change': item['quantity'],
-            'newQuantity': newStock,
-            'notes': 'Réception de la commande (Demande ID: ${widget.requisitionId})',
-            'timestamp': FieldValue.serverTimestamp(),
-            'updatedByUid': user?.uid,
-          });
-        }
-
-        final requisitionRef = FirebaseFirestore.instance.collection('requisitions').doc(widget.requisitionId);
-        final logEntry = {'action': 'Reçue', 'user': user?.displayName ?? 'Utilisateur inconnu', 'timestamp': Timestamp.now()};
-        transaction.update(requisitionRef, {
-          'status': 'Reçue',
-          'activityLog': FieldValue.arrayUnion([logEntry]),
-        });
-      });
-
-      // After transaction is successful, show alert if needed
-      if (mounted && backorderedProducts.isNotEmpty) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Articles Réservés'),
-            content: Text('Attention: Le stock a été mis à jour, mais les articles suivants sont réservés pour des remplacements approuvés:\n\n- ${backorderedProducts.join("\n- ")}'),
-            actions: [ TextButton(child: const Text('OK'), onPressed: () => Navigator.of(ctx).pop()) ],
-          ),
-        );
-      }
-
-      await _fetchRequisitionDetails();
-
-    } catch(e) {
-      print(e);
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-    } finally {
-      if(mounted) setState(() => _isActionInProgress = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    // ... build method is unchanged
-    if (_isLoading) return Scaffold(appBar: AppBar(title: const Text('Détail de la Demande')), body: const Center(child: CircularProgressIndicator()));
-    if (_requisitionData == null) return Scaffold(appBar: AppBar(title: const Text('Détail de la Demande')), body: const Center(child: Text('Demande introuvable.')));
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade100,
+        appBar: AppBar(title: const Text('Chargement...')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_requisitionData == null) {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade100,
+        appBar: AppBar(title: const Text('Erreur')),
+        body: const Center(child: Text('Demande introuvable.')),
+      );
+    }
 
     final data = _requisitionData!;
-    final items = (data['items'] as List<dynamic>).map((item) => item as Map<String, dynamic>).toList();
-    final createdAt = (data['createdAt'] as Timestamp).toDate();
-    final activityLog = (data['activityLog'] as List<dynamic>? ?? []).map((log) => log as Map<String, dynamic>).toList()..sort((a,b) => (b['timestamp'] as Timestamp).compareTo(a['timestamp']));
+    final activityLog = (data['activityLog'] as List<dynamic>? ?? [])
+        .map((log) => log as Map<String, dynamic>)
+        .toList()
+      ..sort((a, b) => (b['timestamp'] as Timestamp).compareTo(a['timestamp']));
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: const Text('Détail de la Demande'),
+        title: Text(data['requisitionCode'] ?? 'Détail de la Demande'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.black87,
         actions: [
           if (widget.userRole == 'PDG' && !_isEditMode && data['status'] == "En attente d'approbation")
             IconButton(icon: const Icon(Icons.edit_outlined), onPressed: _toggleEditMode, tooltip: 'Modifier')
@@ -239,66 +203,72 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              leading: const Icon(Icons.person_outline),
-              title: const Text('Demandé par'),
-              subtitle: Text(data['requestedBy'] ?? ''),
+            _buildHeaderCard(data),
+            const SizedBox(height: 24),
+            _buildStatusBadge(data['status']),
+            const SizedBox(height: 24),
+            if (_isActionInProgress)
+              const Center(child: CircularProgressIndicator())
+            else
+              _buildActionButtons(data['status']),
+            const SizedBox(height: 24),
+            _buildItemsList(data),
+            const SizedBox(height: 24),
+            const Text(
+              "Journal d'Activité",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
             ),
-            ListTile(
-              leading: const Icon(Icons.calendar_today_outlined),
-              title: const Text('Date'),
-              subtitle: Text(DateFormat('dd MMMM yyyy', 'fr_FR').format(createdAt)),
+            const SizedBox(height: 16),
+            _ActivityTimeline(activityLog: activityLog),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderCard(Map<String, dynamic> data) {
+    final createdAt = (data['createdAt'] as Timestamp).toDate();
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [Colors.deepPurple.shade400, Colors.indigo.shade400],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              data['requisitionCode'] ?? 'Demande d\'Achat',
+              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
             ),
-            const Divider(height: 32),
-            Text('Articles Demandés', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(Icons.person_outline, color: Colors.white70, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Demandé par: ${data['requestedBy'] ?? 'N/A'}',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
-            Card(
-              child: ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: items.length,
-                itemBuilder: (context, index) {
-                  final item = items[index];
-                  return ListTile(
-                    title: Text(item['productName']),
-                    trailing: _isEditMode
-                        ? SizedBox(
-                      width: 80,
-                      child: TextFormField(
-                        controller: _quantityControllers[index],
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.center,
-                        decoration: const InputDecoration(labelText: 'Qté'),
-                      ),
-                    )
-                        : Text('Qté: ${item['quantity']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 32),
-            if (_isActionInProgress) const Center(child: CircularProgressIndicator()) else _buildActionButtons(data['status']),
-            const Divider(height: 32),
-            Text("Journal d'Activité", style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Card(
-              child: activityLog.isEmpty
-                  ? const ListTile(title: Text('Aucune activité enregistrée.'))
-                  : ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: activityLog.length,
-                itemBuilder: (context, index) {
-                  final log = activityLog[index];
-                  final logTime = (log['timestamp'] as Timestamp).toDate();
-                  return ListTile(
-                    leading: const Icon(Icons.history),
-                    title: Text(log['action']),
-                    subtitle: Text('Par ${log['user']}'),
-                    trailing: Text(DateFormat('dd/MM/yy HH:mm').format(logTime)),
-                  );
-                },
-              ),
+            Row(
+              children: [
+                const Icon(Icons.calendar_today_outlined, color: Colors.white70, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Date: ${DateFormat('dd MMMM yyyy', 'fr_FR').format(createdAt)}',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ],
             ),
           ],
         ),
@@ -306,11 +276,115 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
     );
   }
 
+  Widget _buildStatusBadge(String status) {
+    final style = _TimelineStyle.fromAction(status);
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: style.color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: style.color),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(style.icon, color: style.color, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              status,
+              style: TextStyle(color: style.color, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemsList(Map<String, dynamic> data) {
+    final items = _isEditMode
+        ? _editableItems
+        : (data['items'] as List<dynamic>).map((item) => item as Map<String, dynamic>).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Articles Demandés',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.indigo.withOpacity(0.1),
+                  child: const Icon(Icons.inventory_2_outlined, color: Colors.indigo),
+                ),
+                title: Text(item['productName']),
+                trailing: _isEditMode
+                    ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 60,
+                      child: TextFormField(
+                        controller: _quantityControllers[index],
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        decoration: const InputDecoration(labelText: 'Qté'),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _deleteItem(index),
+                    ),
+                  ],
+                )
+                    : Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Qté: ${item['quantity']}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        if (_isEditMode)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Center(
+              child: TextButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Ajouter un Produit'),
+                onPressed: _showAddItemDialog,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ✅ ADDED BACK: The missing implementation for the action buttons
   Widget _buildActionButtons(String status) {
     final isPdg = widget.userRole == 'PDG';
     final isManager = ['Admin', 'Responsable Administratif', 'Responsable Commercial', 'Chef de Projet'].contains(widget.userRole);
 
-    if (_isEditMode && isPdg) {
+    if (_isEditMode) {
       return Row(
         children: [
           Expanded(child: OutlinedButton(onPressed: _toggleEditMode, child: const Text('Annuler'))),
@@ -361,7 +435,13 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
       case 'Commandée':
         if (isManager || isPdg) {
           return ElevatedButton.icon(
-            onPressed: _confirmReceiptAndUpdateStock,
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => ConfirmReceiptPage(requisitionId: widget.requisitionId),
+                ),
+              );
+            },
             icon: const Icon(Icons.inventory_2_outlined),
             label: const Text('Confirmer la Réception'),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
@@ -372,5 +452,254 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
       default:
         return Center(child: Chip(label: Text('Statut: $status')));
     }
+  }
+}
+
+// ✅ ADDED BACK: The missing implementation for the timeline widget
+class _ActivityTimeline extends StatelessWidget {
+  final List<Map<String, dynamic>> activityLog;
+
+  const _ActivityTimeline({required this.activityLog});
+
+  @override
+  Widget build(BuildContext context) {
+    if (activityLog.isEmpty) {
+      return const Card(child: ListTile(title: Text('Aucune activité enregistrée.')));
+    }
+    return ListView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      shrinkWrap: true,
+      itemCount: activityLog.length,
+      itemBuilder: (context, index) {
+        final log = activityLog[index];
+        return _TimelineTile(
+          log: log,
+          isFirst: index == 0,
+          isLast: index == activityLog.length - 1,
+        );
+      },
+    );
+  }
+}
+
+// ✅ ADDED BACK: The missing implementation for the timeline tile widget
+class _TimelineTile extends StatelessWidget {
+  final Map<String, dynamic> log;
+  final bool isFirst;
+  final bool isLast;
+
+  const _TimelineTile({required this.log, required this.isFirst, required this.isLast});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = _TimelineStyle.fromAction(log['action']);
+    final logTime = (log['timestamp'] as Timestamp).toDate();
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 50,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    color: isFirst ? Colors.transparent : Colors.grey.shade300,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isFirst ? style.color : Colors.grey.shade300,
+                  ),
+                  child: Icon(style.icon, color: Colors.white, size: isFirst ? 20 : 12),
+                ),
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    color: isLast ? Colors.transparent : Colors.grey.shade300,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        log['action'],
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: isFirst ? style.color : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('dd/MM/yy HH:mm').format(logTime),
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Par: ${log['user'] ?? 'Utilisateur inconnu'}',
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineStyle {
+  final IconData icon;
+  final Color color;
+  _TimelineStyle({required this.icon, required this.color});
+
+  factory _TimelineStyle.fromAction(String action) {
+    switch (action) {
+      case 'Approuvée': return _TimelineStyle(icon: Icons.check_circle_outline, color: Colors.green);
+      case 'Commandée': return _TimelineStyle(icon: Icons.local_shipping_outlined, color: Colors.blue);
+      case 'Reçue': return _TimelineStyle(icon: Icons.inventory_2_outlined, color: Colors.teal);
+      case 'Reçue avec Écarts': return _TimelineStyle(icon: Icons.warning_amber_rounded, color: Colors.orange);
+      case 'Refusée': return _TimelineStyle(icon: Icons.cancel_outlined, color: Colors.red);
+      default: return _TimelineStyle(icon: Icons.history, color: Colors.grey);
+    }
+  }
+}
+
+class _AddItemDialog extends StatefulWidget {
+  const _AddItemDialog();
+  @override
+  State<_AddItemDialog> createState() => _AddItemDialogState();
+}
+
+class _AddItemDialogState extends State<_AddItemDialog> {
+  final List<String> _mainCategories = ['Antivol', 'TPV', 'Compteur Client'];
+  String? _selectedMainCategory;
+  List<String> _subCategories = [];
+  bool _isLoadingSubCategories = false;
+  String? _selectedSubCategory;
+  List<DocumentSnapshot> _products = [];
+  bool _isLoadingProducts = false;
+  DocumentSnapshot? _selectedProduct;
+  final _quantityController = TextEditingController(text: "1");
+  final _dialogFormKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchCategoriesForMainSection(String mainCategory) async {
+    setState(() {
+      _isLoadingSubCategories = true; _subCategories = []; _selectedSubCategory = null;
+      _products = []; _selectedProduct = null;
+    });
+    final snapshot = await FirebaseFirestore.instance.collection('produits').where('mainCategory', isEqualTo: mainCategory).get();
+    final categoriesSet = <String>{};
+    for (var doc in snapshot.docs) {
+      categoriesSet.add(doc.data()['categorie'] as String);
+    }
+    final sortedList = categoriesSet.toList();
+    sortedList.sort();
+    if (mounted) {
+      setState(() { _subCategories = sortedList; _isLoadingSubCategories = false; });
+    }
+  }
+
+  Future<void> _fetchProductsForSubCategory(String category) async {
+    setState(() { _isLoadingProducts = true; _products = []; _selectedProduct = null; });
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('produits').where('categorie', isEqualTo: category).orderBy('nom').get();
+      if (mounted) setState(() { _products = snapshot.docs; _isLoadingProducts = false; });
+    } catch (e) {
+      if (mounted) setState(() { _isLoadingProducts = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Ajouter un Produit'),
+      content: Form(
+        key: _dialogFormKey,
+        child: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: _selectedMainCategory,
+                items: _mainCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                onChanged: (val) {
+                  if(val != null) {
+                    setState(() => _selectedMainCategory = val);
+                    _fetchCategoriesForMainSection(val);
+                  }
+                },
+                decoration: const InputDecoration(labelText: 'Section Principale', border: OutlineInputBorder()),
+                validator: (v) => v == null ? 'Requis' : null,
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _selectedSubCategory,
+                items: _subCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                onChanged: _selectedMainCategory == null || _isLoadingSubCategories ? null : (val) {
+                  if (val != null) {
+                    setState(() => _selectedSubCategory = val);
+                    _fetchProductsForSubCategory(val);
+                  }
+                },
+                decoration: const InputDecoration(labelText: 'Catégorie', border: const OutlineInputBorder()),
+                validator: (v) => v == null ? 'Requis' : null,
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<DocumentSnapshot>(
+                value: _selectedProduct,
+                items: _products.map((p) => DropdownMenuItem(value: p, child: Text(p['nom']))).toList(),
+                onChanged: _selectedSubCategory == null || _isLoadingProducts ? null : (val) => setState(() => _selectedProduct = val),
+                decoration: const InputDecoration(labelText: 'Produit', border: const OutlineInputBorder()),
+                validator: (v) => v == null ? 'Requis' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _quantityController,
+                decoration: const InputDecoration(labelText: 'Quantité', border: const OutlineInputBorder()),
+                keyboardType: TextInputType.number,
+                validator: (v) => (int.tryParse(v ?? '') ?? 0) <= 0 ? 'Quantité requise' : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        ElevatedButton(
+          onPressed: () {
+            if (_dialogFormKey.currentState!.validate()) {
+              final quantity = int.tryParse(_quantityController.text) ?? 0;
+              Navigator.of(context).pop(RequisitionItem(productDoc: _selectedProduct!, quantity: quantity));
+            }
+          },
+          child: const Text('Ajouter'),
+        ),
+      ],
+    );
   }
 }
