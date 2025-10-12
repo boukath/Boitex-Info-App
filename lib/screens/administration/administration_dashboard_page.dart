@@ -81,7 +81,8 @@ class AdministrationDashboardPage extends StatelessWidget {
                       displayName.isNotEmpty
                           ? displayName[0].toUpperCase()
                           : 'U',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -89,16 +90,21 @@ class AdministrationDashboardPage extends StatelessWidget {
               const SizedBox(height: 24),
               Text(
                 'Bienvenue, $displayName 👋',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                style:
+                const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 32),
               // Quick actions grid
               LayoutBuilder(builder: (ctx, box) {
                 final w = box.maxWidth;
                 int cols = 3;
-                if (w >= 1600) cols = 6;
-                else if (w >= 1200) cols = 5;
-                else if (w >= 900) cols = 4;
+                if (w >= 1600) {
+                  cols = 6;
+                } else if (w >= 1200) {
+                  cols = 5;
+                } else if (w >= 900) {
+                  cols = 4;
+                }
                 return GridView.count(
                   crossAxisCount: cols,
                   shrinkWrap: true,
@@ -112,17 +118,25 @@ class AdministrationDashboardPage extends StatelessWidget {
               const SizedBox(height: 40),
               const Text(
                 'Vue d\'ensemble',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E293B)),
               ),
               const SizedBox(height: 20),
               // Responsive stats grid (no overflow)
               LayoutBuilder(builder: (ctx, box) {
                 final w = box.maxWidth;
                 int cols;
-                if (w >= 1800) cols = 5;
-                else if (w >= 1400) cols = 4;
-                else if (w >= 1000) cols = 3;
-                else cols = 2;
+                if (w >= 1800) {
+                  cols = 5;
+                } else if (w >= 1400) {
+                  cols = 4;
+                } else if (w >= 1000) {
+                  cols = 3;
+                } else {
+                  cols = 2;
+                }
                 return GridView.count(
                   crossAxisCount: cols,
                   shrinkWrap: true,
@@ -132,7 +146,8 @@ class AdministrationDashboardPage extends StatelessWidget {
                   childAspectRatio: 240 / 140,
                   children: [
                     const _ReplacementRequestsCard(),
-                    if (canSeeMgmt) _RequisitionPipelineCard(userRole: userRole),
+                    if (canSeeMgmt)
+                      _RequisitionPipelineCard(userRole: userRole),
                     if (canSeeMgmt) const _PendingBillingCard(),
                     if (canSeeMgmt) const _PendingReplacementsCard(),
                     if (canSeeMgmt) const _LivraisonsCard(),
@@ -165,14 +180,8 @@ class AdministrationDashboardPage extends StatelessWidget {
                   const Expanded(
                     child: Text(
                       'Administration',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.history),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const ActivityLogPage()),
+                      style:
+                      TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -191,19 +200,23 @@ class AdministrationDashboardPage extends StatelessWidget {
                 );
               }),
               const SizedBox(height: 24),
-              const Text('Tâches Urgentes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('Tâches Urgentes',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
               Column(
                 children: [
                   const _ReplacementRequestsCard(),
-                  if (canSeeMgmt) _RequisitionPipelineCard(userRole: userRole),
+                  if (canSeeMgmt)
+                    _RequisitionPipelineCard(userRole: userRole),
                   if (canSeeMgmt) const _PendingBillingCard(),
                   if (canSeeMgmt) const _PendingReplacementsCard(),
                   if (canSeeMgmt) const _LivraisonsCard(),
-                ].map((card) => Padding(
+                ]
+                    .map((card) => Padding(
                   padding: const EdgeInsets.only(bottom: 16),
                   child: card,
-                )).toList(),
+                ))
+                    .toList(),
               ),
               const SizedBox(height: 80),
             ],
@@ -219,7 +232,8 @@ class AdministrationDashboardPage extends StatelessWidget {
         Icons.note_add_rounded,
         'Nouveau Projet',
         const Color(0xFF10B981),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
       ),
       _ActionItem(
         Icons.store_rounded,
@@ -227,7 +241,8 @@ class AdministrationDashboardPage extends StatelessWidget {
         const Color(0xFF3B82F6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ManageClientsPage(userRole: userRole)),
+          MaterialPageRoute(
+              builder: (_) => ManageClientsPage(userRole: userRole)),
         ),
       ),
       _ActionItem(
@@ -236,32 +251,44 @@ class AdministrationDashboardPage extends StatelessWidget {
         const Color(0xFF8B5CF6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ManageProjectsPage(userRole: userRole)),
+          MaterialPageRoute(
+              builder: (_) => ManageProjectsPage(userRole: userRole)),
         ),
       ),
       _ActionItem(
         Icons.inventory_2_rounded,
         'Produits',
         const Color(0xFF14B8A6),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
       ),
       _ActionItem(
         Icons.warehouse_rounded,
         'Stock',
         const Color(0xFF6366F1),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const StockPage())),
       ),
       _ActionItem(
         Icons.assignment_rounded,
         'Missions',
         const Color(0xFFA855F7),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
       ),
       _ActionItem(
         Icons.local_shipping_rounded,
         'Livraisons',
         const Color(0xFFF59E0B),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
+      ),
+      _ActionItem(
+        Icons.history_rounded,
+        'Historique',
+        const Color(0xFF78716C),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const ActivityLogPage())),
       ),
     ];
   }
@@ -289,20 +316,30 @@ class _ActionItem extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withOpacity(0.3)),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2))
+          ],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
               padding: EdgeInsets.all(padding),
-              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: color, size: iconSize),
             ),
             const SizedBox(height: 8),
             Text(
               label,
-              style: TextStyle(fontSize: textSize, fontWeight: FontWeight.w600, color: Colors.grey.shade800),
+              style: TextStyle(
+                  fontSize: textSize,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800),
               textAlign: TextAlign.center,
             ),
           ],
@@ -363,41 +400,44 @@ class _RequisitionPipelineCard extends StatelessWidget {
       color: const Color(0xFF6366F1),
       customBody: Row(
         children: [
-          Expanded(child: _buildMiniStat(
-            context,
-            'Approbation',
-            FirebaseFirestore.instance
-                .collection('requisitions')
-                .where('status', isEqualTo: "En attente d'approbation")
-                .snapshots(),
-                () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => RequisitionApprovalPage(userRole: userRole),
-              ),
-            ),
-          )),
+          Expanded(
+              child: _buildMiniStat(
+                context,
+                'Approbation',
+                FirebaseFirestore.instance
+                    .collection('requisitions')
+                    .where('status', isEqualTo: "En attente d'approbation")
+                    .snapshots(),
+                    () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RequisitionApprovalPage(userRole: userRole),
+                  ),
+                ),
+              )),
           Container(width: 1, height: 50, color: Colors.grey.shade200),
-          Expanded(child: _buildMiniStat(
-            context,
-            'À Commander',
-            FirebaseFirestore.instance
-                .collection('requisitions')
-                .where('status', isEqualTo: "Approuvée")
-                .snapshots(),
-                () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PurchasingHubPage(userRole: userRole),
-              ),
-            ),
-          )),
+          Expanded(
+              child: _buildMiniStat(
+                context,
+                'À Commander',
+                FirebaseFirestore.instance
+                    .collection('requisitions')
+                    .where('status', isEqualTo: "Approuvée")
+                    .snapshots(),
+                    () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PurchasingHubPage(userRole: userRole),
+                  ),
+                ),
+              )),
         ],
       ),
     );
   }
 
-  Widget _buildMiniStat(BuildContext ctx, String title, Stream<QuerySnapshot> stream, VoidCallback onTap) {
+  Widget _buildMiniStat(
+      BuildContext ctx, String title, Stream<QuerySnapshot> stream, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -408,10 +448,14 @@ class _RequisitionPipelineCard extends StatelessWidget {
               stream: stream,
               builder: (c, s) {
                 final cnt = s.hasData ? s.data!.docs.length : 0;
-                return Text(cnt.toString(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold));
+                return Text(cnt.toString(),
+                    style: const TextStyle(
+                        fontSize: 24, fontWeight: FontWeight.bold));
               },
             ),
-            Text(title, style: const TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.center),
+            Text(title,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -564,7 +608,8 @@ Widget _buildPremiumCard({
             customBody ??
                 Text(
                   count,
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: color),
+                  style: TextStyle(
+                      fontSize: 32, fontWeight: FontWeight.bold, color: color),
                 ),
           ],
         ),

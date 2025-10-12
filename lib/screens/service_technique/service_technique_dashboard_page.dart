@@ -313,6 +313,19 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
           ),
         ),
       ),
+      // ✅ ADDED HISTORIQUE ICON
+      _ActionItem(
+        Icons.history,
+        'Historique',
+        const Color(0xFF7e57c2),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+            const HistoricInterventionsPage(serviceType: 'Service Technique'),
+          ),
+        ),
+      ),
     ];
   }
 }
