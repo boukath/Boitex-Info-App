@@ -1,7 +1,8 @@
 // lib/screens/service_technique/historic_interventions_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:boitex_info_app/screens/service_technique/intervention_history_list_page.dart';
+// ✅ UPDATED IMPORT: Added the new client list page for navigation
+import 'package:boitex_info_app/screens/service_technique/intervention_history_clients_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_history_list_page.dart';
 import 'package:boitex_info_app/screens/administration/mission_history_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_history_page.dart';
@@ -24,29 +25,28 @@ class HistoricInterventionsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // ... (The other cards remain the same)
           _buildHistoryCategoryCard(
             context: context,
             title: 'Historique des Interventions',
-            subtitle: 'Consulter toutes les interventions terminées',
-            icon: Icons.schedule,
-            color: Colors.blue,
+            subtitle: 'Consulter toutes les interventions clôturées',
+            icon: Icons.construction_outlined,
+            color: Colors.orange,
             onTap: () {
+              // ✅ MODIFIED: This now navigates to the new client list page
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => InterventionHistoryListPage(serviceType: serviceType),
+                  builder: (context) => InterventionHistoryClientsPage(serviceType: serviceType),
                 ),
               );
             },
           ),
           const SizedBox(height: 12),
-
           _buildHistoryCategoryCard(
             context: context,
             title: 'Historique des Installations',
             subtitle: 'Consulter toutes les installations terminées',
             icon: Icons.router_outlined,
-            color: const Color(0xFF3b82f6),
+            color: Colors.blue,
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -56,29 +56,12 @@ class HistoricInterventionsPage extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-
-          _buildHistoryCategoryCard(
-            context: context,
-            title: 'Historique des Missions',
-            subtitle: 'Consulter toutes les missions terminées',
-            icon: Icons.assignment_turned_in_outlined,
-            color: Colors.purple,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => MissionHistoryListPage(serviceType: serviceType),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-
           _buildHistoryCategoryCard(
             context: context,
             title: 'Historique des Tickets SAV',
-            subtitle: 'Consulter tous les tickets retournés',
+            subtitle: 'Consulter tous les tickets SAV traités',
             icon: Icons.support_agent_outlined,
-            color: Colors.orange,
+            color: Colors.red,
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -88,18 +71,31 @@ class HistoricInterventionsPage extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-
-          // ✅ CHANGED: Now passes the serviceType to the next page
           _buildHistoryCategoryCard(
             context: context,
             title: 'Historique des Remplacements',
             subtitle: 'Consulter tous les remplacements effectués',
-            icon: Icons.sync_alt_outlined,
-            color: Colors.red,
+            icon: Icons.inventory_2_outlined,
+            color: Colors.purple,
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => CompletedReplacementListPage(serviceType: serviceType),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          _buildHistoryCategoryCard(
+            context: context,
+            title: 'Historique des Missions',
+            subtitle: 'Consulter toutes les missions terminées',
+            icon: Icons.assignment_turned_in_outlined,
+            color: Colors.green,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => MissionHistoryListPage(serviceType: serviceType),
                 ),
               );
             },
@@ -149,7 +145,7 @@ class HistoricInterventionsPage extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }

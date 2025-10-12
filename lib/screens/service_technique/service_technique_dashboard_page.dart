@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
+// ✅ FIXED: Changed import back to the main history hub page
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_list_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_missions_page.dart';
@@ -313,7 +314,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
           ),
         ),
       ),
-      // ✅ ADDED HISTORIQUE ICON
+      // ✅ FIXED: This now navigates to the history hub page
       _ActionItem(
         Icons.history,
         'Historique',

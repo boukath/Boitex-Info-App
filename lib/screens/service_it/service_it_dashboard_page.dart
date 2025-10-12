@@ -8,6 +8,7 @@ import 'package:boitex_info_app/screens/service_technique/intervention_list_page
 import 'package:boitex_info_app/screens/service_technique/installation_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/ready_replacements_list_page.dart';
+// ✅ FIXED: Changed import back to the main history hub page
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_missions_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
@@ -29,7 +30,7 @@ class ServiceItDashboardPage extends StatelessWidget {
       final isWideWeb = kIsWeb && width >= 900;
 
       if (isWideWeb) {
-        // Web layout
+        // Web‐optimized horizontal layout
         return Scaffold(
           backgroundColor: Colors.grey.shade50,
           body: SafeArea(
@@ -38,7 +39,7 @@ class ServiceItDashboardPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Custom app bar
+                  // Top bar
                   Row(
                     children: [
                       IconButton(
@@ -48,23 +49,19 @@ class ServiceItDashboardPage extends StatelessWidget {
                       const SizedBox(width: 8),
                       const Text(
                         'Service IT',
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style:
+                        TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),
                       CircleAvatar(
                         radius: 20,
-                        backgroundColor: const Color(0xFF0891b2),
+                        backgroundColor: const Color(0xFF3b82f6),
                         child: Text(
                           displayName.isNotEmpty
                               ? displayName[0].toUpperCase()
                               : 'U',
                           style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
@@ -72,8 +69,7 @@ class ServiceItDashboardPage extends StatelessWidget {
                   const SizedBox(height: 24),
                   _buildWelcomeCard(),
                   const SizedBox(height: 32),
-
-                  // Responsive quick actions grid
+                  // Responsive quick‐actions grid
                   LayoutBuilder(builder: (ctx, box) {
                     final w = box.maxWidth;
                     int cols = 3;
@@ -91,8 +87,7 @@ class ServiceItDashboardPage extends StatelessWidget {
                     );
                   }),
                   const SizedBox(height: 40),
-
-                  // Responsive stats grid (fix overflow)
+                  // Responsive stats grid (no overflow)
                   LayoutBuilder(builder: (ctx, box) {
                     final w = box.maxWidth;
                     int cols;
@@ -123,7 +118,7 @@ class ServiceItDashboardPage extends StatelessWidget {
         );
       }
 
-      // Mobile layout
+      // Mobile version
       return Scaffold(
         backgroundColor: Colors.grey.shade50,
         body: SafeArea(
@@ -132,20 +127,19 @@ class ServiceItDashboardPage extends StatelessWidget {
               SliverAppBar(
                 expandedHeight: 120,
                 pinned: true,
-                backgroundColor: const Color(0xFF0891b2),
+                backgroundColor: const Color(0xFF1e40af),
                 flexibleSpace: FlexibleSpaceBar(
                   title: Text(
                     'Service IT',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: kIsWeb ? 24 : 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold),
                   ),
                   background: Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFF0891b2), Color(0xFF06b6d4)],
+                        colors: [Color(0xFF1e40af), Color(0xFF3b82f6)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -159,18 +153,7 @@ class ServiceItDashboardPage extends StatelessWidget {
                   delegate: SliverChildListDelegate([
                     _buildWelcomeCard(),
                     const SizedBox(height: 20),
-                    LayoutBuilder(builder: (ctx, box) {
-                      // For mobile, 2 columns
-                      return GridView.count(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 1.2,
-                        children: _buildQuickActions(context),
-                      );
-                    }),
+                    _buildQuickActionsGrid(context),
                     const SizedBox(height: 20),
                     _InterventionsCard(userRole: userRole),
                     const SizedBox(height: 16),
@@ -196,14 +179,14 @@ class ServiceItDashboardPage extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF0891b2), Color(0xFF06b6d4)],
+          colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0891b2).withOpacity(0.3),
+            color: const Color(0xFF6366f1).withOpacity(0.3),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -218,18 +201,14 @@ class ServiceItDashboardPage extends StatelessWidget {
                 Text(
                   'Bienvenue, $displayName',
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Gérez les interventions IT et support technique',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                  ),
+                  'Gérez les interventions et installations',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
                 ),
               ],
             ),
@@ -240,21 +219,29 @@ class ServiceItDashboardPage extends StatelessWidget {
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.computer,
-              color: Colors.white,
-              size: 32,
-            ),
+            child: const Icon(Icons.computer, color: Colors.white, size: 32),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildQuickActionsGrid(BuildContext context) {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.2,
+      children: _buildQuickActions(context),
+    );
+  }
+
   List<Widget> _buildQuickActions(BuildContext context) {
     return [
       _ActionItem(
-        Icons.support_agent_rounded,
+        Icons.construction_rounded,
         'Interventions',
         const Color(0xFF10b981),
             () => Navigator.push(
@@ -322,11 +309,11 @@ class ServiceItDashboardPage extends StatelessWidget {
             () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => LivraisonsHubPage(serviceType: 'Service IT'),
+            builder: (_) => const LivraisonsHubPage(serviceType: 'Service IT'),
           ),
         ),
       ),
-      // ✅ ADDED HISTORIQUE ICON
+      // ✅ FIXED: This now navigates to the history hub page
       _ActionItem(
         Icons.history,
         'Historique',
@@ -362,7 +349,6 @@ class _ActionItem extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: EdgeInsets.all(padding),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -375,6 +361,7 @@ class _ActionItem extends StatelessWidget {
             ),
           ],
         ),
+        padding: EdgeInsets.all(padding),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -402,8 +389,6 @@ class _ActionItem extends StatelessWidget {
     );
   }
 }
-
-// Statistic Cards
 
 Widget _buildPremiumCard({
   required BuildContext context,
@@ -442,36 +427,34 @@ Widget _buildPremiumCard({
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10)),
                     child: Icon(icon, color: color, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800),
                   ),
                 ],
               ),
             ),
             if (stream != null)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: StreamBuilder<QuerySnapshot>(
                   stream: stream,
                   builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                     final count = snapshot.data!.docs.length;
                     return Text(
                       '$count',
-                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: color),
+                      style: TextStyle(
+                          fontSize: 32, fontWeight: FontWeight.bold, color: color),
                     );
                   },
                 ),
@@ -496,7 +479,7 @@ class _InterventionsCard extends StatelessWidget {
     return _buildPremiumCard(
       context: context,
       title: 'Interventions',
-      icon: Icons.support_agent_rounded,
+      icon: Icons.construction_rounded,
       color: const Color(0xFF10b981),
       stream: FirebaseFirestore.instance
           .collection('interventions')
