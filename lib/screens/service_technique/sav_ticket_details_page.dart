@@ -64,16 +64,30 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     super.dispose();
   }
 
+  // ✅ DEFINITIVE FIX: Made the stock check resilient to number types (int or double)
   Future<void> _checkStockForParts(List<BrokenPart> parts) async {
     final tempStatus = <String, int>{};
     for (var part in parts) {
-      final productDoc = await FirebaseFirestore.instance
-          .collection('products')
-          .doc(part.productId)
-          .get();
-      if (productDoc.exists) {
-        tempStatus[part.productId] =
-            (productDoc.data()?['stock'] as int?) ?? 0;
+      try {
+        final productDoc = await FirebaseFirestore.instance
+            .collection('produits') // Using the confirmed lowercase name
+            .doc(part.productId)
+            .get();
+
+        if (productDoc.exists) {
+          final data = productDoc.data();
+          // Safely read the stock value, whether it's an int or a double
+          if (data != null && data.containsKey('stock')) {
+            final stockValue = data['stock'] as num?; // Read as generic number
+            tempStatus[part.productId] = stockValue?.toInt() ?? 0; // Safely convert to int
+          } else {
+            tempStatus[part.productId] = 0;
+          }
+        }
+      } catch (e) {
+        print('Error checking stock for ${part.productId}: $e');
+        // If an error occurs, we assume stock is 0 for that part
+        tempStatus[part.productId] = 0;
       }
     }
     if (mounted) {
@@ -82,6 +96,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       });
     }
   }
+
 
   Future<void> _updateTicket(String newStatus) async {
     setState(() => _isUpdating = true);
@@ -96,7 +111,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         _currentTicket.brokenParts.map((p) => p.toJson()).toList(),
       });
 
-      // ✅ FIXED: Corrected the parameters for ActivityLogger
       await ActivityLogger.logActivity(
         message:
         "Le statut du ticket SAV ${_currentTicket.savCode} a été mis à jour à '$newStatus'.",
@@ -144,12 +158,20 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       }).toList();
 
       setState(() {
+        // Rebuild the ticket object with the new parts list
+        final updatedTicketData = _currentTicket.toJson();
+        updatedTicketData['brokenParts'] = newParts.map((p) => p.toJson()).toList();
+
+        // This is a simplified way to update the local object.
+        // A more robust solution might use a copyWith method in the SavTicket model.
         _currentTicket = SavTicket(
           id: _currentTicket.id,
           serviceType: _currentTicket.serviceType,
           savCode: _currentTicket.savCode,
           clientId: _currentTicket.clientId,
           clientName: _currentTicket.clientName,
+          storeId: _currentTicket.storeId,
+          storeName: _currentTicket.storeName,
           pickupDate: _currentTicket.pickupDate,
           pickupTechnicianIds: _currentTicket.pickupTechnicianIds,
           pickupTechnicianNames: _currentTicket.pickupTechnicianNames,
@@ -160,11 +182,17 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           storeManagerName: _currentTicket.storeManagerName,
           storeManagerSignatureUrl: _currentTicket.storeManagerSignatureUrl,
           status: _currentTicket.status,
-          technicianReport: _reportController.text,
+          technicianReport: _reportController.text, // Use current text
           createdBy: _currentTicket.createdBy,
           createdAt: _currentTicket.createdAt,
           brokenParts: newParts,
+          billingStatus: _currentTicket.billingStatus,
+          invoiceUrl: _currentTicket.invoiceUrl,
+          returnClientName: _currentTicket.returnClientName,
+          returnSignatureUrl: _currentTicket.returnSignatureUrl,
+          returnPhotoUrl: _currentTicket.returnPhotoUrl,
         );
+
       });
       _checkStockForParts(newParts);
     }
@@ -266,7 +294,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                 style: Theme.of(context).textTheme.titleLarge),
             const Divider(height: 20),
             DropdownButtonFormField<String>(
-              value: _currentTicket.status,
+              value: _statusOptions.contains(_currentTicket.status) ? _currentTicket.status : null,
               items: _statusOptions
                   .map((status) =>
                   DropdownMenuItem(value: status, child: Text(status)))
@@ -358,7 +386,7 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
   List<DocumentSnapshot> _allProducts = [];
   List<DocumentSnapshot> _productsForCategory = [];
   String? _selectedCategory;
-  bool _isLoadingProducts = false;
+  bool _isLoadingProducts = true;
   late List<DocumentSnapshot> _selectedParts;
 
   @override
@@ -369,13 +397,27 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
   }
 
   Future<void> _fetchAllProducts() async {
-    final snapshot =
-    await FirebaseFirestore.instance.collection('products').get();
-    setState(() {
-      _allProducts = snapshot.docs;
-    });
-    _selectedParts
-        .addAll(_allProducts.where((p) => widget.initialSelected.contains(p.id)));
+    try {
+      final snapshot =
+      await FirebaseFirestore.instance.collection('produits').get();
+      if (mounted) {
+        setState(() {
+          _allProducts = snapshot.docs;
+          _selectedParts
+              .addAll(_allProducts.where((p) => widget.initialSelected.contains(p.id)));
+          _isLoadingProducts = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingProducts = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: ${e.toString()}'))
+        );
+      }
+    }
   }
 
   void _filterProductsByCategory(String category) {
@@ -389,7 +431,11 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
   @override
   Widget build(BuildContext context) {
     final categories =
-    _allProducts.map((doc) => doc['categorie'] as String).toSet().toList();
+    _allProducts.map((doc) {
+      final data = doc.data() as Map<String, dynamic>?;
+      return data?['categorie'] as String?;
+    }).where((c) => c != null).toSet().toList();
+
 
     return AlertDialog(
       title: const Text('Ajouter des pièces défectueuses'),
@@ -405,14 +451,16 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
                 if (value != null) _filterProductsByCategory(value);
               },
               items: categories
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                  .map((c) => DropdownMenuItem(value: c, child: Text(c!)))
                   .toList(),
             ),
             const SizedBox(height: 16),
             Expanded(
               child: _isLoadingProducts
                   ? const Center(child: CircularProgressIndicator())
-                  : _productsForCategory.isEmpty
+                  : _productsForCategory.isEmpty && _selectedCategory != null
+                  ? const Center(child: Text('Aucun produit dans cette catégorie.'))
+                  : _selectedCategory == null
                   ? const Center(child: Text('Sélectionnez une catégorie.'))
                   : ListView.builder(
                 itemCount: _productsForCategory.length,

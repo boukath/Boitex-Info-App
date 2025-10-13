@@ -137,23 +137,56 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
+  // ✅ MODIFIED: Added try-catch and data validation for resilience
   Future<void> _fetchCategoriesForMainSection(String mainCategory) async {
     setState(() {
-      _isLoadingSubCategories = true; _subCategories = []; _selectedSubCategory = null;
-      _products = []; _selectedProductId = null;
+      _isLoadingSubCategories = true;
+      _subCategories = [];
+      _selectedSubCategory = null;
+      _products = [];
+      _selectedProductId = null;
     });
-    final snapshot = await FirebaseFirestore.instance
-        .collection('produits')
-        .where('mainCategory', isEqualTo: mainCategory)
-        .get();
-    final categoriesSet = <String>{};
-    for (var doc in snapshot.docs) {
-      categoriesSet.add(doc.data()['categorie'] as String);
-    }
-    final sortedList = categoriesSet.toList();
-    sortedList.sort();
-    if (mounted) {
-      setState(() { _subCategories = sortedList; _isLoadingSubCategories = false; });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('produits')
+          .where('mainCategory', isEqualTo: mainCategory)
+          .get();
+
+      final categoriesSet = <String>{};
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        // Check if the 'categorie' field exists and is a String
+        if (data.containsKey('categorie') && data['categorie'] is String) {
+          categoriesSet.add(data['categorie']);
+        } else {
+          // Log an error to the console to help identify bad data
+          print('Warning: Document ${doc.id} is missing or has an invalid "categorie" field.');
+        }
+      }
+
+      final sortedList = categoriesSet.toList();
+      sortedList.sort();
+
+      if (mounted) {
+        setState(() {
+          _subCategories = sortedList;
+        });
+      }
+    } catch (e) {
+      // Catch any potential errors during the Firestore query
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'))
+        );
+      }
+    } finally {
+      // ALWAYS ensure the loading indicator is turned off
+      if (mounted) {
+        setState(() {
+          _isLoadingSubCategories = false;
+        });
+      }
     }
   }
 
@@ -199,7 +232,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // ✅ CHANGED: Updated save logic to handle optional store
   Future<void> _saveTicket() async {
     if (!_formKey.currentState!.validate()) return;
     if (_signatureController.isEmpty) {
@@ -324,8 +356,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 validator: (value) => value == null ? 'Veuillez sélectionner un client' : null,
               ),
               const SizedBox(height: 16),
-
-              // ✅ ADDED: The new optional Store dropdown
               DropdownButtonFormField<String>(
                 value: _selectedStoreId,
                 isExpanded: true,
@@ -341,19 +371,14 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   focusedBorder: focusedBorder,
                   prefixIcon: _isLoadingStores ? const Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()) : null,
                 ),
-                // No validator makes it optional
               ),
               const SizedBox(height: 16),
-
               TextFormField(
                 controller: _managerNameController,
                 decoration: InputDecoration(labelText: 'Nom du Gérant', border: defaultBorder, focusedBorder: focusedBorder),
                 validator: (value) => value!.isEmpty ? 'Veuillez entrer le nom du gérant' : null,
               ),
               const Divider(height: 40),
-
-              // ... (The rest of the form remains the same)
-
               const Text('Détails de la Récupération', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
               const SizedBox(height: 16),
               InkWell(
