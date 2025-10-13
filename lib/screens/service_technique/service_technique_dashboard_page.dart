@@ -5,13 +5,11 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
-// ✅ FIXED: Changed import back to the main history hub page
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_list_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_missions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_list_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
-import 'package:boitex_info_app/screens/service_technique/add_intervention_page.dart';
 import 'package:boitex_info_app/screens/service_technique/ready_replacements_list_page.dart';
 
 class ServiceTechniqueDashboardPage extends StatelessWidget {
@@ -26,6 +24,7 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The build method remains the same, only _buildQuickActions is changed.
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
       final isWideWeb = kIsWeb && width >= 900;
@@ -314,7 +313,6 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
           ),
         ),
       ),
-      // ✅ FIXED: This now navigates to the history hub page
       _ActionItem(
         Icons.history,
         'Historique',
@@ -322,14 +320,19 @@ class ServiceTechniqueDashboardPage extends StatelessWidget {
             () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-            const HistoricInterventionsPage(serviceType: 'Service Technique'),
+            // ✅ FIXED: Added the required userRole parameter
+            builder: (_) => HistoricInterventionsPage(
+              serviceType: 'Service Technique',
+              userRole: userRole,
+            ),
           ),
         ),
       ),
     ];
   }
 }
+
+// ... The rest of the file (_ActionItem, _buildPremiumCard, and stat cards) remains unchanged ...
 
 class _ActionItem extends StatelessWidget {
   final IconData icon;

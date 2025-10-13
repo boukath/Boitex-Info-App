@@ -30,7 +30,6 @@ class SavTicket {
   final String savCode;
   final String clientId;
   final String clientName;
-  // ✅ CHANGED: Made storeId and storeName optional (nullable)
   final String? storeId;
   final String? storeName;
   final DateTime pickupDate;
@@ -48,13 +47,20 @@ class SavTicket {
   final DateTime createdAt;
   final List<BrokenPart> brokenParts;
 
+  // ✅ ADDED: New fields for the enhanced workflow
+  final String? billingStatus;
+  final String? invoiceUrl;
+  final String? returnClientName;
+  final String? returnSignatureUrl;
+  final String? returnPhotoUrl;
+
+
   SavTicket({
     this.id,
     required this.serviceType,
     required this.savCode,
     required this.clientId,
     required this.clientName,
-    // ✅ CHANGED: Removed 'required'
     this.storeId,
     this.storeName,
     required this.pickupDate,
@@ -71,6 +77,12 @@ class SavTicket {
     required this.createdBy,
     required this.createdAt,
     List<BrokenPart>? brokenParts,
+    // ✅ ADDED: New fields to the constructor
+    this.billingStatus,
+    this.invoiceUrl,
+    this.returnClientName,
+    this.returnSignatureUrl,
+    this.returnPhotoUrl,
   }) : brokenParts = brokenParts ?? [];
 
   Map<String, dynamic> toJson() {
@@ -79,7 +91,6 @@ class SavTicket {
       'savCode': savCode,
       'clientId': clientId,
       'clientName': clientName,
-      // ✅ CHANGED: Now saves optional fields
       'storeId': storeId,
       'storeName': storeName,
       'pickupDate': Timestamp.fromDate(pickupDate),
@@ -96,6 +107,12 @@ class SavTicket {
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(createdAt),
       'brokenParts': brokenParts.map((part) => part.toJson()).toList(),
+      // ✅ ADDED: Saving new fields to Firestore
+      'billingStatus': billingStatus,
+      'invoiceUrl': invoiceUrl,
+      'returnClientName': returnClientName,
+      'returnSignatureUrl': returnSignatureUrl,
+      'returnPhotoUrl': returnPhotoUrl,
     };
   }
 
@@ -112,7 +129,6 @@ class SavTicket {
       savCode: data['savCode'] as String,
       clientId: data['clientId'] as String,
       clientName: data['clientName'] as String,
-      // ✅ CHANGED: Now reads optional fields
       storeId: data['storeId'] as String?,
       storeName: data['storeName'] as String?,
       pickupDate: (data['pickupDate'] as Timestamp).toDate(),
@@ -129,6 +145,12 @@ class SavTicket {
       createdBy: data['createdBy'] as String,
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       brokenParts: brokenPartsList,
+      // ✅ ADDED: Reading new fields from Firestore
+      billingStatus: data['billingStatus'] as String?,
+      invoiceUrl: data['invoiceUrl'] as String?,
+      returnClientName: data['returnClientName'] as String?,
+      returnSignatureUrl: data['returnSignatureUrl'] as String?,
+      returnPhotoUrl: data['returnPhotoUrl'] as String?,
     );
   }
 }

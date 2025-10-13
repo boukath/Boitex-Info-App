@@ -1,7 +1,6 @@
 // lib/screens/service_technique/historic_interventions_page.dart
 
 import 'package:flutter/material.dart';
-// ✅ UPDATED IMPORT: Added the new client list page for navigation
 import 'package:boitex_info_app/screens/service_technique/intervention_history_clients_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_history_list_page.dart';
 import 'package:boitex_info_app/screens/administration/mission_history_list_page.dart';
@@ -12,8 +11,14 @@ import 'package:boitex_info_app/screens/administration/livraison_history_page.da
 
 class HistoricInterventionsPage extends StatelessWidget {
   final String serviceType;
+  // ✅ ADDED: userRole is now required by this widget.
+  final String userRole;
 
-  const HistoricInterventionsPage({super.key, required this.serviceType});
+  const HistoricInterventionsPage({
+    super.key,
+    required this.serviceType,
+    required this.userRole, // And added to the constructor.
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +37,6 @@ class HistoricInterventionsPage extends StatelessWidget {
             icon: Icons.construction_outlined,
             color: Colors.orange,
             onTap: () {
-              // ✅ MODIFIED: This now navigates to the new client list page
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => InterventionHistoryClientsPage(serviceType: serviceType),
@@ -50,7 +54,11 @@ class HistoricInterventionsPage extends StatelessWidget {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => InstallationHistoryListPage(serviceType: serviceType),
+                  // ✅ FIXED: userRole is now correctly passed to the next page.
+                  builder: (context) => InstallationHistoryListPage(
+                    serviceType: serviceType,
+                    userRole: userRole,
+                  ),
                 ),
               );
             },

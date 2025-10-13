@@ -8,7 +8,6 @@ import 'package:boitex_info_app/screens/service_technique/intervention_list_page
 import 'package:boitex_info_app/screens/service_technique/installation_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/ready_replacements_list_page.dart';
-// ✅ FIXED: Changed import back to the main history hub page
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_missions_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
@@ -25,6 +24,7 @@ class ServiceItDashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The build method remains the same, only _buildQuickActions is changed.
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
       final isWideWeb = kIsWeb && width >= 900;
@@ -313,7 +313,6 @@ class ServiceItDashboardPage extends StatelessWidget {
           ),
         ),
       ),
-      // ✅ FIXED: This now navigates to the history hub page
       _ActionItem(
         Icons.history,
         'Historique',
@@ -321,14 +320,19 @@ class ServiceItDashboardPage extends StatelessWidget {
             () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-            const HistoricInterventionsPage(serviceType: 'Service IT'),
+            // ✅ FIXED: Added the required userRole parameter
+            builder: (_) => HistoricInterventionsPage(
+              serviceType: 'Service IT',
+              userRole: userRole,
+            ),
           ),
         ),
       ),
     ];
   }
 }
+
+// ... The rest of the file (_ActionItem, _buildPremiumCard, and stat cards) remains unchanged ...
 
 class _ActionItem extends StatelessWidget {
   final IconData icon;

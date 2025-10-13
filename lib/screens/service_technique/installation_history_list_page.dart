@@ -4,116 +4,92 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
+import 'package:boitex_info_app/screens/service_technique/universal_installation_search_page.dart';
 
 class InstallationHistoryListPage extends StatelessWidget {
-  // ✅ ADDED: Accept the serviceType
   final String serviceType;
+  final String userRole;
 
-  const InstallationHistoryListPage({super.key, required this.serviceType});
-
-  Color _getStatusColor(String? status) {
-    switch (status) {
-      case 'Terminée':
-        return Colors.green.shade700;
-      default:
-        return Colors.grey;
-    }
-  }
+  const InstallationHistoryListPage({
+    super.key,
+    required this.serviceType,
+    required this.userRole,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Historique des Installations'),
-        backgroundColor: const Color(0xFF3b82f6),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => UniversalInstallationSearchPage(
+                    serviceType: serviceType,
+                    userRole: userRole,
+                  ),
+                ),
+              );
+            },
+            tooltip: 'Rechercher une installation',
+          ),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('installations')
-        // ✅ CHANGED: Replaced hardcoded string with the serviceType variable
             .where('serviceType', isEqualTo: serviceType)
             .where('status', isEqualTo: 'Terminée')
             .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
-          // ... The rest of the file remains the same ...
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (snapshot.hasError) {
-            return Center(child: Text('Erreur: ${snapshot.error}'));
+            return const Center(child: Text('Une erreur est survenue.'));
           }
-
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.history_outlined,
-                    size: 80,
-                    color: Colors.grey.shade300,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Aucune installation terminée',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Les installations terminées apparaîtront ici',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ],
-              ),
-            );
+            return const Center(
+                child: Text('Aucune installation terminée trouvée.'));
           }
 
-          final installations = snapshot.data!.docs;
+          final installationDocs = snapshot.data!.docs;
 
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: installations.length,
+            padding: const EdgeInsets.all(8.0),
+            itemCount: installationDocs.length,
             itemBuilder: (context, index) {
-              final doc = installations[index];
+              final doc = installationDocs[index];
               final data = doc.data() as Map<String, dynamic>;
 
+              // ✅ EXTRACTED INSTALLATION CODE
               final installationCode = data['installationCode'] ?? 'N/A';
-              final clientName = data['clientName'] ?? 'Client inconnu';
-              final storeName = data['storeName'] ?? 'Magasin inconnu';
-              final status = data['status'] ?? 'Terminée';
-              final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
-              final formattedDate = createdAt != null
-                  ? DateFormat('dd/MM/yyyy', 'fr_FR').format(createdAt)
-                  : 'Date inconnue';
+              final clientName = data['clientName'] ?? 'N/A';
+              final storeName = data['storeName'] ?? 'N/A';
+              final storeLocation = data['storeLocation'] ?? '';
+              final createdDate = (data['createdAt'] as Timestamp).toDate();
+              final status = data['status'] ?? 'N/A';
 
               return Card(
                 elevation: 2,
-                margin: const EdgeInsets.only(bottom: 12),
+                margin: const EdgeInsets.symmetric(vertical: 6.0),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => InstallationDetailsPage(
-                          installationDoc: doc,
-                          userRole: 'Service Technique', // Read-only for history
-                        ),
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (context) => InstallationDetailsPage(
+                        installationDoc: doc,
+                        userRole: userRole,
                       ),
-                    );
+                    ));
                   },
+                  borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -122,108 +98,60 @@ class InstallationHistoryListPage extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(
-                                    Icons.router_outlined,
-                                    color: Colors.blue.shade700,
-                                    size: 20,
-                                  ),
+                            // ✅ UPDATED: Title is now the installation code
+                            Flexible(
+                              child: Text(
+                                installationCode,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: Color(0xFF1E3A8A),
                                 ),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      installationCode,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Text(
-                                      formattedDate,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
+                                  horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: _getStatusColor(status),
-                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.green.shade700,
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.check_circle_outline,
-                                    color: Colors.white,
-                                    size: 14,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    status,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
+                              child: Text(
+                                status,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 12),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        const Divider(height: 1),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Icon(Icons.person_outline,
-                                size: 16,
-                                color: Colors.grey.shade600),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                clientName,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                            ),
-                          ],
+                        const Divider(height: 20),
+                        // ✅ UPDATED: Subtitle now contains store and client info
+                        Text(
+                          '$storeName ${storeLocation.isNotEmpty ? '- $storeLocation' : ''}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade800,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Client: $clientName',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            Icon(Icons.store_outlined,
-                                size: 16,
-                                color: Colors.grey.shade600),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                storeName,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
+                            Text(
+                              'Date: ${DateFormat('dd MMM yyyy', 'fr_FR').format(createdDate)}',
+                              style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 12),
                             ),
                           ],
                         ),
