@@ -12,14 +12,14 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
-// ✅ ADDED: Import for our new proposals page
 import 'package:boitex_info_app/screens/administration/system_proposals_page.dart';
 
 class ProjectDetailsPage extends StatefulWidget {
   final String projectId;
   final String userRole;
 
-  const ProjectDetailsPage({super.key, required this.projectId, required this.userRole});
+  const ProjectDetailsPage(
+      {super.key, required this.projectId, required this.userRole});
 
   @override
   State<ProjectDetailsPage> createState() => _ProjectDetailsPageState();
@@ -30,95 +30,168 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   static const Color primaryColor = Colors.deepPurple;
 
   Future<void> _uploadDevis() async {
-    setState(() { _isActionInProgress = true; });
+    setState(() {
+      _isActionInProgress = true;
+    });
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg']);
+      final result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg']);
       if (result == null || result.files.single.path == null) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
         return;
       }
 
       final file = File(result.files.single.path!);
       final fileName = result.files.single.name;
-      final storageRef = FirebaseStorage.instance.ref().child('devis/${widget.projectId}/$fileName');
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('devis/${widget.projectId}/$fileName');
       await storageRef.putFile(file);
       final downloadUrl = await storageRef.getDownloadURL();
 
-      await FirebaseFirestore.instance.collection('projects').doc(widget.projectId).update({
+      await FirebaseFirestore.instance
+          .collection('projects')
+          .doc(widget.projectId)
+          .update({
         'devisUrl': downloadUrl,
         'devisFileName': fileName,
         'status': 'Devis Envoyé',
       });
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red));
+      }
     } finally {
-      if(mounted) setState(() { _isActionInProgress = false; });
+      if (mounted) {
+        setState(() {
+          _isActionInProgress = false;
+        });
+      }
     }
   }
 
   void _showApprovalDialog() {
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Preuve d\'Approbation'),
-      content: const Text('Comment le client a-t-il approuvé le devis ?'),
-      actions: [
-        TextButton(onPressed: () { Navigator.of(ctx).pop(); _confirmApprovalByPhone(); }, child: const Text('Par Téléphone')),
-        ElevatedButton(onPressed: () { Navigator.of(ctx).pop(); _uploadBonDeCommande(); }, child: const Text('Bon de Commande')),
-      ],
-    ));
+    showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Preuve d\'Approbation'),
+          content:
+          const Text('Comment le client a-t-il approuvé le devis ?'),
+          actions: [
+            TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _confirmApprovalByPhone();
+                },
+                child: const Text('Par Téléphone')),
+            ElevatedButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _uploadBonDeCommande();
+                },
+                child: const Text('Bon de Commande')),
+          ],
+        ));
   }
 
   Future<void> _confirmApprovalByPhone() async {
     final noteController = TextEditingController();
-    final note = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Confirmation par Téléphone'),
-      content: TextField(controller: noteController, autofocus: true, decoration: const InputDecoration(labelText: 'Confirmé par (nom)')),
-      actions: [
-        TextButton(child: const Text('Annuler'), onPressed: () => Navigator.of(ctx).pop()),
-        ElevatedButton(child: const Text('Confirmer'), onPressed: () => Navigator.of(ctx).pop(noteController.text)),
-      ],
-    ));
+    final note = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Confirmation par Téléphone'),
+          content: TextField(
+              controller: noteController,
+              autofocus: true,
+              decoration:
+              const InputDecoration(labelText: 'Confirmé par (nom)')),
+          actions: [
+            TextButton(
+                child: const Text('Annuler'),
+                onPressed: () => Navigator.of(ctx).pop()),
+            ElevatedButton(
+                child: const Text('Confirmer'),
+                onPressed: () => Navigator.of(ctx).pop(noteController.text)),
+          ],
+        ));
 
     if (note != null && note.isNotEmpty) {
-      setState(() { _isActionInProgress = true; });
+      setState(() {
+        _isActionInProgress = true;
+      });
       try {
-        await FirebaseFirestore.instance.collection('projects').doc(widget.projectId).update({
+        await FirebaseFirestore.instance
+            .collection('projects')
+            .doc(widget.projectId)
+            .update({
           'status': 'Finalisation de la Commande',
           'approvalType': 'Téléphone',
           'approvalNotes': note,
         });
       } catch (e) {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        }
       } finally {
-        if(mounted) setState(() { _isActionInProgress = false; });
+        if (mounted) {
+          setState(() {
+            _isActionInProgress = false;
+          });
+        }
       }
     }
   }
 
   Future<void> _uploadBonDeCommande() async {
-    setState(() { _isActionInProgress = true; });
+    setState(() {
+      _isActionInProgress = true;
+    });
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg']);
+      final result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg']);
       if (result == null || result.files.single.path == null) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
         return;
       }
 
       final file = File(result.files.single.path!);
       final fileName = result.files.single.name;
-      final storageRef = FirebaseStorage.instance.ref().child('bon_de_commande/${widget.projectId}/$fileName');
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('bon_de_commande/${widget.projectId}/$fileName');
       await storageRef.putFile(file);
       final downloadUrl = await storageRef.getDownloadURL();
 
-      await FirebaseFirestore.instance.collection('projects').doc(widget.projectId).update({
+      await FirebaseFirestore.instance
+          .collection('projects')
+          .doc(widget.projectId)
+          .update({
         'bonDeCommandeUrl': downloadUrl,
         'bonDeCommandeFileName': fileName,
         'status': 'Finalisation de la Commande',
         'approvalType': 'Fichier',
       });
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red));
+      }
     } finally {
-      if(mounted) setState(() { _isActionInProgress = false; });
+      if (mounted) {
+        setState(() {
+          _isActionInProgress = false;
+        });
+      }
     }
   }
 
@@ -145,7 +218,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         final newCount = (counterDoc.data()?['count'] as int? ?? 0) + 1;
         final installationCode = 'INST-$newCount/$currentYear';
 
-        final newInstallationRef = FirebaseFirestore.instance.collection('installations').doc();
+        final newInstallationRef =
+        FirebaseFirestore.instance.collection('installations').doc();
 
         transaction.set(newInstallationRef, {
           'installationCode': installationCode,
@@ -163,26 +237,30 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           'createdAt': Timestamp.now(),
         });
 
-        transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
-        final projectRef = FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
-        transaction.update(projectRef, {'status': 'Transféré à l\'Installation'});
+        transaction.set(
+            counterRef, {'count': newCount}, SetOptions(merge: true));
+        final projectRef =
+        FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
+        transaction
+            .update(projectRef, {'status': 'Transféré à l\'Installation'});
 
         if (mounted) {
           final newInstallationDoc = await newInstallationRef.get();
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (context) => InstallationDetailsPage(
-                  installationDoc: newInstallationDoc,
-                  userRole: widget.userRole
-              ),
+                  installationDoc: newInstallationDoc, userRole: widget.userRole),
             ),
           );
         }
       });
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
     } finally {
-      if(mounted) setState(() => _isActionInProgress = false);
+      if (mounted) setState(() => _isActionInProgress = false);
     }
   }
 
@@ -202,15 +280,22 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         backgroundColor: primaryColor,
       ),
       body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection('projects').doc(widget.projectId).snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('projects')
+            .doc(widget.projectId)
+            .snapshots(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
           final projectData = snapshot.data!.data() as Map<String, dynamic>;
           final createdAt = (projectData['createdAt'] as Timestamp).toDate();
-          final technicalEvaluation = projectData['technical_evaluation'] as List<dynamic>?;
+          final technicalEvaluation =
+          projectData['technical_evaluation'] as List<dynamic>?;
           final status = projectData['status'] ?? 'Inconnu';
-          final orderedProducts = projectData['orderedProducts'] as List<dynamic>?;
+          final orderedProducts =
+          projectData['orderedProducts'] as List<dynamic>?;
 
           return ListView(
             padding: const EdgeInsets.all(16.0),
@@ -221,10 +306,19 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 title: 'Informations Client',
                 icon: Icons.person_outline,
                 children: [
-                  ListTile(title: Text(projectData['clientName'] ?? 'N/A'), subtitle: const Text('Nom du Client')),
-                  ListTile(title: Text(projectData['clientPhone'] ?? 'N/A'), subtitle: const Text('Téléphone')),
-                  ListTile(title: Text(projectData['createdByName'] ?? 'N/A'), subtitle: const Text('Créé par')),
-                  ListTile(title: Text(DateFormat('dd MMMM yyyy', 'fr_FR').format(createdAt)), subtitle: const Text('Date de création')),
+                  ListTile(
+                      title: Text(projectData['clientName'] ?? 'N/A'),
+                      subtitle: const Text('Nom du Client')),
+                  ListTile(
+                      title: Text(projectData['clientPhone'] ?? 'N/A'),
+                      subtitle: const Text('Téléphone')),
+                  ListTile(
+                      title: Text(projectData['createdByName'] ?? 'N/A'),
+                      subtitle: const Text('Créé par')),
+                  ListTile(
+                      title: Text(
+                          DateFormat('dd MMMM yyyy', 'fr_FR').format(createdAt)),
+                      subtitle: const Text('Date de création')),
                 ],
               ),
               _buildInfoCard(
@@ -242,13 +336,15 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                     title: 'Évaluation Technique',
                     icon: Icons.square_foot_outlined,
                     children: [
-                      for (var evalData in technicalEvaluation.map((e) => Map<String, dynamic>.from(e)))
+                      for (var evalData in technicalEvaluation
+                          .map((e) => Map<String, dynamic>.from(e)))
                         ListTile(
-                          title: Text('Largeur de l\'entrée: ${evalData['entranceWidth'] ?? 'N/A'} m'),
-                          subtitle: Text(evalData['entranceType'] ?? 'Type inconnu'),
+                          title: Text(
+                              'Largeur de l\'entrée: ${evalData['entranceWidth'] ?? 'N/A'} m'),
+                          subtitle:
+                          Text(evalData['entranceType'] ?? 'Type inconnu'),
                         ),
-                    ]
-                ),
+                    ]),
               if (orderedProducts != null && orderedProducts.isNotEmpty)
                 _buildInfoCard(
                   title: 'Produits Commandés',
@@ -260,30 +356,39 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                     );
                   }).toList(),
                 ),
-              if (projectData['devisUrl'] != null || projectData['bonDeCommandeUrl'] != null || projectData['approvalNotes'] != null)
+              if (projectData['devisUrl'] != null ||
+                  projectData['bonDeCommandeUrl'] != null ||
+                  projectData['approvalNotes'] != null)
                 _buildInfoCard(
                   title: 'Documents et Approbations',
                   icon: Icons.attach_file,
                   children: [
                     if (projectData['devisUrl'] != null)
                       ListTile(
-                        leading: const Icon(Icons.request_quote_outlined, color: Colors.red),
-                        title: Text(projectData['devisFileName'] ?? 'Devis.pdf'),
+                        leading: const Icon(Icons.request_quote_outlined,
+                            color: Colors.red),
+                        title:
+                        Text(projectData['devisFileName'] ?? 'Devis.pdf'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => _openUrl(projectData['devisUrl']),
                       ),
                     if (projectData['bonDeCommandeUrl'] != null)
                       ListTile(
-                        leading: const Icon(Icons.fact_check_outlined, color: Colors.green),
-                        title: Text(projectData['bonDeCommandeFileName'] ?? 'Bon de commande.pdf'),
+                        leading: const Icon(Icons.fact_check_outlined,
+                            color: Colors.green),
+                        title: Text(projectData['bonDeCommandeFileName'] ??
+                            'Bon de commande.pdf'),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _openUrl(projectData['bonDeCommandeUrl']),
+                        onTap: () =>
+                            _openUrl(projectData['bonDeCommandeUrl']),
                       ),
                     if (projectData['approvalNotes'] != null)
                       ListTile(
-                        leading: const Icon(Icons.phone_in_talk_outlined, color: Colors.green),
+                        leading: const Icon(Icons.phone_in_talk_outlined,
+                            color: Colors.green),
                         title: const Text('Approbation par Téléphone'),
-                        subtitle: Text('Confirmé par: ${projectData['approvalNotes']}'),
+                        subtitle: Text(
+                            'Confirmé par: ${projectData['approvalNotes']}'),
                       ),
                   ],
                 ),
@@ -293,7 +398,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: _buildActionButtons(status, widget.userRole, projectData),
+                    child: _buildActionButtons(
+                        status, widget.userRole, projectData),
                   ),
                 ],
               ),
@@ -308,13 +414,33 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     IconData icon;
     Color color;
     switch (status) {
-      case 'Nouvelle Demande': icon = Icons.new_releases_outlined; color = Colors.blue; break;
-      case 'Évaluation Technique Terminé': icon = Icons.rule_outlined; color = Colors.orange; break;
-      case 'Devis Envoyé': icon = Icons.send_outlined; color = Colors.purple; break;
-      case 'Finalisation de la Commande': icon = Icons.playlist_add_check_outlined; color = Colors.teal; break;
-      case 'À Planifier': icon = Icons.event_available_outlined; color = Colors.blue; break;
-      case 'Transféré à l\'Installation': icon = Icons.check_circle_outline; color = Colors.green; break;
-      default: icon = Icons.help_outline; color = Colors.grey;
+      case 'Nouvelle Demande':
+        icon = Icons.new_releases_outlined;
+        color = Colors.blue;
+        break;
+      case 'Évaluation Technique Terminé':
+        icon = Icons.rule_outlined;
+        color = Colors.orange;
+        break;
+      case 'Devis Envoyé':
+        icon = Icons.send_outlined;
+        color = Colors.purple;
+        break;
+      case 'Finalisation de la Commande':
+        icon = Icons.playlist_add_check_outlined;
+        color = Colors.teal;
+        break;
+      case 'À Planifier':
+        icon = Icons.event_available_outlined;
+        color = Colors.blue;
+        break;
+      case 'Transféré à l\'Installation':
+        icon = Icons.check_circle_outline;
+        color = Colors.green;
+        break;
+      default:
+        icon = Icons.help_outline;
+        color = Colors.grey;
     }
 
     return Container(
@@ -322,8 +448,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       decoration: BoxDecoration(
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12.0),
-          border: Border.all(color: color.withOpacity(0.3))
-      ),
+          border: Border.all(color: color.withOpacity(0.3))),
       child: Row(
         children: [
           Icon(icon, color: color),
@@ -333,7 +458,11 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Statut Actuel', style: TextStyle(fontSize: 12)),
-                Text(status, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: color)),
+                Text(status,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: color)),
               ],
             ),
           ),
@@ -342,7 +471,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-  Widget _buildInfoCard({required String title, required IconData icon, required List<Widget> children}) {
+  Widget _buildInfoCard(
+      {required String title,
+        required IconData icon,
+        required List<Widget> children}) {
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 16),
@@ -356,7 +488,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
               children: [
                 Icon(icon, color: primaryColor),
                 const SizedBox(width: 8),
-                Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -367,121 +501,190 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-  // ✅ UPDATED: The action buttons now include the proposals button
-  Widget _buildActionButtons(String status, String userRole, Map<String, dynamic> projectData) {
+  Widget _buildActionButtons(
+      String status, String userRole, Map<String, dynamic> projectData) {
     if (_isActionInProgress) {
       return const Center(child: CircularProgressIndicator());
     }
 
     List<Widget> buttons = [];
 
-    // Technical Evaluation Button
-    if (status == 'Nouvelle Demande' && RolePermissions.canPerformTechnicalEvaluation(userRole)) {
-      buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => TechnicalEvaluationPage(projectId: widget.projectId))), icon: const Icon(Icons.rule), label: const Text('Ajouter l\'Évaluation Technique'))));
+    if (status == 'Nouvelle Demande' &&
+        RolePermissions.canPerformTechnicalEvaluation(userRole)) {
+      buttons.add(SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (context) =>
+                      TechnicalEvaluationPage(projectId: widget.projectId))),
+              icon: const Icon(Icons.rule),
+              label: const Text('Ajouter l\'Évaluation Technique'))));
     }
 
-    // ✅ ADDED: System Proposals Button
-    if (status == 'Évaluation Technique Terminé' && RolePermissions.canUploadDevis(userRole)) {
-      final technicalEvaluation = projectData['technical_evaluation'] as List<dynamic>?;
+    if (status == 'Évaluation Technique Terminé' &&
+        RolePermissions.canUploadDevis(userRole)) {
+      final technicalEvaluation =
+      projectData['technical_evaluation'] as List<dynamic>?;
       if (technicalEvaluation != null && technicalEvaluation.isNotEmpty) {
         final entranceWidthStr = technicalEvaluation[0]['entranceWidth'] ?? '0';
         final entranceWidth = double.tryParse(entranceWidthStr) ?? 0.0;
 
         if (entranceWidth > 0) {
-          buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => SystemProposalsPage(entranceWidth: entranceWidth))),
-            icon: const Icon(Icons.calculate_outlined),
-            label: const Text('Calculer les Configurations'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-          )));
-          buttons.add(const SizedBox(height: 12)); // Spacer
+          buttons.add(SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (context) =>
+                        SystemProposalsPage(entranceWidth: entranceWidth))),
+                icon: const Icon(Icons.calculate_outlined),
+                label: const Text('Calculer les Configurations'),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white),
+              )));
+          buttons.add(const SizedBox(height: 12));
         }
       }
     }
 
-    // Upload Devis Button
-    if (status == 'Évaluation Technique Terminé' && RolePermissions.canUploadDevis(userRole)) {
-      buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _uploadDevis, icon: const Icon(Icons.upload_file_outlined), label: const Text('Devis'))));
+    if (status == 'Évaluation Technique Terminé' &&
+        RolePermissions.canUploadDevis(userRole)) {
+      buttons.add(SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+              onPressed: _uploadDevis,
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('Devis'))));
     }
 
-    // Other buttons remain the same...
     if (status == 'Devis Envoyé' && RolePermissions.canUploadDevis(userRole)) {
-      buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _showApprovalDialog, icon: const Icon(Icons.check), label: const Text('Confirmer l\'Approbation Client'))));
+      buttons.add(SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+              onPressed: _showApprovalDialog,
+              icon: const Icon(Icons.check),
+              label: const Text('Confirmer l\'Approbation Client'))));
     }
-    if (status == 'Finalisation de la Commande' && RolePermissions.canUploadDevis(userRole)) {
-      buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(
-          onPressed: () => _showProductFinalizationDialog(projectData['orderedProducts'] ?? []),
-          icon: const Icon(Icons.inventory_2_outlined),
-          label: const Text('Définir les Produits Commandés')
-      )));
+    if (status == 'Finalisation de la Commande' &&
+        RolePermissions.canUploadDevis(userRole)) {
+      buttons.add(SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+              onPressed: () =>
+                  _showProductFinalizationDialog(projectData['orderedProducts'] ?? []),
+              icon: const Icon(Icons.inventory_2_outlined),
+              label: const Text('Définir les Produits Commandés'))));
     }
-    if (status == 'À Planifier' && RolePermissions.canScheduleInstallation(userRole)) {
-      buttons.add(SizedBox(width: double.infinity, child: ElevatedButton.icon(
-        onPressed: () => _createInstallationTask(projectData),
-        icon: const Icon(Icons.send_to_mobile),
-        label: const Text('Créer la Tâche d\'Installation'),
-        style: ElevatedButton.styleFrom(backgroundColor: primaryColor, foregroundColor: Colors.white),
-      )));
+    if (status == 'À Planifier' &&
+        RolePermissions.canScheduleInstallation(userRole)) {
+      buttons.add(SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => _createInstallationTask(projectData),
+            icon: const Icon(Icons.send_to_mobile),
+            label: const Text('Créer la Tâche d\'Installation'),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor, foregroundColor: Colors.white),
+          )));
     }
 
-    if(buttons.isEmpty) {
-      return const Center(child: Text('Aucune action disponible pour ce statut.'));
+    if (buttons.isEmpty) {
+      return const Center(
+          child: Text('Aucune action disponible pour ce statut.'));
     }
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: buttons);
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: buttons);
   }
 }
 
-// OrderFinalizationDialog remains the same...
 class _OrderFinalizationDialog extends StatefulWidget {
   final String projectId;
   final List<dynamic> existingItems;
-  const _OrderFinalizationDialog({required this.projectId, required this.existingItems});
+  const _OrderFinalizationDialog(
+      {required this.projectId, required this.existingItems});
   @override
-  State<_OrderFinalizationDialog> createState() => _OrderFinalizationDialogState();
+  State<_OrderFinalizationDialog> createState() =>
+      _OrderFinalizationDialogState();
 }
+
 class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
   late List<ProductSelection> _selectedProducts;
   bool _isSaving = false;
   @override
   void initState() {
     super.initState();
-    _selectedProducts = widget.existingItems.map((item) => ProductSelection(
+    _selectedProducts = widget.existingItems
+        .map((item) => ProductSelection(
       productId: item['productId'],
       productName: item['productName'],
       quantity: item['quantity'],
-    )).toList();
+    ))
+        .toList();
   }
+
   Future<void> _finalizeOrder() async {
     setState(() => _isSaving = true);
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         Map<String, DocumentSnapshot> productSnaps = {};
         for (var product in _selectedProducts) {
-          final productRef = FirebaseFirestore.instance.collection('produits').doc(product.productId);
+          final productRef = FirebaseFirestore.instance
+              .collection('produits')
+              .doc(product.productId);
           productSnaps[product.productId] = await transaction.get(productRef);
         }
         for (var product in _selectedProducts) {
           final snap = productSnaps[product.productId]!;
-          final currentStock = (snap.data() as Map<String, dynamic>?)?['quantiteEnStock'] ?? 0;
+          final currentStock =
+              (snap.data() as Map<String, dynamic>?)?['quantiteEnStock'] ?? 0;
           if (currentStock < product.quantity) {
             throw Exception('Stock insuffisant pour ${product.productName}');
           }
-          transaction.update(snap.reference, {'quantiteEnStock': currentStock - product.quantity});
+          transaction.update(snap.reference,
+              {'quantiteEnStock': currentStock - product.quantity});
         }
-        final projectRef = FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
+        final projectRef = FirebaseFirestore.instance
+            .collection('projects')
+            .doc(widget.projectId);
         transaction.update(projectRef, {
-          'orderedProducts': _selectedProducts.map((p) => {'productId': p.productId, 'productName': p.productName, 'quantity': p.quantity}).toList(),
+          'orderedProducts': _selectedProducts
+              .map((p) => {
+            'productId': p.productId,
+            'productName': p.productName,
+            'quantity': p.quantity
+          })
+              .toList(),
           'status': 'À Planifier',
         });
       });
-      if(mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
+      }
     } finally {
-      if(mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() => _isSaving = false);
     }
   }
+
+  // ✅ NEW: This method handles opening the dialog and updating the state.
+  void _showProductSelector() async {
+    final result = await showDialog<List<ProductSelection>>(
+      context: context,
+      builder: (ctx) => ProductSelectorDialog(
+        initialProducts: _selectedProducts,
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _selectedProducts = result;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -503,33 +706,30 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
                   return ListTile(
                     title: Text(product.productName),
                     trailing: Text('Qté: ${product.quantity}'),
-                    onLongPress: () => setState(() => _selectedProducts.removeAt(index)),
+                    onLongPress: () =>
+                        setState(() => _selectedProducts.removeAt(index)),
                   );
                 },
               ),
             ),
             OutlinedButton.icon(
-              onPressed: () {
-                showDialog(context: context, builder: (ctx) => ProductSelectorDialog(
-                  onProductSelected: (product) => setState(() {
-                    if (!_selectedProducts.any((p) => p.productId == product.productId)) {
-                      _selectedProducts.add(product);
-                    }
-                  }),
-                ));
-              },
+              // ✅ FIXED: This now calls the new method.
+              onPressed: _showProductSelector,
               icon: const Icon(Icons.add),
-              label: const Text('Ajouter un Produit'),
+              label: const Text('Ajouter/Modifier Produits'),
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Annuler')),
         ElevatedButton(
             onPressed: _isSaving ? null : _finalizeOrder,
-            child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text('Enregistrer')
-        ),
+            child: _isSaving
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text('Enregistrer')),
       ],
     );
   }

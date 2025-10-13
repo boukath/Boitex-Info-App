@@ -1,7 +1,3 @@
-// lib/screens/administration/add_livraison_page.dart
-// ✅ PERFECT: All string interpolation with SINGLE dollar signs
-// ✅ Year-based BL codes: BL-1/2025, BL-2/2025...
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,255 +10,431 @@ class AddLivraisonPage extends StatefulWidget {
   const AddLivraisonPage({super.key, this.serviceType});
 
   @override
-  State<AddLivraisonPage> createState() => _AddLivraisonPageState();
+  State createState() => _AddLivraisonPageState();
 }
 
 class _AddLivraisonPageState extends State<AddLivraisonPage> {
   final _formKey = GlobalKey<FormState>();
-
+  String _deliveryMethod = 'Livraison Interne';
   SelectableItem? _selectedClient;
   SelectableItem? _selectedStore;
-  List<dynamic> _selectedProducts = [];
+  List<ProductSelection> _selectedProducts = [];
   String? _selectedServiceType;
+  SelectableItem? _selectedTechnician;
+  final _externalCarrierNameController = TextEditingController();
+  final _trackingNumberController = TextEditingController();
 
   List<SelectableItem> _clients = [];
   List<SelectableItem> _stores = [];
+  List<SelectableItem> _technicians = [];
   bool _isLoadingClients = true;
   bool _isLoadingStores = false;
+  bool _isLoadingTechnicians = true;
+  String? _clientError;
 
   @override
   void initState() {
     super.initState();
     _selectedServiceType = widget.serviceType;
-    _fetchClients();
+    Future.delayed(Duration.zero, () {
+      if (mounted) {
+        _fetchClients();
+        _fetchTechnicians();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _externalCarrierNameController.dispose();
+    _trackingNumberController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchClients() async {
-    final snapshot = await FirebaseFirestore.instance.collection('clients').orderBy('name').get();
-    if(mounted) setState(() {
-      _clients = snapshot.docs.map((d) => SelectableItem(id: d.id, name: d['name'])).toList();
-      _isLoadingClients = false;
+    if (FirebaseAuth.instance.currentUser == null) {
+      if (mounted) setState(() {
+        _clientError = "Erreur: Utilisateur non connecté.";
+        _isLoadingClients = false;
+      });
+      return;
+    }
+    setState(() {
+      _isLoadingClients = true;
+      _clientError = null;
     });
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('clients').get();
+      final clients = snapshot.docs
+          .map((doc) => SelectableItem(id: doc.id, name: doc['name'], data: {}))
+          .toList();
+      // Alphabetical order
+      clients.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      if (mounted) setState(() { _clients = clients; });
+    } catch (e) {
+      print('Error fetching clients: $e');
+      if (mounted) setState(() { _clientError = "Erreur: ${e.toString()}"; });
+    } finally {
+      if (mounted) setState(() { _isLoadingClients = false; });
+    }
   }
 
   Future<void> _fetchStores(String clientId) async {
-    setState(() { _isLoadingStores = true; _stores = []; _selectedStore = null; });
-    final snapshot = await FirebaseFirestore.instance.collection('clients').doc(clientId).collection('stores').orderBy('name').get();
-    if(mounted) setState(() {
-      _stores = snapshot.docs.map((d) => SelectableItem(id: d.id, name: d['name'], subtitle: d['location'])).toList();
-      _isLoadingStores = false;
+    setState(() {
+      _isLoadingStores = true;
+      _selectedStore = null;
+      _stores = [];
     });
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('clients')
+          .doc(clientId)
+          .collection('stores')
+          .get();
+      final stores = snapshot.docs.map((doc) {
+        final location =
+        doc.data().containsKey('location') ? doc['location'] : '';
+        return SelectableItem(
+          id: doc.id,
+          name: doc['name'],
+          data: {'location': location},
+        );
+      }).toList();
+      if (mounted) setState(() {
+        _stores = stores;
+        _isLoadingStores = false;
+      });
+    } catch (e) {
+      print('Error fetching stores: $e');
+      if (mounted) setState(() => _isLoadingStores = false);
+    }
   }
 
-  void _showProductSelectorDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => ProductSelectorDialog(
-        onProductSelected: (product) {
-          setState(() {
-            if (!_selectedProducts.any((p) => p.productId == product.productId)) {
-              _selectedProducts.add(product);
-            }
-          });
-        },
-      ),
-    );
+  Future<void> _fetchTechnicians() async {
+    try {
+      Query query = FirebaseFirestore.instance.collection('users');
+      if (_selectedServiceType != null) {
+        query = query.where('department', isEqualTo: _selectedServiceType);
+      }
+      final snapshot = await query.get();
+      final technicians = snapshot.docs
+          .map((doc) =>
+          SelectableItem(id: doc.id, name: doc['displayName'] ?? doc.id))
+          .toList();
+      if (mounted) setState(() {
+        _technicians = technicians;
+        _isLoadingTechnicians = false;
+      });
+    } catch (e) {
+      print('Error fetching technicians: $e');
+      if (mounted) setState(() => _isLoadingTechnicians = false);
+    }
+  }
+
+  Future<String> _getNextBonLivraisonCode() async {
+    final year = DateTime.now().year;
+    final counterRef = FirebaseFirestore.instance
+        .collection('counters')
+        .doc('livraison_counter_$year');
+    final nextNumber = await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final snapshot = await transaction.get(counterRef);
+      int lastNumber = 0;
+      if (snapshot.exists && snapshot.data()?['count'] != null) {
+        lastNumber = snapshot.data()!['count'] as int;
+      }
+      final newNumber = lastNumber + 1;
+      transaction.set(counterRef, {'count': newNumber}, SetOptions(merge: true));
+      return newNumber;
+    });
+    return 'BL-$nextNumber/$year';
+  }
+
+  void _showProductSelectorDialog() async {
+    final List<ProductSelection>? result = await showDialog(
+        context: context,
+        builder: (context) =>
+            ProductSelectorDialog(initialProducts: _selectedProducts));
+    if (result != null) {
+      setState(() {
+        _selectedProducts = result;
+      });
+    }
   }
 
   Future<void> _saveLivraison() async {
-    if (!_formKey.currentState!.validate() || _selectedProducts.isEmpty) {
-      throw Exception('Veuillez remplir tous les champs et ajouter au moins un produit.');
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedProducts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Veuillez ajouter au moins un produit.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
     }
-
     final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final currentYear = DateTime.now().year;
-      final counterRef = FirebaseFirestore.instance.collection('counters').doc('livraison_counter_$currentYear');
-      final counterSnap = await transaction.get(counterRef);
-      final currentCount = (counterSnap.data()?['count'] as int?) ?? 0;
+    final bonLivraisonCode = await _getNextBonLivraisonCode();
 
-      Map<String, DocumentSnapshot> productSnaps = {};
-      for (var product in _selectedProducts) {
-        final productRef = FirebaseFirestore.instance.collection('produits').doc(product.productId);
-        productSnaps[product.productId] = await transaction.get(productRef);
-      }
+    final deliveryData = {
+      'bonLivraisonCode': bonLivraisonCode,
+      'clientId': _selectedClient!.id,
+      'clientName': _selectedClient!.name,
+      // Store is optional!
+      'storeId': _selectedStore?.id,
+      'storeName': _selectedStore?.name,
+      'deliveryAddress': _selectedStore?.data?['location'] ?? 'N/A',
+      'contactPerson': '',
+      'contactPhone': '',
+      'products': _selectedProducts.map((p) => p.toJson()).toList(),
+      'status': 'À Préparer',
+      'createdBy': user.displayName ?? user.email,
+      'createdById': user.uid,
+      'createdAt': FieldValue.serverTimestamp(),
+      'serviceType': _selectedServiceType,
+      'deliveryMethod': _deliveryMethod,
+      if (_deliveryMethod == 'Livraison Interne')
+        'technicianId': _selectedTechnician?.id,
+      if (_deliveryMethod == 'Livraison Interne')
+        'technicianName': _selectedTechnician?.name,
+      if (_deliveryMethod == 'Livraison Externe')
+        'externalCarrierName': _externalCarrierNameController.text,
+      if (_deliveryMethod == 'Livraison Externe')
+        'trackingNumber': _trackingNumberController.text,
+    };
 
-      for (var product in _selectedProducts) {
-        final snap = productSnaps[product.productId]!;
-        final currentStock = (snap.data() as Map?)?['quantiteEnStock'] ?? 0;
-        if (currentStock < product.quantity) {
-          throw Exception('Stock insuffisant pour ${product.productName} (disponible: $currentStock)');
-        }
-
-        transaction.update(snap.reference, {'quantiteEnStock': currentStock - product.quantity});
-
-        final historyRef = snap.reference.collection('stock_history').doc();
-        transaction.set(historyRef, {
-          'change': -product.quantity,
-          'newQuantity': currentStock - product.quantity,
-          'notes': 'Livraison BL-${currentCount + 1}/$currentYear',
-          'timestamp': FieldValue.serverTimestamp(),
-          'updatedByUid': user?.uid,
-        });
-      }
-
-      final newCount = currentCount + 1;
-      final blCode = 'BL-$newCount/$currentYear';
-      final livraisonRef = FirebaseFirestore.instance.collection('livraisons').doc();
-
-      final String destinationName = _selectedStore != null
-          ? '${_selectedStore!.name} - ${_selectedStore!.subtitle}'
-          : _selectedClient!.name;
-
-      transaction.set(livraisonRef, {
-        'blCode': blCode,
-        'serviceType': _selectedServiceType,
-        'clientId': _selectedClient!.id,
-        'clientName': _selectedClient!.name,
-        'storeId': _selectedStore?.id,
-        'destinationName': destinationName,
-        'items': _selectedProducts.map((p) => {
-          'productId': p.productId,
-          'productName': p.productName,
-          'quantity': p.quantity
-        }).toList(),
-        'status': 'À Préparer',
-        'createdAt': FieldValue.serverTimestamp(),
-        'createdBy': user?.displayName ?? 'N/A'
-      });
-
-      transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
-    });
-
-    await Future.delayed(const Duration(seconds: 1));
-    if (mounted) {
-      Navigator.of(context).pop();
+    try {
+      await FirebaseFirestore.instance
+          .collection('livraisons')
+          .add(deliveryData);
+      Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Erreur lors de la création de la livraison: $e'),
+        backgroundColor: Colors.red,
+      ));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    const Color primaryColor = Colors.brown;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Créer une Livraison'),
-        backgroundColor: primaryColor,
+        backgroundColor: Colors.blue[900],
       ),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
+      body: SingleChildScrollView(
+        child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('1. Destination', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: primaryColor)),
-                      const SizedBox(height: 16),
-
-                      DropdownButtonFormField<String>(
-                        value: _selectedServiceType,
-                        decoration: const InputDecoration(labelText: 'Type de Service', border: OutlineInputBorder()),
-                        items: ['Service Technique', 'Service IT'].map((String service) {
-                          return DropdownMenuItem(value: service, child: Text(service));
-                        }).toList(),
-                        onChanged: widget.serviceType == null
-                            ? (value) => setState(() { _selectedServiceType = value; })
-                            : null,
-                        validator: (v) => v == null ? 'Champ requis' : null,
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: _deliveryMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Méthode de livraison',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.local_shipping),
+                  ),
+                  items: ['Livraison Interne', 'Livraison Externe']
+                      .map((label) => DropdownMenuItem(
+                    child: Text(label),
+                    value: label,
+                  ))
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _deliveryMethod = value!;
+                      if (_deliveryMethod != 'Livraison Interne') {
+                        _selectedTechnician = null;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                if (_deliveryMethod == 'Livraison Interne')
+                  DropdownButtonFormField<SelectableItem>(
+                    value: _selectedTechnician,
+                    decoration: const InputDecoration(
+                      labelText: 'Assigner à un Technicien',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person_outline),
+                    ),
+                    items: _technicians
+                        .map((tech) => DropdownMenuItem(
+                      value: tech,
+                      child: Text(tech.name),
+                    ))
+                        .toList(),
+                    onChanged: _isLoadingTechnicians
+                        ? null
+                        : (value) => setState(() => _selectedTechnician = value),
+                    validator: (value) => value == null
+                        ? 'Veuillez sélectionner un technicien'
+                        : null,
+                  )
+                else ...[
+                  TextFormField(
+                    controller: _externalCarrierNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nom du transporteur',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.business),
+                    ),
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Veuillez entrer le nom du transporteur'
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _trackingNumberController,
+                    decoration: const InputDecoration(
+                      labelText: 'Numéro de suivi (Optionnel)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.qr_code_scanner),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<SelectableItem>(
+                  value: _selectedClient,
+                  hint: !_isLoadingClients && _clients.isEmpty
+                      ? const Text('Aucun client trouvé')
+                      : null,
+                  decoration: InputDecoration(
+                    labelText: 'Client',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.business_center),
+                    errorText: _clientError,
+                    suffixIcon: _isLoadingClients
+                        ? const Padding(
+                      padding: EdgeInsets.all(12.0),
+                      child: SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(strokeWidth: 3),
                       ),
-                      const SizedBox(height: 16),
-
-                      DropdownButtonFormField<SelectableItem>(
-                        value: _selectedClient,
-                        decoration: InputDecoration(
-                            labelText: 'Client',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: _isLoadingClients ? const CircularProgressIndicator() : const Icon(Icons.person_outline)
+                    )
+                        : null,
+                  ),
+                  items: _clients
+                      .map((client) => DropdownMenuItem(
+                    value: client,
+                    child: Text(client.name),
+                  ))
+                      .toList(),
+                  onChanged: _isLoadingClients || _clients.isEmpty
+                      ? null
+                      : (value) {
+                    setState(() {
+                      _selectedClient = value;
+                      _selectedStore = null;
+                      _stores = [];
+                    });
+                    if (value != null) {
+                      _fetchStores(value.id);
+                    }
+                  },
+                  validator: (value) =>
+                  value == null ? 'Veuillez sélectionner un client' : null,
+                ),
+                const SizedBox(height: 16),
+                if (_selectedClient != null)
+                  DropdownButtonFormField<SelectableItem>(
+                    value: _selectedStore,
+                    hint: !_isLoadingStores && _stores.isEmpty
+                        ? const Text('Aucun magasin trouvé')
+                        : null,
+                    decoration: InputDecoration(
+                      labelText: 'Magasin / Destination',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.store),
+                      suffixIcon: _isLoadingStores
+                          ? const Padding(
+                        padding: EdgeInsets.all(12.0),
+                        child: SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(strokeWidth: 3),
                         ),
-                        items: _clients.map((c) => DropdownMenuItem(value: c, child: Text(c.name))).toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _selectedClient = value);
-                            _fetchStores(value.id);
-                          }
-                        },
-                        validator: (v) => v == null ? 'Champ requis' : null,
-                      ),
-                      const SizedBox(height: 16),
-
-                      DropdownButtonFormField<SelectableItem>(
-                        value: _selectedStore,
-                        decoration: InputDecoration(
-                            labelText: 'Magasin de Destination (Optionnel)',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: _isLoadingStores ? const CircularProgressIndicator() : const Icon(Icons.store_outlined)
+                      )
+                          : null,
+                    ),
+                    items: _stores
+                        .map((store) => DropdownMenuItem(
+                      value: store,
+                      child: Text(
+                          '${store.name} - ${store.data?['location'] ?? ''}'),
+                    ))
+                        .toList(),
+                    onChanged: _isLoadingStores || _stores.isEmpty
+                        ? null
+                        : (value) => setState(() => _selectedStore = value),
+                  ),
+                const SizedBox(height: 24),
+                Card(
+                  elevation: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Produits à Livrer',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
                         ),
-                        items: _stores.map((s) => DropdownMenuItem(
-                            value: s,
-                            child: Text('${s.name} - ${s.subtitle}')
-                        )).toList(),
-                        onChanged: _selectedClient == null ? null : (value) => setState(() => _selectedStore = value),
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                        _selectedProducts.isEmpty
+                            ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(8.0),
+                            child: Text('Aucun produit ajouté.'),
+                          ),
+                        )
+                            : ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _selectedProducts.length,
+                          itemBuilder: (context, index) {
+                            final product = _selectedProducts[index];
+                            return ListTile(
+                              leading:
+                              const Icon(Icons.inventory_2_outlined),
+                              title: Text(product.productName),
+                              trailing: Text('Qté: ${product.quantity}',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _showProductSelectorDialog,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Ajouter/Modifier Produits'),
+                            style: ButtonStyle(
+                              padding: MaterialStateProperty.all(
+                                const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('2. Produits à Livrer', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: primaryColor)),
-                      const SizedBox(height: 8),
-                      if (_selectedProducts.isEmpty)
-                        const Center(child: Padding(padding: EdgeInsets.all(16.0), child: Text('Aucun produit ajouté.'))),
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _selectedProducts.length,
-                        itemBuilder: (context, index) {
-                          final product = _selectedProducts[index];
-                          return ListTile(
-                            leading: const Icon(Icons.inventory_2_outlined),
-                            title: Text(product.productName),
-                            trailing: Text('Qté: ${product.quantity}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            onLongPress: () { setState(() { _selectedProducts.removeAt(index); }); },
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _showProductSelectorDialog,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Ajouter un Produit'),
-                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
-                        ),
-                      ),
-                    ],
-                  ),
+                const SizedBox(height: 32),
+                AnimatedTruckButton(
+                  onPressed: _saveLivraison,
                 ),
-              ),
-              const SizedBox(height: 32),
-
-              AnimatedTruckButton(
-                onPressed: _saveLivraison,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
