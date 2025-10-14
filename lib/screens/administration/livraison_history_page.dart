@@ -70,7 +70,7 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                   final query = _searchQuery.toLowerCase();
 
                   final bonNumber =
-                  (data['blCode'] as String? ?? '').toLowerCase();
+                  (data['bonLivraisonCode'] as String? ?? '').toLowerCase();
                   if (bonNumber.contains(query)) {
                     return true;
                   }

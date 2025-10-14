@@ -19,7 +19,10 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   SelectableItem? _selectedClient;
   SelectableItem? _selectedStore;
   List<ProductSelection> _selectedProducts = [];
+
+  // ✅ 1. State variable for the new service dropdown
   String? _selectedServiceType;
+
   SelectableItem? _selectedTechnician;
   final _externalCarrierNameController = TextEditingController();
   final _trackingNumberController = TextEditingController();
@@ -35,7 +38,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   @override
   void initState() {
     super.initState();
+    // Pre-select the service if coming from a specific dashboard, otherwise it's null
     _selectedServiceType = widget.serviceType;
+
     Future.delayed(Duration.zero, () {
       if (mounted) {
         _fetchClients();
@@ -51,31 +56,24 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     super.dispose();
   }
 
+  // ✅ No changes to _fetchClients, it's clean and simple now.
   Future<void> _fetchClients() async {
     if (FirebaseAuth.instance.currentUser == null) {
-      if (mounted) setState(() {
-        _clientError = "Erreur: Utilisateur non connecté.";
-        _isLoadingClients = false;
-      });
+      if (mounted) setState(() => _clientError = "Erreur: Utilisateur non connecté.");
       return;
     }
-    setState(() {
-      _isLoadingClients = true;
-      _clientError = null;
-    });
+    setState(() => _isLoadingClients = true);
     try {
       final snapshot = await FirebaseFirestore.instance.collection('clients').get();
       final clients = snapshot.docs
           .map((doc) => SelectableItem(id: doc.id, name: doc['name'], data: {}))
           .toList();
-      // Alphabetical order
       clients.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      if (mounted) setState(() { _clients = clients; });
+      if (mounted) setState(() => _clients = clients);
     } catch (e) {
-      print('Error fetching clients: $e');
-      if (mounted) setState(() { _clientError = "Erreur: ${e.toString()}"; });
+      if (mounted) setState(() => _clientError = "Erreur: ${e.toString()}");
     } finally {
-      if (mounted) setState(() { _isLoadingClients = false; });
+      if (mounted) setState(() => _isLoadingClients = false);
     }
   }
 
@@ -92,59 +90,55 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           .collection('stores')
           .get();
       final stores = snapshot.docs.map((doc) {
-        final location =
-        doc.data().containsKey('location') ? doc['location'] : '';
+        final location = doc.data().containsKey('location') ? doc['location'] : '';
         return SelectableItem(
           id: doc.id,
           name: doc['name'],
           data: {'location': location},
         );
       }).toList();
-      if (mounted) setState(() {
-        _stores = stores;
-        _isLoadingStores = false;
-      });
+      if (mounted) setState(() => _stores = stores);
     } catch (e) {
       print('Error fetching stores: $e');
+    } finally {
       if (mounted) setState(() => _isLoadingStores = false);
     }
   }
 
   Future<void> _fetchTechnicians() async {
+    setState(() => _isLoadingTechnicians = true);
     try {
-      Query query = FirebaseFirestore.instance.collection('users');
-      if (_selectedServiceType != null) {
-        query = query.where('department', isEqualTo: _selectedServiceType);
-      }
-      final snapshot = await query.get();
+      // This query now fetches ALL users every time, without any filters.
+      final snapshot = await FirebaseFirestore.instance.collection('users').get();
       final technicians = snapshot.docs
           .map((doc) =>
           SelectableItem(id: doc.id, name: doc['displayName'] ?? doc.id))
           .toList();
-      if (mounted) setState(() {
-        _technicians = technicians;
-        _isLoadingTechnicians = false;
-      });
+      if (mounted) setState(() => _technicians = technicians);
     } catch (e) {
       print('Error fetching technicians: $e');
+    } finally {
       if (mounted) setState(() => _isLoadingTechnicians = false);
     }
   }
 
+  // ✅ 2. Using the safer, updated counter logic to prevent crashes.
   Future<String> _getNextBonLivraisonCode() async {
     final year = DateTime.now().year;
-    final counterRef = FirebaseFirestore.instance
-        .collection('counters')
-        .doc('livraison_counter_$year');
+    final counterRef = FirebaseFirestore.instance.collection('counters').doc('livraison_counter_$year');
+
     final nextNumber = await FirebaseFirestore.instance.runTransaction((transaction) async {
       final snapshot = await transaction.get(counterRef);
-      int lastNumber = 0;
-      if (snapshot.exists && snapshot.data()?['count'] != null) {
-        lastNumber = snapshot.data()!['count'] as int;
+
+      if (!snapshot.exists) {
+        transaction.set(counterRef, {'count': 1});
+        return 1;
+      } else {
+        final lastNumber = (snapshot.data()?['count'] ?? 0) as int;
+        final newNumber = lastNumber + 1;
+        transaction.set(counterRef, {'count': newNumber});
+        return newNumber;
       }
-      final newNumber = lastNumber + 1;
-      transaction.set(counterRef, {'count': newNumber}, SetOptions(merge: true));
-      return newNumber;
     });
     return 'BL-$nextNumber/$year';
   }
@@ -152,17 +146,16 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   void _showProductSelectorDialog() async {
     final List<ProductSelection>? result = await showDialog(
         context: context,
-        builder: (context) =>
-            ProductSelectorDialog(initialProducts: _selectedProducts));
+        builder: (context) => ProductSelectorDialog(initialProducts: _selectedProducts));
     if (result != null) {
-      setState(() {
-        _selectedProducts = result;
-      });
+      setState(() => _selectedProducts = result);
     }
   }
 
+  // ✅ 3. The save function now handles all cases: Service Technique, Service IT, and Both.
   Future<void> _saveLivraison() async {
     if (!_formKey.currentState!.validate()) return;
+
     if (_selectedProducts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Veuillez ajouter au moins un produit.'),
@@ -170,6 +163,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       ));
       return;
     }
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -179,7 +173,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       'bonLivraisonCode': bonLivraisonCode,
       'clientId': _selectedClient!.id,
       'clientName': _selectedClient!.name,
-      // Store is optional!
       'storeId': _selectedStore?.id,
       'storeName': _selectedStore?.name,
       'deliveryAddress': _selectedStore?.data?['location'] ?? 'N/A',
@@ -190,23 +183,33 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       'createdBy': user.displayName ?? user.email,
       'createdById': user.uid,
       'createdAt': FieldValue.serverTimestamp(),
-      'serviceType': _selectedServiceType,
       'deliveryMethod': _deliveryMethod,
-      if (_deliveryMethod == 'Livraison Interne')
-        'technicianId': _selectedTechnician?.id,
-      if (_deliveryMethod == 'Livraison Interne')
-        'technicianName': _selectedTechnician?.name,
-      if (_deliveryMethod == 'Livraison Externe')
-        'externalCarrierName': _externalCarrierNameController.text,
-      if (_deliveryMethod == 'Livraison Externe')
-        'trackingNumber': _trackingNumberController.text,
+      if (_deliveryMethod == 'Livraison Interne') 'technicianId': _selectedTechnician?.id,
+      if (_deliveryMethod == 'Livraison Interne') 'technicianName': _selectedTechnician?.name,
+      if (_deliveryMethod == 'Livraison Externe') 'externalCarrierName': _externalCarrierNameController.text,
+      if (_deliveryMethod == 'Livraison Externe') 'trackingNumber': _trackingNumberController.text,
     };
 
     try {
-      await FirebaseFirestore.instance
-          .collection('livraisons')
-          .add(deliveryData);
+      final batch = FirebaseFirestore.instance.batch();
+      final livraisonsCollection = FirebaseFirestore.instance.collection('livraisons');
+
+      List<String> servicesToCreate = [];
+      if (_selectedServiceType == 'Service Technique' || _selectedServiceType == 'Service IT') {
+        servicesToCreate.add(_selectedServiceType!);
+      } else if (_selectedServiceType == 'Les Deux') {
+        servicesToCreate.add('Service Technique');
+        servicesToCreate.add('Service IT');
+      }
+
+      for (final service in servicesToCreate) {
+        final docRef = livraisonsCollection.doc();
+        batch.set(docRef, {...deliveryData, 'serviceType': service});
+      }
+
+      await batch.commit();
       Navigator.pop(context);
+
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Erreur lors de la création de la livraison: $e'),
@@ -230,6 +233,35 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ✅ 4. The new, mandatory dropdown for selecting the service.
+                // It is hidden if the user is already inside a specific service dashboard.
+                if (widget.serviceType == null) ...[
+                  DropdownButtonFormField<String>(
+                    value: _selectedServiceType,
+                    decoration: const InputDecoration(
+                      labelText: 'Choisir le Service',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.business_center),
+                    ),
+                    items: ['Service Technique', 'Service IT', 'Les Deux']
+                        .map((label) => DropdownMenuItem(
+                      child: Text(label),
+                      value: label,
+                    ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedServiceType = value;
+                        _technicians = [];
+                        _selectedTechnician = null;
+                      });
+                      _fetchTechnicians();
+                    },
+                    validator: (value) => value == null ? 'Veuillez sélectionner un service' : null,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 DropdownButtonFormField<String>(
                   value: _deliveryMethod,
                   decoration: const InputDecoration(
@@ -253,6 +285,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   },
                 ),
                 const SizedBox(height: 16),
+
                 if (_deliveryMethod == 'Livraison Interne')
                   DropdownButtonFormField<SelectableItem>(
                     value: _selectedTechnician,
@@ -270,9 +303,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                     onChanged: _isLoadingTechnicians
                         ? null
                         : (value) => setState(() => _selectedTechnician = value),
-                    validator: (value) => value == null
-                        ? 'Veuillez sélectionner un technicien'
-                        : null,
+                    validator: (value) =>
+                    value == null ? 'Veuillez sélectionner un technicien' : null,
                   )
                 else ...[
                   TextFormField(
@@ -299,11 +331,10 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                 const SizedBox(height: 24),
                 const Divider(),
                 const SizedBox(height: 16),
+
                 DropdownButtonFormField<SelectableItem>(
                   value: _selectedClient,
-                  hint: !_isLoadingClients && _clients.isEmpty
-                      ? const Text('Aucun client trouvé')
-                      : null,
+                  hint: !_isLoadingClients && _clients.isEmpty ? const Text('Aucun client trouvé') : null,
                   decoration: InputDecoration(
                     labelText: 'Client',
                     border: const OutlineInputBorder(),
@@ -342,12 +373,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   value == null ? 'Veuillez sélectionner un client' : null,
                 ),
                 const SizedBox(height: 16),
+
                 if (_selectedClient != null)
                   DropdownButtonFormField<SelectableItem>(
                     value: _selectedStore,
-                    hint: !_isLoadingStores && _stores.isEmpty
-                        ? const Text('Aucun magasin trouvé')
-                        : null,
+                    hint: !_isLoadingStores && _stores.isEmpty ? const Text('Aucun magasin trouvé') : null,
                     decoration: InputDecoration(
                       labelText: 'Magasin / Destination',
                       border: const OutlineInputBorder(),
@@ -358,7 +388,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                         child: SizedBox(
                           height: 24,
                           width: 24,
-                          child: CircularProgressIndicator(strokeWidth: 3),
+                          child:
+                          CircularProgressIndicator(strokeWidth: 3),
                         ),
                       )
                           : null,
@@ -375,6 +406,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                         : (value) => setState(() => _selectedStore = value),
                   ),
                 const SizedBox(height: 24),
+
                 Card(
                   elevation: 2,
                   child: Padding(

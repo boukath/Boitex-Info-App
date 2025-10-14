@@ -81,7 +81,7 @@ class LivraisonsHubPage extends StatelessWidget {
             itemBuilder: (context, index) {
               final doc = livraisons[index];
               final data = doc.data() as Map<String, dynamic>;
-              final bonNumber = data['blCode'] ?? 'N/A';
+              final bonNumber = data['bonLivraisonCode'] ?? 'N/A';
               final clientName = data['clientName'] ?? 'Client inconnu';
               final status = data['status'] ?? 'À Préparer';
               final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
