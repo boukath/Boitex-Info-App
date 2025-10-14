@@ -23,26 +23,31 @@ class SelectableItem {
 class ProductSelection {
   final String productId;
   final String productName;
-  // ✅ 1. ADDED the 'marque' field
   final String marque;
-  // ✅ 2. REMOVED 'final' so the quantity can be changed
+  // ✅ ADDED: A field to hold the part number (reference).
+  final String partNumber;
   int quantity;
+  List<String> serialNumbers;
 
   ProductSelection({
     required this.productId,
     required this.productName,
-    // ✅ 3. ADDED 'marque' to the constructor
     required this.marque,
+    // ✅ ADDED: partNumber is now required.
+    required this.partNumber,
     required this.quantity,
-  });
+    List<String>? serialNumbers,
+  }) : serialNumbers = serialNumbers ?? [];
 
   Map<String, dynamic> toJson() {
     return {
       'productId': productId,
       'productName': productName,
-      // ✅ 4. ADDED 'marque' to the JSON output
       'marque': marque,
+      // ✅ ADDED: Include partNumber when saving to Firestore.
+      'partNumber': partNumber,
       'quantity': quantity,
+      'serialNumbers': serialNumbers,
     };
   }
 }

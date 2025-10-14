@@ -1,16 +1,12 @@
 // lib/screens/administration/livraison_details_page.dart
 
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:boitex_info_app/services/activity_logger.dart';
 import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:signature/signature.dart';
-import 'package:path/path.dart' as path;
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:typed_data';
+import 'package:firebase_storage/firebase_storage.dart';
 
 class LivraisonDetailsPage extends StatefulWidget {
   final String livraisonId;
@@ -22,14 +18,15 @@ class LivraisonDetailsPage extends StatefulWidget {
 
 class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   DocumentSnapshot? _livraisonDoc;
+  // ✅ RESTRUCTURED: This list now holds individual physical items to be scanned.
   List<Map<String, dynamic>> _itemsToScan = [];
   bool _isLoading = true;
   bool _isCompleting = false;
 
   bool get _allScanned =>
-      _itemsToScan.isNotEmpty && _itemsToScan.every((item) => item['scanned'] == true);
+      _itemsToScan.isNotEmpty &&
+          _itemsToScan.every((item) => item['scanned'] == true);
 
-  List<File> _pickedPhotos = [];
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 5,
     penColor: Colors.black,
@@ -42,7 +39,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     _loadLivraisonDetails();
   }
 
-  // ✅ FIXED: Safely handles missing 'products' field.
+  @override
+  void dispose() {
+    _signatureController.dispose();
+    super.dispose();
+  }
+
+
+  // ✅ REWRITTEN: This function now "flattens" the product list.
   Future<void> _loadLivraisonDetails() async {
     setState(() => _isLoading = true);
     try {
@@ -52,25 +56,47 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           .get();
 
       if (doc.exists) {
-        final data = doc.data()!;
-        // Safely get the products list, defaulting to an empty list if it doesn't exist.
+        final data = doc.data() as Map<String, dynamic>;
         final products = data['products'] as List<dynamic>? ?? [];
+        final List<Map<String, dynamic>> flattenedItems = [];
+
+        // Loop through each product type in the delivery
+        for (final product in products) {
+          final serials = product['serialNumbers'] as List<dynamic>? ?? [];
+
+          if (serials.isNotEmpty) {
+            // If there are serial numbers, create one item for each serial
+            for (final sn in serials) {
+              flattenedItems.add({
+                'productName': product['productName'] ?? 'N/A',
+                'partNumber': product['partNumber'] ?? 'N/A',
+                'serialNumber': sn.toString(),
+                'scanTarget': sn.toString(), // The target to scan is the serial number
+                'scanned': false,
+              });
+            }
+          } else {
+            // If no serials, create one item for each quantity of the part number
+            final int quantity = product['quantity'] ?? 0;
+            for (int i = 0; i < quantity; i++) {
+              flattenedItems.add({
+                'productName': product['productName'] ?? 'N/A',
+                'partNumber': product['partNumber'] ?? 'N/A',
+                'serialNumber': null, // No serial number for this item
+                'scanTarget': product['partNumber'], // The target is the part number
+                'scanned': false,
+              });
+            }
+          }
+        }
 
         setState(() {
           _livraisonDoc = doc;
-          _itemsToScan = products
-              .map((p) => {
-            'productId': p['productId'],
-            'productName': p['productName'],
-            'quantity': p['quantity'],
-            'scanned': false,
-          })
-              .toList();
+          _itemsToScan = flattenedItems;
           _isLoading = false;
         });
       } else {
         setState(() => _isLoading = false);
-        // Handle case where document doesn't exist
       }
     } catch (e) {
       setState(() => _isLoading = false);
@@ -80,38 +106,29 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     }
   }
 
-  void _scanItem(Map<String, dynamic> itemToScan) {
-    Navigator.push(
+  // ✅ UPDATED: The scanning logic now compares against the 'scanTarget'
+  void _scanItem(Map<String, dynamic> itemToScan) async {
+    String? scannedCode;
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (context) => ScannerPage(
-          onScan: (scannedId) {
-            if (scannedId == itemToScan['productId']) {
-              setState(() {
-                itemToScan['scanned'] = true;
-              });
-              Navigator.pop(context); // Close scanner on successful scan
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('Mauvais produit scanné.'),
-                backgroundColor: Colors.red,
-              ));
-            }
-          },
-        ),
+        builder: (context) => ScannerPage(onScan: (code) {
+          scannedCode = code;
+        }),
       ),
     );
-  }
 
-  Future<void> _pickPhotos() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: true,
-    );
-    if (result != null) {
-      setState(() {
-        _pickedPhotos = result.paths.map((path) => File(path!)).toList();
-      });
+    if (scannedCode != null) {
+      if (scannedCode!.trim() == itemToScan['scanTarget']) {
+        setState(() {
+          itemToScan['scanned'] = true;
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Mauvais article scanné.'),
+          backgroundColor: Colors.red,
+        ));
+      }
     }
   }
 
@@ -132,7 +149,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
     try {
       final signatureUrl = await _uploadSignature();
-      // TODO: Handle photo uploads similarly
+
+      // Phase 3 logic will go here in the next step
+      // For now, we just complete the delivery
 
       await FirebaseFirestore.instance
           .collection('livraisons')
@@ -141,10 +160,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         'status': 'Livré',
         'completedAt': FieldValue.serverTimestamp(),
         'signatureUrl': signatureUrl,
-        // 'photoUrls': photoUrls,
       });
 
-      // Log the activity
       await ActivityLogger.logActivity(
         message: 'a confirmé la livraison pour le client ${_livraisonDoc?['clientName'] ?? ''}.',
         category: 'Livraison',
@@ -153,13 +170,15 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         completionSignatureUrl: signatureUrl,
       );
 
-      if(mounted) Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
     } finally {
-      if(mounted) setState(() => _isCompleting = false);
+      if (mounted) setState(() => _isCompleting = false);
     }
   }
 
@@ -183,7 +202,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Client Info
             Card(
               child: ListTile(
                 leading: const Icon(Icons.business),
@@ -194,18 +212,26 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             ),
             const SizedBox(height: 16),
 
-            // Scan Items
-            Text('Produits à Scanner', style: Theme.of(context).textTheme.titleLarge),
+            Text('Produits à Scanner',
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Card(
               child: Column(
+                // ✅ UPDATED: The UI now displays Part Number and Serial Number.
                 children: _itemsToScan.map((item) {
                   return ListTile(
                     leading: item['scanned']
                         ? const Icon(Icons.check_circle, color: Colors.green)
                         : const Icon(Icons.qr_code_scanner),
                     title: Text(item['productName']),
-                    subtitle: Text('ID: ${item['productId']}'),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Réf: ${item['partNumber']}'),
+                        if (item['serialNumber'] != null)
+                          Text('N/S: ${item['serialNumber']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
                     onTap: item['scanned'] ? null : () => _scanItem(item),
                   );
                 }).toList(),
@@ -213,7 +239,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             ),
             const Divider(height: 32),
 
-            // Proof of Delivery
             Text('Preuve de Livraison',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
@@ -222,7 +247,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    // Signature Pad
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -240,21 +264,17 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                           controller: _signatureController,
                           backgroundColor: Colors.grey[200]!),
                     ),
-                    const SizedBox(height: 16),
-                    // TODO: Add buttons to upload photos of signed doc / delivered items
                   ],
                 ),
               ),
             ),
             const Divider(height: 32),
 
-            // Completion Button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: (_isCompleting || !_allScanned)
-                    ? null
-                    : _completeLivraison,
+                onPressed:
+                (_isCompleting || !_allScanned) ? null : _completeLivraison,
                 icon: const Icon(Icons.check_circle),
                 label: const Text('Confirmer la Livraison'),
                 style: ElevatedButton.styleFrom(

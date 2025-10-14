@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
+import 'package:boitex_info_app/widgets/serial_number_scanner_dialog.dart';
 
 class ProductSelectorDialog extends StatefulWidget {
   final List<ProductSelection> initialProducts;
@@ -40,6 +41,22 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
     super.dispose();
   }
 
+  void _showSerialNumberScanner(ProductSelection product) async {
+    final List<String>? updatedSerialNumbers = await showDialog(
+      context: context,
+      builder: (context) => SerialNumberScannerDialog(productSelection: product),
+    );
+
+    if (updatedSerialNumbers != null) {
+      setState(() {
+        final productIndex = _selectedProducts.indexOf(product);
+        if (productIndex != -1) {
+          _selectedProducts[productIndex].serialNumbers = updatedSerialNumbers;
+        }
+      });
+    }
+  }
+
   Future<void> _scanAndAddProduct() async {
     String? scannedCode;
 
@@ -59,7 +76,7 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
     }
 
     try {
-      // ✅ FIXED: Corrected collection name
+      // ✅ FINAL FIX: Corrected collection name to 'produits'
       final querySnapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('reference', isEqualTo: scannedCode!.trim())
@@ -78,14 +95,13 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       }
 
       final productDoc = querySnapshot.docs.first;
+      // ✅ FINAL FIX: Cast the data to the correct type
       final productData = productDoc.data() as Map<String, dynamic>;
       final productId = productDoc.id;
 
-      final dynamic nomData = productData['nom'];
-      final dynamic marqueData = productData['marque'];
-
-      final String productName = (nomData is String) ? nomData : 'Donnée Invalide';
-      final String marque = (marqueData is String) ? marqueData : 'Donnée Invalide';
+      final String productName = productData['nom'] as String? ?? 'Donnée Invalide';
+      final String marque = productData['marque'] as String? ?? 'Donnée Invalide';
+      final String partNumber = productData['reference'] as String? ?? 'N/A';
 
       final existingProductIndex =
       _selectedProducts.indexWhere((p) => p.productId == productId);
@@ -98,6 +114,7 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
             productId: productId,
             productName: productName,
             marque: marque,
+            partNumber: partNumber,
             quantity: 1,
           ));
         }
@@ -122,7 +139,7 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       _selectedProduct = null;
     });
     try {
-      // ✅ FIXED: Corrected collection name
+      // ✅ FINAL FIX: Corrected collection name
       final snapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('mainCategory', isEqualTo: mainCategory)
@@ -145,13 +162,13 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       _selectedProduct = null;
     });
     try {
-      // ✅ FIXED: Corrected collection name
+      // ✅ FINAL FIX: Corrected collection name
       final snapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('categorie', isEqualTo: category)
           .get();
       final products = snapshot.docs
-          .map((doc) => SelectableItem(id: doc.id, name: doc['nom'], data: {'marque': doc['marque']}))
+          .map((doc) => SelectableItem(id: doc.id, name: doc['nom'], data: {'marque': doc['marque'], 'reference': doc['reference']}))
           .toList();
       if (mounted) setState(() => _products = products);
     } catch (e) {
@@ -172,10 +189,12 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       if (existingProductIndex != -1) {
         _selectedProducts[existingProductIndex].quantity += quantity;
       } else {
+        final String partNumber = _selectedProduct!.data?['reference'] ?? 'N/A';
         _selectedProducts.add(ProductSelection(
           productId: _selectedProduct!.id,
           productName: _selectedProduct!.name,
           marque: _selectedProduct!.data?['marque'] ?? '',
+          partNumber: partNumber,
           quantity: quantity,
         ));
       }
@@ -203,7 +222,7 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                 child: ElevatedButton.icon(
                   onPressed: _scanAndAddProduct,
                   icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Scanner un Produit'),
+                  label: const Text('Scanner un Produit (Par Réf.)'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
@@ -293,18 +312,22 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                   : Column(
                 children: _selectedProducts
                     .map((p) => ListTile(
-                  title: Text(p.productName),
-                  subtitle: Text('Marque: ${p.marque}'),
-                  trailing: Text('Qté: ${p.quantity}'),
-                  dense: true,
                   leading: IconButton(
-                    icon: const Icon(Icons.remove_circle_outline,
-                        color: Colors.red),
-                    onPressed: () {
-                      setState(() {
-                        _selectedProducts.remove(p);
-                      });
-                    },
+                    icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                    onPressed: () => setState(() => _selectedProducts.remove(p)),
+                  ),
+                  title: Text(p.productName),
+                  subtitle: Text('Scannés: ${p.serialNumbers.length} / ${p.quantity}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Qté: ${p.quantity}'),
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_scanner_rounded),
+                        onPressed: () => _showSerialNumberScanner(p),
+                        tooltip: 'Scanner les N° de Série',
+                      ),
+                    ],
                   ),
                 ))
                     .toList(),

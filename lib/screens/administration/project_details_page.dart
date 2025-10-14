@@ -616,13 +616,13 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
     super.initState();
     _selectedProducts = widget.existingItems
         .map((item) {
-      // Safely access the data from the map
       final productData = item as Map<String, dynamic>;
       return ProductSelection(
         productId: productData['productId'],
         productName: productData['productName'],
-        // ✅ Provide the 'marque', with a fallback for older data
         marque: productData['marque'] ?? '',
+        // ✅ THIS LINE FIXES THE ERROR
+        partNumber: productData['partNumber'] ?? 'N/A',
         quantity: productData['quantity'],
       );
     }).toList();
