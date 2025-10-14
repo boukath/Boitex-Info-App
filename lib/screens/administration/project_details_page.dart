@@ -615,12 +615,17 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
   void initState() {
     super.initState();
     _selectedProducts = widget.existingItems
-        .map((item) => ProductSelection(
-      productId: item['productId'],
-      productName: item['productName'],
-      quantity: item['quantity'],
-    ))
-        .toList();
+        .map((item) {
+      // Safely access the data from the map
+      final productData = item as Map<String, dynamic>;
+      return ProductSelection(
+        productId: productData['productId'],
+        productName: productData['productName'],
+        // ✅ Provide the 'marque', with a fallback for older data
+        marque: productData['marque'] ?? '',
+        quantity: productData['quantity'],
+      );
+    }).toList();
   }
 
   Future<void> _finalizeOrder() async {
