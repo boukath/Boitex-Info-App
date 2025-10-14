@@ -2,16 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/administration/add_store_page.dart';
 import 'package:boitex_info_app/screens/administration/store_details_page.dart';
+import 'package:boitex_info_app/screens/administration/store_equipment_page.dart';
 
 class ManageStoresPage extends StatelessWidget {
   final String clientId;
   final String clientName;
 
-  const ManageStoresPage({
-    super.key,
-    required this.clientId,
-    required this.clientName,
-  });
+  const ManageStoresPage(
+      {super.key, required this.clientId, required this.clientName});
 
   @override
   Widget build(BuildContext context) {
@@ -20,16 +18,17 @@ class ManageStoresPage extends StatelessWidget {
         title: Text(clientName),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // **MODIFIED**: Added .orderBy('name') to sort the list alphabetically
         stream: FirebaseFirestore.instance
             .collection('clients')
             .doc(clientId)
             .collection('stores')
-            .orderBy('name')
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return const Center(child: Text('Une erreur est survenue.'));
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return const Center(child: Text('Aucun magasin trouvé pour ce client.'));
@@ -38,31 +37,49 @@ class ManageStoresPage extends StatelessWidget {
           final storeDocs = snapshot.data!.docs;
 
           return ListView.builder(
-            padding: const EdgeInsets.only(top: 8.0, bottom: 80.0),
             itemCount: storeDocs.length,
             itemBuilder: (context, index) {
-              final storeDoc = storeDocs[index];
-              final storeData = storeDoc.data() as Map<String, dynamic>;
-              final storeName = storeData['name'] ?? 'Nom inconnu';
-              final storeLocation = storeData['location'] ?? 'Emplacement inconnu';
+              final store = storeDocs[index];
+              final storeData = store.data() as Map<String, dynamic>;
+              final storeName = storeData['name'] ?? 'Nom du magasin inconnu';
+              final storeLocation = storeData['location'] ?? 'Localisation non spécifiée';
 
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
-                  leading: CircleAvatar(
-                    // Use the same color logic as the client list for consistency
-                    backgroundColor: Colors.blueGrey.shade300,
-                    child: const Icon(Icons.storefront_outlined, color: Colors.white),
-                  ),
-                  title: Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  leading: const Icon(Icons.store_mall_directory_outlined),
+                  title: Text(storeName),
                   subtitle: Text(storeLocation),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.inventory_2_outlined),
+                        tooltip: 'Voir le Matériel Installé',
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => StoreEquipmentPage(
+                                clientId: clientId,
+                                storeId: store.id,
+                                storeName: storeName,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const Icon(Icons.arrow_forward_ios, size: 16),
+                    ],
+                  ),
                   onTap: () {
-                    Navigator.of(context).push(
+                    // ✅ THIS IS THE FIX: We now pass the required parameters.
+                    Navigator.push(
+                      context,
                       MaterialPageRoute(
                         builder: (context) => StoreDetailsPage(
                           clientId: clientId,
-                          storeId: storeDoc.id,
+                          storeId: store.id,
                           storeName: storeName,
                           storeLocation: storeLocation,
                         ),
@@ -77,11 +94,9 @@ class ManageStoresPage extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => AddStorePage(clientId: clientId)),
-          );
+          Navigator.of(context).push(MaterialPageRoute(
+              builder: (context) => AddStorePage(clientId: clientId)));
         },
-        tooltip: 'Ajouter un magasin',
         child: const Icon(Icons.add),
       ),
     );

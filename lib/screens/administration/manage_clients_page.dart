@@ -19,7 +19,6 @@ class ManageClientsPage extends StatelessWidget {
         title: const Text('Clients & Magasins'),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // **MODIFIED**: Added .orderBy('name') to sort the list alphabetically
         stream: FirebaseFirestore.instance.collection('clients').orderBy('name').snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -35,15 +34,20 @@ class ManageClientsPage extends StatelessWidget {
           final clientDocs = snapshot.data!.docs;
 
           return ListView.builder(
-            padding: const EdgeInsets.only(top: 8.0, bottom: 80.0),
             itemCount: clientDocs.length,
             itemBuilder: (context, index) {
               final clientDoc = clientDocs[index];
               final clientData = clientDoc.data() as Map<String, dynamic>;
-              final clientName = clientData['name'] as String? ?? 'Nom inconnu';
-              final services = clientData['services'] as List<dynamic>? ?? [];
+              final clientName = clientData['name'] as String? ?? 'Client inconnu';
+
+              final servicesRaw = clientData['service'];
+              final services = (servicesRaw is List)
+                  ? servicesRaw.map((s) => s.toString()).toList()
+                  : [servicesRaw?.toString() ?? 'Non spécifié'];
+
               final avatarColor = _getAvatarColor(clientName);
 
+              // ✅ CORRECTED: The ListTile is now simple again.
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -57,6 +61,7 @@ class ManageClientsPage extends StatelessWidget {
                   ),
                   title: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text('Services: ${services.join(', ')}'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(

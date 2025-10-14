@@ -145,34 +145,68 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   Future<void> _completeLivraison() async {
+    if (_livraisonDoc == null) return;
     setState(() => _isCompleting = true);
 
     try {
       final signatureUrl = await _uploadSignature();
+      final livraisonData = _livraisonDoc!.data() as Map<String, dynamic>;
+      final clientId = livraisonData['clientId'];
+      // ✅ 1. GET THE STORE ID: We now get the storeId from the delivery data.
+      final storeId = livraisonData['storeId'];
+      final products = livraisonData['products'] as List<dynamic>? ?? [];
 
-      // Phase 3 logic will go here in the next step
-      // For now, we just complete the delivery
+      // ✅ 2. ADD A CHECK: Only proceed if a store was selected for the delivery.
+      if (storeId == null || storeId.isEmpty) {
+        throw Exception('Impossible de sauvegarder l\'historique: Magasin non spécifié dans la livraison.');
+      }
 
-      await FirebaseFirestore.instance
-          .collection('livraisons')
-          .doc(widget.livraisonId)
-          .update({
+      final batch = FirebaseFirestore.instance.batch();
+
+      final livraisonRef = FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId);
+      batch.update(livraisonRef, {
         'status': 'Livré',
         'completedAt': FieldValue.serverTimestamp(),
         'signatureUrl': signatureUrl,
       });
 
+      // ✅ 3. CORRECTED PATH: The path now points to the sub-collection within the specific store.
+      final materielCollectionRef = FirebaseFirestore.instance
+          .collection('clients')
+          .doc(clientId)
+          .collection('stores') // Go into the stores sub-collection
+          .doc(storeId)        // Select the specific store
+          .collection('materiel_installe'); // Create records in its own sub-collection
+
+      for (final product in products) {
+        final serials = product['serialNumbers'] as List<dynamic>? ?? [];
+        if (serials.isNotEmpty) {
+          for (final sn in serials) {
+            final newMaterielDoc = materielCollectionRef.doc();
+            batch.set(newMaterielDoc, {
+              'productName': product['productName'],
+              'partNumber': product['partNumber'],
+              'serialNumber': sn,
+              'installationDate': FieldValue.serverTimestamp(),
+              'livraisonId': widget.livraisonId,
+            });
+          }
+        }
+      }
+
+      await batch.commit();
+
       await ActivityLogger.logActivity(
-        message: 'a confirmé la livraison pour le client ${_livraisonDoc?['clientName'] ?? ''}.',
+        message: 'a confirmé la livraison pour le client ${livraisonData['clientName'] ?? ''}.',
         category: 'Livraison',
-        clientName: _livraisonDoc?['clientName'],
-        storeName: _livraisonDoc?['storeName'],
+        clientName: livraisonData['clientName'],
+        storeName: livraisonData['storeName'],
         completionSignatureUrl: signatureUrl,
       );
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if(mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur: $e')),
         );
