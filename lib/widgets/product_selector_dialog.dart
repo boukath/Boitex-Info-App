@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
 import 'package:boitex_info_app/widgets/serial_number_scanner_dialog.dart';
+import 'package:boitex_info_app/screens/widgets/batch_scanner_page.dart';
 
 class ProductSelectorDialog extends StatefulWidget {
   final List<ProductSelection> initialProducts;
@@ -41,6 +42,21 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
     super.dispose();
   }
 
+  void _startBatchScan() async {
+    final List<ProductSelection>? result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BatchScannerPage(initialProducts: _selectedProducts),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _selectedProducts = result;
+      });
+    }
+  }
+
   void _showSerialNumberScanner(ProductSelection product) async {
     final List<String>? updatedSerialNumbers = await showDialog(
       context: context,
@@ -57,6 +73,7 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
     }
   }
 
+  // This method is no longer used by any button but is kept for now.
   Future<void> _scanAndAddProduct() async {
     String? scannedCode;
 
@@ -76,7 +93,6 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
     }
 
     try {
-      // ✅ FINAL FIX: Corrected collection name to 'produits'
       final querySnapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('reference', isEqualTo: scannedCode!.trim())
@@ -95,13 +111,12 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       }
 
       final productDoc = querySnapshot.docs.first;
-      // ✅ FINAL FIX: Cast the data to the correct type
-      final productData = productDoc.data() as Map<String, dynamic>;
+      final productData = productDoc.data();
       final productId = productDoc.id;
 
-      final String productName = productData['nom'] as String? ?? 'Donnée Invalide';
-      final String marque = productData['marque'] as String? ?? 'Donnée Invalide';
-      final String partNumber = productData['reference'] as String? ?? 'N/A';
+      final String productName = productData['nom'] ?? 'Donnée Invalide';
+      final String marque = productData['marque'] ?? 'Donnée Invalide';
+      final String partNumber = productData['reference'] ?? 'N/A';
 
       final existingProductIndex =
       _selectedProducts.indexWhere((p) => p.productId == productId);
@@ -139,7 +154,6 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       _selectedProduct = null;
     });
     try {
-      // ✅ FINAL FIX: Corrected collection name
       final snapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('mainCategory', isEqualTo: mainCategory)
@@ -162,7 +176,6 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       _selectedProduct = null;
     });
     try {
-      // ✅ FINAL FIX: Corrected collection name
       final snapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('categorie', isEqualTo: category)
@@ -220,10 +233,11 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: _scanAndAddProduct,
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Scanner un Produit (Par Réf.)'),
+                  onPressed: _startBatchScan,
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Lancer le Batch Scan'),
                   style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                 ),
@@ -233,12 +247,11 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                 Expanded(child: Divider()),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text("OU"),
+                  child: Text("OU AJOUT MANUEL"),
                 ),
                 Expanded(child: Divider()),
               ]),
               const SizedBox(height: 16),
-
               DropdownButtonFormField<String>(
                 value: _selectedMainCategory,
                 hint: const Text('Choisir le type de produit'),
