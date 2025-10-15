@@ -1,3 +1,5 @@
+// lib/screens/administration/add_livraison_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -19,10 +21,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   SelectableItem? _selectedClient;
   SelectableItem? _selectedStore;
   List<ProductSelection> _selectedProducts = [];
-
-  // ✅ 1. State variable for the new service dropdown
   String? _selectedServiceType;
-
   SelectableItem? _selectedTechnician;
   final _externalCarrierNameController = TextEditingController();
   final _trackingNumberController = TextEditingController();
@@ -38,9 +37,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   @override
   void initState() {
     super.initState();
-    // Pre-select the service if coming from a specific dashboard, otherwise it's null
     _selectedServiceType = widget.serviceType;
-
     Future.delayed(Duration.zero, () {
       if (mounted) {
         _fetchClients();
@@ -56,7 +53,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     super.dispose();
   }
 
-  // ✅ No changes to _fetchClients, it's clean and simple now.
   Future<void> _fetchClients() async {
     if (FirebaseAuth.instance.currentUser == null) {
       if (mounted) setState(() => _clientError = "Erreur: Utilisateur non connecté.");
@@ -66,7 +62,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('clients').get();
       final clients = snapshot.docs
-          .map((doc) => SelectableItem(id: doc.id, name: doc['name'], data: {}))
+          .map((doc) => SelectableItem(id: doc.id, name: doc['name'] as String))
           .toList();
       clients.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       if (mounted) setState(() => _clients = clients);
@@ -90,10 +86,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           .collection('stores')
           .get();
       final stores = snapshot.docs.map((doc) {
-        final location = doc.data().containsKey('location') ? doc['location'] : '';
+        final data = doc.data();
+        final location = data.containsKey('location') ? data['location'] : '';
         return SelectableItem(
           id: doc.id,
-          name: doc['name'],
+          name: data['name'] as String,
           data: {'location': location},
         );
       }).toList();
@@ -108,11 +105,10 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   Future<void> _fetchTechnicians() async {
     setState(() => _isLoadingTechnicians = true);
     try {
-      // This query now fetches ALL users every time, without any filters.
       final snapshot = await FirebaseFirestore.instance.collection('users').get();
       final technicians = snapshot.docs
           .map((doc) =>
-          SelectableItem(id: doc.id, name: doc['displayName'] ?? doc.id))
+          SelectableItem(id: doc.id, name: doc['displayName'] as String? ?? doc.id))
           .toList();
       if (mounted) setState(() => _technicians = technicians);
     } catch (e) {
@@ -122,7 +118,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     }
   }
 
-  // ✅ 2. Using the safer, updated counter logic to prevent crashes.
   Future<String> _getNextBonLivraisonCode() async {
     final year = DateTime.now().year;
     final counterRef = FirebaseFirestore.instance.collection('counters').doc('livraison_counter_$year');
@@ -152,7 +147,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     }
   }
 
-  // ✅ 3. The save function now handles all cases: Service Technique, Service IT, and Both.
   Future<void> _saveLivraison() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -207,6 +201,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         batch.set(docRef, {...deliveryData, 'serviceType': service});
       }
 
+      if (servicesToCreate.isEmpty) { // Handle case where no service type is selected but form is submitted
+        final docRef = livraisonsCollection.doc();
+        batch.set(docRef, deliveryData);
+      }
+
       await batch.commit();
       Navigator.pop(context);
 
@@ -233,8 +232,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ✅ 4. The new, mandatory dropdown for selecting the service.
-                // It is hidden if the user is already inside a specific service dashboard.
                 if (widget.serviceType == null) ...[
                   DropdownButtonFormField<String>(
                     value: _selectedServiceType,
@@ -245,8 +242,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                     ),
                     items: ['Service Technique', 'Service IT', 'Les Deux']
                         .map((label) => DropdownMenuItem(
-                      child: Text(label),
                       value: label,
+                      child: Text(label),
                     ))
                         .toList(),
                     onChanged: (value) {
@@ -271,8 +268,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   ),
                   items: ['Livraison Interne', 'Livraison Externe']
                       .map((label) => DropdownMenuItem(
-                    child: Text(label),
                     value: label,
+                    child: Text(label),
                   ))
                       .toList(),
                   onChanged: (value) {
