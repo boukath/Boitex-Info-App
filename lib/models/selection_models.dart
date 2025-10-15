@@ -77,4 +77,17 @@ class ProductSelection {
       'serialNumbers': serialNumbers,
     };
   }
+
+  // ✅ NEW: Factory to create an instance from a Firestore map
+  factory ProductSelection.fromJson(Map<String, dynamic> json) {
+    return ProductSelection(
+      productId: json['productId'] ?? '',
+      productName: json['productName'] ?? 'N/A',
+      partNumber: json['partNumber'] ?? 'N/A',
+      marque: json['marque'] ?? 'N/A',
+      quantity: json['quantity'] ?? 0,
+      // Ensure serialNumbers is always a List<String>
+      serialNumbers: List<String>.from(json['serialNumbers'] ?? []),
+    );
+  }
 }
