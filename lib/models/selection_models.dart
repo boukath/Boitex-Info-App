@@ -23,7 +23,7 @@ class SelectableItem {
     final data = doc.data() as Map<String, dynamic>;
     return SelectableItem(
       id: doc.id,
-      name: data['productName'] ?? 'Nom inconnu',
+      name: data['nom'] ?? 'Nom inconnu',
       partNumber: data['partNumber'] ?? 'Référence inconnue',
       data: data, // Store the full document data if needed elsewhere
     );
