@@ -1,5 +1,6 @@
 // lib/screens/service_technique/intervention_details_page.dart
 
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,11 +8,10 @@ import 'package:intl/intl.dart';
 import 'package:signature/signature.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
-// ✅ ADDED: Import the new PDF service
 import 'package:boitex_info_app/services/intervention_pdf_service.dart';
-import 'dart:convert';
 import 'package:http/http.dart' as http;
-
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Data model for users in the multi-select dropdown
 class AppUser {
@@ -45,7 +45,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   List<AppUser> _selectedTechnicians = [];
   bool _isLoading = false;
 
-  // Define the status options based on the intervention's current status
+  // ✅ NEW: State variables for media files
+  final ImagePicker _picker = ImagePicker();
+  List<XFile> _mediaFilesToUpload = [];
+  List<String> _existingMediaUrls = [];
+
+
   List<String> get statusOptions {
     final current = widget.interventionDoc['status'];
     if (current == 'Clôturé' || current == 'Facturé') {
@@ -69,8 +74,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _signatureImageUrl = data['signatureUrl'];
     _currentStatus = data['status'] ?? 'Nouveau';
 
+    // ✅ NEW: Initialize existing media URLs
+    _existingMediaUrls = List<String>.from(data['mediaUrls'] ?? []);
+
+
     _fetchTechnicians().then((_) {
-      // Initialize selected technicians after fetching all users
       final List<dynamic> assignedTechnicians = data['assignedTechnicians'] ?? [];
       _selectedTechnicians = _allTechnicians.where((tech) {
         return assignedTechnicians.any((assigned) => assigned['uid'] == tech.uid);
@@ -90,6 +98,17 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ✅ NEW: Function to pick photos and videos
+  Future<void> _pickMedia() async {
+    final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
+    if (pickedFiles.isNotEmpty) {
+      setState(() {
+        _mediaFilesToUpload.addAll(pickedFiles);
+      });
+    }
+  }
+
+  // ✅ UPDATED: The save function now handles media uploads
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
@@ -106,6 +125,15 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
+      // ✅ NEW: Upload media files and get their URLs
+      List<String> uploadedMediaUrls = List.from(_existingMediaUrls);
+      for (XFile file in _mediaFilesToUpload) {
+        final storageRef = FirebaseStorage.instance.ref().child('interventions_media/${widget.interventionDoc.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}');
+        final uploadTask = await storageRef.putFile(File(file.path));
+        final downloadUrl = await uploadTask.ref.getDownloadURL();
+        uploadedMediaUrls.add(downloadUrl);
+      }
+
       final reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
@@ -114,6 +142,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'signatureUrl': newSignatureUrl,
         'status': _currentStatus,
         'assignedTechnicians': _selectedTechnicians.map((tech) => {'uid': tech.uid, 'name': tech.displayName}).toList(),
+        'mediaUrls': uploadedMediaUrls, // ✅ NEW: Save media URLs to Firestore
         'updatedAt': FieldValue.serverTimestamp(),
         if (_currentStatus == 'Clôturé' && widget.interventionDoc['status'] != 'Clôturé') 'closedAt': FieldValue.serverTimestamp(),
       };
@@ -131,6 +160,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
     }
   }
+
 
   @override
   void dispose() {
@@ -333,6 +363,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             maxLines: 4,
           ),
           const SizedBox(height: 24),
+
+          // ✅ NEW: Media upload section is here
+          _buildMediaSection(),
+
+          const SizedBox(height: 24),
           const Text('Signature du Client', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
 
@@ -379,6 +414,110 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  // ✅ NEW: Widget for the media section
+  Widget _buildMediaSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Photos & Vidéos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
+          const Text('Aucun fichier ajouté.', style: TextStyle(color: Colors.grey)),
+
+        // Display existing media
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: _existingMediaUrls.map((url) => _buildMediaThumbnail(url: url)).toList(),
+        ),
+
+        // Display newly selected media
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: _mediaFilesToUpload.map((file) => _buildMediaThumbnail(file: file)).toList(),
+        ),
+
+        const SizedBox(height: 16),
+        if (!isReadOnly)
+          Center(
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.add_a_photo),
+              label: const Text('Ajouter Photos/Vidéos'),
+              onPressed: _pickMedia,
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ✅ NEW: Widget to display a single media thumbnail
+  Widget _buildMediaThumbnail({String? url, XFile? file}) {
+    bool isVideo = (url?.contains('.mp4') ?? file?.path.endsWith('.mp4')) ?? false;
+
+    return GestureDetector(
+      onTap: () async {
+        if (url != null) {
+          if (await canLaunchUrl(Uri.parse(url))) {
+            await launchUrl(Uri.parse(url));
+          }
+        }
+      },
+      child: Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+          image: url != null && !isVideo
+              ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
+              : null,
+          color: Colors.grey.shade200,
+        ),
+        child: Stack(
+          children: [
+            if (file != null && !file.path.endsWith('.mp4'))
+              ClipRRect(
+                borderRadius: BorderRadius.circular(11),
+                child: Image.file(File(file.path), width: 100, height: 100, fit: BoxFit.cover),
+              ),
+            if (isVideo)
+              const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54)),
+            if (!isReadOnly && file != null)
+              Positioned(
+                top: -10,
+                right: -10,
+                child: IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.redAccent),
+                  onPressed: () {
+                    setState(() {
+                      _mediaFilesToUpload.remove(file);
+                    });
+                  },
+                ),
+              ),
+            if (!isReadOnly && url != null)
+              Positioned(
+                top: -10,
+                right: -10,
+                child: IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.redAccent),
+                  onPressed: () {
+                    setState(() {
+                      _existingMediaUrls.remove(url);
+                    });
+                  },
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
