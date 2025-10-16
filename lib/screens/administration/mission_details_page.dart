@@ -3,12 +3,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // ✅ ADDED: For user roles
 import 'package:boitex_info_app/models/mission.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path/path.dart' as path;
-import 'package:url_launcher/url_launcher.dart'; // Import for opening URLs
+import 'package:url_launcher/url_launcher.dart';
 
 class MissionDetailsPage extends StatefulWidget {
   final Mission mission;
@@ -22,11 +23,25 @@ class MissionDetailsPage extends StatefulWidget {
 class _MissionDetailsPageState extends State<MissionDetailsPage> {
   late Mission _currentMission;
   bool _isUpdatingStatus = false;
+  String? _userRole; // ✅ ADDED: To store user role
 
   @override
   void initState() {
     super.initState();
     _currentMission = widget.mission;
+    _fetchUserRole(); // ✅ ADDED: Fetch role on init
+  }
+
+  // ✅ NEW: Fetches the current user's role from Firestore
+  Future<void> _fetchUserRole() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    if (mounted) {
+      setState(() {
+        _userRole = userDoc.data()?['role'] as String?;
+      });
+    }
   }
 
   // Toggles the completion status of a mission task
@@ -85,6 +100,141 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
       }
     }
   }
+
+  // ✅ NEW: Shows a dialog to edit mission dates
+  Future<void> _showEditDatesDialog() async {
+    DateTime? newStartDate = _currentMission.startDate;
+    DateTime? newEndDate = _currentMission.endDate;
+
+    final result = await showDialog<Map<String, DateTime>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Modifier les dates de la mission'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    title: Text('Début: ${DateFormat("dd/MM/yyyy").format(newStartDate!)}'),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: newStartDate!,
+                        firstDate: DateTime.now().subtract(const Duration(days: 30)), // Allow past dates for correction
+                        lastDate: DateTime(2030),
+                      );
+                      if (date != null) {
+                        setDialogState(() => newStartDate = date);
+                      }
+                    },
+                  ),
+                  ListTile(
+                    title: Text('Fin: ${DateFormat("dd/MM/yyyy").format(newEndDate!)}'),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: newEndDate!,
+                        firstDate: newStartDate!,
+                        lastDate: DateTime(2030),
+                      );
+                      if (date != null) {
+                        setDialogState(() => newEndDate = date);
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context, {'start': newStartDate!, 'end': newEndDate!});
+                  },
+                  child: const Text('Enregistrer'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      await _updateMissionDates(result['start']!, result['end']!);
+    }
+  }
+
+  // ✅ NEW: Updates mission dates after checking vehicle availability
+  Future<void> _updateMissionDates(DateTime newStartDate, DateTime newEndDate) async {
+    if (_currentMission.resources?.vehicleId == null) {
+      // If no vehicle, just update the dates
+      _performDateUpdate(newStartDate, newEndDate);
+      return;
+    }
+
+    // Check for vehicle conflict
+    final conflictingMissions = await FirebaseFirestore.instance
+        .collection('missions')
+        .where('resources.vehicleId', isEqualTo: _currentMission.resources!.vehicleId)
+        .where('status', whereIn: ['Planifiée', 'En Cours'])
+        .where(FieldPath.documentId, isNotEqualTo: _currentMission.id) // Exclude current mission
+        .get();
+
+    bool hasConflict = false;
+    for (var missionDoc in conflictingMissions.docs) {
+      final missionData = missionDoc.data();
+      final existingStart = (missionData['startDate'] as Timestamp).toDate();
+      final existingEnd = (missionData['endDate'] as Timestamp).toDate();
+
+      if (newStartDate.isBefore(existingEnd) && newEndDate.isAfter(existingStart)) {
+        hasConflict = true;
+        break;
+      }
+    }
+
+    if (hasConflict) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('CONFLIT: Le véhicule est déjà réservé pour ces dates.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } else {
+      // No conflict, proceed with update
+      _performDateUpdate(newStartDate, newEndDate);
+    }
+  }
+
+  // ✅ NEW: Helper function to perform the Firestore update
+  Future<void> _performDateUpdate(DateTime startDate, DateTime endDate) async {
+    try {
+      await FirebaseFirestore.instance.collection('missions').doc(_currentMission.id!).update({
+        'startDate': Timestamp.fromDate(startDate),
+        'endDate': Timestamp.fromDate(endDate),
+      });
+
+      final updatedDoc = await FirebaseFirestore.instance.collection('missions').doc(_currentMission.id!).get();
+      if (mounted) {
+        setState(() {
+          _currentMission = Mission.fromFirestore(updatedDoc);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dates de mission mises à jour.'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
+    }
+  }
+
 
   // Shows a dialog to add an expense with file attachments
   Future<void> _showAddExpenseDialog(String categoryName, String categoryKey) async {
@@ -297,7 +447,6 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
           const SizedBox(height: 8),
           _buildTechniciansCard(),
           const SizedBox(height: 24),
-          // ✅ NEW: ADDED THE RESOURCES CARD
           _buildResourcesCard(),
           const SizedBox(height: 24),
           _buildSectionHeader(context, 'Liste des Tâches', Icons.check_circle_outline),
@@ -428,11 +577,9 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
     );
   }
 
-  // ✅ NEW WIDGET: DISPLAYS ALL MISSION RESOURCES
   Widget _buildResourcesCard() {
     final resources = _currentMission.resources;
     if (resources == null) {
-      // Return an empty container if no resources are assigned to the mission
       return const SizedBox.shrink();
     }
 
@@ -447,7 +594,6 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Section for Vehicle
                 const Text('Véhicule', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const Divider(),
                 ListTile(
@@ -456,7 +602,6 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
                   subtitle: Text(resources.vehiclePlate ?? 'Aucun véhicule assigné'),
                 ),
 
-                // Section for Equipment
                 if (resources.equipment.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   const Text('Équipement', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
@@ -467,7 +612,6 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
                   )),
                 ],
 
-                // Section for Pre-Mission Purchases
                 if (resources.preMissionPurchases.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   const Text('Achats Pré-Mission', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
@@ -504,6 +648,10 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
   Widget _buildInfoCard() {
     final formattedStartDate = DateFormat('dd MMM yyyy', 'fr_FR').format(_currentMission.startDate);
     final formattedEndDate = DateFormat('dd MMM yyyy', 'fr_FR').format(_currentMission.endDate);
+    // ✅ CHANGED: Determine if the edit button should be visible
+    final bool canEdit = (_userRole == 'Responsable Administratif' || _userRole == 'Admin') &&
+        (_currentMission.status == 'Planifiée' || _currentMission.status == 'En Cours');
+
 
     return Card(
       child: Column(
@@ -524,6 +672,13 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
             leading: const Icon(Icons.calendar_today_outlined),
             title: const Text('Dates'),
             subtitle: Text('Du $formattedStartDate au $formattedEndDate', style: const TextStyle(fontSize: 16)),
+            // ✅ CHANGED: Show edit button based on role and status
+            trailing: canEdit
+                ? IconButton(
+              icon: const Icon(Icons.edit_calendar_outlined, color: Colors.blue),
+              onPressed: _showEditDatesDialog,
+            )
+                : null,
           ),
           const Divider(height: 1),
           ListTile(

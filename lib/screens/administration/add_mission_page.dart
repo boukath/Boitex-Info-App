@@ -195,7 +195,7 @@ class _AddMissionPageState extends State<AddMissionPage> {
       // Create budget controllers for new members
       for (var tech in selected) {
         if (!_perPersonBudgetControllers.containsKey(tech.id)) {
-          _perPersonBudgetControllers[tech.id] = TextEditingController(text: '5000');
+          _perPersonBudgetControllers[tech.id] = TextEditingController(text: '2000');
         }
       }
     });
