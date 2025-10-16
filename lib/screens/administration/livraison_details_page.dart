@@ -18,7 +18,6 @@ class LivraisonDetailsPage extends StatefulWidget {
 
 class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   DocumentSnapshot? _livraisonDoc;
-  // ✅ RESTRUCTURED: This list now holds individual physical items to be scanned.
   List<Map<String, dynamic>> _itemsToScan = [];
   bool _isLoading = true;
   bool _isCompleting = false;
@@ -45,8 +44,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     super.dispose();
   }
 
-
-  // ✅ REWRITTEN: This function now "flattens" the product list.
   Future<void> _loadLivraisonDetails() async {
     setState(() => _isLoading = true);
     try {
@@ -60,30 +57,31 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         final products = data['products'] as List<dynamic>? ?? [];
         final List<Map<String, dynamic>> flattenedItems = [];
 
-        // Loop through each product type in the delivery
         for (final product in products) {
+          final partNumber = product['partNumber'] as String?;
           final serials = product['serialNumbers'] as List<dynamic>? ?? [];
+          final bool isPartNumberMissing = partNumber == null || partNumber.trim().isEmpty;
 
           if (serials.isNotEmpty) {
-            // If there are serial numbers, create one item for each serial
             for (final sn in serials) {
               flattenedItems.add({
                 'productName': product['productName'] ?? 'N/A',
-                'partNumber': product['partNumber'] ?? 'N/A',
+                'partNumber': partNumber,
                 'serialNumber': sn.toString(),
-                'scanTarget': sn.toString(), // The target to scan is the serial number
+                'isPartNumberMissing': isPartNumberMissing,
+                'isSerialNumberMissing': false,
                 'scanned': false,
               });
             }
           } else {
-            // If no serials, create one item for each quantity of the part number
             final int quantity = product['quantity'] ?? 0;
             for (int i = 0; i < quantity; i++) {
               flattenedItems.add({
                 'productName': product['productName'] ?? 'N/A',
-                'partNumber': product['partNumber'] ?? 'N/A',
-                'serialNumber': null, // No serial number for this item
-                'scanTarget': product['partNumber'], // The target is the part number
+                'partNumber': partNumber,
+                'serialNumber': null,
+                'isPartNumberMissing': isPartNumberMissing,
+                'isSerialNumberMissing': true,
                 'scanned': false,
               });
             }
@@ -97,40 +95,89 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         });
       } else {
         setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Livraison non trouvée.')),
+          );
+        }
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de chargement: $e')),
-      );
-    }
-  }
-
-  // ✅ UPDATED: The scanning logic now compares against the 'scanTarget'
-  void _scanItem(Map<String, dynamic> itemToScan) async {
-    String? scannedCode;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ScannerPage(onScan: (code) {
-          scannedCode = code;
-        }),
-      ),
-    );
-
-    if (scannedCode != null) {
-      if (scannedCode!.trim() == itemToScan['scanTarget']) {
-        setState(() {
-          itemToScan['scanned'] = true;
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Mauvais article scanné.'),
-          backgroundColor: Colors.red,
-        ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de chargement: $e')),
+        );
       }
     }
   }
+
+  /// ✅ NEW: Dedicated function to scan only the Part Number (Reference).
+  void _scanPartNumber(Map<String, dynamic> item) async {
+    String? scannedCode;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
+    );
+
+    final code = scannedCode?.trim();
+    if (code == null || code.isEmpty) return;
+
+    setState(() {
+      item['partNumber'] = code;
+      item['isPartNumberMissing'] = false;
+    });
+  }
+
+  /// ✅ NEW: Dedicated function to scan only the Serial Number.
+  void _scanSerialNumber(Map<String, dynamic> item) async {
+    String? scannedCode;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
+    );
+
+    final code = scannedCode?.trim();
+    if (code == null || code.isEmpty) return;
+
+    if (code == item['partNumber']) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Le numéro de série ne peut pas être identique à la référence.'),
+        backgroundColor: Colors.orange,
+      ));
+      return;
+    }
+
+    setState(() {
+      item['serialNumber'] = code;
+      item['isSerialNumberMissing'] = false;
+      item['scanned'] = true; // Item is now fully scanned and complete.
+    });
+  }
+
+  /// This is the verification scan for items that had all data from the start.
+  void _verifyItem(Map<String, dynamic> item) async {
+    String? scannedCode;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
+    );
+
+    final code = scannedCode?.trim();
+    if (code == null || code.isEmpty) return;
+
+    final target = item['serialNumber'] ?? item['partNumber'];
+    if (code == target) {
+      setState(() {
+        item['scanned'] = true;
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Mauvais article scanné. Veuillez réessayer.'),
+        backgroundColor: Colors.red,
+      ));
+    }
+  }
+
 
   Future<String?> _uploadSignature() async {
     if (_signatureController.isEmpty) return null;
@@ -152,33 +199,53 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       final signatureUrl = await _uploadSignature();
       final livraisonData = _livraisonDoc!.data() as Map<String, dynamic>;
       final clientId = livraisonData['clientId'];
-      // ✅ 1. GET THE STORE ID: We now get the storeId from the delivery data.
       final storeId = livraisonData['storeId'];
-      final products = livraisonData['products'] as List<dynamic>? ?? [];
 
-      // ✅ 2. ADD A CHECK: Only proceed if a store was selected for the delivery.
       if (storeId == null || storeId.isEmpty) {
-        throw Exception('Impossible de sauvegarder l\'historique: Magasin non spécifié dans la livraison.');
+        throw Exception('Impossible de sauvegarder l\'historique: Magasin non spécifié.');
       }
 
-      final batch = FirebaseFirestore.instance.batch();
+      final Map<String, dynamic> groupedProducts = {};
+      for (final item in _itemsToScan) {
+        final key = item['partNumber'];
+        if (key == null) continue;
 
+        if (!groupedProducts.containsKey(key)) {
+          groupedProducts[key] = {
+            'productName': item['productName'],
+            'partNumber': item['partNumber'],
+            'quantity': 0,
+            'serialNumbers': <String>[],
+          };
+        }
+
+        groupedProducts[key]['quantity']++;
+        if (item['serialNumber'] != null) {
+          groupedProducts[key]['serialNumbers'].add(item['serialNumber']);
+        }
+      }
+
+      final List<Map<String, dynamic>> updatedProductsList =
+      List<Map<String, dynamic>>.from(groupedProducts.values);
+
+      final batch = FirebaseFirestore.instance.batch();
       final livraisonRef = FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId);
+
       batch.update(livraisonRef, {
         'status': 'Livré',
         'completedAt': FieldValue.serverTimestamp(),
         'signatureUrl': signatureUrl,
+        'products': updatedProductsList,
       });
 
-      // ✅ 3. CORRECTED PATH: The path now points to the sub-collection within the specific store.
       final materielCollectionRef = FirebaseFirestore.instance
           .collection('clients')
           .doc(clientId)
-          .collection('stores') // Go into the stores sub-collection
-          .doc(storeId)        // Select the specific store
-          .collection('materiel_installe'); // Create records in its own sub-collection
+          .collection('stores')
+          .doc(storeId)
+          .collection('materiel_installe');
 
-      for (final product in products) {
+      for (final product in updatedProductsList) {
         final serials = product['serialNumbers'] as List<dynamic>? ?? [];
         if (serials.isNotEmpty) {
           for (final sn in serials) {
@@ -251,22 +318,67 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             const SizedBox(height: 8),
             Card(
               child: Column(
-                // ✅ UPDATED: The UI now displays Part Number and Serial Number.
                 children: _itemsToScan.map((item) {
+                  final bool needsDataCapture = item['isPartNumberMissing'] || item['isSerialNumberMissing'];
+
                   return ListTile(
+                    // ✅ NEW UI: Leading icon shows overall status.
                     leading: item['scanned']
-                        ? const Icon(Icons.check_circle, color: Colors.green)
-                        : const Icon(Icons.qr_code_scanner),
+                        ? const Icon(Icons.check_circle, color: Colors.green, size: 30)
+                        : const Icon(Icons.inventory_2_outlined, color: Colors.grey, size: 30),
                     title: Text(item['productName']),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Réf: ${item['partNumber']}'),
-                        if (item['serialNumber'] != null)
-                          Text('N/S: ${item['serialNumber']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                          item['isPartNumberMissing']
+                              ? 'Réf: À scanner'
+                              : 'Réf: ${item['partNumber'] ?? ''}',
+                          style: TextStyle(
+                            color: item['isPartNumberMissing'] ? Colors.orange.shade700 : null,
+                            fontWeight: item['isPartNumberMissing'] ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        Text(
+                          item['isSerialNumberMissing']
+                              ? 'N/S: À scanner'
+                              : 'N/S: ${item['serialNumber'] ?? ''}',
+                          style: TextStyle(
+                            color: item['isSerialNumberMissing'] ? Colors.orange.shade700 : null,
+                            fontWeight: item['isSerialNumberMissing'] ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
                       ],
                     ),
-                    onTap: item['scanned'] ? null : () => _scanItem(item),
+                    // ✅ NEW UI: Trailing icons provide specific actions.
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Show button to scan PART NUMBER
+                        if (item['isPartNumberMissing'] == true)
+                          IconButton(
+                            icon: const Icon(Icons.qr_code_scanner),
+                            color: Colors.orange.shade700,
+                            tooltip: 'Scanner la Référence',
+                            onPressed: () => _scanPartNumber(item),
+                          ),
+                        // Show button to scan SERIAL NUMBER
+                        if (item['isPartNumberMissing'] == false && item['isSerialNumberMissing'] == true)
+                          IconButton(
+                            icon: const Icon(Icons.qr_code),
+                            color: Colors.blue.shade700,
+                            tooltip: 'Scanner le Numéro de Série',
+                            onPressed: () => _scanSerialNumber(item),
+                          ),
+                        // Show button to VERIFY item
+                        if (!needsDataCapture && !item['scanned'])
+                          IconButton(
+                            icon: const Icon(Icons.qr_code_scanner),
+                            tooltip: 'Vérifier l\'article',
+                            onPressed: () => _verifyItem(item),
+                          ),
+                      ],
+                    ),
                   );
                 }).toList(),
               ),

@@ -1,7 +1,7 @@
 // lib/screens/administration/add_livraison_page.dart
 
 import 'package:boitex_info_app/models/selection_models.dart';
-import 'package:boitex_info_app/widgets/animated_truck_button.dart';
+// import 'package:boitex_info_app/widgets/animated_truck_button.dart'; // REMOVED
 import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -46,12 +46,10 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     super.initState();
     _selectedServiceType = widget.serviceType;
 
-    // If a livraisonId is provided, load the existing data for editing.
     if (_isEditMode) {
       _loadLivraisonData();
     }
 
-    // Fetch dropdown data.
     Future.delayed(Duration.zero, () {
       if (mounted) {
         _fetchClients();
@@ -67,7 +65,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     super.dispose();
   }
 
-  /// Fetches existing livraison data from Firestore and populates the form fields.
   Future<void> _loadLivraisonData() async {
     setState(() => _isLoadingPage = true);
     try {
@@ -89,20 +86,17 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
       final data = doc.data() as Map<String, dynamic>;
 
-      // Populate form fields with the fetched data.
       _selectedServiceType = data['serviceType'];
       _deliveryMethod = data['deliveryMethod'] ?? 'Livraison Interne';
       _externalCarrierNameController.text = data['externalCarrierName'] ?? '';
       _trackingNumberController.text = data['trackingNumber'] ?? '';
 
-      // Set the selected client and then fetch its stores.
       if (data['clientId'] != null && data['clientName'] != null) {
         _selectedClient =
             SelectableItem(id: data['clientId'], name: data['clientName']);
-        await _fetchStores(data['clientId']); // Wait for stores to be fetched
+        await _fetchStores(data['clientId']);
       }
 
-      // Now set the selected store, ensuring it exists in the fetched list.
       if (data['storeId'] != null) {
         final storeExists =
         _stores.any((store) => store.id == data['storeId']);
@@ -112,20 +106,18 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         }
       }
 
-      // Set the selected technician.
       if (data['technicianId'] != null && data['technicianName'] != null) {
         _selectedTechnician =
             SelectableItem(id: data['technicianId'], name: data['technicianName']);
       }
 
-      // Populate the list of selected products.
       if (data['products'] is List) {
         _selectedProducts = (data['products'] as List)
             .map((p) => ProductSelection.fromJson(p))
             .toList();
       }
 
-      setState(() {}); // Trigger a rebuild with the populated data.
+      setState(() {});
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -181,7 +173,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       }).toList();
       if (mounted) setState(() => _stores = stores);
     } catch (e) {
-      print('Error fetching stores: $e');
+      // Using print for debugging is fine, but consider a logging service for production.
     } finally {
       if (mounted) setState(() => _isLoadingStores = false);
     }
@@ -197,7 +189,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           .toList();
       if (mounted) setState(() => _technicians = technicians);
     } catch (e) {
-      print('Error fetching technicians: $e');
+      // Using print for debugging is fine.
     } finally {
       if (mounted) setState(() => _isLoadingTechnicians = false);
     }
@@ -214,7 +206,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         transaction.set(counterRef, {'count': 1});
         return 1;
       } else {
-        final lastNumber = (snapshot.data()?['count'] ?? 0) as int;
+        final data = snapshot.data();
+        final count = data?['count'];
+        final lastNumber = (count is num) ? count.toInt() : 0;
         final newNumber = lastNumber + 1;
         transaction.set(counterRef, {'count': newNumber});
         return newNumber;
@@ -232,8 +226,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     }
   }
 
-  /// Saves the livraison data to Firestore.
-  /// Handles both creating a new livraison and updating an existing one.
   Future<void> _saveLivraison() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -248,15 +240,12 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Construct the data map for Firestore.
     final deliveryData = {
       'clientId': _selectedClient!.id,
       'clientName': _selectedClient!.name,
       'storeId': _selectedStore?.id,
       'storeName': _selectedStore?.name,
       'deliveryAddress': _selectedStore?.data?['location'] ?? 'N/A',
-      'contactPerson': '', // You can add fields for these if needed
-      'contactPhone': '', // You can add fields for these if needed
       'products': _selectedProducts.map((p) => p.toJson()).toList(),
       'status': 'À Préparer',
       'deliveryMethod': _deliveryMethod,
@@ -271,13 +260,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
     try {
       if (_isEditMode) {
-        // If editing, update the existing document.
         await FirebaseFirestore.instance
             .collection('livraisons')
             .doc(widget.livraisonId!)
             .update(deliveryData);
       } else {
-        // If creating, add new fields and create the document.
         final bonLivraisonCode = await _getNextBonLivraisonCode();
         final createData = {
           ...deliveryData,
@@ -287,10 +274,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           'createdAt': FieldValue.serverTimestamp(),
         };
 
-        // Your existing batch logic for creating single or dual service types
         final batch = FirebaseFirestore.instance.batch();
-        final livraisonsCollection = FirebaseFirestore.instance.collection('livraisons');
-        final docRef = livraisonsCollection.doc();
+        final docRef = FirebaseFirestore.instance.collection('livraisons').doc();
         batch.set(docRef, createData);
         await batch.commit();
       }
@@ -308,7 +293,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Show a loading indicator while fetching data in edit mode.
     if (_isLoadingPage) {
       return Scaffold(
         appBar: AppBar(title: const Text('Chargement de la Livraison...')),
@@ -556,10 +540,21 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   ),
                 ),
                 const SizedBox(height: 32),
-                AnimatedTruckButton(
-                  onPressed: _saveLivraison,
-                  title: _isEditMode ? 'Enregistrer les Modifications' : 'Créer le Bon de Livraison',
-                  completedTitle: _isEditMode ? 'Modifications Enregistrées !' : 'Bon Créé !',
+
+                // ✅ REPLACED: The AnimatedTruckButton was replaced with a standard ElevatedButton.
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: Icon(_isEditMode ? Icons.save_alt : Icons.add_circle_outline),
+                    onPressed: _saveLivraison,
+                    label: Text(_isEditMode ? 'Enregistrer les Modifications' : 'Créer le Bon de Livraison'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16.0),
+                      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      backgroundColor: Colors.blue[800],
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
                 ),
               ],
             ),
