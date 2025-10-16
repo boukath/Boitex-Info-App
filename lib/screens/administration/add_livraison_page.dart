@@ -1,15 +1,19 @@
 // lib/screens/administration/add_livraison_page.dart
 
+import 'dart:typed_data';
 import 'package:boitex_info_app/models/selection_models.dart';
-// import 'package:boitex_info_app/widgets/animated_truck_button.dart'; // REMOVED
 import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AddLivraisonPage extends StatefulWidget {
   final String? serviceType;
-  final String? livraisonId; // Used for editing an existing livraison
+  final String? livraisonId;
 
   const AddLivraisonPage({super.key, this.serviceType, this.livraisonId});
 
@@ -35,27 +39,25 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   bool _isLoadingClients = true;
   bool _isLoadingStores = false;
   bool _isLoadingTechnicians = true;
-  bool _isLoadingPage = false; // For loading data in edit mode
+  bool _isLoadingPage = false;
   String? _clientError;
 
-  /// A getter to determine if the page is in edit mode.
+  FilePickerResult? _pickedFile;
+  String? _existingFileUrl;
+  String? _existingFileName;
+  bool _isUploading = false;
+
   bool get _isEditMode => widget.livraisonId != null;
 
   @override
   void initState() {
     super.initState();
     _selectedServiceType = widget.serviceType;
-
     if (_isEditMode) {
       _loadLivraisonData();
     }
-
-    Future.delayed(Duration.zero, () {
-      if (mounted) {
-        _fetchClients();
-        _fetchTechnicians();
-      }
-    });
+    _fetchClients();
+    _fetchTechnicians();
   }
 
   @override
@@ -65,6 +67,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     super.dispose();
   }
 
+  // --- DATA FETCHING & LOGIC (No Changes) ---
   Future<void> _loadLivraisonData() async {
     setState(() => _isLoadingPage = true);
     try {
@@ -85,7 +88,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       }
 
       final data = doc.data() as Map<String, dynamic>;
-
       _selectedServiceType = data['serviceType'];
       _deliveryMethod = data['deliveryMethod'] ?? 'Livraison Interne';
       _externalCarrierNameController.text = data['externalCarrierName'] ?? '';
@@ -116,6 +118,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
             .map((p) => ProductSelection.fromJson(p))
             .toList();
       }
+
+      _existingFileUrl = data['externalBonUrl'];
+      _existingFileName = data['externalBonFileName'];
 
       setState(() {});
     } catch (e) {
@@ -173,7 +178,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       }).toList();
       if (mounted) setState(() => _stores = stores);
     } catch (e) {
-      // Using print for debugging is fine, but consider a logging service for production.
+      print('Error fetching stores: $e');
     } finally {
       if (mounted) setState(() => _isLoadingStores = false);
     }
@@ -189,7 +194,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           .toList();
       if (mounted) setState(() => _technicians = technicians);
     } catch (e) {
-      // Using print for debugging is fine.
+      print('Error fetching technicians: $e');
     } finally {
       if (mounted) setState(() => _isLoadingTechnicians = false);
     }
@@ -226,6 +231,39 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     }
   }
 
+  Future<void> _pickFile() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+    );
+
+    if (result != null) {
+      setState(() {
+        _pickedFile = result;
+        _existingFileUrl = null;
+        _existingFileName = null;
+      });
+    }
+  }
+
+  Future<Map<String, String>?> _uploadFile(String livraisonId) async {
+    if (_pickedFile == null) return null;
+
+    final fileBytes = _pickedFile!.files.first.bytes;
+    final fileName = _pickedFile!.files.first.name;
+    if (fileBytes == null) return null;
+
+    final storageRef = FirebaseStorage.instance
+        .ref()
+        .child('bons_de_livraison/$livraisonId/$fileName');
+
+    final uploadTask = storageRef.putData(fileBytes);
+    final snapshot = await uploadTask.whenComplete(() => {});
+    final downloadUrl = await snapshot.ref.getDownloadURL();
+
+    return {'url': downloadUrl, 'name': fileName};
+  }
+
   Future<void> _saveLivraison() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -240,30 +278,40 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final deliveryData = {
-      'clientId': _selectedClient!.id,
-      'clientName': _selectedClient!.name,
-      'storeId': _selectedStore?.id,
-      'storeName': _selectedStore?.name,
-      'deliveryAddress': _selectedStore?.data?['location'] ?? 'N/A',
-      'products': _selectedProducts.map((p) => p.toJson()).toList(),
-      'status': 'À Préparer',
-      'deliveryMethod': _deliveryMethod,
-      'technicianId': _deliveryMethod == 'Livraison Interne' ? _selectedTechnician?.id : null,
-      'technicianName': _deliveryMethod == 'Livraison Interne' ? _selectedTechnician?.name : null,
-      'externalCarrierName': _deliveryMethod == 'Livraison Externe' ? _externalCarrierNameController.text : null,
-      'trackingNumber': _deliveryMethod == 'Livraison Externe' ? _trackingNumberController.text : null,
-      'serviceType': _selectedServiceType,
-      'lastModifiedBy': user.displayName ?? user.email,
-      'lastModifiedAt': FieldValue.serverTimestamp(),
-    };
+    setState(() => _isUploading = true);
 
     try {
+      final livraisonsCollection = FirebaseFirestore.instance.collection('livraisons');
+      final docRef = _isEditMode
+          ? livraisonsCollection.doc(widget.livraisonId!)
+          : livraisonsCollection.doc();
+
+      final uploadedFileInfo = await _uploadFile(docRef.id);
+
+      final deliveryData = <String, dynamic>{
+        'clientId': _selectedClient!.id,
+        'clientName': _selectedClient!.name,
+        'storeId': _selectedStore?.id,
+        'storeName': _selectedStore?.name,
+        'deliveryAddress': _selectedStore?.data?['location'] ?? 'N/A',
+        'contactPerson': '',
+        'contactPhone': '',
+        'products': _selectedProducts.map((p) => p.toJson()).toList(),
+        'status': 'À Préparer',
+        'deliveryMethod': _deliveryMethod,
+        'technicianId': _deliveryMethod == 'Livraison Interne' ? _selectedTechnician?.id : null,
+        'technicianName': _deliveryMethod == 'Livraison Interne' ? _selectedTechnician?.name : null,
+        'externalCarrierName': _deliveryMethod == 'Livraison Externe' ? _externalCarrierNameController.text : null,
+        'trackingNumber': _deliveryMethod == 'Livraison Externe' ? _trackingNumberController.text : null,
+        'serviceType': _selectedServiceType,
+        'lastModifiedBy': user.displayName ?? user.email,
+        'lastModifiedAt': FieldValue.serverTimestamp(),
+        'externalBonUrl': uploadedFileInfo?['url'] ?? _existingFileUrl,
+        'externalBonFileName': uploadedFileInfo?['name'] ?? _existingFileName,
+      };
+
       if (_isEditMode) {
-        await FirebaseFirestore.instance
-            .collection('livraisons')
-            .doc(widget.livraisonId!)
-            .update(deliveryData);
+        await docRef.update(deliveryData);
       } else {
         final bonLivraisonCode = await _getNextBonLivraisonCode();
         final createData = {
@@ -273,11 +321,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           'createdById': user.uid,
           'createdAt': FieldValue.serverTimestamp(),
         };
-
-        final batch = FirebaseFirestore.instance.batch();
-        final docRef = FirebaseFirestore.instance.collection('livraisons').doc();
-        batch.set(docRef, createData);
-        await batch.commit();
+        await docRef.set(createData);
       }
 
       if (mounted) Navigator.pop(context);
@@ -288,277 +332,439 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           backgroundColor: Colors.red,
         ));
       }
+    } finally {
+      if(mounted) setState(() => _isUploading = false);
     }
   }
 
+  // --- WIDGETS (Redesigned) ---
+
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingPage) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Chargement de la Livraison...')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
+    final textTheme = GoogleFonts.poppinsTextTheme(Theme.of(context).textTheme);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA), // Light grey background
       appBar: AppBar(
-        title: Text(_isEditMode ? 'Modifier la Livraison' : 'Créer une Livraison'),
-        backgroundColor: Colors.blue[900],
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF0D47A1), Color(0xFF1976D2)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        title: Text(
+          _isEditMode ? 'Modifier la Livraison' : 'Créer une Livraison',
+          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 4,
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (widget.serviceType == null) ...[
-                  DropdownButtonFormField<String>(
-                    value: _selectedServiceType,
-                    decoration: const InputDecoration(
-                      labelText: 'Choisir le Service',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.business_center),
-                    ),
-                    items: ['Service Technique', 'Service IT', 'Les Deux']
-                        .map((label) => DropdownMenuItem(
-                      value: label,
-                      child: Text(label),
-                    ))
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedServiceType = value;
-                        _technicians = [];
-                        _selectedTechnician = null;
-                      });
-                      _fetchTechnicians();
-                    },
-                    validator: (value) =>
-                    value == null ? 'Veuillez sélectionner un service' : null,
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                DropdownButtonFormField<String>(
-                  value: _deliveryMethod,
-                  decoration: const InputDecoration(
-                    labelText: 'Méthode de livraison',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.local_shipping),
-                  ),
-                  items: ['Livraison Interne', 'Livraison Externe']
-                      .map((label) => DropdownMenuItem(
-                    value: label,
-                    child: Text(label),
-                  ))
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _deliveryMethod = value!;
-                      if (_deliveryMethod != 'Livraison Interne') {
-                        _selectedTechnician = null;
-                      }
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
-                if (_deliveryMethod == 'Livraison Interne')
-                  DropdownButtonFormField<SelectableItem>(
-                    value: _selectedTechnician,
-                    decoration: const InputDecoration(
-                      labelText: 'Assigner à un Technicien',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                    items: _technicians
-                        .map((tech) => DropdownMenuItem(
-                      value: tech,
-                      child: Text(tech.name),
-                    ))
-                        .toList(),
-                    onChanged: _isLoadingTechnicians
-                        ? null
-                        : (value) => setState(() => _selectedTechnician = value),
-                    validator: (value) => value == null
-                        ? 'Veuillez sélectionner un technicien'
-                        : null,
-                  )
-                else ...[
-                  TextFormField(
-                    controller: _externalCarrierNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Nom du transporteur',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.business),
-                    ),
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Veuillez entrer le nom du transporteur'
-                        : null,
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _trackingNumberController,
-                    decoration: const InputDecoration(
-                      labelText: 'Numéro de suivi (Optionnel)',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.qr_code_scanner),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                const Divider(),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<SelectableItem>(
-                  value: _selectedClient,
-                  hint: !_isLoadingClients && _clients.isEmpty
-                      ? const Text('Aucun client trouvé')
-                      : null,
-                  decoration: InputDecoration(
-                    labelText: 'Client',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.business_center),
-                    errorText: _clientError,
-                    suffixIcon: _isLoadingClients
-                        ? const Padding(
-                      padding: EdgeInsets.all(12.0),
-                      child: SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 3),
+      body: _isLoadingPage
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionCard(
+                  title: 'Informations Livraison',
+                  icon: Icons.info_outline,
+                  children: [
+                    if (widget.serviceType == null) ...[
+                      _buildDropdownField(
+                        label: 'Choisir le Service',
+                        value: _selectedServiceType,
+                        items: ['Service Technique', 'Service IT', 'Les Deux'],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedServiceType = value;
+                            _technicians = [];
+                            _selectedTechnician = null;
+                          });
+                          _fetchTechnicians();
+                        },
+                        icon: Icons.business_center,
+                        validator: (value) => value == null ? 'Veuillez sélectionner un service' : null,
                       ),
-                    )
-                        : null,
-                  ),
-                  items: _clients
-                      .map((client) => DropdownMenuItem(
-                    value: client,
-                    child: Text(client.name),
-                  ))
-                      .toList(),
-                  onChanged: _isLoadingClients || _clients.isEmpty
-                      ? null
-                      : (value) {
-                    setState(() {
-                      _selectedClient = value;
-                      _selectedStore = null;
-                      _stores = [];
-                    });
-                    if (value != null) {
-                      _fetchStores(value.id);
-                    }
-                  },
-                  validator: (value) =>
-                  value == null ? 'Veuillez sélectionner un client' : null,
-                ),
-                const SizedBox(height: 16),
-                if (_selectedClient != null)
-                  DropdownButtonFormField<SelectableItem>(
-                    value: _selectedStore,
-                    hint: !_isLoadingStores && _stores.isEmpty
-                        ? const Text('Aucun magasin trouvé')
-                        : null,
-                    decoration: InputDecoration(
-                      labelText: 'Magasin / Destination',
-                      border: const OutlineInputBorder(),
-                      prefixIcon: const Icon(Icons.store),
-                      suffixIcon: _isLoadingStores
-                          ? const Padding(
-                        padding: EdgeInsets.all(12.0),
-                        child: SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(strokeWidth: 3),
+                      const SizedBox(height: 16),
+                    ],
+                    _buildDropdownField(
+                      label: 'Méthode de livraison',
+                      value: _deliveryMethod,
+                      items: ['Livraison Interne', 'Livraison Externe'],
+                      onChanged: (value) {
+                        setState(() {
+                          _deliveryMethod = value!;
+                          if (_deliveryMethod != 'Livraison Interne') {
+                            _selectedTechnician = null;
+                          }
+                        });
+                      },
+                      icon: Icons.local_shipping,
+                    ),
+                    const SizedBox(height: 16),
+                    if (_deliveryMethod == 'Livraison Interne')
+                      _buildSelectableDropdown(
+                        label: 'Assigner à un Technicien',
+                        value: _selectedTechnician,
+                        items: _technicians,
+                        onChanged: _isLoadingTechnicians ? null : (value) => setState(() => _selectedTechnician = value),
+                        icon: Icons.person_outline,
+                        validator: (value) => value == null ? 'Veuillez sélectionner un technicien' : null,
+                      )
+                    else ...[
+                      _buildTextField(
+                        controller: _externalCarrierNameController,
+                        label: 'Nom du transporteur',
+                        icon: Icons.business,
+                        validator: (value) => value == null || value.isEmpty ? 'Veuillez entrer le nom du transporteur' : null,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTextField(
+                        controller: _trackingNumberController,
+                        label: 'Numéro de suivi (Optionnel)',
+                        icon: Icons.qr_code_scanner,
+                      ),
+                    ],
+                  ]
+              ),
+              const SizedBox(height: 24),
+              _buildSectionCard(
+                  title: 'Destination',
+                  icon: Icons.location_on_outlined,
+                  children: [
+                    _buildSelectableDropdown(
+                      label: 'Client',
+                      value: _selectedClient,
+                      items: _clients,
+                      onChanged: _isLoadingClients || _clients.isEmpty ? null : (value) {
+                        setState(() {
+                          _selectedClient = value;
+                          _selectedStore = null;
+                          _stores = [];
+                        });
+                        if (value != null) {
+                          _fetchStores(value.id);
+                        }
+                      },
+                      isLoading: _isLoadingClients,
+                      icon: Icons.business_center,
+                      validator: (value) => value == null ? 'Veuillez sélectionner un client' : null,
+                    ),
+                    if (_selectedClient != null) ...[
+                      const SizedBox(height: 16),
+                      _buildSelectableDropdown(
+                        label: 'Magasin / Destination',
+                        value: _selectedStore,
+                        items: _stores,
+                        // ✅ FIX: Added TextOverflow.ellipsis to prevent overflow
+                        itemBuilder: (store) => Text(
+                          '${store.name} - ${store.data?['location'] ?? ''}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onChanged: _isLoadingStores || _stores.isEmpty ? null : (value) => setState(() => _selectedStore = value),
+                        isLoading: _isLoadingStores,
+                        icon: Icons.store,
+                      )
+                    ]
+                  ]
+              ),
+              const SizedBox(height: 24),
+              _buildSectionCard(
+                  title: 'Produits à Livrer',
+                  icon: Icons.inventory_2_outlined,
+                  children: [
+                    if (_selectedProducts.isEmpty)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: Text('Aucun produit ajouté.'),
                         ),
                       )
-                          : null,
+                    else
+                      ..._selectedProducts.map((product) => ListTile(
+                        leading: const Icon(Icons.check_box_outline_blank, color: Color(0xFF1976D2)),
+                        title: Text(product.productName, style: textTheme.bodyMedium),
+                        trailing: Text('Qté: ${product.quantity}', style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
+                      )).toList(),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _showProductSelectorDialog,
+                        icon: const Icon(Icons.add_shopping_cart),
+                        label: const Text('Ajouter/Modifier Produits'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: const BorderSide(color: Color(0xFFFFC107)),
+                          foregroundColor: const Color(0xFFFFC107),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
                     ),
-                    items: _stores
-                        .map((store) => DropdownMenuItem(
-                      value: store,
-                      child: Text(
-                          '${store.name} - ${store.data?['location'] ?? ''}'),
-                    ))
-                        .toList(),
-                    onChanged: _isLoadingStores || _stores.isEmpty
-                        ? null
-                        : (value) => setState(() => _selectedStore = value),
-                  ),
-                const SizedBox(height: 24),
-                Card(
-                  elevation: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Produits à Livrer',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
-                        _selectedProducts.isEmpty
-                            ? const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(8.0),
-                            child: Text('Aucun produit ajouté.'),
-                          ),
-                        )
-                            : ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _selectedProducts.length,
-                          itemBuilder: (context, index) {
-                            final product = _selectedProducts[index];
-                            return ListTile(
-                              leading: const Icon(
-                                  Icons.inventory_2_outlined),
-                              title: Text(product.productName),
-                              trailing: Text('Qté: ${product.quantity}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold)),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: _showProductSelectorDialog,
-                            icon: const Icon(Icons.add),
-                            label: const Text('Ajouter/Modifier Produits'),
-                            style: ButtonStyle(
-                              padding: MaterialStateProperty.all(
-                                const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
+                  ]
+              ),
+              const SizedBox(height: 24),
+              _buildSectionCard(
+                  title: 'Bon de Livraison',
+                  icon: Icons.attach_file,
+                  children: [
+                    if (_pickedFile == null && _existingFileUrl == null)
+                      _buildFileUploadBox(),
+                    if (_pickedFile != null)
+                      _buildFileInfo(
+                        fileName: _pickedFile!.files.first.name,
+                        icon: Icons.file_present_rounded,
+                        iconColor: const Color(0xFF20C997),
+                        onClear: () => setState(() => _pickedFile = null),
+                      ),
+                    if (_existingFileUrl != null)
+                      _buildFileInfo(
+                        fileName: _existingFileName ?? 'Fichier existant',
+                        icon: Icons.description,
+                        iconColor: const Color(0xFF1976D2),
+                        onTap: () async {
+                          final url = Uri.parse(_existingFileUrl!);
+                          if (await canLaunchUrl(url)) {
+                            await launchUrl(url);
+                          }
+                        },
+                        onClear: () => setState(() {
+                          _existingFileUrl = null;
+                          _existingFileName = null;
+                        }),
+                      ),
+                  ]
+              ),
+              const SizedBox(height: 40),
+              if (_isUploading)
+                const Center(child: CircularProgressIndicator())
+              else
+                _buildSubmitButton(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                // ✅ REPLACED: The AnimatedTruckButton was replaced with a standard ElevatedButton.
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: Icon(_isEditMode ? Icons.save_alt : Icons.add_circle_outline),
-                    onPressed: _saveLivraison,
-                    label: Text(_isEditMode ? 'Enregistrer les Modifications' : 'Créer le Bon de Livraison'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16.0),
-                      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      backgroundColor: Colors.blue[800],
-                      foregroundColor: Colors.white,
-                    ),
+  Widget _buildSectionCard({required String title, required IconData icon, required List<Widget> children}) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: Colors.blue[800], size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
                   ),
                 ),
               ],
             ),
+            const Divider(height: 24, thickness: 1),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      validator: validator,
+      style: GoogleFonts.poppins(fontSize: 16),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.grey[600]),
+        filled: true,
+        fillColor: Colors.grey[200],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDropdownField<T>({
+    required String label,
+    required T value,
+    required List<T> items,
+    required void Function(T?) onChanged,
+    required IconData icon,
+    String? Function(T?)? validator,
+  }) {
+    return DropdownButtonFormField<T>(
+      value: value,
+      items: items.map((item) => DropdownMenuItem(
+        value: item,
+        child: Text(item.toString(), style: GoogleFonts.poppins(fontSize: 16)),
+      )).toList(),
+      onChanged: onChanged,
+      validator: validator,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.grey[600]),
+        filled: true,
+        fillColor: Colors.grey[200],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectableDropdown({
+    required String label,
+    required SelectableItem? value,
+    required List<SelectableItem> items,
+    required void Function(SelectableItem?)? onChanged,
+    required IconData icon,
+    bool isLoading = false,
+    Widget Function(SelectableItem)? itemBuilder,
+    String? Function(SelectableItem?)? validator,
+  }) {
+    return DropdownButtonFormField<SelectableItem>(
+      value: value,
+      items: items.map((item) => DropdownMenuItem<SelectableItem>(
+        value: item,
+        child: itemBuilder != null ? itemBuilder(item) : Text(item.name, style: GoogleFonts.poppins(fontSize: 16)),
+      )).toList(),
+      onChanged: onChanged,
+      validator: validator,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.grey[600]),
+        suffixIcon: isLoading ? const Padding(padding: EdgeInsets.all(12.0), child: CircularProgressIndicator(strokeWidth: 2)) : null,
+        filled: true,
+        fillColor: Colors.grey[200],
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileUploadBox() {
+    return InkWell(
+      onTap: _pickFile,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        decoration: BoxDecoration(
+          color: Colors.amber.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.amber, width: 2),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.upload_file_rounded, color: Colors.amber, size: 40),
+              const SizedBox(height: 12),
+              Text(
+                'Choisir un Fichier',
+                style: GoogleFonts.poppins(
+                  color: Colors.amber[800],
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'PDF, JPG, PNG',
+                style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 12),
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileInfo({
+    required String fileName,
+    required IconData icon,
+    required Color iconColor,
+    VoidCallback? onClear,
+    VoidCallback? onTap,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: iconColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: iconColor),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(icon, color: iconColor, size: 30),
+        title: Text(fileName, style: GoogleFonts.poppins(), overflow: TextOverflow.ellipsis),
+        trailing: IconButton(
+          icon: Icon(Icons.clear, color: Colors.red[400]),
+          tooltip: 'Supprimer le fichier',
+          onPressed: onClear,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return Container(
+      decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0D47A1), Color(0xFF1976D2), Color(0xFF42A5F5)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blue.withOpacity(0.4),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            )
+          ]
+      ),
+      child: ElevatedButton.icon(
+        onPressed: _saveLivraison,
+        icon: Icon(_isEditMode ? Icons.save_alt_rounded : Icons.send_rounded, color: Colors.white),
+        label: Text(
+          _isEditMode ? 'Enregistrer les Modifications' : 'Créer le Bon de Livraison',
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );
