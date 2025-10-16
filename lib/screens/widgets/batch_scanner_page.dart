@@ -174,17 +174,9 @@ class _BatchScannerPageState extends State<BatchScannerPage> {
           if (_currentState == BatchScanState.waitingForSerial &&
               _currentProduct != null) ...[
             const SizedBox(height: 4),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Produit Actif: ${_currentProduct!.productName}',
-                    style: const TextStyle(fontSize: 16, color: Colors.white),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
+            Text(
+              'Produit Actif: ${_currentProduct!.productName}',
+              style: const TextStyle(fontSize: 16, color: Colors.white),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -220,14 +212,8 @@ class _BatchScannerPageState extends State<BatchScannerPage> {
         final product = _scannedProducts[index];
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          // ✅ FINAL FIX: Using the proper ExpansionTile properties
           child: ExpansionTile(
-            title: Text(
-              product.productName,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+            title: Text(product.productName, style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text('Réf: ${product.partNumber}'),
             trailing: Chip(
               label: Text('Qté: ${product.quantity}'),
