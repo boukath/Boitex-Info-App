@@ -44,6 +44,9 @@ dependencies:
 
   # For iOS style icons
   cupertino_icons: ^1.0.2
+  photo_view: ^0.15.0
+  video_player: ^2.10.0
+  chewie: ^1.13.0
 
 dev_dependencies:
   flutter_test:
