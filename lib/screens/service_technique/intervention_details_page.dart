@@ -1,6 +1,7 @@
 // lib/screens/service_technique/intervention_details_page.dart
 
 import 'dart:io';
+import 'dart:convert'; // ✅ ADDED for JSON decoding
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,8 +13,9 @@ import 'package:boitex_info_app/services/intervention_pdf_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:crypto/crypto.dart'; // ✅ ADDED for SHA1 hash
 
-// Data model for users in the multi-select dropdown
+// Data model for users (unchanged)
 class AppUser {
   final String uid;
   final String displayName;
@@ -33,22 +35,23 @@ class InterventionDetailsPage extends StatefulWidget {
 }
 
 class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
+  // State variables (unchanged)
   late TextEditingController _managerNameController;
   late TextEditingController _managerPhoneController;
   late TextEditingController _diagnosticController;
   late TextEditingController _workDoneController;
   late SignatureController _signatureController;
-
   String? _signatureImageUrl;
   String _currentStatus = 'Nouveau';
   List<AppUser> _allTechnicians = [];
   List<AppUser> _selectedTechnicians = [];
   bool _isLoading = false;
-
-  // ✅ NEW: State variables for media files
   final ImagePicker _picker = ImagePicker();
   List<XFile> _mediaFilesToUpload = [];
   List<String> _existingMediaUrls = [];
+
+  // ✅ NEW: The URL for our deployed Cloud Function
+  final String _getB2UploadUrlCloudFunctionUrl = 'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
 
   List<String> get statusOptions {
@@ -66,17 +69,15 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     super.initState();
     final data = widget.interventionDoc.data() as Map<String, dynamic>;
 
-    _managerNameController = TextEditingController(text: data['managerName']);
-    _managerPhoneController = TextEditingController(text: data['managerPhone']);
-    _diagnosticController = TextEditingController(text: data['diagnostic']);
-    _workDoneController = TextEditingController(text: data['workDone']);
+    // ✅ FIXED: Added null checks to prevent LateInitializationError
+    _managerNameController = TextEditingController(text: data['managerName'] ?? '');
+    _managerPhoneController = TextEditingController(text: data['managerPhone'] ?? '');
+    _diagnosticController = TextEditingController(text: data['diagnostic'] ?? '');
+    _workDoneController = TextEditingController(text: data['workDone'] ?? '');
     _signatureController = SignatureController();
     _signatureImageUrl = data['signatureUrl'];
     _currentStatus = data['status'] ?? 'Nouveau';
-
-    // ✅ NEW: Initialize existing media URLs
     _existingMediaUrls = List<String>.from(data['mediaUrls'] ?? []);
-
 
     _fetchTechnicians().then((_) {
       final List<dynamic> assignedTechnicians = data['assignedTechnicians'] ?? [];
@@ -98,7 +99,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Function to pick photos and videos
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
     if (pickedFiles.isNotEmpty) {
@@ -108,12 +108,67 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ UPDATED: The save function now handles media uploads
+  // ✅ --- START: NEW BACKBLAZE UPLOAD LOGIC ---
+
+  /// Calls our Cloud Function to get a temporary upload URL from Backblaze.
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        print('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+  /// Uploads a single file directly to Backblaze using the temporary credentials.
+  Future<String?> _uploadFileToB2(XFile file, Map<String, dynamic> b2Credentials) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+
+      final response = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Credentials['authorizationToken'],
+          'X-Bz-File-Name': Uri.encodeComponent(file.name), // URL-encode the file name
+          'Content-Type': file.mimeType ?? 'b2/x-auto',
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (response.statusCode == 200) {
+        final responseBody = json.decode(response.body);
+        // The final, permanent URL is the prefix + the file name returned by B2.
+        return b2Credentials['downloadUrlPrefix'] + responseBody['fileName'];
+      } else {
+        print('Failed to upload to B2: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+
+  // ✅ --- END: NEW BACKBLAZE UPLOAD LOGIC ---
+
+
+  // ✅ UPDATED: The save function now uses the Backblaze upload logic
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
 
     try {
+      // Signature upload logic remains the same (using Firebase Storage)
       String? newSignatureUrl = _signatureImageUrl;
       if (_signatureController.isNotEmpty) {
         final signatureBytes = await _signatureController.toPngBytes();
@@ -125,15 +180,25 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // ✅ NEW: Upload media files and get their URLs
+      // ✅ NEW: Upload media files to Backblaze B2
       List<String> uploadedMediaUrls = List.from(_existingMediaUrls);
       for (XFile file in _mediaFilesToUpload) {
-        final storageRef = FirebaseStorage.instance.ref().child('interventions_media/${widget.interventionDoc.id}/${DateTime.now().millisecondsSinceEpoch}_${file.name}');
-        final uploadTask = await storageRef.putFile(File(file.path));
-        final downloadUrl = await uploadTask.ref.getDownloadURL();
-        uploadedMediaUrls.add(downloadUrl);
+        // 1. Get temporary credentials from our Cloud Function
+        final b2Credentials = await _getB2UploadCredentials();
+        if (b2Credentials == null) {
+          throw Exception('Could not get B2 upload credentials.');
+        }
+
+        // 2. Upload the file to Backblaze
+        final downloadUrl = await _uploadFileToB2(file, b2Credentials);
+        if (downloadUrl != null) {
+          uploadedMediaUrls.add(downloadUrl);
+        } else {
+          print('Skipping file due to upload failure: ${file.name}');
+        }
       }
 
+      // Firestore update logic remains the same
       final reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
@@ -142,7 +207,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'signatureUrl': newSignatureUrl,
         'status': _currentStatus,
         'assignedTechnicians': _selectedTechnicians.map((tech) => {'uid': tech.uid, 'name': tech.displayName}).toList(),
-        'mediaUrls': uploadedMediaUrls, // ✅ NEW: Save media URLs to Firestore
+        'mediaUrls': uploadedMediaUrls, // ✅ NOW saves Backblaze URLs
         'updatedAt': FieldValue.serverTimestamp(),
         if (_currentStatus == 'Clôturé' && widget.interventionDoc['status'] != 'Clôturé') 'closedAt': FieldValue.serverTimestamp(),
       };
@@ -160,7 +225,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
     }
   }
-
 
   @override
   void dispose() {
@@ -464,9 +528,31 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
     return GestureDetector(
       onTap: () async {
-        if (url != null) {
-          if (await canLaunchUrl(Uri.parse(url))) {
-            await launchUrl(Uri.parse(url));
+        // ✅ FIXED: Added robust check for null or empty URLs
+        if (url == null || url.isEmpty) {
+          print("URL is null or empty, cannot launch.");
+          return; // Stop execution if the URL is invalid
+        }
+
+        try {
+          final uri = Uri.parse(url);
+          if (await canLaunchUrl(uri)) {
+            // Use external application mode for better behavior on mobile
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          } else {
+            print("Could not launch $uri");
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Impossible d\'ouvrir le lien')),
+              );
+            }
+          }
+        } catch (e) {
+          print("Error parsing or launching URL: $e");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Lien invalide : $url')),
+            );
           }
         }
       },
@@ -476,7 +562,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.grey.shade300),
-          image: url != null && !isVideo
+          image: url != null && url.isNotEmpty && !isVideo
               ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
               : null,
           color: Colors.grey.shade200,

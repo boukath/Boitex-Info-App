@@ -27,8 +27,12 @@ module.exports = {
   rules: {
     "quotes": ["error", "double"],
     "import/no-unresolved": 0,
-    "max-len": "off",
+    "linebreak-style": "off",
     "indent": "off",
-    "eol-last": "off", // Add this line to disable the end-of-line check
+    "max-len": "off",
+    "@typescript-eslint/no-unused-vars": "warn",
+    "eol-last": "off",
+    "camelcase": "off",
+    "object-curly-spacing": "off", // ✅ ADDED: Disables the curly brace spacing error.
   },
 };
