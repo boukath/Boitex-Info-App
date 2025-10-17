@@ -199,7 +199,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           .collection('installations')
           .doc(widget.installationId)
           .update({
-        'status': 'Terminé',
+        'status': 'Terminée',
         'notes': _notesController.text,
         'signatureUrl': signatureUrl,
         'mediaUrls': uploadedMediaUrls, // <-- Save to the new 'mediaUrls' field
@@ -236,7 +236,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     // Check if the report is read-only (already completed)
     final bool isReadOnly = (_installationDoc?.data()
     as Map<String, dynamic>?)?['status'] ==
-        'Terminé';
+        'Terminée';
 
     return Scaffold(
       appBar: AppBar(

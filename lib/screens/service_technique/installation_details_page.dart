@@ -9,6 +9,10 @@ import 'package:boitex_info_app/services/installation_pdf_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+// Imports for the image and video viewer pages
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+import 'package:boitex_info_app/widgets/video_player_page.dart';
+
 class AppUser {
   final String uid;
   final String displayName;
@@ -22,9 +26,11 @@ class AppUser {
 class InstallationDetailsPage extends StatefulWidget {
   final DocumentSnapshot installationDoc;
   final String userRole;
-  const InstallationDetailsPage({super.key, required this.installationDoc, required this.userRole});
+  const InstallationDetailsPage(
+      {super.key, required this.installationDoc, required this.userRole});
   @override
-  State<InstallationDetailsPage> createState() => _InstallationDetailsPageState();
+  State<InstallationDetailsPage> createState() =>
+      _InstallationDetailsPageState();
 }
 
 class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
@@ -43,7 +49,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }
     if (data['assignedTechnicians'] != null) {
       _selectedTechnicians = (data['assignedTechnicians'] as List)
-          .map((tech) => AppUser(uid: tech['uid'], displayName: tech['displayName']))
+          .map((tech) =>
+          AppUser(uid: tech['uid'], displayName: tech['displayName']))
           .toList();
     }
     _fetchTechnicians();
@@ -51,10 +58,19 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   Future<void> _fetchTechnicians() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('users')
-          .where('role', whereIn: ['Responsable Technique', 'Responsable IT', 'Chef de Projet', UserRoles.technicienST, UserRoles.technicienIT])
-          .get();
-      final allTechnicians = snapshot.docs.map((doc) => AppUser(uid: doc.id, displayName: doc.data()['displayName'])).toList();
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', whereIn: [
+        'Responsable Technique',
+        'Responsable IT',
+        'Chef de Projet',
+        UserRoles.technicienST,
+        UserRoles.technicienIT
+      ]).get();
+      final allTechnicians = snapshot.docs
+          .map((doc) =>
+          AppUser(uid: doc.id, displayName: doc.data()['displayName']))
+          .toList();
       if (mounted) setState(() => _allTechnicians = allTechnicians);
     } catch (e) {
       print("Error: $e");
@@ -63,18 +79,28 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   Future<void> _saveSchedule() async {
     if (_scheduledDate == null || _selectedTechnicians.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez sélectionner une date et au moins un technicien.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+          Text('Veuillez sélectionner une date et au moins un technicien.')));
       return;
     }
     setState(() => _isLoading = true);
     try {
-      final techniciansToSave = _selectedTechnicians.map((user) => {'uid': user.uid, 'displayName': user.displayName}).toList();
-      await FirebaseFirestore.instance.collection('installations').doc(widget.installationDoc.id).update({
+      final techniciansToSave = _selectedTechnicians
+          .map((user) => {'uid': user.uid, 'displayName': user.displayName})
+          .toList();
+      await FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationDoc.id)
+          .update({
         'installationDate': Timestamp.fromDate(_scheduledDate!),
         'assignedTechnicians': techniciansToSave,
         'status': 'Planifiée',
       });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Installation planifiée avec succès'), backgroundColor: Colors.green));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Installation planifiée avec succès'),
+            backgroundColor: Colors.green));
     } catch (e) {
       print("Error: $e");
     } finally {
@@ -95,29 +121,46 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
-                  title: Text(tempDate == null ? 'Sélectionner une date' : DateFormat('dd MMMM yyyy', 'fr_FR').format(tempDate!)),
+                  title: Text(tempDate == null
+                      ? 'Sélectionner une date'
+                      : DateFormat('dd MMMM yyyy', 'fr_FR').format(tempDate!)),
                   trailing: const Icon(Icons.calendar_today),
                   onTap: () async {
-                    final picked = await showDatePicker(context: context, initialDate: tempDate ?? DateTime.now(), firstDate: DateTime.now(), lastDate: DateTime(2030));
-                    if (picked != null) setDialogState(() => tempDate = picked);
+                    final picked = await showDatePicker(
+                        context: context,
+                        initialDate: tempDate ?? DateTime.now(),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime(2030));
+                    if (picked != null)
+                      setDialogState(() => tempDate = picked);
                   },
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade400)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(color: Colors.grey.shade400)),
                 ),
                 const SizedBox(height: 16),
                 MultiSelectDialogField<AppUser>(
-                  items: _allTechnicians.map((user) => MultiSelectItem<AppUser>(user, user.displayName)).toList(),
+                  items: _allTechnicians
+                      .map(
+                          (user) => MultiSelectItem<AppUser>(user, user.displayName))
+                      .toList(),
                   initialValue: tempTechnicians,
                   title: const Text("Sélectionner Techniciens"),
                   buttonText: const Text("Assigner à"),
-                  decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade600), borderRadius: BorderRadius.circular(8)),
-                  onConfirm: (results) => tempTechnicians = results.cast<AppUser>(),
+                  decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade600),
+                      borderRadius: BorderRadius.circular(8)),
+                  onConfirm: (results) =>
+                  tempTechnicians = results.cast<AppUser>(),
                   chipDisplay: MultiSelectChipDisplay<AppUser>(),
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Annuler')),
             ElevatedButton(
               onPressed: () {
                 setState(() {
@@ -140,14 +183,21 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile = await InstallationPdfService.generateInstallationReport(installationData: data);
+      final pdfFile =
+      await InstallationPdfService.generateInstallationReport(
+          installationData: data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF généré!\n${pdfFile.path}'), backgroundColor: Colors.green, duration: const Duration(seconds: 3)),
+          SnackBar(
+              content: Text('PDF généré!\n${pdfFile.path}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 3)),
         );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -157,11 +207,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile = await InstallationPdfService.generateInstallationReport(installationData: data);
+      final pdfFile =
+      await InstallationPdfService.generateInstallationReport(
+          installationData: data);
       final message = InstallationPdfService.generateWhatsAppMessage(data);
       await Share.shareXFiles([XFile(pdfFile.path)], text: message);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -171,15 +225,32 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile = await InstallationPdfService.generateInstallationReport(installationData: data);
+      final pdfFile =
+      await InstallationPdfService.generateInstallationReport(
+          installationData: data);
       final emailContent = InstallationPdfService.generateEmailContent(data);
-      await Share.shareXFiles([XFile(pdfFile.path)], subject: emailContent['subject'], text: emailContent['body']);
+      await Share.shareXFiles([XFile(pdfFile.path)],
+          subject: emailContent['subject'], text: emailContent['body']);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  // ✅ --- START: HELPER FUNCTION TO SORT MEDIA ---
+  // This helper checks if a URL is a video
+  bool _isVideoUrl(String path) {
+    final lowercasePath = path.toLowerCase();
+    // You can add more video extensions here if needed
+    return lowercasePath.endsWith('.mp4') ||
+        lowercasePath.endsWith('.mov') ||
+        lowercasePath.endsWith('.avi') ||
+        lowercasePath.endsWith('.mkv');
+  }
+  // ✅ --- END: HELPER FUNCTION TO SORT MEDIA ---
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +258,26 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     final technicalEvaluation = data['technicalEvaluation'] as List? ?? [];
     final status = data['status'] ?? 'Inconnu';
     final orderedProducts = data['orderedProducts'] as List? ?? [];
+
+    // ✅ --- START: FIXED MEDIA SORTING LOGIC ---
+
+    // 1. Read the single 'mediaUrls' list from Firestore.
+    final List<String> allMediaUrls =
+    List<String>.from(data['mediaUrls'] ?? []);
+
+    // 2. Create two empty lists to sort the URLs into.
+    final List<String> sortedPhotoUrls = [];
+    final List<String> sortedVideoUrls = [];
+
+    // 3. Loop through the main list and sort each URL.
+    for (String url in allMediaUrls) {
+      if (_isVideoUrl(url)) {
+        sortedVideoUrls.add(url);
+      } else {
+        sortedPhotoUrls.add(url);
+      }
+    }
+    // ✅ --- END: FIXED MEDIA SORTING LOGIC ---
 
     return Scaffold(
       appBar: AppBar(
@@ -202,10 +293,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             title: 'Détails du Projet',
             icon: Icons.business_center,
             children: [
-              ListTile(title: Text(data['clientName'] ?? 'N/A'), subtitle: const Text('Client')),
-              ListTile(title: Text(data['clientPhone'] ?? 'N/A'), subtitle: const Text('Téléphone')),
               ListTile(
-                title: Text(data['initialRequest'] ?? 'N/A', maxLines: 3, overflow: TextOverflow.ellipsis),
+                  title: Text(data['clientName'] ?? 'N/A'),
+                  subtitle: const Text('Client')),
+              ListTile(
+                  title: Text(data['clientPhone'] ?? 'N/A'),
+                  subtitle: const Text('Téléphone')),
+              ListTile(
+                title: Text(data['initialRequest'] ?? 'N/A',
+                    maxLines: 3, overflow: TextOverflow.ellipsis),
                 subtitle: const Text('Demande initiale'),
                 isThreeLine: true,
               ),
@@ -215,24 +311,41 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             _buildInfoCard(
               title: 'Produits à Installer',
               icon: Icons.inventory_2_outlined,
-              children: orderedProducts.map((item) => ListTile(
+              children: orderedProducts
+                  .map((item) => ListTile(
                 title: Text(item['productName'] ?? 'N/A'),
                 trailing: Text('Qté: ${item['quantity'] ?? 0}'),
-              )).toList(),
+              ))
+                  .toList(),
             ),
           ...technicalEvaluation.asMap().entries.map((entry) {
             int idx = entry.key;
-            Map<String, dynamic> evalData = Map<String, dynamic>.from(entry.value);
+            Map<String, dynamic> evalData =
+            Map<String, dynamic>.from(entry.value);
             return _buildInfoCard(
               title: 'Évaluation - Entrée #${idx + 1}',
               icon: Icons.square_foot_outlined,
               children: [
-                ListTile(title: Text(evalData['entranceType'] ?? 'N/A'), subtitle: const Text('Type d\'entrée')),
-                ListTile(title: Text(evalData['doorType'] ?? 'N/A'), subtitle: const Text('Type de porte')),
-                ListTile(title: Text('${evalData['entranceLength'] ?? 'N/A'} m'), subtitle: const Text('Longeur entrée')),
+                ListTile(
+                    title: Text(evalData['entranceType'] ?? 'N/A'),
+                    subtitle: const Text('Type d\'entrée')),
+                ListTile(
+                    title: Text(evalData['doorType'] ?? 'N/A'),
+                    subtitle: const Text('Type de porte')),
+                ListTile(
+                    title: Text('${evalData['entranceLength'] ?? 'N/A'} m'),
+                    subtitle: const Text('Longeur entrée')),
               ],
             );
           }).toList(),
+
+          // ✅ MODIFIED: Pass the new sorted lists to the widget
+          MediaGalleryWidget(
+            photoUrls: sortedPhotoUrls,
+            videoUrls: sortedVideoUrls,
+            primaryColor: primaryColor,
+          ),
+
           _buildActionCard(status, widget.userRole),
         ],
       ),
@@ -279,7 +392,11 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Statut Actuel', style: TextStyle(fontSize: 12)),
-                Text(status, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: color)),
+                Text(status,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: color)),
               ],
             ),
           ),
@@ -288,7 +405,10 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  Widget _buildInfoCard({required String title, required IconData icon, required List<Widget> children}) {
+  Widget _buildInfoCard(
+      {required String title,
+        required IconData icon,
+        required List<Widget> children}) {
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 16),
@@ -302,7 +422,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               children: [
                 Icon(icon, color: primaryColor),
                 const SizedBox(width: 8),
-                Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -322,7 +444,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           padding: const EdgeInsets.all(16.0),
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _buildActionButtons(status, userRole)),
+              : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: _buildActionButtons(status, userRole)),
         ),
       ],
     );
@@ -342,19 +466,24 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 backgroundColor: primaryColor,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.all(16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
             ),
           );
         } else {
-          buttons.add(const Text('En attente de planification par un manager.', textAlign: TextAlign.center));
+          buttons.add(const Text(
+              'En attente de planification par un manager.',
+              textAlign: TextAlign.center));
         }
         break;
       case 'Planifiée':
         buttons.add(
           ElevatedButton.icon(
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => InstallationReportPage(installationId: widget.installationDoc.id)),
+              MaterialPageRoute(
+                  builder: (context) => InstallationReportPage(
+                      installationId: widget.installationDoc.id)),
             ),
             icon: const Icon(Icons.edit_note_outlined),
             label: const Text('Rédiger le Rapport'),
@@ -362,16 +491,26 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               backgroundColor: Colors.orange,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         );
         break;
       case 'Terminée':
         buttons.addAll([
-          const Text('Installation terminée avec succès!', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 14), textAlign: TextAlign.center),
+          const Text('Installation terminée avec succès!',
+              style: TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14),
+              textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          const Text('Partager le rapport:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const Text('Partager le rapport:',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey)),
           const SizedBox(height: 12),
           ElevatedButton.icon(
             onPressed: _generateAndDownloadPDF,
@@ -381,7 +520,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               backgroundColor: const Color(0xFF1E88E5),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
           const SizedBox(height: 12),
@@ -393,7 +533,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               backgroundColor: const Color(0xFF25D366),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
           const SizedBox(height: 12),
@@ -405,7 +546,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               backgroundColor: const Color(0xFF424242),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ]);
@@ -414,5 +556,191 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         buttons.add(const SizedBox.shrink());
     }
     return buttons;
+  }
+}
+
+// ===================================================================
+// This is the Media Gallery widget we built before.
+// It is UNCHANGED, as it's already built to accept separate lists.
+// ===================================================================
+
+class MediaGalleryWidget extends StatelessWidget {
+  final List<String> photoUrls;
+  final List<String> videoUrls;
+  final Color primaryColor;
+
+  const MediaGalleryWidget({
+    super.key,
+    required this.photoUrls,
+    required this.videoUrls,
+    required this.primaryColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // If there are no photos or videos, don't show anything
+    if (photoUrls.isEmpty && videoUrls.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // Reuse the style of _buildInfoCard
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Card Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                Icon(Icons.perm_media_outlined, color: primaryColor),
+                const SizedBox(width: 8),
+                const Text("Photos & Vidéos",
+                    style:
+                    TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+
+          // Photo Section
+          _buildPhotoSection(context),
+
+          // Video Section
+          _buildVideoSection(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoSection(BuildContext context) {
+    if (photoUrls.isEmpty) {
+      return const ListTile(
+        dense: true,
+        leading: Icon(Icons.photo_outlined, size: 20),
+        title: Text("Aucune photo", style: TextStyle(fontSize: 14)),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Photos",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 100, // Fixed height for the horizontal list
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: photoUrls.length,
+              itemBuilder: (context, index) {
+                return GestureDetector(
+                  onTap: () {
+                    // Navigate to your existing ImageGalleryPage
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ImageGalleryPage(
+                          imageUrls: photoUrls,
+                          initialIndex: index,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    margin: const EdgeInsets.only(right: 8.0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8.0),
+                      child: Image.network(
+                        photoUrls[index],
+                        fit: BoxFit.cover,
+                        // Show a loading indicator
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return const Center(
+                              child: CircularProgressIndicator());
+                        },
+                        // Show an error icon if loading fails
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: Colors.grey.shade200,
+                            child: const Icon(Icons.error_outline,
+                                color: Colors.red),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoSection(BuildContext context) {
+    if (videoUrls.isEmpty) {
+      return const ListTile(
+        dense: true,
+        leading: Icon(Icons.videocam_outlined, size: 20),
+        title: Text("Aucune vidéo", style: TextStyle(fontSize: 14)),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(12.0).copyWith(top: 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Vidéos",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          // Build a vertical list of video links
+          Column(
+            children: videoUrls.asMap().entries.map((entry) {
+              int index = entry.key;
+              String url = entry.value;
+              return ListTile(
+                leading: Icon(Icons.play_circle_outline, color: primaryColor),
+                title: Text("Vidéo ${index + 1}"),
+                subtitle: Text(
+                  _getFileNameFromUrl(url), // Helper to show a clean name
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                onTap: () {
+                  // Navigate to your existing VideoPlayerPage
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => VideoPlayerPage(videoUrl: url),
+                    ),
+                  );
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper function to try and get a readable name from the URL
+  String _getFileNameFromUrl(String url) {
+    try {
+      return Uri.decodeFull(url.split('/').last.split('?').first);
+    } catch (e) {
+      return 'Lien vidéo';
+    }
   }
 }
