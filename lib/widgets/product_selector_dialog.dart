@@ -274,23 +274,69 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
               )
                   : Column(
                 children: _selectedProducts
-                    .map((p) => ListTile(
-                  leading: IconButton(
-                    icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
-                    onPressed: () => setState(() => _selectedProducts.remove(p)),
-                  ),
-                  title: Text(p.productName),
-                  subtitle: Text('Scannés: ${p.serialNumbers.length} / ${p.quantity}'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Qté: ${p.quantity}'),
-                      IconButton(
-                        icon: const Icon(Icons.qr_code_scanner_rounded),
-                        onPressed: () => _showSerialNumberScanner(p),
-                        tooltip: 'Scanner les N° de Série',
-                      ),
-                    ],
+                    .map((p) => Card(  // ✅ Changed from ListTile to Card for better layout
+                  margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Row(
+                      children: [
+                        // Remove button
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                          onPressed: () => setState(() => _selectedProducts.remove(p)),
+                        ),
+                        // Product info - takes remaining space
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p.productName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                overflow: TextOverflow.ellipsis,  // ✅ Handle long names
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Scannés: ${p.serialNumbers.length} / ${p.quantity}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Quantity and scanner button
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.blue[50],
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                'Qté: ${p.quantity}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+                              onPressed: () => _showSerialNumberScanner(p),
+                              tooltip: 'Scanner les N° de Série',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ))
                     .toList(),
