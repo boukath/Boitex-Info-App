@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart'; // ✅ ADDED
 import 'package:boitex_info_app/screens/administration/stock_category_list_page.dart';
 import 'package:boitex_info_app/screens/administration/add_requisition_page.dart';
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart'; // ✅ ADDED
+// ✅ 1. NOUVEL IMPORT pour la page de configuration
+import 'package:boitex_info_app/screens/administration/antivol_config/antivol_main_page.dart';
 
 // Helper class to hold style info for our main sections
 class MainCategory {
@@ -100,12 +102,24 @@ class StockPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Stock par Section'),
-        // ✅ ADDED: Scan button in the AppBar
+        // ✅ MODIFIÉ: Liste des actions
         actions: [
           IconButton(
             icon: const Icon(Icons.qr_code_scanner_rounded),
             tooltip: 'Scanner un produit',
             onPressed: () => _scanProduct(context),
+          ),
+          // ✅ 2. BOUTON AJOUTÉ
+          IconButton(
+            icon: const Icon(Icons.tune_rounded), // Icône 'tune' pour la configuration
+            tooltip: 'Configuration Antivol',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const AntivolMainPage(),
+                ),
+              );
+            },
           ),
         ],
       ),
