@@ -7,13 +7,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 class UserRoles {
   static const String admin = 'Admin';
   static const String pdg = 'PDG';
-  static const String responsableAdministratif = 'Responsable Administratif';
-  static const String responsableCommercial = 'Responsable Commercial';
-  static const String responsableTechnique = 'Responsable Technique';
-  static const String responsableIT = 'Responsable IT';
-  static const String chefDeProjet = 'Chef de Projet';
-  static const String technicienST = 'Technicien ST';
-  static const String technicienIT = 'Technicien IT';
+  static const String responsableAdministratif = 'Responsable_Administratif';
+  static const String responsableCommercial = 'Responsable_Commercial';
+  static const String responsableTechnique = 'Responsable_Technique';
+  static const String responsableIT = 'Responsable_IT';
+  static const String chefDeProjet = 'Chef_de_Projet';
+  static const String technicienST = 'Technicien_ST';
+  static const String technicienIT = 'Technicien_IT';
 
   /// Fetches the role of the currently authenticated user from Firestore.
   /// Returns null if the user is not logged in or has no role.

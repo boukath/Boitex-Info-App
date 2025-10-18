@@ -1,4 +1,5 @@
 // lib/api/firebase_api.dart
+
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,6 +14,12 @@ class FirebaseApi {
   static const String _managersTopic = 'manager_notifications';
   static const String _techStTopic = 'technician_st_alerts';
   static const String _techItTopic = 'technician_it_alerts';
+
+  // 🔔 NEW: Helper function to convert role names to valid FCM topic names
+  String _roleToTopic(String role) {
+    // Replace spaces with underscores to make valid FCM topic names
+    return role.replaceAll(' ', '_');
+  }
 
   Future<void> initNotifications() async {
     // Request permission
@@ -51,7 +58,6 @@ class FirebaseApi {
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-
     const settings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
@@ -93,7 +99,6 @@ class FirebaseApi {
     print('🔔 Notification tapped:');
     print('Title: ${message.notification?.title}');
     print('Data: ${message.data}');
-
     // TODO: Add navigation logic here based on message.data
   }
 
@@ -106,13 +111,11 @@ class FirebaseApi {
       priority: Priority.high,
       showWhen: true,
     );
-
     const iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
     );
-
     const details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
@@ -129,7 +132,6 @@ class FirebaseApi {
 
   Future<void> subscribeToTopics(String userRole) async {
     await unsubscribeFromAllTopics();
-
     print('🔄 Subscribing to topics for role: $userRole');
 
     // Check if user is a manager (using the helper function from original code)
@@ -146,6 +148,26 @@ class FirebaseApi {
     if (userRole == UserRoles.technicienIT) {
       await _firebaseMessaging.subscribeToTopic(_techItTopic);
       print('✅ Subscribed to: $_techItTopic');
+    }
+
+    // 🔔 REMINDER NOTIFICATIONS - Subscribe to role-specific reminder topics
+    // Convert role names with spaces to valid topic names
+    if (userRole == UserRoles.admin) {
+      final topic = _roleToTopic(UserRoles.admin);
+      await _firebaseMessaging.subscribeToTopic(topic);
+      print('✅ Subscribed to reminder topic: $topic');
+    }
+
+    if (userRole == UserRoles.responsableAdministratif) {
+      final topic = _roleToTopic(UserRoles.responsableAdministratif);
+      await _firebaseMessaging.subscribeToTopic(topic);
+      print('✅ Subscribed to reminder topic: $topic');
+    }
+
+    if (userRole == UserRoles.responsableCommercial) {
+      final topic = _roleToTopic(UserRoles.responsableCommercial);
+      await _firebaseMessaging.subscribeToTopic(topic);
+      print('✅ Subscribed to reminder topic: $topic');
     }
   }
 
@@ -165,6 +187,13 @@ class FirebaseApi {
     await _firebaseMessaging.unsubscribeFromTopic(_managersTopic);
     await _firebaseMessaging.unsubscribeFromTopic(_techStTopic);
     await _firebaseMessaging.unsubscribeFromTopic(_techItTopic);
+
+    // 🔔 REMINDER NOTIFICATIONS - Unsubscribe from reminder topics
+    // Convert role names with spaces to valid topic names
+    await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.admin));
+    await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.responsableAdministratif));
+    await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.responsableCommercial));
+
     print('✅ Unsubscribed from all topics');
   }
 
@@ -182,12 +211,10 @@ class FirebaseApi {
     }
 
     print('💾 Saving FCM token: $token');
-
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
       'fcmToken': token,
       'lastTokenUpdate': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-
     print('✅ FCM token saved successfully');
   }
 }

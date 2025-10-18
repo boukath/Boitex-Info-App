@@ -17,6 +17,7 @@ import 'package:boitex_info_app/screens/administration/purchasing_hub_page.dart'
 import 'package:boitex_info_app/screens/administration/billing_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/activity_log_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
+import 'package:boitex_info_app/screens/administration/rappel_page.dart';
 
 class AdministrationDashboardPage extends StatelessWidget {
   final String displayName;
@@ -73,6 +74,21 @@ class AdministrationDashboardPage extends StatelessWidget {
                     'Administration',
                     style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
                   ),
+
+                  // --- ✅ START: ICON BUTTON ADDED ---
+                  const SizedBox(width: 24),
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined, color: Color(0xFF1E3A8A)),
+                    tooltip: 'Rappels',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const RappelPage()),
+                      );
+                    },
+                  ),
+                  // --- ✅ END: ICON BUTTON ADDED ---
+
                   const Spacer(),
                   CircleAvatar(
                     radius: 20,
@@ -184,6 +200,20 @@ class AdministrationDashboardPage extends StatelessWidget {
                       TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ),
+
+                  // --- ✅ START: ICON BUTTON ADDED ---
+                  IconButton(
+                    icon: const Icon(Icons.notifications_outlined, color: Color(0xFF1E3A8A)),
+                    tooltip: 'Rappels',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const RappelPage()),
+                      );
+                    },
+                  ),
+                  // --- ✅ END: ICON BUTTON ADDED ---
+
                 ],
               ),
               const SizedBox(height: 24),
