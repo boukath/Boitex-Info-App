@@ -151,7 +151,7 @@ class FirebaseApi {
       print('✅ Subscribed to: $_techItTopic');
     }
 
-    // ✅ Subscribe to requisition & project notifications for specific roles
+    // ✅ UPDATED: Include technicians for livraison notifications
     final managementRoles = [
       UserRoles.pdg,
       UserRoles.admin,
@@ -160,12 +160,14 @@ class FirebaseApi {
       UserRoles.responsableTechnique,
       UserRoles.responsableIT,
       UserRoles.chefDeProjet,
+      UserRoles.technicienST,  // ✅ Added for livraisons
+      UserRoles.technicienIT,  // ✅ Added for livraisons
     ];
 
     if (managementRoles.contains(userRole)) {
       final topic = _roleToTopic(userRole);
       await _firebaseMessaging.subscribeToTopic(topic);
-      print('✅ Subscribed to management topic (projects & requisitions): $topic');
+      print('✅ Subscribed to management topic (projects, requisitions & livraisons): $topic');
     }
 
     // REMINDER NOTIFICATIONS - Subscribe to role-specific reminder topics
@@ -207,7 +209,7 @@ class FirebaseApi {
     await _firebaseMessaging.unsubscribeFromTopic(_techStTopic);
     await _firebaseMessaging.unsubscribeFromTopic(_techItTopic);
 
-    // ✅ Unsubscribe from management topics (requisitions & projects)
+    // ✅ UPDATED: Include technicians when unsubscribing
     final managementRoles = [
       UserRoles.pdg,
       UserRoles.admin,
@@ -216,6 +218,8 @@ class FirebaseApi {
       UserRoles.responsableTechnique,
       UserRoles.responsableIT,
       UserRoles.chefDeProjet,
+      UserRoles.technicienST,  // ✅ Added
+      UserRoles.technicienIT,  // ✅ Added
     ];
 
     for (final role in managementRoles) {

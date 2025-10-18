@@ -18,13 +18,26 @@ class LivraisonDetailsPage extends StatefulWidget {
 
 class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   DocumentSnapshot? _livraisonDoc;
-  List<Map<String, dynamic>> _itemsToScan = [];
+  List<Map<String, dynamic>> _serializedItems = [];
+  List<Map<String, dynamic>> _bulkItems = [];
   bool _isLoading = true;
   bool _isCompleting = false;
 
-  bool get _allScanned =>
-      _itemsToScan.isNotEmpty &&
-          _itemsToScan.every((item) => item['scanned'] == true);
+  // ✅ FIXED: Completion logic now works for bulk-only OR serialized-only livraisons
+  bool get _allCompleted {
+    // At least one type of item must exist
+    if (_serializedItems.isEmpty && _bulkItems.isEmpty) return false;
+
+    // All serialized items must be scanned (if any exist)
+    final serializedDone = _serializedItems.isEmpty ||
+        _serializedItems.every((item) => item['scanned'] == true);
+
+    // All bulk items must be delivered (if any exist)
+    final bulkDone = _bulkItems.isEmpty ||
+        _bulkItems.every((item) => item['delivered'] == true);
+
+    return serializedDone && bulkDone;
+  }
 
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 5,
@@ -54,43 +67,57 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
-        final products = data['products'] as List<dynamic>? ?? [];
-        final List<Map<String, dynamic>> flattenedItems = [];
+        final products = data['products'] as List? ?? [];
+
+        final List<Map<String, dynamic>> serialized = [];
+        final List<Map<String, dynamic>> bulk = [];
 
         for (final product in products) {
-          final partNumber = product['partNumber'] as String?;
-          final serials = product['serialNumbers'] as List<dynamic>? ?? [];
-          final bool isPartNumberMissing = partNumber == null || partNumber.trim().isEmpty;
+          final int quantity = product['quantity'] ?? 0;
+          final String productName = product['productName'] ?? 'N/A';
+          final String? partNumber = product['partNumber'] as String?;
+          final List serials = product['serialNumbers'] as List? ?? [];
 
-          if (serials.isNotEmpty) {
-            for (final sn in serials) {
-              flattenedItems.add({
-                'productName': product['productName'] ?? 'N/A',
-                'partNumber': partNumber,
-                'serialNumber': sn.toString(),
-                'isPartNumberMissing': isPartNumberMissing,
-                'isSerialNumberMissing': false,
-                'scanned': false,
-              });
-            }
+          // ✅ SMART DECISION: Quantity > 5 = Bulk item (no individual tracking)
+          if (quantity > 5 && serials.isEmpty) {
+            bulk.add({
+              'productName': productName,
+              'partNumber': partNumber,
+              'quantity': quantity,
+              'delivered': false,
+              'type': 'bulk',
+            });
           } else {
-            final int quantity = product['quantity'] ?? 0;
-            for (int i = 0; i < quantity; i++) {
-              flattenedItems.add({
-                'productName': product['productName'] ?? 'N/A',
-                'partNumber': partNumber,
-                'serialNumber': null,
-                'isPartNumberMissing': isPartNumberMissing,
-                'isSerialNumberMissing': true,
-                'scanned': false,
-              });
+            // Serialized items - track individually
+            if (serials.isNotEmpty) {
+              for (final sn in serials) {
+                serialized.add({
+                  'productName': productName,
+                  'partNumber': partNumber,
+                  'serialNumber': sn.toString(),
+                  'scanned': false,
+                  'type': 'serialized',
+                });
+              }
+            } else {
+              // Small quantity without serials - still track individually
+              for (int i = 0; i < quantity; i++) {
+                serialized.add({
+                  'productName': productName,
+                  'partNumber': partNumber,
+                  'serialNumber': null,
+                  'scanned': false,
+                  'type': 'serialized',
+                });
+              }
             }
           }
         }
 
         setState(() {
           _livraisonDoc = doc;
-          _itemsToScan = flattenedItems;
+          _serializedItems = serialized;
+          _bulkItems = bulk;
           _isLoading = false;
         });
       } else {
@@ -111,73 +138,70 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     }
   }
 
-  /// ✅ NEW: Dedicated function to scan only the Part Number (Reference).
-  void _scanPartNumber(Map<String, dynamic> item) async {
+  void _scanSerializedItem(Map<String, dynamic> item) async {
     String? scannedCode;
-    await Navigator.push<void>(
+    await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
+      MaterialPageRoute(
+          builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
     );
 
     final code = scannedCode?.trim();
     if (code == null || code.isEmpty) return;
 
     setState(() {
-      item['partNumber'] = code;
-      item['isPartNumberMissing'] = false;
+      if (item['serialNumber'] == null) {
+        item['serialNumber'] = code;
+      }
+      item['scanned'] = true;
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('✓ Article scanné avec succès'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 1),
+      ),
+    );
   }
 
-  /// ✅ NEW: Dedicated function to scan only the Serial Number.
-  void _scanSerialNumber(Map<String, dynamic> item) async {
+  void _markBulkItemDelivered(Map<String, dynamic> item) {
+    setState(() {
+      item['delivered'] = true;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✓ ${item['quantity']} x ${item['productName']} marqué comme livré'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _verifySingleFromBulk(Map<String, dynamic> item) async {
     String? scannedCode;
-    await Navigator.push<void>(
+    await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
+      MaterialPageRoute(
+          builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
     );
 
     final code = scannedCode?.trim();
     if (code == null || code.isEmpty) return;
-
-    if (code == item['partNumber']) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Le numéro de série ne peut pas être identique à la référence.'),
-        backgroundColor: Colors.orange,
-      ));
-      return;
-    }
 
     setState(() {
-      item['serialNumber'] = code;
-      item['isSerialNumberMissing'] = false;
-      item['scanned'] = true; // Item is now fully scanned and complete.
+      item['delivered'] = true;
     });
-  }
 
-  /// This is the verification scan for items that had all data from the start.
-  void _verifyItem(Map<String, dynamic> item) async {
-    String? scannedCode;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)),
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('✓ Lot vérifié et marqué comme livré'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
     );
-
-    final code = scannedCode?.trim();
-    if (code == null || code.isEmpty) return;
-
-    final target = item['serialNumber'] ?? item['partNumber'];
-    if (code == target) {
-      setState(() {
-        item['scanned'] = true;
-      });
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Mauvais article scanné. Veuillez réessayer.'),
-        backgroundColor: Colors.red,
-      ));
-    }
   }
-
 
   Future<String?> _uploadSignature() async {
     if (_signatureController.isEmpty) return null;
@@ -205,23 +229,33 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         throw Exception('Impossible de sauvegarder l\'historique: Magasin non spécifié.');
       }
 
-      final Map<String, dynamic> groupedProducts = {};
-      for (final item in _itemsToScan) {
-        final key = item['partNumber'];
-        if (key == null) continue;
+      final Map<String, Map<String, dynamic>> groupedProducts = {};
 
+      for (final item in _serializedItems) {
+        final key = item['partNumber'] ?? item['productName'];
         if (!groupedProducts.containsKey(key)) {
           groupedProducts[key] = {
             'productName': item['productName'],
             'partNumber': item['partNumber'],
             'quantity': 0,
-            'serialNumbers': <String>[],
+            'serialNumbers': [],
           };
         }
-
-        groupedProducts[key]['quantity']++;
+        groupedProducts[key]!['quantity'] = (groupedProducts[key]!['quantity'] as int) + 1;
         if (item['serialNumber'] != null) {
-          groupedProducts[key]['serialNumbers'].add(item['serialNumber']);
+          (groupedProducts[key]!['serialNumbers'] as List).add(item['serialNumber']);
+        }
+      }
+
+      for (final item in _bulkItems) {
+        final key = item['partNumber'] ?? item['productName'];
+        if (!groupedProducts.containsKey(key)) {
+          groupedProducts[key] = {
+            'productName': item['productName'],
+            'partNumber': item['partNumber'],
+            'quantity': item['quantity'],
+            'serialNumbers': [],
+          };
         }
       }
 
@@ -229,7 +263,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       List<Map<String, dynamic>>.from(groupedProducts.values);
 
       final batch = FirebaseFirestore.instance.batch();
-      final livraisonRef = FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId);
+      final livraisonRef =
+      FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId);
 
       batch.update(livraisonRef, {
         'status': 'Livré',
@@ -246,7 +281,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           .collection('materiel_installe');
 
       for (final product in updatedProductsList) {
-        final serials = product['serialNumbers'] as List<dynamic>? ?? [];
+        final serials = product['serialNumbers'] as List? ?? [];
         if (serials.isNotEmpty) {
           for (final sn in serials) {
             final newMaterielDoc = materielCollectionRef.doc();
@@ -264,7 +299,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       await batch.commit();
 
       await ActivityLogger.logActivity(
-        message: 'a confirmé la livraison pour le client ${livraisonData['clientName'] ?? ''}.',
+        message:
+        'a confirmé la livraison pour le client ${livraisonData['clientName'] ?? ''}.',
         category: 'Livraison',
         clientName: livraisonData['clientName'],
         storeName: livraisonData['storeName'],
@@ -293,6 +329,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     }
 
     final data = _livraisonDoc?.data() as Map<String, dynamic>? ?? {};
+    final int totalSerializedScanned =
+        _serializedItems.where((item) => item['scanned'] == true).length;
+    final int totalBulkDelivered =
+        _bulkItems.where((item) => item['delivered'] == true).length;
 
     return Scaffold(
       appBar: AppBar(
@@ -311,78 +351,138 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                     'Magasin: ${data['storeName'] ?? 'N/A'}\nAdresse: ${data['deliveryAddress'] ?? 'N/A'}'),
               ),
             ),
+
             const SizedBox(height: 16),
 
-            Text('Produits à Scanner',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Card(
-              child: Column(
-                children: _itemsToScan.map((item) {
-                  final bool needsDataCapture = item['isPartNumberMissing'] || item['isSerialNumberMissing'];
-
-                  return ListTile(
-                    // ✅ NEW UI: Leading icon shows overall status.
-                    leading: item['scanned']
-                        ? const Icon(Icons.check_circle, color: Colors.green, size: 30)
-                        : const Icon(Icons.inventory_2_outlined, color: Colors.grey, size: 30),
-                    title: Text(item['productName']),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item['isPartNumberMissing']
-                              ? 'Réf: À scanner'
-                              : 'Réf: ${item['partNumber'] ?? ''}',
-                          style: TextStyle(
-                            color: item['isPartNumberMissing'] ? Colors.orange.shade700 : null,
-                            fontWeight: item['isPartNumberMissing'] ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        Text(
-                          item['isSerialNumberMissing']
-                              ? 'N/S: À scanner'
-                              : 'N/S: ${item['serialNumber'] ?? ''}',
-                          style: TextStyle(
-                            color: item['isSerialNumberMissing'] ? Colors.orange.shade700 : null,
-                            fontWeight: item['isSerialNumberMissing'] ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                      ],
+            if (_serializedItems.isNotEmpty) ...[
+              Row(
+                children: [
+                  const Icon(Icons.qr_code_scanner, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Produits avec N/S ($totalSerializedScanned/${_serializedItems.length})',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    // ✅ NEW UI: Trailing icons provide specific actions.
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Show button to scan PART NUMBER
-                        if (item['isPartNumberMissing'] == true)
-                          IconButton(
-                            icon: const Icon(Icons.qr_code_scanner),
-                            color: Colors.orange.shade700,
-                            tooltip: 'Scanner la Référence',
-                            onPressed: () => _scanPartNumber(item),
-                          ),
-                        // Show button to scan SERIAL NUMBER
-                        if (item['isPartNumberMissing'] == false && item['isSerialNumberMissing'] == true)
-                          IconButton(
-                            icon: const Icon(Icons.qr_code),
-                            color: Colors.blue.shade700,
-                            tooltip: 'Scanner le Numéro de Série',
-                            onPressed: () => _scanSerialNumber(item),
-                          ),
-                        // Show button to VERIFY item
-                        if (!needsDataCapture && !item['scanned'])
-                          IconButton(
-                            icon: const Icon(Icons.qr_code_scanner),
-                            tooltip: 'Vérifier l\'article',
-                            onPressed: () => _verifyItem(item),
-                          ),
-                      ],
-                    ),
-                  );
-                }).toList(),
+                  ),
+                ],
               ),
-            ),
+              const SizedBox(height: 8),
+              Card(
+                child: Column(
+                  children: _serializedItems.map((item) {
+                    return ListTile(
+                      leading: item['scanned']
+                          ? const Icon(Icons.check_circle, color: Colors.green, size: 30)
+                          : const Icon(Icons.inventory_2_outlined,
+                          color: Colors.orange, size: 30),
+                      title: Text(item['productName']),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Réf: ${item['partNumber'] ?? 'À scanner'}'),
+                          Text(
+                            item['serialNumber'] != null
+                                ? 'N/S: ${item['serialNumber']}'
+                                : 'N/S: À scanner',
+                            style: TextStyle(
+                              color: item['serialNumber'] != null
+                                  ? Colors.black87
+                                  : Colors.orange.shade700,
+                              fontWeight: item['serialNumber'] != null
+                                  ? FontWeight.normal
+                                  : FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      trailing: !item['scanned']
+                          ? IconButton(
+                        icon: const Icon(Icons.qr_code_scanner),
+                        color: Colors.blue,
+                        tooltip: 'Scanner',
+                        onPressed: () => _scanSerializedItem(item),
+                      )
+                          : const Icon(Icons.check, color: Colors.green),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            if (_bulkItems.isNotEmpty) ...[
+              Row(
+                children: [
+                  const Icon(Icons.inventory, color: Colors.green),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Produits Cons ($totalBulkDelivered/${_bulkItems.length})',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Card(
+                color: Colors.green.shade50,
+                child: Column(
+                  children: _bulkItems.map((item) {
+                    return ListTile(
+                      leading: item['delivered']
+                          ? const Icon(Icons.check_circle, color: Colors.green, size: 30)
+                          : const Icon(Icons.inventory_2_outlined,
+                          color: Colors.grey, size: 30),
+                      title: Text(
+                        item['productName'],
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Réf: ${item['partNumber'] ?? 'N/A'}'),
+                          Text(
+                            'Quantité: ${item['quantity']}',
+                            style: TextStyle(
+                              color: Colors.green.shade700,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      trailing: !item['delivered']
+                          ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.qr_code_scanner),
+                            color: Colors.blue,
+                            tooltip: 'Scanner (optionnel)',
+                            onPressed: () => _verifySingleFromBulk(item),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: () => _markBulkItemDelivered(item),
+                            icon: const Icon(Icons.check, size: 18),
+                            label: const Text('Livré'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                        ],
+                      )
+                          : const Icon(Icons.check, color: Colors.green, size: 28),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
             const Divider(height: 32),
 
             Text('Preuve de Livraison',
@@ -398,41 +498,45 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                       children: [
                         const Text('Signature du Client'),
                         TextButton(
-                            child: const Text('Effacer'),
-                            onPressed: () => _signatureController.clear())
+                          child: const Text('Effacer'),
+                          onPressed: () => _signatureController.clear(),
+                        )
                       ],
                     ),
                     Container(
                       height: 150,
-                      decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade400)),
+                      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400)),
                       child: Signature(
-                          controller: _signatureController,
-                          backgroundColor: Colors.grey[200]!),
+                        controller: _signatureController,
+                        backgroundColor: Colors.grey[200]!,
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
+
             const Divider(height: 32),
 
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed:
-                (_isCompleting || !_allScanned) ? null : _completeLivraison,
+                onPressed: (_isCompleting || !_allCompleted) ? null : _completeLivraison,
                 icon: const Icon(Icons.check_circle),
                 label: const Text('Confirmer la Livraison'),
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16)),
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
               ),
             ),
+
             if (_isCompleting)
               const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Center(child: CircularProgressIndicator())),
+                padding: EdgeInsets.all(16.0),
+                child: Center(child: CircularProgressIndicator()),
+              ),
           ],
         ),
       ),

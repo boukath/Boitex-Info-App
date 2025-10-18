@@ -33,7 +33,6 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                 });
               },
               decoration: const InputDecoration(
-                // ✅ UPDATED: Label reflects new search capabilities
                 labelText: 'Rechercher (BL, Client, Produit, Marque...)',
                 prefixIcon: Icon(Icons.search),
                 border: OutlineInputBorder(
@@ -54,27 +53,30 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
+
                 if (snapshot.hasError) {
                   return Center(child: Text('Erreur: ${snapshot.error}'));
                 }
+
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const Center(
                     child: Text('Aucune livraison effectuée trouvée.'),
                   );
                 }
 
-                // ✅ UPDATED: Filtering logic now includes products and brands
                 final allDocs = snapshot.data!.docs;
                 final filteredDocs = allDocs.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   final query = _searchQuery.toLowerCase();
 
+                  // Check BL code
                   final bonNumber =
                   (data['bonLivraisonCode'] as String? ?? '').toLowerCase();
                   if (bonNumber.contains(query)) {
                     return true;
                   }
 
+                  // Check client name
                   final clientName =
                   (data['clientName'] as String? ?? '').toLowerCase();
                   if (clientName.contains(query)) {
@@ -85,13 +87,15 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                   if (data.containsKey('products') && data['products'] is List) {
                     final products = data['products'] as List;
                     for (final product in products) {
-                      if (product is Map<String, dynamic>) {
-                        final productName = (product['productName'] as String? ?? '').toLowerCase();
+                      if (product is Map) {
+                        final productName =
+                        (product['productName'] as String? ?? '').toLowerCase();
                         if (productName.contains(query)) {
                           return true;
                         }
 
-                        final marque = (product['marque'] as String? ?? '').toLowerCase();
+                        final marque =
+                        (product['marque'] as String? ?? '').toLowerCase();
                         if (marque.contains(query)) {
                           return true;
                         }
@@ -112,7 +116,9 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                   itemBuilder: (context, index) {
                     final doc = filteredDocs[index];
                     final data = doc.data() as Map<String, dynamic>;
-                    final bonNumber = data['blCode'] ?? 'N/A';
+
+                    // ✅ FIXED: Changed from 'blCode' to 'bonLivraisonCode'
+                    final bonNumber = data['bonLivraisonCode'] ?? 'N/A';
                     final clientName = data['clientName'] ?? 'Client inconnu';
                     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
                     final formattedDate = createdAt != null

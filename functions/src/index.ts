@@ -25,6 +25,7 @@ const notifyManagers = async (title: string, body: string) => {
     notification: {title, body},
     topic: MANAGERS_TOPIC,
   };
+
   try {
     await admin.messaging().send(message);
     console.log(`✅ Sent manager notification: ${title}`);
@@ -38,6 +39,7 @@ const notifyServiceTechnique = async (title: string, body: string) => {
     notification: {title, body},
     topic: TECH_ST_TOPIC,
   };
+
   try {
     await admin.messaging().send(message);
     console.log(`✅ Sent Service Technique notification: ${title}`);
@@ -90,7 +92,7 @@ export const onReplacementRequestCreated_v2 = onDocumentCreated("replacement_req
   await notifyManagers(title, body);
 });
 
-// ✅ NEW: Notification for new requisition creation
+// ✅ Notification for new requisition creation
 export const onRequisitionCreated_v2 = onDocumentCreated(
   "requisitions/{requisitionId}",
   async (event) => {
@@ -123,6 +125,7 @@ export const onRequisitionCreated_v2 = onDocumentCreated(
         notification: { title, body },
         topic: topic,
       };
+
       try {
         await admin.messaging().send(message);
         console.log(`✅ Sent requisition notification to: ${topic}`);
@@ -153,12 +156,11 @@ export const onRequisitionStatusUpdate_v2 = onDocumentUpdated(
     const body = `Statut: ${newStatus} - Demandé par: ${requestedBy}`;
 
     await notifyManagers(title, body);
-
     console.log(`✅ Requisition status update notification sent for ${requisitionCode}`);
   }
 );
 
-// ✅ NEW: Notification for new project creation
+// ✅ Notification for new project creation
 export const onProjectCreated_v2 = onDocumentCreated(
   "projects/{projectId}",
   async (event) => {
@@ -191,6 +193,7 @@ export const onProjectCreated_v2 = onDocumentCreated(
         notification: { title, body },
         topic: topic,
       };
+
       try {
         await admin.messaging().send(message);
         console.log(`✅ Sent project notification to: ${topic}`);
@@ -204,7 +207,7 @@ export const onProjectCreated_v2 = onDocumentCreated(
   }
 );
 
-// ✅ NEW: Notification when project status changes
+// ✅ Notification when project status changes
 export const onProjectStatusUpdate_v2 = onDocumentUpdated(
   "projects/{projectId}",
   async (event) => {
@@ -223,8 +226,85 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated(
     const body = `Client: ${clientName} - Statut: ${newStatus}`;
 
     await notifyManagers(title, body);
-
     console.log(`✅ Project status update notification sent for ${projectName}`);
+  }
+);
+
+// ✅ NEW: Notification for new livraison creation
+export const onLivraisonCreated_v2 = onDocumentCreated(
+  "livraisons/{livraisonId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+
+    const data = snapshot.data();
+    const bonLivraisonCode = data.bonLivraisonCode || "N/A";
+    const clientName = data.clientName || "N/A";
+    const serviceType = data.serviceType || "N/A";
+    const deliveryMethod = data.deliveryMethod || "N/A";
+
+    const title = `Nouvelle Livraison: ${bonLivraisonCode}`;
+    const body = `Client: ${clientName} | Service: ${serviceType} | Méthode: ${deliveryMethod}`;
+
+    // Send to all management roles + technicians
+    const targetRoles = [
+      "PDG",
+      "Admin",
+      "Responsable_Administratif",
+      "Responsable_Commercial",
+      "Responsable_Technique",
+      "Responsable_IT",
+      "Chef_de_Projet",
+      "Technicien_ST", // ✅ Technicians need to know about deliveries
+      "Technicien_IT",
+    ];
+
+    const sendPromises = targetRoles.map(async (topic) => {
+      const message = {
+        notification: { title, body },
+        topic: topic,
+      };
+
+      try {
+        await admin.messaging().send(message);
+        console.log(`✅ Sent livraison notification to: ${topic}`);
+      } catch (error) {
+        console.error(`❌ Error sending to ${topic}:`, error);
+      }
+    });
+
+    await Promise.all(sendPromises);
+    console.log(`✅ Livraison creation notification sent for: ${bonLivraisonCode}`);
+  }
+);
+
+// ✅ NEW: Notification when livraison status changes
+export const onLivraisonStatusUpdate_v2 = onDocumentUpdated(
+  "livraisons/{livraisonId}",
+  async (event) => {
+    if (!event.data) return;
+
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    // Only notify if status actually changed
+    if (before.status === after.status) return;
+
+    const bonLivraisonCode = after.bonLivraisonCode || "N/A";
+    const clientName = after.clientName || "N/A";
+    const newStatus = after.status || "Inconnu";
+
+    const title = `Mise à Jour Livraison: ${bonLivraisonCode}`;
+    const body = `Client: ${clientName} - Statut: ${newStatus}`;
+
+    // Notify managers and relevant technicians
+    await notifyManagers(title, body);
+    await notifyServiceTechnique(title, body);
+
+    console.log(`✅ Livraison status update notification sent for ${bonLivraisonCode}`);
   }
 );
 
@@ -286,7 +366,6 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated(
 const collectionsToWatchForUpdates = [
   "interventions",
   "installations",
-  "livraisons",
   "sav_tickets",
 ];
 
@@ -361,7 +440,7 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
     return;
   }
 
-  const promises: Promise<any>[] = [];
+  const promises: Promise<unknown>[] = [];
 
   for (const doc of remindersSnapshot.docs) {
     const reminder = doc.data();
@@ -386,6 +465,7 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
           },
           topic: topic,
         };
+
         await messaging.send(message);
         functions.logger.info(`✅ Successfully sent to topic: ${topic}`);
       } catch (error) {
