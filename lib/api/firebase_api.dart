@@ -15,7 +15,7 @@ class FirebaseApi {
   static const String _techStTopic = 'technician_st_alerts';
   static const String _techItTopic = 'technician_it_alerts';
 
-  // 🔔 NEW: Helper function to convert role names to valid FCM topic names
+  // Helper function to convert role names to valid FCM topic names
   String _roleToTopic(String role) {
     // Replace spaces with underscores to make valid FCM topic names
     return role.replaceAll(' ', '_');
@@ -134,12 +134,13 @@ class FirebaseApi {
     await unsubscribeFromAllTopics();
     print('🔄 Subscribing to topics for role: $userRole');
 
-    // Check if user is a manager (using the helper function from original code)
+    // Check if user is a manager
     if (isManagerRole(userRole)) {
       await _firebaseMessaging.subscribeToTopic(_managersTopic);
       print('✅ Subscribed to: $_managersTopic');
     }
 
+    // Technician subscriptions
     if (userRole == UserRoles.technicienST) {
       await _firebaseMessaging.subscribeToTopic(_techStTopic);
       print('✅ Subscribed to: $_techStTopic');
@@ -150,8 +151,24 @@ class FirebaseApi {
       print('✅ Subscribed to: $_techItTopic');
     }
 
-    // 🔔 REMINDER NOTIFICATIONS - Subscribe to role-specific reminder topics
-    // Convert role names with spaces to valid topic names
+    // ✅ Subscribe to requisition & project notifications for specific roles
+    final managementRoles = [
+      UserRoles.pdg,
+      UserRoles.admin,
+      UserRoles.responsableAdministratif,
+      UserRoles.responsableCommercial,
+      UserRoles.responsableTechnique,
+      UserRoles.responsableIT,
+      UserRoles.chefDeProjet,
+    ];
+
+    if (managementRoles.contains(userRole)) {
+      final topic = _roleToTopic(userRole);
+      await _firebaseMessaging.subscribeToTopic(topic);
+      print('✅ Subscribed to management topic (projects & requisitions): $topic');
+    }
+
+    // REMINDER NOTIFICATIONS - Subscribe to role-specific reminder topics
     if (userRole == UserRoles.admin) {
       final topic = _roleToTopic(UserRoles.admin);
       await _firebaseMessaging.subscribeToTopic(topic);
@@ -184,12 +201,28 @@ class FirebaseApi {
 
   Future<void> unsubscribeFromAllTopics() async {
     print('🔄 Unsubscribing from all topics...');
+
+    // Unsubscribe from existing topics
     await _firebaseMessaging.unsubscribeFromTopic(_managersTopic);
     await _firebaseMessaging.unsubscribeFromTopic(_techStTopic);
     await _firebaseMessaging.unsubscribeFromTopic(_techItTopic);
 
-    // 🔔 REMINDER NOTIFICATIONS - Unsubscribe from reminder topics
-    // Convert role names with spaces to valid topic names
+    // ✅ Unsubscribe from management topics (requisitions & projects)
+    final managementRoles = [
+      UserRoles.pdg,
+      UserRoles.admin,
+      UserRoles.responsableAdministratif,
+      UserRoles.responsableCommercial,
+      UserRoles.responsableTechnique,
+      UserRoles.responsableIT,
+      UserRoles.chefDeProjet,
+    ];
+
+    for (final role in managementRoles) {
+      await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(role));
+    }
+
+    // REMINDER NOTIFICATIONS - Unsubscribe from reminder topics
     await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.admin));
     await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.responsableAdministratif));
     await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.responsableCommercial));
@@ -215,6 +248,7 @@ class FirebaseApi {
       'fcmToken': token,
       'lastTokenUpdate': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+
     print('✅ FCM token saved successfully');
   }
 }

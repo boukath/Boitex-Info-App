@@ -1,30 +1,24 @@
 // functions/src/index.ts
+
 import {onDocumentCreated, onDocumentUpdated} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as functions from "firebase-functions";
 import B2 from "backblaze-b2";
 import cors from "cors";
-// ✅ ADDED: Imports for v2 secrets and onRequest
 import {defineSecret} from "firebase-functions/params";
 import {onRequest} from "firebase-functions/v2/https";
 import {onSchedule} from "firebase-functions/v2/scheduler";
-// ✅ NEW: Define the secrets your function will use
+
 const backblazeKeyId = defineSecret("BACKBLAZE_KEY_ID");
 const backblazeAppKey = defineSecret("BACKBLAZE_APP_KEY");
 const backblazeBucketId = defineSecret("BACKBLAZE_BUCKET_ID");
 
-// Initialize Firebase Admin SDK
 admin.initializeApp();
-
-// Set the region for all functions
 setGlobalOptions({region: "europe-west1"});
-
-// --- START OF YOUR EXISTING NOTIFICATION CODE (UNCHANGED) ---
 
 const MANAGERS_TOPIC = "manager_notifications";
 const TECH_ST_TOPIC = "technician_st_alerts";
-// const TECH_IT_TOPIC = "technician_it_alerts";
 
 const notifyManagers = async (title: string, body: string) => {
   const message = {
@@ -52,13 +46,13 @@ const notifyServiceTechnique = async (title: string, body: string) => {
   }
 };
 
-// RENAMED
 export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interventionId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
     console.log("No data associated with the event");
     return;
   }
+
   const data = snapshot.data();
   const title = `Nouvelle Intervention: ${data.interventionCode}`;
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
@@ -67,13 +61,13 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   await notifyServiceTechnique(title, body);
 });
 
-// RENAMED
 export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
     console.log("No data associated with the event");
     return;
   }
+
   const data = snapshot.data();
   const title = `Nouveau Ticket SAV: ${data.savCode}`;
   const body = `Client: ${data.clientName} - Produit: ${data.productName}`;
@@ -82,13 +76,13 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
   await notifyServiceTechnique(title, body);
 });
 
-// RENAMED
 export const onReplacementRequestCreated_v2 = onDocumentCreated("replacement_requests/{requestId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
     console.log("No data associated with the event");
     return;
   }
+
   const data = snapshot.data();
   const title = `Nouvelle Demande de Remplacement: ${data.replacementRequestCode}`;
   const body = `Demandé par: ${data.technicianName} pour ${data.clientName}`;
@@ -96,18 +90,158 @@ export const onReplacementRequestCreated_v2 = onDocumentCreated("replacement_req
   await notifyManagers(title, body);
 });
 
-// RENAMED
+// ✅ NEW: Notification for new requisition creation
+export const onRequisitionCreated_v2 = onDocumentCreated(
+  "requisitions/{requisitionId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+
+    const data = snapshot.data();
+    const requisitionCode = data.requisitionCode || "N/A";
+    const requestedBy = data.requestedBy || "Inconnu";
+    const itemCount = (data.items as Array<Record<string, unknown>>)?.length || 0;
+
+    const title = `Nouvelle Demande d'Achat: ${requisitionCode}`;
+    const body = `Demandée par: ${requestedBy} - ${itemCount} article(s)`;
+
+    const targetRoles = [
+      "PDG",
+      "Admin",
+      "Responsable_Administratif",
+      "Responsable_Commercial",
+      "Responsable_Technique",
+      "Responsable_IT",
+      "Chef_de_Projet",
+    ];
+
+    const sendPromises = targetRoles.map(async (topic) => {
+      const message = {
+        notification: { title, body },
+        topic: topic,
+      };
+      try {
+        await admin.messaging().send(message);
+        console.log(`✅ Sent requisition notification to: ${topic}`);
+      } catch (error) {
+        console.error(`❌ Error sending to ${topic}:`, error);
+      }
+    });
+
+    await Promise.all(sendPromises);
+  }
+);
+
+export const onRequisitionStatusUpdate_v2 = onDocumentUpdated(
+  "requisitions/{requisitionId}",
+  async (event) => {
+    if (!event.data) return;
+
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    if (before.status === after.status) return;
+
+    const requisitionCode = after.requisitionCode || "N/A";
+    const newStatus = after.status || "Inconnu";
+    const requestedBy = after.requestedBy || "Inconnu";
+
+    const title = `Mise à Jour: ${requisitionCode}`;
+    const body = `Statut: ${newStatus} - Demandé par: ${requestedBy}`;
+
+    await notifyManagers(title, body);
+
+    console.log(`✅ Requisition status update notification sent for ${requisitionCode}`);
+  }
+);
+
+// ✅ NEW: Notification for new project creation
+export const onProjectCreated_v2 = onDocumentCreated(
+  "projects/{projectId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+
+    const data = snapshot.data();
+    const clientName = data.clientName || "N/A";
+    const projectName = data.projectName || "Nouveau Projet";
+    const startDate = data.startDate ? new Date(data.startDate.toDate()).toLocaleDateString("fr-FR") : "N/A";
+
+    const title = `Nouveau Projet: ${projectName}`;
+    const body = `Client: ${clientName} - Début: ${startDate}`;
+
+    const targetRoles = [
+      "PDG",
+      "Admin",
+      "Responsable_Administratif",
+      "Responsable_Commercial",
+      "Responsable_Technique",
+      "Responsable_IT",
+      "Chef_de_Projet",
+    ];
+
+    const sendPromises = targetRoles.map(async (topic) => {
+      const message = {
+        notification: { title, body },
+        topic: topic,
+      };
+      try {
+        await admin.messaging().send(message);
+        console.log(`✅ Sent project notification to: ${topic}`);
+      } catch (error) {
+        console.error(`❌ Error sending to ${topic}:`, error);
+      }
+    });
+
+    await Promise.all(sendPromises);
+    console.log(`✅ Project creation notification sent for: ${projectName}`);
+  }
+);
+
+// ✅ NEW: Notification when project status changes
+export const onProjectStatusUpdate_v2 = onDocumentUpdated(
+  "projects/{projectId}",
+  async (event) => {
+    if (!event.data) return;
+
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    if (before.status === after.status) return;
+
+    const projectName = after.projectName || "N/A";
+    const clientName = after.clientName || "N/A";
+    const newStatus = after.status || "Inconnu";
+
+    const title = `Mise à Jour Projet: ${projectName}`;
+    const body = `Client: ${clientName} - Statut: ${newStatus}`;
+
+    await notifyManagers(title, body);
+
+    console.log(`✅ Project status update notification sent for ${projectName}`);
+  }
+);
+
 export const onSavTicketUpdate_v2 = onDocumentUpdated(
   "sav_tickets/{ticketId}",
   async (event) => {
     if (!event.data) return;
+
     const before = event.data.before.data();
     const after = event.data.after.data();
 
     if (before.status !== after.status) {
       const title = `Mise à Jour SAV: ${after.savCode}`;
       const body = `Nouveau statut: ${after.status}`;
+
       await notifyManagers(title, body);
+
       if (["En attente de pièce", "Terminé"].includes(after.status)) {
         await notifyServiceTechnique(title, body);
       }
@@ -115,7 +249,6 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated(
   }
 );
 
-// RENAMED
 export const onReplacementRequestUpdate_v2 = onDocumentUpdated(
   "replacement_requests/{requestId}",
   async (event) => {
@@ -131,11 +264,13 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated(
     if (beforeStatus !== "Approuvé" && afterStatus === "Approuvé") {
       const clientName = after.clientName || "N/A";
       const productName = after.productName || "N/A";
+
       const title = `Remplacement Approuvé: ${requestCode}`;
       const body = `Préparez la pièce pour ${clientName} | Produit: ${productName}`;
 
       await notifyServiceTechnique(title, body);
       await notifyManagers(title, body);
+
       console.log(`✅ Replacement approval notification sent for ${requestCode}`);
     }
 
@@ -152,9 +287,7 @@ const collectionsToWatchForUpdates = [
   "interventions",
   "installations",
   "livraisons",
-  "projects",
   "sav_tickets",
-  "requisitions",
 ];
 
 collectionsToWatchForUpdates.forEach((collection) => {
@@ -169,19 +302,14 @@ collectionsToWatchForUpdates.forEach((collection) => {
 
       const title = `Mise à Jour: ${collection}`;
       const body = `Statut de '${code}' est maintenant '${status}'`;
+
       await notifyManagers(title, body);
     }
   );
 });
 
-// --- END OF YOUR EXISTING NOTIFICATION CODE ---
-
-
-// --- ✅ BACKBLAZE B2 FUNCTION (CORRECTED SYNTAX) ---
-
 const corsHandler = cors({origin: true});
 
-// ✅ MODIFIED: Using the correct v2 syntax for onRequest with secrets
 export const getB2UploadUrl = onRequest(
   { secrets: [backblazeKeyId, backblazeAppKey, backblazeBucketId] },
   (request, response) => {
@@ -195,11 +323,13 @@ export const getB2UploadUrl = onRequest(
         const authResponse = await b2.authorize();
         const { downloadUrl } = authResponse.data;
         const bucketId = backblazeBucketId.value();
+
         const uploadUrlResponse = await b2.getUploadUrl({ bucketId: bucketId });
         const bucketName = "boitex-info-app";
         const downloadUrlPrefix = `${downloadUrl}/file/${bucketName}/`;
 
         functions.logger.info("Successfully generated B2 upload URL.");
+
         response.status(200).send({
           uploadUrl: uploadUrlResponse.data.uploadUrl,
           authorizationToken: uploadUrlResponse.data.authorizationToken,
@@ -215,12 +345,6 @@ export const getB2UploadUrl = onRequest(
   }
 );
 
-
-// --- ✅ NEW: Scheduled Function for Reminders ---
-
-/**
- * Runs every 5 minutes to check for pending reminders and send notifications.
- */
 export const checkAndSendReminders = onSchedule("every 5 minutes", async (event) => {
   const now = admin.firestore.Timestamp.now();
   const db = admin.firestore();
@@ -255,7 +379,6 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
     const sendPromises = targetRoles.map(async (topic) => {
       try {
         functions.logger.info(`Sending to topic: ${topic}`);
-
         const message = {
           notification: {
             title: "🔔 Rappel",
@@ -263,7 +386,6 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
           },
           topic: topic,
         };
-
         await messaging.send(message);
         functions.logger.info(`✅ Successfully sent to topic: ${topic}`);
       } catch (error) {
@@ -272,6 +394,7 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
     });
 
     await Promise.all(sendPromises);
+
     promises.push(doc.ref.update({
       status: "sent",
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
