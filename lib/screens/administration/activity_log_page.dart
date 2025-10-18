@@ -5,8 +5,11 @@ import 'package:boitex_info_app/screens/administration/billing_history_page.dart
 import 'package:boitex_info_app/screens/administration/replacement_history_page.dart';
 import 'package:boitex_info_app/screens/administration/requisition_history_page.dart';
 
+// ✅ MODIFIED: Added userRole parameter
 class ActivityLogPage extends StatelessWidget {
-  const ActivityLogPage({super.key});
+  final String userRole;
+
+  const ActivityLogPage({super.key, required this.userRole});
 
   @override
   Widget build(BuildContext context) {
@@ -58,9 +61,10 @@ class ActivityLogPage extends StatelessWidget {
             icon: Icons.shopping_bag_rounded,
             color: Colors.blue,
             onTap: () {
+              // ✅ FIXED: Pass userRole to RequisitionHistoryPage
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const RequisitionHistoryPage(),
+                  builder: (_) => RequisitionHistoryPage(userRole: userRole),
                 ),
               );
             },

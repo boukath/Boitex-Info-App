@@ -1,3 +1,5 @@
+// lib/screens/administration/add_requisition_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -16,7 +18,8 @@ class RequisitionItem {
     return {
       'productId': id,
       'productName': name,
-      'quantity': quantity,
+      'orderedQuantity': quantity,  // ✅ CHANGED for partial reception
+      'receivedQuantity': 0,         // ✅ NEW FIELD
     };
   }
 }
@@ -44,41 +47,47 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
         if (!_items.any((item) => item.id == result.id)) {
           _items.add(result);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce produit est déjà dans la liste.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Ce produit est déjà dans la liste.")));
         }
       });
     }
   }
 
-  // Replace the entire _saveRequisition function with this
-
+  // ✅ COMPLETELY REWRITTEN - New transaction-based code generation
   Future<void> _saveRequisition() async {
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez ajouter au moins un produit.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Veuillez ajouter au moins un produit.")));
       return;
     }
 
     setState(() => _isLoading = true);
+
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        throw Exception("Utilisateur non connecté.");
-      }
+      if (user == null) throw Exception("Utilisateur non connecté.");
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       final creatorName = userDoc.data()?['displayName'] ?? user.email ?? 'Utilisateur inconnu';
 
       // ✅ ADDED: The new code generation logic
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final currentYear = DateTime.now().year;
-        final counterRef = FirebaseFirestore.instance.collection('counters').doc('requisition_counter_$currentYear');
+        final counterRef = FirebaseFirestore.instance
+            .collection('counters')
+            .doc('requisition_counter_$currentYear');
+
         final counterSnap = await transaction.get(counterRef);
-        final newCount = (counterSnap.data()?['count'] as int? ?? 0) + 1;
+        final newCount = ((counterSnap.data()?['count'] as int?) ?? 0) + 1;
         final newCode = 'CM-$newCount/$currentYear';
 
         final requisitionRef = FirebaseFirestore.instance.collection('requisitions').doc();
         transaction.set(requisitionRef, {
-          'requisitionCode': newCode, // The new unique code
+          'requisitionCode': newCode,  // ✅ The new unique code
           'requestedBy': creatorName,
           'requestedByUid': user.uid,
           'createdAt': Timestamp.now(),
@@ -89,14 +98,17 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
         transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
       });
 
-      if(mounted) {
+      if (mounted) {
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demande d\'achat envoyée pour approbation.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Demande d'achat envoyée pour approbation.")));
       }
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+      }
     } finally {
-      if(mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -105,7 +117,7 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
     const primaryColor = Colors.indigo;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nouvelle Demande d\'Achat'),
+        title: const Text("Nouvelle Demande d'Achat"),
         backgroundColor: primaryColor,
       ),
       body: Form(
@@ -115,7 +127,8 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Produits Demandés', style: Theme.of(context).textTheme.titleLarge),
+              Text('Produits Demandés',
+                  style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               Expanded(
                 child: _items.isEmpty
@@ -124,7 +137,9 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
                     border: Border.all(color: Colors.grey.shade300),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Center(child: Text('Aucun produit ajouté.', style: TextStyle(color: Colors.grey))),
+                  child: const Center(
+                      child: Text("Aucun produit ajouté.",
+                          style: TextStyle(color: Colors.grey))),
                 )
                     : ListView.builder(
                   itemCount: _items.length,
@@ -134,10 +149,15 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         title: Text(item.name),
-                        subtitle: Text('Quantité: ${item.quantity}'),
+                        subtitle: Text("Quantité: ${item.quantity}"),
                         trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                          onPressed: () => setState(() => _items.removeAt(index)),
+                          icon: const Icon(Icons.delete_outline),
+                          color: Colors.red,
+                          onPressed: () {
+                            setState(() {
+                              _items.removeAt(index);
+                            });
+                          },
                         ),
                       ),
                     );
@@ -148,13 +168,23 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
               OutlinedButton.icon(
                 onPressed: _showAddItemDialog,
                 icon: const Icon(Icons.add),
-                label: const Text('Ajouter un Produit'),
+                label: const Text("Ajouter un Produit"),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: _isLoading ? null : _saveRequisition,
-                style: ElevatedButton.styleFrom(backgroundColor: primaryColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16)),
-                child: _isLoading ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('Soumettre pour Approbation'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 2))
+                    : const Text("Soumettre pour Approbation"),
               ),
             ],
           ),
@@ -164,11 +194,10 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
   }
 }
 
-
-// Paste this entire block at the bottom of add_requisition_page.dart, replacing the old _AddItemDialog
-
+// ✅ FIXED: Complete rewrite with proper null safety
 class _AddItemDialog extends StatefulWidget {
   const _AddItemDialog();
+
   @override
   State<_AddItemDialog> createState() => _AddItemDialogState();
 }
@@ -176,15 +205,17 @@ class _AddItemDialog extends StatefulWidget {
 class _AddItemDialogState extends State<_AddItemDialog> {
   // State for the new 3-level selection
   final List<String> _mainCategories = ['Antivol', 'TPV', 'Compteur Client'];
+
   String? _selectedMainCategory;
   List<String> _subCategories = [];
   bool _isLoadingSubCategories = false;
+
   String? _selectedSubCategory;
   List<DocumentSnapshot> _products = [];
   bool _isLoadingProducts = false;
-  DocumentSnapshot? _selectedProduct;
 
-  final _quantityController = TextEditingController(text: "1");
+  DocumentSnapshot? _selectedProduct;
+  final _quantityController = TextEditingController(text: '1');
   final _dialogFormKey = GlobalKey<FormState>();
 
   @override
@@ -193,6 +224,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     super.dispose();
   }
 
+  // ✅ FIXED: Proper null handling for Firestore data
   Future<void> _fetchCategoriesForMainSection(String mainCategory) async {
     setState(() {
       _isLoadingSubCategories = true;
@@ -202,45 +234,74 @@ class _AddItemDialogState extends State<_AddItemDialog> {
       _selectedProduct = null;
     });
 
-    final snapshot = await FirebaseFirestore.instance
-        .collection('produits')
-        .where('mainCategory', isEqualTo: mainCategory)
-        .get();
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('produits')
+          .where('mainCategory', isEqualTo: mainCategory)
+          .get();
 
-    final categoriesSet = <String>{};
-    for (var doc in snapshot.docs) {
-      categoriesSet.add(doc.data()['categorie'] as String);
-    }
+      final categoriesSet = <String>{};
+      for (var doc in snapshot.docs) {
+        // ✅ CRITICAL FIX: Safe null-aware access
+        final categoryValue = doc.data()['categorie'];
+        if (categoryValue != null && categoryValue is String) {
+          categoriesSet.add(categoryValue);
+        }
+      }
 
-    final sortedList = categoriesSet.toList();
-    sortedList.sort();
+      final sortedList = categoriesSet.toList();
+      sortedList.sort();
 
-    if (mounted) {
-      setState(() {
-        _subCategories = sortedList;
-        _isLoadingSubCategories = false;
-      });
+      if (mounted) {
+        setState(() {
+          _subCategories = sortedList;
+          _isLoadingSubCategories = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingSubCategories = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
     }
   }
 
   Future<void> _fetchProductsForSubCategory(String category) async {
-    setState(() { _isLoadingProducts = true; _products = []; _selectedProduct = null; });
+    setState(() {
+      _isLoadingProducts = true;
+      _products = [];
+      _selectedProduct = null;
+    });
+
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('categorie', isEqualTo: category)
           .orderBy('nom')
           .get();
-      if (mounted) setState(() { _products = snapshot.docs; _isLoadingProducts = false; });
+
+      if (mounted) {
+        setState(() {
+          _products = snapshot.docs;
+          _isLoadingProducts = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _isLoadingProducts = false; });
+      if (mounted) {
+        setState(() => _isLoadingProducts = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Ajouter un Produit'),
+      title: const Text("Ajouter un Produit"),
       content: Form(
         key: _dialogFormKey,
         child: SizedBox(
@@ -251,14 +312,21 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               // 1. Main Section Dropdown
               DropdownButtonFormField<String>(
                 value: _selectedMainCategory,
-                items: _mainCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                items: _mainCategories.map((c) {
+                  return DropdownMenuItem(value: c, child: Text(c));
+                }).toList(),
                 onChanged: (val) {
-                  if(val != null) {
-                    setState(() => _selectedMainCategory = val);
+                  if (val != null) {
+                    setState(() {
+                      _selectedMainCategory = val;
+                    });
                     _fetchCategoriesForMainSection(val);
                   }
                 },
-                decoration: const InputDecoration(labelText: 'Section Principale', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Section Principale',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (v) => v == null ? 'Requis' : null,
               ),
               const SizedBox(height: 16),
@@ -266,14 +334,23 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               // 2. Sub-Category Dropdown
               DropdownButtonFormField<String>(
                 value: _selectedSubCategory,
-                items: _subCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                onChanged: _selectedMainCategory == null || _isLoadingSubCategories ? null : (val) {
+                items: _subCategories.map((c) {
+                  return DropdownMenuItem(value: c, child: Text(c));
+                }).toList(),
+                onChanged: (_selectedMainCategory == null || _isLoadingSubCategories)
+                    ? null
+                    : (val) {
                   if (val != null) {
-                    setState(() => _selectedSubCategory = val);
+                    setState(() {
+                      _selectedSubCategory = val;
+                    });
                     _fetchProductsForSubCategory(val);
                   }
                 },
-                decoration: const InputDecoration(labelText: 'Catégorie', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Catégorie',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (v) => v == null ? 'Requis' : null,
               ),
               const SizedBox(height: 16),
@@ -281,30 +358,55 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               // 3. Product Dropdown
               DropdownButtonFormField<DocumentSnapshot>(
                 value: _selectedProduct,
-                items: _products.map((p) => DropdownMenuItem(value: p, child: Text(p['nom']))).toList(),
-                onChanged: _selectedSubCategory == null || _isLoadingProducts ? null : (val) => setState(() => _selectedProduct = val),
-                decoration: const InputDecoration(labelText: 'Produit', border: OutlineInputBorder()),
+                items: _products.map((p) {
+                  return DropdownMenuItem(value: p, child: Text(p['nom']));
+                }).toList(),
+                onChanged: (_selectedSubCategory == null || _isLoadingProducts)
+                    ? null
+                    : (val) {
+                  setState(() {
+                    _selectedProduct = val;
+                  });
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Produit',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (v) => v == null ? 'Requis' : null,
               ),
               const SizedBox(height: 16),
 
+              // 4. Quantity TextField
               TextFormField(
                 controller: _quantityController,
-                decoration: const InputDecoration(labelText: 'Quantité', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Quantité',
+                  border: OutlineInputBorder(),
+                ),
                 keyboardType: TextInputType.number,
-                validator: (v) => (int.tryParse(v ?? '') ?? 0) <= 0 ? 'Quantité requise' : null,
+                validator: (v) {
+                  return (int.tryParse(v ?? '') ?? 0) <= 0 ? 'Quantité requise' : null;
+                },
               ),
             ],
           ),
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Annuler')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
         ElevatedButton(
           onPressed: () {
             if (_dialogFormKey.currentState!.validate()) {
               final quantity = int.tryParse(_quantityController.text) ?? 0;
-              Navigator.of(context).pop(RequisitionItem(productDoc: _selectedProduct!, quantity: quantity));
+              Navigator.of(context).pop(
+                RequisitionItem(
+                  productDoc: _selectedProduct!,
+                  quantity: quantity,
+                ),
+              );
             }
           },
           child: const Text('Ajouter'),

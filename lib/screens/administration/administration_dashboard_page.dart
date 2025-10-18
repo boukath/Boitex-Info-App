@@ -318,7 +318,7 @@ class AdministrationDashboardPage extends StatelessWidget {
         'Historique',
         const Color(0xFF78716C),
             () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const ActivityLogPage())),
+                context, MaterialPageRoute(builder: (_) => ActivityLogPage(userRole: userRole))),
       ),
     ];
   }
