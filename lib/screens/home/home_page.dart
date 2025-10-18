@@ -3,7 +3,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-
 import 'package:boitex_info_app/screens/service_technique/service_technique_dashboard_page.dart';
 import 'package:boitex_info_app/screens/administration/administration_dashboard_page.dart';
 import 'package:boitex_info_app/screens/service_it/service_it_dashboard_page.dart';
@@ -13,6 +12,7 @@ import 'package:boitex_info_app/api/firebase_api.dart';
 class HomePage extends StatefulWidget {
   final String userRole;
   final String displayName;
+
   const HomePage({
     super.key,
     required this.userRole,
@@ -33,13 +33,10 @@ class _HomePageState extends State<HomePage> {
   Future<void> _setupNotifications() async {
     final api = FirebaseApi();
     await api.initNotifications();
-    // On web, unsubscribeFromTopic is not supported
     try {
       await api.unsubscribeFromAllTopics();
       await api.subscribeToTopics(widget.userRole);
-    } catch (_) {
-      // ignore on web
-    }
+    } catch (_) {}
     await api.saveTokenForCurrentUser();
   }
 
@@ -53,6 +50,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // ✅ KEEP WEB VERSION UNCHANGED
   Widget _buildPremiumWebLayout() {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -182,7 +180,6 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
-
           // Main content
           Expanded(
             child: Column(
@@ -239,7 +236,6 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
-
                 // Dashboard grid
                 Expanded(
                   child: SingleChildScrollView(
@@ -278,7 +274,6 @@ class _HomePageState extends State<HomePage> {
 
   List<Widget> _buildPremiumCards() {
     final cards = <Widget>[];
-
     if (RolePermissions.canSeeAdminCard(widget.userRole)) {
       cards.add(_premiumCard(
         Icons.admin_panel_settings_rounded,
@@ -294,6 +289,7 @@ class _HomePageState extends State<HomePage> {
         },
       ));
     }
+
     if (RolePermissions.canSeeTechServiceCard(widget.userRole)) {
       cards.add(_premiumCard(
         Icons.engineering_rounded,
@@ -309,6 +305,7 @@ class _HomePageState extends State<HomePage> {
         },
       ));
     }
+
     if (RolePermissions.canSeeITServiceCard(widget.userRole)) {
       cards.add(_premiumCard(
         Icons.computer_rounded,
@@ -378,6 +375,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+// 🎨 UPDATED: Fixed overflow and removed subtitles
   Widget _buildMobileLayout() {
     return Scaffold(
       body: Container(
@@ -386,144 +384,322 @@ class _HomePageState extends State<HomePage> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color(0xFF1E3A8A),
-              Color(0xFF3B82F6),
+              Color(0xFFF8FAFF), // Very light blue-white
+              Color(0xFFFFFFFF), // Pure white
+              Color(0xFFFAF5FF), // Very light purple-white
             ],
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Bienvenue, ${widget.displayName}',
-                  style: const TextStyle(
-                    fontFamily: 'Roboto',
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              // App Bar with glassmorphism
+              SliverAppBar(
+                expandedHeight: 180,
+                floating: false,
+                pinned: true,
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                flexibleSpace: FlexibleSpaceBar(
+                  background: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Colors.white.withOpacity(0.9),
+                          Colors.white.withOpacity(0.7),
+                        ],
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 50, 24, 16), // ✅ Reduced top padding from 60 to 50
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF6366f1).withOpacity(0.3),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    widget.displayName.isNotEmpty
+                                        ? widget.displayName[0].toUpperCase()
+                                        : 'U',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min, // ✅ Added this
+                                  children: [
+                                    const Text(
+                                      'Bonjour,',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Color(0xFF64748B),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      widget.displayName,
+                                      style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0F172A),
+                                        letterSpacing: -0.5,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10), // ✅ Reduced from 12 to 10
+                          Container(
+                            constraints: const BoxConstraints(
+                              maxWidth: 250,
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6366f1).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: const Color(0xFF6366f1).withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF6366f1),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    widget.userRole,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFF6366f1),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.userRole,
-                  style: const TextStyle(
-                    fontFamily: 'Roboto',
-                    fontSize: 16,
-                    color: Colors.white70,
-                  ),
+              ),
+
+              // Services Cards
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    const Text(
+                      'Services',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (RolePermissions.canSeeAdminCard(widget.userRole))
+                      _modernServiceCard(
+                        Icons.admin_panel_settings_rounded,
+                        'Administration',
+                        const LinearGradient(
+                          colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)],
+                        ),
+                            () {
+                          Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => AdministrationDashboardPage(
+                              displayName: widget.displayName,
+                              userRole: widget.userRole,
+                            ),
+                          ));
+                        },
+                      ),
+                    if (RolePermissions.canSeeAdminCard(widget.userRole))
+                      const SizedBox(height: 16),
+                    if (RolePermissions.canSeeTechServiceCard(widget.userRole))
+                      _modernServiceCard(
+                        Icons.engineering_rounded,
+                        'Service Technique',
+                        const LinearGradient(
+                          colors: [Color(0xFF10b981), Color(0xFF059669)],
+                        ),
+                            () {
+                          Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => ServiceTechniqueDashboardPage(
+                              displayName: widget.displayName,
+                              userRole: widget.userRole,
+                            ),
+                          ));
+                        },
+                      ),
+                    if (RolePermissions.canSeeTechServiceCard(widget.userRole))
+                      const SizedBox(height: 16),
+                    if (RolePermissions.canSeeITServiceCard(widget.userRole))
+                      _modernServiceCard(
+                        Icons.computer_rounded,
+                        'Service IT',
+                        const LinearGradient(
+                          colors: [Color(0xFF06b6d4), Color(0xFF0891b2)],
+                        ),
+                            () {
+                          Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => ServiceItDashboardPage(
+                              displayName: widget.displayName,
+                              userRole: widget.userRole,
+                            ),
+                          ));
+                        },
+                      ),
+                  ]),
                 ),
-                const SizedBox(height: 24),
-                Expanded(
-                  child: ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      if (RolePermissions.canSeeAdminCard(widget.userRole))
-                        _serviceCard(
-                          Icons.admin_panel_settings_rounded,
-                          'Administration',
-                          [const Color(0xFF6366F1), const Color(0xFF8B5CF6)],
-                              () {
-                            Navigator.of(context).push(MaterialPageRoute(
-                              builder: (_) => AdministrationDashboardPage(
-                                displayName: widget.displayName,
-                                userRole: widget.userRole,
-                              ),
-                            ));
-                          },
-                        ),
-                      if (RolePermissions.canSeeAdminCard(widget.userRole))
-                        const SizedBox(height: 20),
-                      if (RolePermissions.canSeeTechServiceCard(widget.userRole))
-                        _serviceCard(
-                          Icons.engineering_rounded,
-                          'Service Technique',
-                          [const Color(0xFF10B981), const Color(0xFF059669)],
-                              () {
-                            Navigator.of(context).push(MaterialPageRoute(
-                              builder: (_) => ServiceTechniqueDashboardPage(
-                                displayName: widget.displayName,
-                                userRole: widget.userRole,
-                              ),
-                            ));
-                          },
-                        ),
-                      if (RolePermissions.canSeeTechServiceCard(
-                          widget.userRole))
-                        const SizedBox(height: 20),
-                      if (RolePermissions.canSeeITServiceCard(widget.userRole))
-                        _serviceCard(
-                          Icons.computer_rounded,
-                          'Service IT',
-                          [const Color(0xFF06B6D4), const Color(0xFF0891B2)],
-                              () {
-                            Navigator.of(context).push(MaterialPageRoute(
-                              builder: (_) => ServiceItDashboardPage(
-                                displayName: widget.displayName,
-                                userRole: widget.userRole,
-                              ),
-                            ));
-                          },
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _serviceCard(
+// ✅ UPDATED: Removed subtitle, reduced height
+  Widget _modernServiceCard(
       IconData icon,
       String title,
-      List<Color> colors,
+      Gradient gradient,
       VoidCallback onTap,
       ) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 120,
+        height: 100, // ✅ Reduced from 140 to 100
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: colors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          boxShadow: const [
+          boxShadow: [
             BoxShadow(
-              color: Colors.black26,
-              blurRadius: 16,
-              offset: Offset(0, 8),
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            children: [
+              // Gradient accent on left
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 6,
+                child: Container(
+                  decoration: BoxDecoration(gradient: gradient),
+                ),
               ),
-              child: Icon(icon, size: 32, color: Colors.white),
-            ),
-            const SizedBox(width: 16),
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+              // Content
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    // Icon container
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        gradient: gradient,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: gradient.colors[0].withOpacity(0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 30),
+                    ),
+                    const SizedBox(width: 20),
+                    // Text content - ✅ Removed subtitle
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                    ),
+                    // Arrow icon
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        size: 16,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
