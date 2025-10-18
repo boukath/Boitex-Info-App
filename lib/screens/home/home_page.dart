@@ -24,6 +24,18 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  // ✅ NEW: Smart greeting based on time of day
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour >= 0 && hour < 12) {
+      return 'Bonjour,';
+    } else if (hour >= 12 && hour < 18) {
+      return 'Bon après-midi,';
+    } else {
+      return 'Bonsoir,';  // 18:00 - 23:59
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -46,7 +58,7 @@ class _HomePageState extends State<HomePage> {
     if (isWebWide) {
       return _buildPremiumWebLayout();
     } else {
-      return _buildMobileLayout();
+      return _buildModernMobileLayout();
     }
   }
 
@@ -375,323 +387,281 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-// 🎨 UPDATED: Fixed overflow and removed subtitles
-  Widget _buildMobileLayout() {
+  // 🎨 NEW: 2025 ULTRA-PREMIUM MOBILE DESIGN
+  Widget _buildModernMobileLayout() {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFF8FAFF), // Very light blue-white
-              Color(0xFFFFFFFF), // Pure white
-              Color(0xFFFAF5FF), // Very light purple-white
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: CustomScrollView(
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              // App Bar with glassmorphism
-              SliverAppBar(
-                expandedHeight: 180,
-                floating: false,
-                pinned: true,
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                flexibleSpace: FlexibleSpaceBar(
-                  background: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Colors.white.withOpacity(0.9),
-                          Colors.white.withOpacity(0.7),
-                        ],
-                      ),
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            // ✨ Ultra-Premium Header
+            SliverToBoxAdapter(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.03),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 50, 24, 16), // ✅ Reduced top padding from 60 to 50
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Row(
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Top Row: Logo + Role Badge
+                    Row(
+                      children: [
+                        // ✅ BoitexInfo Logo - NO BACKGROUND, BIGGER SIZE
+                        SizedBox(
+                          width: 120,  // ✅ Bigger: was 64, now 120
+                          height: 120, // ✅ Bigger: was 64, now 120
+                          child: Image.asset(
+                            'assets/images/logo.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                        const Spacer(),
+                        // Role Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF6366f1).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFF6366f1).withOpacity(0.2),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                width: 56,
-                                height: 56,
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)],
-                                  ),
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF6366f1).withOpacity(0.3),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    widget.displayName.isNotEmpty
-                                        ? widget.displayName[0].toUpperCase()
-                                        : 'U',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF6366f1),
+                                  shape: BoxShape.circle,
                                 ),
                               ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min, // ✅ Added this
-                                  children: [
-                                    const Text(
-                                      'Bonjour,',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Color(0xFF64748B),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      widget.displayName,
-                                      style: const TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF0F172A),
-                                        letterSpacing: -0.5,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
+                              const SizedBox(width: 6),
+                              Text(
+                                widget.userRole,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF6366f1),
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 10), // ✅ Reduced from 12 to 10
-                          Container(
-                            constraints: const BoxConstraints(
-                              maxWidth: 250,
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF6366f1).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: const Color(0xFF6366f1).withOpacity(0.2),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF6366f1),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    widget.userRole,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: Color(0xFF6366f1),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 1,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Services Cards
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    const Text(
-                      'Services',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.5,
-                      ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 20),
-                    if (RolePermissions.canSeeAdminCard(widget.userRole))
-                      _modernServiceCard(
-                        Icons.admin_panel_settings_rounded,
-                        'Administration',
-                        const LinearGradient(
-                          colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)],
-                        ),
-                            () {
-                          Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => AdministrationDashboardPage(
-                              displayName: widget.displayName,
-                              userRole: widget.userRole,
-                            ),
-                          ));
-                        },
+                    // ✅ UPDATED: Dynamic greeting
+                    Text(
+                      _getGreeting(),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w500,
+                        height: 1.2,
                       ),
-                    if (RolePermissions.canSeeAdminCard(widget.userRole))
-                      const SizedBox(height: 16),
-                    if (RolePermissions.canSeeTechServiceCard(widget.userRole))
-                      _modernServiceCard(
-                        Icons.engineering_rounded,
-                        'Service Technique',
-                        const LinearGradient(
-                          colors: [Color(0xFF10b981), Color(0xFF059669)],
-                        ),
-                            () {
-                          Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => ServiceTechniqueDashboardPage(
-                              displayName: widget.displayName,
-                              userRole: widget.userRole,
-                            ),
-                          ));
-                        },
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.displayName,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -1,
+                        height: 1.1,
                       ),
-                    if (RolePermissions.canSeeTechServiceCard(widget.userRole))
-                      const SizedBox(height: 16),
-                    if (RolePermissions.canSeeITServiceCard(widget.userRole))
-                      _modernServiceCard(
-                        Icons.computer_rounded,
-                        'Service IT',
-                        const LinearGradient(
-                          colors: [Color(0xFF06b6d4), Color(0xFF0891b2)],
-                        ),
-                            () {
-                          Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => ServiceItDashboardPage(
-                              displayName: widget.displayName,
-                              userRole: widget.userRole,
-                            ),
-                          ));
-                        },
-                      ),
-                  ]),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+
+            // ✨ Service Cards Section (NO "Services" TITLE)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 100),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  // ❌ REMOVED: "Services" heading
+
+                  // Administration Card
+                  if (RolePermissions.canSeeAdminCard(widget.userRole)) ...[
+                    _ultraPremiumServiceCard(
+                      icon: Icons.admin_panel_settings_rounded,
+                      title: 'Administration',
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF6366f1), Color(0xFF8b5cf6)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shadowColor: const Color(0xFF6366f1),
+                      onTap: () {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => AdministrationDashboardPage(
+                            displayName: widget.displayName,
+                            userRole: widget.userRole,
+                          ),
+                        ));
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // Service Technique Card
+                  if (RolePermissions.canSeeTechServiceCard(widget.userRole)) ...[
+                    _ultraPremiumServiceCard(
+                      icon: Icons.engineering_rounded,
+                      title: 'Service Technique',
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF10b981), Color(0xFF059669)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shadowColor: const Color(0xFF10b981),
+                      onTap: () {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => ServiceTechniqueDashboardPage(
+                            displayName: widget.displayName,
+                            userRole: widget.userRole,
+                          ),
+                        ));
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // Service IT Card
+                  if (RolePermissions.canSeeITServiceCard(widget.userRole)) ...[
+                    _ultraPremiumServiceCard(
+                      icon: Icons.computer_rounded,
+                      title: 'Service IT',
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF06b6d4), Color(0xFF0891b2)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shadowColor: const Color(0xFF06b6d4),
+                      onTap: () {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => ServiceItDashboardPage(
+                            displayName: widget.displayName,
+                            userRole: widget.userRole,
+                          ),
+                        ));
+                      },
+                    ),
+                  ],
+                ]),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-// ✅ UPDATED: Removed subtitle, reduced height
-  Widget _modernServiceCard(
-      IconData icon,
-      String title,
-      Gradient gradient,
-      VoidCallback onTap,
-      ) {
+  // 🎨 Ultra-Premium Service Card (2025 Style)
+  Widget _ultraPremiumServiceCard({
+    required IconData icon,
+    required String title,
+    required Gradient gradient,
+    required Color shadowColor,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 100, // ✅ Reduced from 140 to 100
+        height: 120,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 30,
+              offset: const Offset(0, 8),
             ),
             BoxShadow(
               color: Colors.black.withOpacity(0.02),
-              blurRadius: 8,
+              blurRadius: 10,
               offset: const Offset(0, 2),
             ),
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
           child: Stack(
             children: [
-              // Gradient accent on left
+              // Subtle gradient accent on left
               Positioned(
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: 6,
+                width: 5,
                 child: Container(
                   decoration: BoxDecoration(gradient: gradient),
                 ),
               ),
+
               // Content
               Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(24),
                 child: Row(
                   children: [
-                    // Icon container
+                    // Icon Container (4K Quality Style)
                     Container(
-                      width: 60,
-                      height: 60,
+                      width: 72,
+                      height: 72,
                       decoration: BoxDecoration(
                         gradient: gradient,
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
-                            color: gradient.colors[0].withOpacity(0.3),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
+                            color: shadowColor.withOpacity(0.4),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
                           ),
                         ],
                       ),
-                      child: Icon(icon, color: Colors.white, size: 30),
+                      child: Icon(icon, color: Colors.white, size: 36),
                     ),
                     const SizedBox(width: 20),
-                    // Text content - ✅ Removed subtitle
+
+                    // Title
                     Expanded(
                       child: Text(
                         title,
                         style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
-                          letterSpacing: -0.3,
+                          letterSpacing: -0.5,
                         ),
                       ),
                     ),
-                    // Arrow icon
+
+                    // Arrow Icon
                     Container(
-                      width: 36,
-                      height: 36,
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Icon(
                         Icons.arrow_forward_ios_rounded,
-                        size: 16,
+                        size: 18,
                         color: Color(0xFF64748B),
                       ),
                     ),
