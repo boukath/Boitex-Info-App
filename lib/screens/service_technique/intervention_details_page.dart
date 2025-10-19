@@ -3,6 +3,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -15,149 +16,210 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:crypto/crypto.dart';
 
-// ✅ ADDED: Imports for our new in-app media viewer pages
+// ✅ In‑app media viewers
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
 
-// Data model for users (unchanged)
+// ----------------------------------------------------------------------
+// Data model
+// ----------------------------------------------------------------------
 class AppUser {
   final String uid;
   final String displayName;
+
   AppUser({required this.uid, required this.displayName});
 
   @override
   bool operator ==(Object other) => other is AppUser && other.uid == uid;
+
   @override
   int get hashCode => uid.hashCode;
 }
 
+// ----------------------------------------------------------------------
+// Page
+// ----------------------------------------------------------------------
 class InterventionDetailsPage extends StatefulWidget {
-  final DocumentSnapshot interventionDoc;
+  final DocumentSnapshot<Map<String, dynamic>> interventionDoc;
+
   const InterventionDetailsPage({super.key, required this.interventionDoc});
+
   @override
   State<InterventionDetailsPage> createState() => _InterventionDetailsPageState();
 }
 
 class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
-  // State variables (unchanged)
-  late TextEditingController _managerNameController;
-  late TextEditingController _managerPhoneController;
-  late TextEditingController _diagnosticController;
-  late TextEditingController _workDoneController;
-  late SignatureController _signatureController;
+  // Controllers
+  late final TextEditingController _managerNameController;
+  late final TextEditingController _managerPhoneController;
+  late final TextEditingController _diagnosticController;
+  late final TextEditingController _workDoneController;
+  late final SignatureController _signatureController;
+
+  // State
   String? _signatureImageUrl;
   String _currentStatus = 'Nouveau';
   List<AppUser> _allTechnicians = [];
   List<AppUser> _selectedTechnicians = [];
   bool _isLoading = false;
-  final ImagePicker _picker = ImagePicker();
-  List<XFile> _mediaFilesToUpload = [];
-  List<String> _existingMediaUrls = [];
 
+  final ImagePicker _picker = ImagePicker();
+  final List<XFile> _mediaFilesToUpload = [];
+  final List<String> _existingMediaUrls = [];
+
+  // Backblaze B2 helper function endpoint
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
+  // Status options derived from current doc
   List<String> get statusOptions {
-    final current = (widget.interventionDoc.data()
-    as Map<String, dynamic>)['status']; // Safe access
+    final current = (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
     if (current == 'Clôturé' || current == 'Facturé') {
       return ['Clôturé', 'Facturé'];
     }
     return ['Nouveau', 'En cours', 'Terminé', 'En attente', 'Clôturé'];
   }
 
+  // Read-only when closed or invoiced
   bool get isReadOnly {
-    final data = widget.interventionDoc.data() as Map<String, dynamic>;
-    final status = data['status'] ?? 'Nouveau';
+    final status = (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
     return ['Clôturé', 'Facturé'].contains(status);
   }
 
   @override
   void initState() {
     super.initState();
-    final data = widget.interventionDoc.data() as Map<String, dynamic>;
+    final data = widget.interventionDoc.data() ?? {};
 
-    // ✅ FIXED: Added null checks to prevent LateInitializationError
-    _managerNameController =
-        TextEditingController(text: data['managerName'] ?? '');
-    _managerPhoneController =
-        TextEditingController(text: data['managerPhone'] ?? '');
-    _diagnosticController =
-        TextEditingController(text: data['diagnostic'] ?? '');
+    _managerNameController = TextEditingController(text: data['managerName'] ?? '');
+    _managerPhoneController = TextEditingController(text: data['managerPhone'] ?? '');
+    _diagnosticController = TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
-
     _signatureController = SignatureController();
-    _signatureImageUrl = data['signatureUrl'];
+
+    _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
-    _existingMediaUrls = List<String>.from(data['mediaUrls'] ?? []);
+    _existingMediaUrls.addAll(List<String>.from(data['mediaUrls'] ?? const []));
 
     _fetchTechnicians().then((_) {
-      final List<dynamic> assignedTechnicians =
-          data['assignedTechnicians'] ?? [];
+      final List<dynamic> assigned = List.from(data['assignedTechnicians'] ?? const []);
       _selectedTechnicians = _allTechnicians.where((tech) {
-        return assignedTechnicians
-            .any((assigned) => assigned['uid'] == tech.uid);
+        return assigned.any((a) => (a is Map && a['uid'] == tech.uid));
       }).toList();
-      if (mounted) {
-        setState(() {});
-      }
+      if (mounted) setState(() {});
     });
   }
 
+  // ----------------------------------------------------------------------
+  // Theme to match Stock/Product pages
+  // ----------------------------------------------------------------------
+  ThemeData _interventionTheme(BuildContext context) {
+    final base = Theme.of(context);
+    return base.copyWith(
+      scaffoldBackgroundColor: Colors.transparent,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      cardTheme: CardThemeData(                                // <-- was CardTheme
+        color: Colors.white.withOpacity(0.95),
+        elevation: 8,
+        shadowColor: const Color(0xFF667EEA).withOpacity(0.15),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        labelStyle: TextStyle(color: Colors.grey.shade700),
+        hintStyle: TextStyle(color: Colors.grey.shade400),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF667EEA),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          elevation: 0,
+        ),
+      ),
+      dividerTheme: const DividerThemeData(color: Color(0xFFE5E7EB), thickness: 1),
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // Data helpers
+  // ----------------------------------------------------------------------
   Future<void> _fetchTechnicians() async {
     try {
-      final querySnapshot =
-      await FirebaseFirestore.instance.collection('users').get();
-      _allTechnicians = querySnapshot.docs
+      final query = await FirebaseFirestore.instance.collection('users').get();
+      _allTechnicians = query.docs
           .map((doc) => AppUser(
-          uid: doc.id,
-          displayName: doc.data()['displayName'] ?? 'No Name'))
+        uid: doc.id,
+        displayName: (doc.data()['displayName'] ?? 'No Name') as String,
+      ))
           .toList();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement des techniciens: $e')));
+        SnackBar(content: Text('Erreur de chargement des techniciens: $e')),
+      );
     }
   }
 
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
     if (pickedFiles.isNotEmpty) {
-      setState(() {
-        _mediaFilesToUpload.addAll(pickedFiles);
-      });
+      setState(() => _mediaFilesToUpload.addAll(pickedFiles));
     }
   }
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final response =
-      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        return json.decode(response.body) as Map<String, dynamic>;
       } else {
-        print('Failed to get B2 credentials: ${response.body}');
+        debugPrint('Failed to get B2 credentials: ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Error calling Cloud Function: $e');
+      debugPrint('Error calling Cloud Function: $e');
       return null;
     }
   }
 
-  Future<String?> _uploadFileToB2(
-      XFile file, Map<String, dynamic> b2Credentials) async {
+  Future<String?> _uploadFileToB2(XFile file, Map<String, dynamic> b2Creds) async {
     try {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
-      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final fileName = file.name.split('/').last;
 
-      // Use the file name for the B2 header, URL-encoded
-      final String fileName = file.name.split('/').last;
-
-      final response = await http.post(
+      final resp = await http.post(
         uploadUri,
         headers: {
-          'Authorization': b2Credentials['authorizationToken'],
+          'Authorization': b2Creds['authorizationToken'] as String,
           'X-Bz-File-Name': Uri.encodeComponent(fileName),
           'Content-Type': file.mimeType ?? 'b2/x-auto',
           'X-Bz-Content-Sha1': sha1Hash,
@@ -166,20 +228,17 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         body: fileBytes,
       );
 
-      if (response.statusCode == 200) {
-        final responseBody = json.decode(response.body);
-        // The final, permanent URL is the prefix + the URL-encoded file name.
-        return b2Credentials['downloadUrlPrefix'] +
-            (responseBody['fileName'] as String)
-                .split('/')
-                .map(Uri.encodeComponent)
-                .join('/');
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        final encodedPath =
+        (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
       } else {
-        print('Failed to upload to B2: ${response.body}');
+        debugPrint('Failed to upload to B2: ${resp.body}');
         return null;
       }
     } catch (e) {
-      print('Error uploading file to B2: $e');
+      debugPrint('Error uploading file to B2: $e');
       return null;
     }
   }
@@ -189,34 +248,34 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() => _isLoading = true);
 
     try {
+      // 1) Signature
       String? newSignatureUrl = _signatureImageUrl;
       if (_signatureController.isNotEmpty) {
-        final signatureBytes = await _signatureController.toPngBytes();
-        if (signatureBytes != null) {
-          final storageRef = FirebaseStorage.instance.ref().child(
-              'signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png');
-          final uploadTask = storageRef.putData(signatureBytes);
-          final snapshot = await uploadTask.whenComplete(() => {});
-          newSignatureUrl = await snapshot.ref.getDownloadURL();
+        final png = await _signatureController.toPngBytes();
+        if (png != null) {
+          final ref = FirebaseStorage.instance
+              .ref()
+              .child('signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png');
+          final snap = await ref.putData(png).whenComplete(() {});
+          newSignatureUrl = await snap.ref.getDownloadURL();
         }
       }
 
-      List<String> uploadedMediaUrls = List.from(_existingMediaUrls);
-      for (XFile file in _mediaFilesToUpload) {
-        final b2Credentials = await _getB2UploadCredentials();
-        if (b2Credentials == null) {
-          throw Exception('Could not get B2 upload credentials.');
-        }
-
-        final downloadUrl = await _uploadFileToB2(file, b2Credentials);
-        if (downloadUrl != null) {
-          uploadedMediaUrls.add(downloadUrl);
+      // 2) Media uploads to B2
+      final uploaded = List<String>.from(_existingMediaUrls);
+      for (final file in _mediaFilesToUpload) {
+        final creds = await _getB2UploadCredentials();
+        if (creds == null) throw Exception('Impossible de récupérer les accès B2.');
+        final url = await _uploadFileToB2(file, creds);
+        if (url != null) {
+          uploaded.add(url);
         } else {
-          print('Skipping file due to upload failure: ${file.name}');
+          debugPrint('Skipping file due to upload failure: ${file.name}');
         }
       }
 
-      final reportData = {
+      // 3) Persist
+      final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
         'diagnostic': _diagnosticController.text.trim(),
@@ -224,29 +283,76 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'signatureUrl': newSignatureUrl,
         'status': _currentStatus,
         'assignedTechnicians': _selectedTechnicians
-            .map((tech) => {'uid': tech.uid, 'name': tech.displayName})
+            .map((t) => {'uid': t.uid, 'name': t.displayName})
             .toList(),
-        'mediaUrls': uploadedMediaUrls,
+        'mediaUrls': uploaded,
         'updatedAt': FieldValue.serverTimestamp(),
-        if (_currentStatus == 'Clôturé' &&
-            (widget.interventionDoc.data()
-            as Map<String, dynamic>)['status'] !=
-                'Clôturé')
-          'closedAt': FieldValue.serverTimestamp(),
       };
+
+      final prevStatus = (widget.interventionDoc.data() ?? {})['status'];
+      if (_currentStatus == 'Clôturé' && prevStatus != 'Clôturé') {
+        reportData['closedAt'] = FieldValue.serverTimestamp();
+      }
 
       await widget.interventionDoc.reference.update(reportData);
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Rapport enregistré avec succès!')));
+        const SnackBar(content: Text('Rapport enregistré avec succès!')),
+      );
       Navigator.of(context).pop();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')));
+        SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')),
+      );
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // PDF
+  // ----------------------------------------------------------------------
+  Future<void> _generateAndSharePdf() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = widget.interventionDoc.data() ?? {};
+      Uint8List? signatureBytes;
+      if (data['signatureUrl'] != null) {
+        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
+        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
       }
+      final pdfData = {...data, 'signatureUrl': signatureBytes};
+      await InterventionPdfService.generateAndSharePdf(pdfData);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la génération du PDF : $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _generateAndPrintPdf() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = widget.interventionDoc.data() ?? {};
+      Uint8List? signatureBytes;
+      if (data['signatureUrl'] != null) {
+        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
+        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
+      }
+      final pdfData = {...data, 'signatureUrl': signatureBytes};
+      await InterventionPdfService.generateAndPrintPdf(pdfData);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -260,119 +366,103 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     super.dispose();
   }
 
-  Future<void> _generateAndSharePdf() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = widget.interventionDoc.data() as Map<String, dynamic>;
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final response = await http.get(Uri.parse(data['signatureUrl']));
-        if (response.statusCode == 200) {
-          signatureBytes = response.bodyBytes;
-        }
-      }
-      final Map<String, dynamic> pdfData = {
-        ...data,
-        'signatureUrl': signatureBytes,
-      };
-      await InterventionPdfService.generateAndSharePdf(pdfData);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la génération du PDF : $e')),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _generateAndPrintPdf() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = widget.interventionDoc.data() as Map<String, dynamic>;
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final response = await http.get(Uri.parse(data['signatureUrl']));
-        if (response.statusCode == 200) {
-          signatureBytes = response.bodyBytes;
-        }
-      }
-      final Map<String, dynamic> pdfData = {
-        ...data,
-        'signatureUrl': signatureBytes,
-      };
-      await InterventionPdfService.generateAndPrintPdf(pdfData);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
+  // ----------------------------------------------------------------------
+  // UI
+  // ----------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    final interventionData =
-    widget.interventionDoc.data() as Map<String, dynamic>;
-    final primaryColor = Theme.of(context).primaryColor;
-    final createdAt = (interventionData['createdAt'] as Timestamp).toDate();
+    final data = widget.interventionDoc.data() ?? {};
+    final createdAt = (data['createdAt'] as Timestamp).toDate();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(interventionData['interventionCode'] ?? 'Détails'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.picture_as_pdf),
-            onPressed: _isLoading ? null : _generateAndPrintPdf,
-            tooltip: 'Aperçu PDF',
-          ),
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: _isLoading ? null : _generateAndSharePdf,
-            tooltip: 'Partager PDF',
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSummaryCard(interventionData, createdAt, primaryColor),
-            const SizedBox(height: 24),
-            _buildReportForm(primaryColor),
+    return Theme(
+      data: _interventionTheme(context),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(data['interventionCode'] ?? 'Détails'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf),
+              tooltip: 'Aperçu PDF',
+              onPressed: _isLoading ? null : _generateAndPrintPdf,
+            ),
+            IconButton(
+              icon: const Icon(Icons.share),
+              tooltip: 'Partager PDF',
+              onPressed: _isLoading ? null : _generateAndSharePdf,
+            ),
           ],
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x33667EEA),
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                ),
+              ],
+            ),
+          ),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.blue.shade50,
+                Colors.purple.shade50,
+                Colors.pink.shade50,
+              ],
+            ),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSummaryCard(data, createdAt),
+                  const SizedBox(height: 24),
+                  _buildReportForm(context),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildSummaryCard(
-      Map<String, dynamic> data, DateTime createdAt, Color primaryColor) {
+  Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Demandé par ${data['creatorName']}',
-                style:
-                const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              'Demandé par ${data['creatorName']}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Text(
-                'Client: ${data['clientName']} - Magasin: ${data['storeName']}',
-                style: const TextStyle(color: Colors.black54)),
+              'Client: ${data['clientName']} - Magasin: ${data['storeName']}',
+              style: const TextStyle(color: Colors.black54),
+            ),
             const SizedBox(height: 4),
             Text(
-                'Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}',
-                style: const TextStyle(color: Colors.black54)),
+              'Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}',
+              style: const TextStyle(color: Colors.black54),
+            ),
             const SizedBox(height: 12),
             const Divider(),
             const SizedBox(height: 12),
-            const Text('Description du Problème:',
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Description du Problème:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(data['problemDescription'] ?? 'Non spécifié'),
           ],
@@ -381,152 +471,129 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
-  Widget _buildReportForm(Color primaryColor) {
-    final defaultBorder = OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Colors.grey));
-    final focusedBorder = OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: primaryColor, width: 2));
-
+  Widget _buildReportForm(BuildContext context) {
     return Form(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Rapport d\'Intervention',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text("Rapport d'Intervention", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
+
           TextFormField(
             controller: _managerNameController,
             readOnly: isReadOnly,
-            decoration: InputDecoration(
-                labelText: 'Nom du contact sur site',
-                border: defaultBorder,
-                focusedBorder: focusedBorder),
+            decoration: const InputDecoration(labelText: 'Nom du contact sur site'),
           ),
           const SizedBox(height: 16),
+
           TextFormField(
             controller: _managerPhoneController,
             readOnly: isReadOnly,
-            decoration: InputDecoration(
-                labelText: 'Téléphone du contact',
-                border: defaultBorder,
-                focusedBorder: focusedBorder),
             keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(labelText: 'Téléphone du contact'),
           ),
           const SizedBox(height: 16),
+
           MultiSelectDialogField<AppUser>(
             items: _allTechnicians
-                .map((tech) => MultiSelectItem(tech, tech.displayName))
+                .map((t) => MultiSelectItem<AppUser>(t, t.displayName))
                 .toList(),
-            title: const Text("Techniciens"),
-            selectedColor: primaryColor,
-            buttonText: const Text("Techniciens Assignés"),
+            title: const Text('Techniciens'),
+            selectedColor: const Color(0xFF667EEA),
+            buttonText: const Text('Techniciens Assignés'),
             onConfirm: (results) {
               if (!isReadOnly) {
-                setState(() {
-                  _selectedTechnicians = results;
-                });
+                setState(() => _selectedTechnicians = results);
               }
             },
             initialValue: _selectedTechnicians,
             chipDisplay: MultiSelectChipDisplay(
               onTap: (value) {
                 if (!isReadOnly) {
-                  setState(() {
-                    _selectedTechnicians.remove(value);
-                  });
+                  setState(() => _selectedTechnicians.remove(value));
                 }
               },
             ),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey, width: 1),
-              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300, width: 1),
+              borderRadius: BorderRadius.circular(20),
             ),
           ),
           const SizedBox(height: 16),
+
           TextFormField(
             controller: _diagnosticController,
             readOnly: isReadOnly,
-            decoration: InputDecoration(
-                labelText: 'Diagnostique / Panne Signalée',
-                border: defaultBorder,
-                focusedBorder: focusedBorder,
-                alignLabelWithHint: true),
             maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Diagnostique / Panne Signalée',
+              alignLabelWithHint: true,
+            ),
           ),
           const SizedBox(height: 16),
+
           TextFormField(
             controller: _workDoneController,
             readOnly: isReadOnly,
-            decoration: InputDecoration(
-                labelText: 'Travaux Effectués',
-                border: defaultBorder,
-                focusedBorder: focusedBorder,
-                alignLabelWithHint: true),
             maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Travaux Effectués',
+              alignLabelWithHint: true,
+            ),
           ),
           const SizedBox(height: 24),
+
           _buildMediaSection(),
           const SizedBox(height: 24),
-          const Text('Signature du Client',
-              style: TextStyle(fontWeight: FontWeight.bold)),
+
+          const Text('Signature du Client', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
+
           if (_signatureImageUrl != null && _signatureController.isEmpty)
             Container(
-                height: 150,
-                decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey),
-                    borderRadius: BorderRadius.circular(12)),
-                child: Center(child: Image.network(_signatureImageUrl!)))
+              height: 150,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Center(child: Image.network(_signatureImageUrl!)),
+            )
           else if (!isReadOnly)
             Signature(
               controller: _signatureController,
               height: 150,
-              backgroundColor: Colors.grey[200]!,
+              backgroundColor: const Color(0xFFF1F5F9),
             ),
+
           if (!isReadOnly)
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                child: const Text('Effacer la signature'),
                 onPressed: () {
                   _signatureController.clear();
-                  setState(() {
-                    _signatureImageUrl = null;
-                  });
+                  setState(() => _signatureImageUrl = null);
                 },
+                child: const Text('Effacer la signature'),
               ),
             ),
+
           const SizedBox(height: 24),
+
           DropdownButtonFormField<String>(
             value: _currentStatus,
-            decoration: InputDecoration(
-                border: defaultBorder,
-                focusedBorder: focusedBorder,
-                labelText: 'Statut de l\\\'intervention'),
             items: statusOptions
-                .map((String status) =>
-                DropdownMenuItem<String>(value: status, child: Text(status)))
+                .map((s) => DropdownMenuItem<String>(value: s, child: Text(s)))
                 .toList(),
-            onChanged: isReadOnly
-                ? null
-                : (newValue) => setState(() {
-              _currentStatus = newValue!;
-            }),
+            onChanged: isReadOnly ? null : (v) => setState(() => _currentStatus = v!),
+            decoration: const InputDecoration(labelText: "Statut de l'intervention"),
           ),
           const SizedBox(height: 24),
+
           if (!isReadOnly)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _saveReport,
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12))),
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text('Enregistrer le Rapport'),
@@ -541,142 +608,108 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Photos & Vidéos',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text('Photos & Vidéos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
+
         if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
           const Text('Aucun fichier ajouté.', style: TextStyle(color: Colors.grey)),
+
+        // Existing (uploaded) media
         Wrap(
-          spacing: 8.0,
-          runSpacing: 8.0,
-          children: _existingMediaUrls
-              .map((url) => _buildMediaThumbnail(url: url))
-              .toList(),
+          spacing: 8,
+          runSpacing: 8,
+          children: _existingMediaUrls.map((url) => _buildMediaThumbnail(url: url)).toList(),
         ),
+
+        // Pending (local) media
         Wrap(
-          spacing: 8.0,
-          runSpacing: 8.0,
-          children: _mediaFilesToUpload
-              .map((file) => _buildMediaThumbnail(file: file))
-              .toList(),
+          spacing: 8,
+          runSpacing: 8,
+          children: _mediaFilesToUpload.map((file) => _buildMediaThumbnail(file: file)).toList(),
         ),
+
         const SizedBox(height: 16),
+
         if (!isReadOnly)
           Center(
             child: ElevatedButton.icon(
               icon: const Icon(Icons.add_a_photo),
               label: const Text('Ajouter Photos/Vidéos'),
               onPressed: _pickMedia,
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
             ),
           ),
       ],
     );
   }
 
-  // ✅ --- START: FULLY REPLACED THUMBNAIL WIDGET ---
+  // Thumbnail for existing or local media
   Widget _buildMediaThumbnail({String? url, XFile? file}) {
-    // Helper function to check for common video extensions
-    bool isVideoUrl(String path) {
-      final lowercasePath = path.toLowerCase();
-      return lowercasePath.endsWith('.mp4') ||
-          lowercasePath.endsWith('.mov') ||
-          lowercasePath.endsWith('.avi') ||
-          lowercasePath.endsWith('.mkv');
+    bool isVideoPath(String path) {
+      final p = path.toLowerCase();
+      return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
     }
 
-    bool isVideo = (url != null && isVideoUrl(url)) || (file != null && isVideoUrl(file.path));
+    final bool isVideo =
+        (url != null && isVideoPath(url)) || (file != null && isVideoPath(file.path));
 
-    Widget mediaContent;
-
+    Widget content;
     if (file != null) {
-      // This is a new file (XFile) selected from the device
+      // Local not-yet-uploaded file
       if (isVideo) {
-        mediaContent = const Center(
-            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        content = const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
       } else {
-        mediaContent = ClipRRect(
-          borderRadius: BorderRadius.circular(11),
-          child: Image.file(File(file.path),
-              width: 100, height: 100, fit: BoxFit.cover),
+        content = ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.file(File(file.path), width: 100, height: 100, fit: BoxFit.cover),
         );
       }
     } else if (url != null && url.isNotEmpty) {
-      // This is an existing file with a URL from Backblaze
+      // Existing URL
       if (isVideo) {
-        mediaContent = const Center(
-            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        content = const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
       } else {
-        // Use Hero widget for a smooth animation to the gallery
-        mediaContent = Hero(
-          tag: url, // This tag MUST match the one in ImageGalleryPage
+        content = Hero(
+          tag: url,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: BorderRadius.circular(12),
             child: Image.network(
               url,
               width: 100,
               height: 100,
               fit: BoxFit.cover,
-              loadingBuilder: (context, child, progress) {
-                return progress == null
-                    ? child
-                    : const Center(child: CircularProgressIndicator());
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return const Icon(Icons.broken_image, color: Colors.grey);
-              },
+              loadingBuilder: (c, child, prog) =>
+              prog == null ? child : const Center(child: CircularProgressIndicator()),
+              errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.grey),
             ),
           ),
         );
       }
     } else {
-      // Fallback for safety, should not happen
-      mediaContent = const Icon(Icons.image_not_supported, color: Colors.grey);
+      content = const Icon(Icons.image_not_supported, color: Colors.grey);
     }
 
     return GestureDetector(
       onTap: () {
+        // Local media can't be previewed in viewer until uploaded
         if (url == null || url.isEmpty) {
-          // This is a new file (XFile) that hasn't been uploaded yet.
-          // We can't open it in a player, so we just inform the user.
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'Veuillez d\'abord enregistrer pour voir ce fichier.')),
+            const SnackBar(content: Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
           );
           return;
         }
-
         if (isVideo) {
-          // --- Open the Video Player Page ---
           Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => VideoPlayerPage(videoUrl: url),
-            ),
+            MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)),
           );
         } else {
-          // --- Open the Image Gallery Page ---
-
-          // 1. Filter the list to get only image URLs
-          final List<String> imageLinks = _existingMediaUrls
-              .where((link) => !isVideoUrl(link))
-              .toList();
-
-          // 2. Find the index of the image that was tapped
-          final int initialIndex = imageLinks.indexOf(url);
-
-          if (imageLinks.isEmpty) return; // No images to show
-
+          final images = _existingMediaUrls.where((u) => !isVideoPath(u)).toList();
+          if (images.isEmpty) return;
+          final initial = images.indexOf(url);
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => ImageGalleryPage(
-                imageUrls: imageLinks,
-                initialIndex: (initialIndex != -1)
-                    ? initialIndex
-                    : 0, // Fallback to first image
+              builder: (_) => ImageGalleryPage(
+                imageUrls: images,
+                initialIndex: initial != -1 ? initial : 0,
               ),
             ),
           );
@@ -688,37 +721,32 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.grey.shade300),
-          color: Colors.grey.shade200,
+          color: const Color(0xFFF1F5F9),
         ),
         child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            mediaContent, // This is the Hero widget, Icon, or Image.file
+            Positioned.fill(child: content),
 
-            // --- Remove buttons (unchanged) ---
+            // Remove button for local pending file
             if (!isReadOnly && file != null)
               Positioned(
                 top: -10,
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () {
-                    setState(() {
-                      _mediaFilesToUpload.remove(file);
-                    });
-                  },
+                  onPressed: () => setState(() => _mediaFilesToUpload.remove(file)),
                 ),
               ),
+
+            // Remove button for existing URL
             if (!isReadOnly && url != null)
               Positioned(
                 top: -10,
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () {
-                    setState(() {
-                      _existingMediaUrls.remove(url);
-                    });
-                  },
+                  onPressed: () => setState(() => _existingMediaUrls.remove(url)),
                 ),
               ),
           ],
@@ -726,5 +754,4 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       ),
     );
   }
-// ✅ --- END: FULLY REPLACED THUMBNAIL WIDGET ---
 }

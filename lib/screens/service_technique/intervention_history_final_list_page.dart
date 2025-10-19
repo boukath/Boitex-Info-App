@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 
 class InterventionHistoryFinalListPage extends StatelessWidget {
@@ -25,7 +26,7 @@ class InterventionHistoryFinalListPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(locationName),
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>( // typed stream
         stream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: serviceType)
@@ -35,29 +36,29 @@ class InterventionHistoryFinalListPage extends StatelessWidget {
             .where('storeLocation', isEqualTo: locationName)
             .orderBy('closedAt', descending: true)
             .snapshots(),
-        builder: (context, snapshot) {
+        builder: (context, AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+
           if (snapshot.hasError) {
             return const Center(child: Text('Une erreur est survenue.'));
           }
+
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
-                child: Text('Aucune intervention trouvée pour cet emplacement.'));
+            return const Center(child: Text('Aucune intervention trouvée pour cet emplacement.'));
           }
 
-          final interventionDocs = snapshot.data!.docs;
-
+          final interventionDocs = snapshot.data!.docs; // List<QueryDocumentSnapshot<Map<String, dynamic>>>
           return ListView.builder(
             padding: const EdgeInsets.all(8.0),
             itemCount: interventionDocs.length,
             itemBuilder: (context, index) {
               final interventionDoc = interventionDocs[index];
-              final data = interventionDoc.data() as Map<String, dynamic>;
+              final data = interventionDoc.data();
 
-              final closedDate = (data['closedAt'] as Timestamp?)?.toDate();
-              final billingStatus = data['billingStatus'] ?? 'N/A';
+              final DateTime? closedDate = (data['closedAt'] as Timestamp?)?.toDate();
+              final String billingStatus = (data['billingStatus'] as String?) ?? 'N/A';
 
               return Card(
                 margin: const EdgeInsets.symmetric(vertical: 6.0),

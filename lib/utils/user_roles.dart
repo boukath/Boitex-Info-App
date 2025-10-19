@@ -48,6 +48,10 @@ class RolePermissions {
     UserRoles.admin,
     UserRoles.pdg,
     UserRoles.responsableAdministratif,
+    UserRoles.responsableCommercial,
+    UserRoles.responsableTechnique,
+    UserRoles.responsableIT,
+    UserRoles.chefDeProjet,
   ];
 
   // Can manage sales, quotes, and projects

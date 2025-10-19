@@ -11,15 +11,19 @@ class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends State {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
+  // ADDED: password visibility state (default hidden)
+  bool _passwordVisible = false;
+
   bool _isLoading = false;
 
-  Future<void> _signIn() async {
+  Future _signIn() async {
     setState(() {
       _isLoading = true;
     });
@@ -48,10 +52,10 @@ class _LoginPageState extends State<LoginPage> {
         if (docSnapshot.exists) {
           userRole = docSnapshot.data()?['role'] ?? 'utilisateur';
           displayName = docSnapshot.data()?['displayName'] ?? 'Utilisateur';
-
-          await firebaseApi.subscribeToTopics(userRole);
-          await firebaseApi.saveTokenForCurrentUser();
         }
+
+        await firebaseApi.subscribeToTopics(userRole);
+        await firebaseApi.saveTokenForCurrentUser();
 
         // 4. Navigate to the HomePage
         if (mounted) {
@@ -72,10 +76,11 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         message = 'Une erreur est survenue. Veuillez réessayer.';
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -96,7 +101,6 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     // Check if web and wide screen
     final isWebWide = kIsWeb && MediaQuery.of(context).size.width >= 900;
-
     if (isWebWide) {
       return _buildWebLayout();
     } else {
@@ -151,6 +155,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ),
+
                   // Content
                   Center(
                     child: Padding(
@@ -286,9 +291,10 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                         ),
+
                         const SizedBox(height: 28),
 
-                        // Password Field
+                        // Password Field (WEB) — ADDED visibility toggle
                         const Text(
                           'Mot de passe',
                           style: TextStyle(
@@ -300,7 +306,7 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: _passwordController,
-                          obscureText: true,
+                          obscureText: !_passwordVisible,
                           style: const TextStyle(fontSize: 15),
                           decoration: InputDecoration(
                             hintText: '••••••••',
@@ -308,6 +314,20 @@ class _LoginPageState extends State<LoginPage> {
                               Icons.lock_outline,
                               size: 20,
                               color: Color(0xFF6366f1),
+                            ),
+                            // ADDED: eye icon
+                            suffixIcon: IconButton(
+                              tooltip:
+                              _passwordVisible ? 'Masquer' : 'Afficher',
+                              icon: Icon(
+                                _passwordVisible
+                                    ? Icons.visibility_off_rounded
+                                    : Icons.visibility_rounded,
+                                color: const Color(0xFF6366f1),
+                                size: 20,
+                              ),
+                              onPressed: () => setState(
+                                      () => _passwordVisible = !_passwordVisible),
                             ),
                             filled: true,
                             fillColor: const Color(0xFFF8FAFC),
@@ -335,6 +355,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                         ),
+
                         const SizedBox(height: 48),
 
                         // Login Button
@@ -347,7 +368,8 @@ class _LoginPageState extends State<LoginPage> {
                               backgroundColor: const Color(0xFF6366f1),
                               foregroundColor: Colors.white,
                               elevation: 0,
-                              shadowColor: const Color(0xFF6366f1).withOpacity(0.3),
+                              shadowColor:
+                              const Color(0xFF6366f1).withOpacity(0.3),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                               ),
@@ -371,6 +393,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                         ),
+
                         const SizedBox(height: 80),
 
                         // Footer
@@ -395,7 +418,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // ✅ EXISTING MOBILE LAYOUT (UNCHANGED)
+  // ✅ EXISTING MOBILE LAYOUT (UNCHANGED except visibility toggle)
   Widget _buildMobileLayout() {
     return Scaffold(
       body: Stack(
@@ -443,19 +466,34 @@ class _LoginPageState extends State<LoginPage> {
                               keyboardType: TextInputType.emailAddress,
                               decoration: InputDecoration(
                                 labelText: 'Email',
-                                prefixIcon: const Icon(Icons.email_outlined),
+                                prefixIcon:
+                                const Icon(Icons.email_outlined),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12.0),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 20),
+                            // Password Field (MOBILE) — ADDED visibility toggle
                             TextFormField(
                               controller: _passwordController,
-                              obscureText: true,
+                              obscureText: !_passwordVisible,
                               decoration: InputDecoration(
                                 labelText: 'Mot de passe',
-                                prefixIcon: const Icon(Icons.lock_outline),
+                                prefixIcon:
+                                const Icon(Icons.lock_outline),
+                                suffixIcon: IconButton(
+                                  tooltip: _passwordVisible
+                                      ? 'Masquer'
+                                      : 'Afficher',
+                                  icon: Icon(
+                                    _passwordVisible
+                                        ? Icons.visibility_off_rounded
+                                        : Icons.visibility_rounded,
+                                  ),
+                                  onPressed: () => setState(() =>
+                                  _passwordVisible = !_passwordVisible),
+                                ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12.0),
                                 ),
@@ -472,7 +510,8 @@ class _LoginPageState extends State<LoginPage> {
                                     vertical: 16.0,
                                   ),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12.0),
+                                    borderRadius:
+                                    BorderRadius.circular(12.0),
                                   ),
                                 ),
                                 child: _isLoading
@@ -519,7 +558,8 @@ class WaveClipper extends CustomClipper<Path> {
       firstEndPoint.dy,
     );
 
-    var secondControlPoint = Offset(size.width - (size.width / 4), size.height - 65);
+    var secondControlPoint =
+    Offset(size.width - (size.width / 4), size.height - 65);
     var secondEndPoint = Offset(size.width, size.height - 40);
     path.quadraticBezierTo(
       secondControlPoint.dx,
@@ -531,7 +571,6 @@ class WaveClipper extends CustomClipper<Path> {
     path.lineTo(size.width, size.height - 40);
     path.lineTo(size.width, 0);
     path.close();
-
     return path;
   }
 

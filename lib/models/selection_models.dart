@@ -24,7 +24,7 @@ class SelectableItem {
     return SelectableItem(
       id: doc.id,
       name: data['nom'] ?? 'Nom inconnu',
-      partNumber: data['partNumber'] ?? 'Référence inconnue',
+      partNumber: data['reference'] ?? 'Référence inconnue',  // ✅ FIXED: Changed from 'partNumber' to 'reference'
       data: data, // Store the full document data if needed elsewhere
     );
   }
@@ -62,7 +62,7 @@ class ProductSelection {
       partNumber: partNumber,
       marque: marque,
       quantity: quantity,
-      serialNumbers: List.from(serialNumbers),
+      serialNumbers: List<String>.from(serialNumbers),
     );
   }
 
@@ -78,7 +78,7 @@ class ProductSelection {
     };
   }
 
-  // ✅ NEW: Factory to create an instance from a Firestore map
+  // ✅ Factory to create an instance from a Firestore map
   factory ProductSelection.fromJson(Map<String, dynamic> json) {
     return ProductSelection(
       productId: json['productId'] ?? '',
