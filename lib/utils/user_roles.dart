@@ -29,19 +29,55 @@ class UserRoles {
 
       if (docSnapshot.exists) {
         return docSnapshot.data()?['role'] as String?;
+      } else {
+        return null; // User document doesn't exist
       }
     } catch (e) {
-      print("Error fetching user role: $e");
+      print('Error fetching user role: $e');
+      return null;
     }
-
-    return null;
   }
 }
 
-/// This class contains all the logic for checking user permissions based on roles.
+/// Manages permissions based on user roles.
 class RolePermissions {
-  // ✅ ALL MANAGEMENT ROLES - These roles can see EVERYTHING
+  // --- Role Groups (Private) ---
+
+  // Full administrative access
   static const List<String> _fullAccessRoles = [
+    UserRoles.admin,
+    UserRoles.pdg,
+    UserRoles.responsableAdministratif,
+  ];
+
+  // Can manage sales, quotes, and projects
+  static const List<String> _salesRoles = [
+    UserRoles.admin,
+    UserRoles.pdg,
+    UserRoles.responsableAdministratif,
+    UserRoles.responsableCommercial,
+    UserRoles.chefDeProjet,
+  ];
+
+  // Can manage technical services and installations
+  static const List<String> _technicalManagementRoles = [
+    UserRoles.admin,
+    UserRoles.pdg,
+    UserRoles.responsableAdministratif,
+    UserRoles.responsableTechnique,
+    UserRoles.chefDeProjet,
+  ];
+
+  // Can schedule and manage installations (Admin + Tech)
+  static const List<String> _installationSchedulerRoles = [
+    UserRoles.admin,
+    UserRoles.pdg,
+    UserRoles.responsableAdministratif,
+    UserRoles.responsableTechnique,
+  ];
+
+  // Can manage requisitions
+  static const List<String> _requisitionRoles = [
     UserRoles.admin,
     UserRoles.pdg,
     UserRoles.responsableAdministratif,
@@ -51,60 +87,31 @@ class RolePermissions {
     UserRoles.chefDeProjet,
   ];
 
-  // Roles that can perform a technical evaluation.
-  static const List<String> _technicalEvaluationRoles = [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableTechnique,
-    UserRoles.chefDeProjet,
-  ];
-
-  // Roles that can upload a quote ("devis").
-  static const List<String> _salesRoles = [
-    UserRoles.admin,
-    UserRoles.responsableCommercial,
-    UserRoles.pdg,
-  ];
-
-  // Roles that can edit a "livraison" (delivery).
+  // Can edit or create livraison
   static const List<String> _livraisonEditorRoles = [
     UserRoles.admin,
     UserRoles.pdg,
     UserRoles.responsableAdministratif,
     UserRoles.responsableCommercial,
-    UserRoles.responsableTechnique,
-    UserRoles.responsableIT,
     UserRoles.chefDeProjet,
   ];
 
-  // Roles that can schedule an installation.
-  static const List<String> _installationSchedulerRoles = [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableTechnique,
-    UserRoles.chefDeProjet,
-  ];
-
-  /// Generic helper that checks if a user's role is in a list of allowed roles.
-  /// The 'Admin' role is always granted permission.
-  static bool _checkRole(String? userRole, List<String> allowedRoles) {
-    if (userRole == null) return false;
-
-    // "God mode" for Admin. If the user is an Admin, always grant permission.
-    if (userRole == UserRoles.admin) {
-      return true;
-    }
-
+  // --- Private Helper ---
+  static bool _checkRole(String userRole, List<String> allowedRoles) {
     return allowedRoles.contains(userRole);
   }
 
-  // --- Asynchronous Public Permission Checks ---
+  // --- Asynchronous Public Permission Checks (for use in UI) ---
 
-  /// Asynchronous check if the current user can edit a livraison.
+  // ✅ --- ADD THIS NEW METHOD ---
+  /// Asynchronously checks if the *currently logged-in user* can edit livraisons.
   static Future<bool> canCurrentUserEditLivraison() async {
-    final userRole = await UserRoles.getCurrentUserRole();
-    return _checkRole(userRole, _livraisonEditorRoles);
+    final role = await UserRoles.getCurrentUserRole();
+    if (role == null) return false;
+    return canManageLivraisons(role);
   }
+  // ✅ --- END OF NEW METHOD ---
+
 
   // --- Synchronous Public Permission Checks (for when role is already known) ---
 
@@ -141,11 +148,30 @@ class RolePermissions {
 
   /// Check if user can add interventions.
   static bool canAddIntervention(String userRole) {
-    return _checkRole(userRole, _fullAccessRoles);
+    return userRole == UserRoles.technicienST ||
+        _checkRole(userRole, _technicalManagementRoles);
   }
 
   /// Check if user can perform technical evaluations.
   static bool canPerformTechnicalEvaluation(String userRole) {
-    return _checkRole(userRole, _technicalEvaluationRoles);
+    return userRole == UserRoles.technicienST ||
+        _checkRole(userRole, _technicalManagementRoles);
+  }
+
+  /// Check if user can perform IT evaluations.
+  static bool canPerformItEvaluation(String userRole) {
+    return userRole == UserRoles.admin ||
+        userRole == UserRoles.responsableIT ||
+        userRole == UserRoles.technicienIT;
+  }
+
+  /// Check if user can manage requisitions.
+  static bool canManageRequisitions(String userRole) {
+    return _checkRole(userRole, _requisitionRoles);
+  }
+
+  /// Check if user can manage livraisons.
+  static bool canManageLivraisons(String userRole) {
+    return _checkRole(userRole, _livraisonEditorRoles);
   }
 }

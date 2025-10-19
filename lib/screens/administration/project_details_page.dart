@@ -13,6 +13,9 @@ import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
 import 'package:boitex_info_app/screens/administration/system_proposals_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:boitex_info_app/screens/service_it/it_evaluation_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ProjectDetailsPage extends StatefulWidget {
   final String projectId;
@@ -520,7 +523,24 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
               icon: const Icon(Icons.rule),
               label: const Text('Ajouter l\'Évaluation Technique'))));
     }
-
+    if (status == 'Nouvelle Demande' &&
+        RolePermissions.canPerformItEvaluation(userRole)) { // We will create this
+      buttons.add(SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (context) =>
+                    ItEvaluationPage(projectId: widget.projectId))), // Navigate to our new page
+            icon: const Icon(Icons.network_ping),
+            label: const Text('Ajouter l\'Évaluation IT'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue, // IT theme color
+              foregroundColor: Colors.white,
+            ),
+          )));
+      buttons.add(const SizedBox(height: 12)); // Add spacing
+    }
+    
     if (status == 'Évaluation Technique Terminé' &&
         RolePermissions.canUploadDevis(userRole)) {
       final technicalEvaluation =
