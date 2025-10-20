@@ -15,6 +15,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:crypto/crypto.dart';
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 
 // ✅ In‑app media viewers
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
@@ -77,7 +78,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     if (current == 'Clôturé' || current == 'Facturé') {
       return ['Clôturé', 'Facturé'];
     }
-    return ['Nouveau', 'En cours', 'Terminé', 'En attente', 'Clôturé'];
+    return ['Nouveau', 'En cours', 'Terminé', 'En attente'];
   }
 
   // Read-only when closed or invoiced
@@ -356,6 +357,45 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ✅ ADD THIS NEW FUNCTION
+  Future<void> _generateAndShowPdfViewer() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = widget.interventionDoc.data() ?? {};
+
+      // 1. Get signature bytes (same as your other functions)
+      Uint8List? signatureBytes;
+      if (data['signatureUrl'] != null) {
+        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
+        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
+      }
+      final pdfData = {...data, 'signatureUrl': signatureBytes};
+
+      // 2. Generate PDF bytes
+      //    (IMPORTANT: You must create this function in your InterventionPdfService)
+      final Uint8List pdfBytes =
+      await InterventionPdfService.generatePdfBytes(pdfData);
+
+      // 3. Navigate to the new viewer
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PdfViewerPage(
+            pdfBytes: pdfBytes,
+            title: data['interventionCode'] ?? 'Aperçu',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la génération du PDF : $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   void dispose() {
     _managerNameController.dispose();
@@ -378,12 +418,15 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       data: _interventionTheme(context),
       child: Scaffold(
         appBar: AppBar(
-          title: Text(data['interventionCode'] ?? 'Détails'),
+          title: Text(
+            "${data['interventionCode'] ?? 'Détails'} - ${data['storeName'] ?? ''}",
+            overflow: TextOverflow.ellipsis, // Prevents overflow on long names
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.picture_as_pdf),
               tooltip: 'Aperçu PDF',
-              onPressed: _isLoading ? null : _generateAndPrintPdf,
+              onPressed: _isLoading ? null : _generateAndShowPdfViewer,
             ),
             IconButton(
               icon: const Icon(Icons.share),
@@ -446,7 +489,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Demandé par ${data['creatorName']}',
+              'Demandé par ${data['createdByName']}',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -464,7 +507,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const SizedBox(height: 12),
             const Text('Description du Problème:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text(data['problemDescription'] ?? 'Non spécifié'),
+            Text(data['description'] ?? 'Non spécifié'),
           ],
         ),
       ),

@@ -87,7 +87,7 @@ class InterventionPdfService {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(companyName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 18, color: primaryColor)),
-                pw.Text('BOITEXINFO Service Technique Professionnel', style: const pw.TextStyle(color: secondaryColor, fontSize: 10)),
+                pw.Text('BOITEXINFO Service Technique', style: const pw.TextStyle(color: secondaryColor, fontSize: 10)),
               ],
             ),
             pw.SizedBox(
@@ -303,6 +303,10 @@ class InterventionPdfService {
   static Future<void> generateAndPrintPdf(Map<String, dynamic> data) async {
     final pdfData = await generateInterventionPdf(data);
     await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdfData);
+  }
+  static Future<Uint8List> generatePdfBytes(Map<String, dynamic> data) async {
+    // This just calls your existing core function that builds the PDF
+    return await generateInterventionPdf(data);
   }
 
   // ═══════════════════════════════════════════════════════════════
