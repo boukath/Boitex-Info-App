@@ -1,3 +1,5 @@
+// lib/screens/administration/manage_clients_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/administration/add_client_page.dart';
@@ -9,6 +11,7 @@ class ManageClientsPage extends StatelessWidget {
   const ManageClientsPage({super.key, required this.userRole});
 
   Color _getAvatarColor(String clientName) {
+    // Simple hash to get a color based on name
     return Colors.primaries[clientName.hashCode % Colors.primaries.length].shade300;
   }
 
@@ -34,22 +37,19 @@ class ManageClientsPage extends StatelessWidget {
           final clientDocs = snapshot.data!.docs;
 
           return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 80), // Padding for FAB
             itemCount: clientDocs.length,
             itemBuilder: (context, index) {
               final clientDoc = clientDocs[index];
-              final clientData = clientDoc.data() as Map<String, dynamic>;
-              final clientName = clientData['name'] as String? ?? 'Client inconnu';
+              // Safely cast data to Map<String, dynamic>
+              final clientData = clientDoc.data() as Map<String, dynamic>? ?? {};
 
-              final servicesRaw = clientData['service'];
-              final services = (servicesRaw is List)
-                  ? servicesRaw.map((s) => s.toString()).toList()
-                  : [servicesRaw?.toString() ?? 'Non spécifié'];
-
+              final clientName = clientData['name'] as String? ?? 'Nom inconnu';
+              final services = List<String>.from(clientData['services'] ?? []);
               final avatarColor = _getAvatarColor(clientName);
 
-              // ✅ CORRECTED: The ListTile is now simple again.
               return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
                   leading: CircleAvatar(
@@ -60,9 +60,31 @@ class ManageClientsPage extends StatelessWidget {
                     ),
                   ),
                   title: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('Services: ${services.join(', ')}'),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  subtitle: Text(services.isNotEmpty ? 'Services: ${services.join(', ')}' : 'Aucun service'),
+                  // ✅ MODIFIED: Trailing now has an edit button
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min, // Important for Row in ListTile trailing
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.edit_outlined, color: Colors.blue.shade700),
+                        tooltip: 'Modifier Client',
+                        onPressed: () {
+                          // Navigate to AddClientPage in Edit Mode
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => AddClientPage(
+                                clientId: clientDoc.id,
+                                initialData: clientData, // Pass existing data
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const Icon(Icons.arrow_forward_ios, size: 16), // Keep the arrow
+                    ],
+                  ),
                   onTap: () {
+                    // Navigate to Manage Stores Page
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (context) => ManageStoresPage(
@@ -80,6 +102,7 @@ class ManageClientsPage extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
+          // Navigate to AddClientPage in Add Mode (no parameters)
           Navigator.of(context).push(
             MaterialPageRoute(builder: (context) => const AddClientPage()),
           );

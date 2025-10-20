@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+// ✅ 1. Import the new page we will create
+import 'package:boitex_info_app/screens/administration/add_store_equipment_page.dart';
 
 class StoreEquipmentPage extends StatelessWidget {
   final String clientId;
@@ -23,7 +25,6 @@ class StoreEquipmentPage extends StatelessWidget {
         title: Text('Matériel - $storeName'),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // ✅ CORRECTED PATH: Queries the sub-collection inside the specific store.
         stream: FirebaseFirestore.instance
             .collection('clients')
             .doc(clientId)
@@ -41,18 +42,23 @@ class StoreEquipmentPage extends StatelessWidget {
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return const Center(
-              child: Text('Aucun matériel installé trouvé pour ce magasin.'),
+              child: Text(
+                'Aucun matériel installé enregistré pour ce magasin.',
+                textAlign: TextAlign.center,
+              ),
             );
           }
 
           final equipmentDocs = snapshot.data!.docs;
 
           return ListView.builder(
-            padding: const EdgeInsets.all(8.0),
+            // ✅ 2. Added padding for FAB
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 80),
             itemCount: equipmentDocs.length,
             itemBuilder: (context, index) {
               final doc = equipmentDocs[index];
               final data = doc.data() as Map<String, dynamic>;
+              final equipmentId = doc.id; // Get the document ID for editing
 
               final timestamp = data['installationDate'] as Timestamp?;
               final formattedDate = timestamp != null
@@ -76,11 +82,45 @@ class StoreEquipmentPage extends StatelessWidget {
                       Text('Installé le: $formattedDate'),
                     ],
                   ),
+                  // ✅ 3. Added Edit Button
+                  trailing: IconButton(
+                    icon: Icon(Icons.edit_outlined, color: Colors.orange.shade700),
+                    tooltip: 'Modifier',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => AddStoreEquipmentPage(
+                            clientId: clientId,
+                            storeId: storeId,
+                            // Pass existing data for editing
+                            equipmentId: equipmentId,
+                            initialData: data,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               );
             },
           );
         },
+      ),
+      // ✅ 4. Added Floating Action Button
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => AddStoreEquipmentPage(
+                clientId: clientId,
+                storeId: storeId,
+                // No equipmentId or initialData means "Add Mode"
+              ),
+            ),
+          );
+        },
+        tooltip: 'Ajouter du Matériel',
+        child: const Icon(Icons.add),
       ),
     );
   }

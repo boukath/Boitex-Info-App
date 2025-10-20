@@ -1,3 +1,5 @@
+// lib/screens/administration/manage_stores_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/administration/add_store_page.dart';
@@ -15,13 +17,14 @@ class ManageStoresPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(clientName),
+        title: Text(clientName), // Displays the client's name
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('clients')
             .doc(clientId)
             .collection('stores')
+            .orderBy('name') // Order stores alphabetically by name
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -37,49 +40,79 @@ class ManageStoresPage extends StatelessWidget {
           final storeDocs = snapshot.data!.docs;
 
           return ListView.builder(
+            // Added padding for FAB
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 80),
             itemCount: storeDocs.length,
             itemBuilder: (context, index) {
               final store = storeDocs[index];
-              final storeData = store.data() as Map<String, dynamic>;
-              final storeName = storeData['name'] ?? 'Nom du magasin inconnu';
-              final storeLocation = storeData['location'] ?? 'Localisation non spécifiée';
+              // Safely cast data, default to empty map if null
+              final storeData = store.data() as Map<String, dynamic>? ?? {};
+              final storeName = storeData['name'] ?? 'Nom Inconnu';
+              final storeLocation = storeData['location'] ?? 'Emplacement Inconnu';
+              final storeId = store.id; // Get the document ID
 
               return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
-                  leading: const Icon(Icons.store_mall_directory_outlined),
-                  title: Text(storeName),
+                  leading: CircleAvatar(
+                    // Use a store icon or first letter
+                    child: Text(storeName.isNotEmpty ? storeName[0].toUpperCase() : 'M'),
+                    backgroundColor: Colors.teal.shade100,
+                  ),
+                  title: Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text(storeLocation),
+                  // ✅ MODIFIED: Trailing now includes Edit, Equipment, and Arrow icons
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // --- Edit Store Button ---
                       IconButton(
-                        icon: const Icon(Icons.inventory_2_outlined),
-                        tooltip: 'Voir le Matériel Installé',
+                        icon: Icon(Icons.edit_outlined, color: Colors.blue.shade700),
+                        tooltip: 'Modifier Magasin',
+                        onPressed: () {
+                          // Navigate to AddStorePage in Edit Mode
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => AddStorePage(
+                                clientId: clientId,
+                                storeId: storeId,       // Pass Store ID
+                                initialData: storeData, // Pass current data
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // --- Equipment Button ---
+                      IconButton(
+                        icon: Icon(Icons.inventory_2_outlined, color: Colors.blueGrey.shade700),
+                        tooltip: 'Voir Matériel Installé',
                         onPressed: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => StoreEquipmentPage(
                                 clientId: clientId,
-                                storeId: store.id,
+                                storeId: storeId, // Use storeId here
                                 storeName: storeName,
                               ),
                             ),
                           );
                         },
                       ),
-                      const Icon(Icons.arrow_forward_ios, size: 16),
+                      // --- Arrow Icon (no action, just visual) ---
+                      const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
                     ],
                   ),
                   onTap: () {
-                    // ✅ THIS IS THE FIX: We now pass the required parameters.
+                    // Navigate to Store Details Page when tapping the tile itself
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => StoreDetailsPage(
                           clientId: clientId,
-                          storeId: store.id,
+                          storeId: storeId, // Use storeId here
                           storeName: storeName,
                           storeLocation: storeLocation,
                         ),
@@ -94,10 +127,13 @@ class ManageStoresPage extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
+          // Navigate to AddStorePage in Add Mode
           Navigator.of(context).push(MaterialPageRoute(
               builder: (context) => AddStorePage(clientId: clientId)));
         },
-        child: const Icon(Icons.add),
+        tooltip: 'Ajouter un Magasin',
+        child: const Icon(Icons.add_business_outlined), // Changed icon
+        backgroundColor: Colors.teal, // Match theme
       ),
     );
   }
