@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart'; // <--- ADDED
 
 import 'package:boitex_info_app/screens/administration/manage_clients_page.dart';
 import 'package:boitex_info_app/screens/administration/add_project_page.dart';
@@ -30,10 +31,12 @@ class AdministrationDashboardPage extends StatefulWidget {
   });
 
   @override
-  State<AdministrationDashboardPage> createState() => _AdministrationDashboardPageState();
+  State<AdministrationDashboardPage> createState() =>
+      _AdministrationDashboardPageState();
 }
 
-class _AdministrationDashboardPageState extends State<AdministrationDashboardPage>
+class _AdministrationDashboardPageState
+    extends State<AdministrationDashboardPage>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
@@ -46,8 +49,10 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
-    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
+    _fadeAnimation =
+        CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
+        .animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
     );
     _controller.forward();
@@ -84,7 +89,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
 
   // ========================= WEB =========================
 
-  Widget _buildWebDashboard(BuildContext context, bool canSeeMgmt, double width) {
+  Widget _buildWebDashboard(
+      BuildContext context, bool canSeeMgmt, double width) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -115,7 +121,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
                           // LEFT COLUMN - Actions Grid
                           Expanded(
                             flex: 3,
-                            child: _buildGlassCard(child: _buildWebActionsGrid(context)),
+                            child: _buildGlassCard(
+                                child: _buildWebActionsGrid(context)),
                           ),
                           const SizedBox(width: 24),
                           // RIGHT COLUMN - Urgent Tasks
@@ -170,13 +177,18 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 14),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
+                        colors: [
+                          Colors.white.withOpacity(0.25),
+                          Colors.white.withOpacity(0.15)
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
                     child: Row(
                       children: [
@@ -226,7 +238,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             // Notification Button
             _glassIconButton(
               icon: Icons.notifications_rounded,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RappelPage())),
+              onTap: () => Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => const RappelPage())),
             ),
           ],
         ),
@@ -271,6 +284,24 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
           childAspectRatio: 1.0,
           children: _buildQuickActions(context),
         ),
+
+        // =============== MODIFIED SECTION ===============
+        const SizedBox(height: 32),
+        Padding(
+          padding: const EdgeInsets.only(left: 8.0), // Slight indent for title
+          child: Text(
+            'Activité Récente',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.95),
+              fontSize: 20, // Slightly smaller than main title
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildRecentActivityFeed(), // <--- YOUR NEW WIDGET
+        // ===========================================
       ],
     );
   }
@@ -362,13 +393,18 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
+                        colors: [
+                          Colors.white.withOpacity(0.25),
+                          Colors.white.withOpacity(0.15)
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
                     child: Row(
                       children: [
@@ -417,7 +453,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             const SizedBox(width: 12),
             _glassIconButton(
               icon: Icons.notifications_rounded,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RappelPage())),
+              onTap: () => Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => const RappelPage())),
             ),
           ],
         ),
@@ -484,7 +521,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         'Nouveau\nProjet',
         Icons.note_add_rounded,
         const Color(0xFF10B981),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
       ),
       _ActionData(
         'Clients',
@@ -492,7 +530,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         const Color(0xFF3B82F6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ManageClientsPage(userRole: widget.userRole)),
+          MaterialPageRoute(
+              builder: (_) => ManageClientsPage(userRole: widget.userRole)),
         ),
       ),
       _ActionData(
@@ -501,32 +540,37 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         const Color(0xFF8B5CF6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ManageProjectsPage(userRole: widget.userRole)),
+          MaterialPageRoute(
+              builder: (_) => ManageProjectsPage(userRole: widget.userRole)),
         ),
       ),
       _ActionData(
         'Produits',
         Icons.inventory_2_rounded,
         const Color(0xFF14B8A6),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
       ),
       _ActionData(
         'Stock',
         Icons.warehouse_rounded,
         const Color(0xFF6366F1),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const StockPage())),
       ),
       _ActionData(
         'Missions',
         Icons.assignment_rounded,
         const Color(0xFFA855F7),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
       ),
       _ActionData(
         'Livraisons',
         Icons.local_shipping_rounded,
         const Color(0xFFF59E0B),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
       ),
       _ActionData(
         'Historique',
@@ -534,7 +578,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         const Color(0xFF78716C),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ActivityLogPage(userRole: widget.userRole)),
+          MaterialPageRoute(
+              builder: (_) => ActivityLogPage(userRole: widget.userRole)),
         ),
       ),
     ];
@@ -609,6 +654,163 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
       ],
     );
   }
+
+  // ========================================================
+  // =============== NEW HELPER METHODS ADDED ===============
+  // ========================================================
+
+
+  Widget _buildRecentActivityFeed() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('global_activity_log')
+          .orderBy('timestamp', descending: true)
+          .limit(5)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: CircularProgressIndicator(color: Colors.white70),
+            ),
+          );
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(
+            child: Text(
+              'Aucune activité récente.',
+              style: TextStyle(
+                  color: Colors.white70, fontStyle: FontStyle.italic),
+            ),
+          );
+        }
+
+        final logs = snapshot.data!.docs;
+
+        return ListView.separated(
+          itemCount: logs.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          separatorBuilder: (context, index) => Divider(
+            color: Colors.white.withOpacity(0.2),
+            height: 1,
+            thickness: 1,
+            indent: 16,
+            endIndent: 16,
+          ),
+          itemBuilder: (context, index) {
+            final log = logs[index].data() as Map<String, dynamic>;
+
+            // ================== MODIFIED SECTION ==================
+
+            // --- 1. Get all the data safely ---
+            final String message = log['message'] ?? 'Action inconnue';
+            final String user = log['userName'] ?? 'Système';
+            final String? category = log['category'] as String?;
+            final Timestamp? timestamp = log['timestamp'];
+            final String time = _formatRelativeTime(timestamp);
+
+            // Get optional context fields
+            final String? clientName = log['clientName'] as String?;
+            final String? storeName = log['storeName'] as String?;
+            final String? storeLocation = log['storeLocation'] as String?;
+
+            // --- 2. Build the subtitle lines ---
+
+            // Line 1: Context (Client, Store, Location)
+            List<String> contextParts = [];
+            if (clientName != null && clientName.isNotEmpty) {
+              contextParts.add(clientName);
+            }
+            if (storeName != null && storeName.isNotEmpty) {
+              contextParts.add(storeName);
+            }
+            if (storeLocation != null && storeLocation.isNotEmpty) {
+              contextParts.add(storeLocation);
+            }
+            String contextLine = contextParts.join(' • '); // e.g., "Client A • Magasin Alger"
+
+            // Line 2: Actor & Time
+            String actorLine = '$user • $time'; // e.g., "admin@boitex.com • 5 min ago"
+
+            // Combine them
+            String subtitleText = actorLine; // Default if no context
+            if (contextLine.isNotEmpty) {
+              subtitleText = '$contextLine\n$actorLine'; // 2-line subtitle
+            }
+
+            // --- 3. Build the ListTile ---
+            return ListTile(
+              // This is important for a 2-line subtitle
+              isThreeLine: contextLine.isNotEmpty,
+              leading: Icon(
+                _getIconForActivity(category),
+                color: Colors.white,
+              ),
+              title: Text(
+                message, // The main action
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                subtitleText, // Our new dynamic subtitle
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  height: 1.4, // Adds nice spacing between the lines
+                ),
+              ),
+            );
+            // ======================================================
+          },
+        );
+      },
+    );
+  }
+  IconData _getIconForActivity(String? type) {
+    // You can expand this with more types from your ActivityLogger
+    switch (type) {
+      case 'PROJECT':
+        return Icons.folder_rounded;
+      case 'CLIENT':
+        return Icons.store_rounded;
+      case 'STOCK':
+        return Icons.warehouse_rounded;
+      case 'MISSION':
+        return Icons.assignment_rounded;
+      case 'LIVRAISON':
+        return Icons.local_shipping_rounded;
+      case 'AUTH':
+        return Icons.login_rounded;
+      default:
+        return Icons.info_outline_rounded;
+    }
+  }
+
+  String _formatRelativeTime(Timestamp? timestamp) {
+    if (timestamp == null) return 'date inconnue';
+
+    final dt = timestamp.toDate();
+    final now = DateTime.now();
+    final difference = now.difference(dt);
+
+    if (difference.inSeconds < 60) {
+      return 'à l\'instant';
+    } else if (difference.inMinutes < 60) {
+      return 'il y a ${difference.inMinutes} min';
+    } else if (difference.inHours < 24) {
+      return 'il y a ${difference.inHours} h';
+    } else if (difference.inDays == 1) {
+      return 'hier';
+    } else {
+      // Formats as '20 oct.'
+      return DateFormat('d MMM', 'fr_FR').format(dt);
+    }
+  }
 }
 
 // ========================= MODELS & CARDS =========================
@@ -646,7 +848,10 @@ class _ActionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              offset: const Offset(0, 10)),
         ],
       ),
       child: Material(
@@ -662,10 +867,14 @@ class _ActionCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(14), // slightly tighter
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [color, color.withOpacity(0.7)]),
+                    gradient:
+                    LinearGradient(colors: [color, color.withOpacity(0.7)]),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
-                      BoxShadow(color: color.withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)),
+                      BoxShadow(
+                          color: color.withOpacity(0.4),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8)),
                     ],
                   ),
                   child: Icon(icon, color: Colors.white, size: 28), // was 32
@@ -711,7 +920,8 @@ class _ReplacementRequestsCard extends StatelessWidget {
           title: 'Demandes de Remplacement',
           count: count.toString(),
           icon: Icons.sync_problem_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFEF4444), Color(0xFFDC2626)]),
+          gradient:
+          const LinearGradient(colors: [Color(0xFFEF4444), Color(0xFFDC2626)]),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -738,7 +948,8 @@ class _RequisitionPipelineCard extends StatelessWidget {
       title: 'Commandes',
       count: '',
       icon: Icons.shopping_cart_rounded,
-      gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)]),
+      gradient:
+      const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)]),
       customBody: Row(
         children: [
           Expanded(
@@ -751,7 +962,8 @@ class _RequisitionPipelineCard extends StatelessWidget {
                   .snapshots(),
                   () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => RequisitionApprovalPage(userRole: userRole)),
+                MaterialPageRoute(
+                    builder: (_) => RequisitionApprovalPage(userRole: userRole)),
               ),
             ),
           ),
@@ -762,7 +974,11 @@ class _RequisitionPipelineCard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.white.withOpacity(0.0), Colors.white.withOpacity(0.3), Colors.white.withOpacity(0.0)],
+                colors: [
+                  Colors.white.withOpacity(0.0),
+                  Colors.white.withOpacity(0.3),
+                  Colors.white.withOpacity(0.0)
+                ],
               ),
             ),
           ),
@@ -776,7 +992,8 @@ class _RequisitionPipelineCard extends StatelessWidget {
                   .snapshots(),
                   () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => PurchasingHubPage(userRole: userRole)),
+                MaterialPageRoute(
+                    builder: (_) => PurchasingHubPage(userRole: userRole)),
               ),
             ),
           ),
@@ -813,7 +1030,10 @@ class _RequisitionPipelineCard extends StatelessWidget {
                 final cnt = s.hasData ? s.data!.docs.length : 0;
                 return Text(
                   cnt.toString(),
-                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white),
                 );
               },
             ),
@@ -840,8 +1060,10 @@ class _PendingBillingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream:
-      FirebaseFirestore.instance.collection('interventions').where('status', isEqualTo: "Terminé").snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('interventions')
+          .where('status', isEqualTo: "Terminé")
+          .snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
         return _buildGlowingCard(
@@ -849,8 +1071,10 @@ class _PendingBillingCard extends StatelessWidget {
           title: 'Facturation en Attente',
           count: count.toString(),
           icon: Icons.receipt_long_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF14B8A6), Color(0xFF0D9488)]),
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BillingHubPage())),
+          gradient:
+          const LinearGradient(colors: [Color(0xFF14B8A6), Color(0xFF0D9488)]),
+          onTap: () => Navigator.push(
+              context, MaterialPageRoute(builder: (_) => const BillingHubPage())),
         );
       },
     );
@@ -874,7 +1098,8 @@ class _PendingReplacementsCard extends StatelessWidget {
           title: 'Remplacements à Préparer',
           count: count.toString(),
           icon: Icons.inventory_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
+          gradient:
+          const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -894,11 +1119,12 @@ class _LivraisonsCard extends StatelessWidget {
   const _LivraisonsCard();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) { // <--- THIS WAS THE TYPO
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('livraisons')
-          .where('status', whereIn: const ["À Préparer", "En Cours de Livraison"])
+          .where('status',
+          whereIn: const ["À Préparer", "En Cours de Livraison"])
           .snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
@@ -907,8 +1133,10 @@ class _LivraisonsCard extends StatelessWidget {
           title: 'Livraisons Actives',
           count: count.toString(),
           icon: Icons.local_shipping_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]),
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
+          gradient:
+          const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]),
+          onTap: () => Navigator.push(
+              context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
         );
       },
     );
@@ -930,15 +1158,20 @@ Widget _buildGlowingCard({
   return Container(
     margin: isWeb ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 20),
     decoration: BoxDecoration(
-      gradient:
-      LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [
-        Colors.white.withOpacity(0.2),
-        Colors.white.withOpacity(0.1),
-      ]),
+      gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withOpacity(0.2),
+            Colors.white.withOpacity(0.1),
+          ]),
       borderRadius: BorderRadius.circular(28),
       border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
       boxShadow: [
-        BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 30, offset: const Offset(0, 15)),
+        BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 30,
+            offset: const Offset(0, 15)),
       ],
     ),
     child: Material(
