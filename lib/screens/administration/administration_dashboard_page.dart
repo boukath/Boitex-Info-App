@@ -751,7 +751,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
           collection: 'interventions',
           icon: Icons.handyman_rounded,
           statusField: 'status',
-          pendingStatus: 'Planifiée',
+          pendingStatus: 'Nouveau',
           titleField: 'interventionCode',
           subtitleField: 'clientName',
         );
@@ -761,7 +761,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
           collection: 'sav_tickets',
           icon: Icons.support_agent_rounded,
           statusField: 'status',
-          pendingStatus: 'Nouveau',
+          pendingStatus: 'Irréparable - Remplacement Demandé',
           titleField: 'savCode',
           subtitleField: 'clientName',
         );
@@ -771,7 +771,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
           collection: 'missions',
           icon: Icons.assignment_rounded,
           statusField: 'status',
-          pendingStatus: 'En attente',
+          pendingStatus: 'En Cours',
           titleField: 'title',
           subtitleField: 'clientName',
         );
