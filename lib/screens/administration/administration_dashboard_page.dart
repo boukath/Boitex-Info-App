@@ -1,8 +1,9 @@
 // lib/screens/administration/administration_dashboard_page.dart
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart'; // <--- ADDED
+import 'package:intl/intl.dart';
 
 import 'package:boitex_info_app/screens/administration/manage_clients_page.dart';
 import 'package:boitex_info_app/screens/administration/add_project_page.dart';
@@ -35,12 +36,14 @@ class AdministrationDashboardPage extends StatefulWidget {
       _AdministrationDashboardPageState();
 }
 
-class _AdministrationDashboardPageState
-    extends State<AdministrationDashboardPage>
-    with SingleTickerProviderStateMixin {
+class _AdministrationDashboardPageState extends State<AdministrationDashboardPage>
+    with TickerProviderStateMixin { // <-- Ensure TickerProviderStateMixin
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  String? _currentUserId;
+  TabController? _pendingActionsTabController; // <-- Added for tabs
+  int _selectedPendingActionTab = 0; // <-- Added for tabs
 
   @override
   void initState() {
@@ -56,11 +59,26 @@ class _AdministrationDashboardPageState
       CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
     );
     _controller.forward();
+    _currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
+    // --- Initialize TabController ---
+    _pendingActionsTabController = TabController(length: 3, vsync: this);
+    _pendingActionsTabController!.addListener(() {
+      // Check if the controller index is actually changing to avoid unnecessary rebuilds
+      if (!_pendingActionsTabController!.indexIsChanging &&
+          _pendingActionsTabController!.index != _selectedPendingActionTab) {
+        setState(() {
+          _selectedPendingActionTab = _pendingActionsTabController!.index;
+        });
+      }
+    });
+    // --- END ---
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _pendingActionsTabController?.dispose(); // <-- Dispose TabController
     super.dispose();
   }
 
@@ -118,7 +136,7 @@ class _AdministrationDashboardPageState
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // LEFT COLUMN - Actions Grid
+                          // LEFT COLUMN - Actions Grid, Pending, Recent
                           Expanded(
                             flex: 3,
                             child: _buildGlassCard(
@@ -165,13 +183,11 @@ class _AdministrationDashboardPageState
         padding: const EdgeInsets.fromLTRB(40, 20, 40, 32),
         child: Row(
           children: [
-            // Back Button
             _glassIconButton(
               icon: Icons.arrow_back_ios_new_rounded,
               onTap: () => Navigator.pop(context),
             ),
             const Spacer(),
-            // Center chip: Name • Role (large, readable, no scaling)
             Expanded(
               child: Center(
                 child: ConstrainedBox(
@@ -235,7 +251,6 @@ class _AdministrationDashboardPageState
               ),
             ),
             const Spacer(),
-            // Notification Button
             _glassIconButton(
               icon: Icons.notifications_rounded,
               onTap: () => Navigator.push(
@@ -265,6 +280,7 @@ class _AdministrationDashboardPageState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // --- Actions Rapides Grid ---
         const Text(
           'Actions Rapides',
           style: TextStyle(
@@ -285,23 +301,39 @@ class _AdministrationDashboardPageState
           children: _buildQuickActions(context),
         ),
 
-        // =============== MODIFIED SECTION ===============
+        // --- Actions en Attente (Tabs) ---
         const SizedBox(height: 32),
         Padding(
-          padding: const EdgeInsets.only(left: 8.0), // Slight indent for title
+          padding: const EdgeInsets.only(left: 8.0),
           child: Text(
-            'Activité Récente',
+            'Actions en Attente', // Updated Title
             style: TextStyle(
               color: Colors.white.withOpacity(0.95),
-              fontSize: 20, // Slightly smaller than main title
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               letterSpacing: 0.5,
             ),
           ),
         ),
         const SizedBox(height: 16),
-        _buildRecentActivityFeed(), // <--- YOUR NEW WIDGET
-        // ===========================================
+        _buildPendingActionsFeed(), // Contains Tabs
+
+        // --- Activité Récente ---
+        const SizedBox(height: 32),
+        Padding(
+          padding: const EdgeInsets.only(left: 8.0),
+          child: Text(
+            'Activité Récente',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.95),
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildRecentActivityFeed(),
       ],
     );
   }
@@ -319,24 +351,31 @@ class _AdministrationDashboardPageState
       children: cards.asMap().entries.map((entry) {
         final index = entry.key;
         final card = entry.value;
-        return TweenAnimationBuilder<double>(
-          duration: Duration(milliseconds: 600 + (index * 100)),
-          tween: Tween(begin: 0, end: 1),
-          builder: (context, value, child) {
-            return Transform.translate(
-              offset: Offset(0, 30 * (1 - value)),
-              child: Opacity(opacity: value, child: child),
-            );
-          },
-          child: card,
+        return Padding( // Add padding between urgent task cards
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: TweenAnimationBuilder<double>(
+            duration: Duration(milliseconds: 600 + (index * 100)),
+            tween: Tween(begin: 0, end: 1),
+            builder: (context, value, child) {
+              return Transform.translate(
+                offset: Offset(0, 30 * (1 - value)),
+                child: Opacity(opacity: value, child: child),
+              );
+            },
+            child: card,
+          ),
         );
       }).toList(),
     );
   }
 
   // ========================= MOBILE =========================
+  // (Mobile section remains largely the same, just ensure it includes the new sections if needed)
 
   Widget _buildMobileDashboard(BuildContext context, bool canSeeMgmt) {
+    // Note: The new tabbed list might be too complex/wide for mobile.
+    // Consider showing a simplified version or just the recent activity here.
+    // For now, let's keep it structurally similar to web, but it might need refinement.
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -360,9 +399,45 @@ class _AdministrationDashboardPageState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildGlassCard(child: _buildActionsGrid(context)),
+                        _buildGlassCard(child: _buildActionsGrid(context)), // Quick Actions
+
+                        // --- Mobile Pending Actions (Simplified - maybe just counts or first few items?) ---
                         const SizedBox(height: 24),
-                        _buildUrgentTasksSection(canSeeMgmt),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                          child: Text(
+                            'Actions en Attente',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.95),
+                              fontSize: 20, // Mobile size
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildGlassCard(child: _buildPendingActionsFeed()), // Use the same tabbed view for now
+
+                        // --- Mobile Recent Activity ---
+                        const SizedBox(height: 24),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                          child: Text(
+                            'Activité Récente',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.95),
+                              fontSize: 20, // Mobile size
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildGlassCard(child: _buildRecentActivityFeed()),
+
+
+                        const SizedBox(height: 24),
+                        _buildUrgentTasksSection(canSeeMgmt), // Urgent Tasks (Cards)
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -376,7 +451,7 @@ class _AdministrationDashboardPageState
     );
   }
 
-  // Header with large readable text (no scale down) and overflow-safe ellipsis
+
   Widget _buildUltraCompactHeader() {
     return SliverToBoxAdapter(
       child: Container(
@@ -462,7 +537,6 @@ class _AdministrationDashboardPageState
     );
   }
 
-  // Shared glass card container
   Widget _buildGlassCard({required Widget child}) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -487,7 +561,6 @@ class _AdministrationDashboardPageState
     );
   }
 
-  // Mobile actions grid (taller tiles to avoid bottom overflow)
   Widget _buildActionsGrid(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -508,7 +581,7 @@ class _AdministrationDashboardPageState
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
-          childAspectRatio: 0.90, // taller tiles (was ~1.1)
+          childAspectRatio: 0.90,
           children: _buildQuickActions(context),
         ),
       ],
@@ -518,69 +591,36 @@ class _AdministrationDashboardPageState
   List<Widget> _buildQuickActions(BuildContext context) {
     final items = <_ActionData>[
       _ActionData(
-        'Nouveau\nProjet',
-        Icons.note_add_rounded,
-        const Color(0xFF10B981),
-            () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
+        'Nouveau\nProjet', Icons.note_add_rounded, const Color(0xFF10B981),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
       ),
       _ActionData(
-        'Clients',
-        Icons.store_rounded,
-        const Color(0xFF3B82F6),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) => ManageClientsPage(userRole: widget.userRole)),
-        ),
+        'Clients', Icons.store_rounded, const Color(0xFF3B82F6),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => ManageClientsPage(userRole: widget.userRole))),
       ),
       _ActionData(
-        'Projets',
-        Icons.folder_rounded,
-        const Color(0xFF8B5CF6),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) => ManageProjectsPage(userRole: widget.userRole)),
-        ),
+        'Projets', Icons.folder_rounded, const Color(0xFF8B5CF6),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => ManageProjectsPage(userRole: widget.userRole))),
       ),
       _ActionData(
-        'Produits',
-        Icons.inventory_2_rounded,
-        const Color(0xFF14B8A6),
-            () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
+        'Produits', Icons.inventory_2_rounded, const Color(0xFF14B8A6),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
       ),
       _ActionData(
-        'Stock',
-        Icons.warehouse_rounded,
-        const Color(0xFF6366F1),
-            () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const StockPage())),
+        'Stock', Icons.warehouse_rounded, const Color(0xFF6366F1),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockPage())),
       ),
       _ActionData(
-        'Missions',
-        Icons.assignment_rounded,
-        const Color(0xFFA855F7),
-            () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
+        'Missions', Icons.assignment_rounded, const Color(0xFFA855F7),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
       ),
       _ActionData(
-        'Livraisons',
-        Icons.local_shipping_rounded,
-        const Color(0xFFF59E0B),
-            () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
+        'Livraisons', Icons.local_shipping_rounded, const Color(0xFFF59E0B),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
       ),
       _ActionData(
-        'Historique',
-        Icons.history_rounded,
-        const Color(0xFF78716C),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) => ActivityLogPage(userRole: widget.userRole)),
-        ),
+        'Historique', Icons.history_rounded, const Color(0xFF78716C),
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => ActivityLogPage(userRole: widget.userRole))),
       ),
     ];
 
@@ -635,17 +675,17 @@ class _AdministrationDashboardPageState
           children: cards.asMap().entries.map((entry) {
             final index = entry.key;
             final card = entry.value;
-            return TweenAnimationBuilder<double>(
-              duration: Duration(milliseconds: 600 + (index * 100)),
-              tween: Tween(begin: 0, end: 1),
-              builder: (context, value, child) {
-                return Transform.translate(
-                  offset: Offset(0, 30 * (1 - value)),
-                  child: Opacity(opacity: value, child: child),
-                );
-              },
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+            return Padding( // Added padding for mobile urgent tasks
+              padding: const EdgeInsets.only(bottom: 16),
+              child: TweenAnimationBuilder<double>(
+                duration: Duration(milliseconds: 600 + (index * 100)),
+                tween: Tween(begin: 0, end: 1),
+                builder: (context, value, child) {
+                  return Transform.translate(
+                    offset: Offset(0, 30 * (1 - value)),
+                    child: Opacity(opacity: value, child: child),
+                  );
+                },
                 child: card,
               ),
             );
@@ -656,10 +696,202 @@ class _AdministrationDashboardPageState
   }
 
   // ========================================================
-  // =============== NEW HELPER METHODS ADDED ===============
+  // =============== NEW & UPDATED HELPER METHODS ===============
   // ========================================================
 
+  // --- Pending Actions Feed (with Tabs) ---
+  Widget _buildPendingActionsFeed() {
+    return Column(
+      children: [
+        Container(
+          height: 45,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(25.0),
+          ),
+          child: TabBar(
+            controller: _pendingActionsTabController,
+            indicator: BoxDecoration(
+              borderRadius: BorderRadius.circular(25.0),
+              color: Colors.white.withOpacity(0.3),
+              border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
+            ),
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white.withOpacity(0.7),
+            labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal),
+            tabs: const [
+              Tab(text: 'Interventions'),
+              Tab(text: 'SAV'),
+              Tab(text: 'Missions'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          child: Container(
+            key: ValueKey<int>(_selectedPendingActionTab),
+            child: _buildSelectedPendingList(),
+          ),
+        ),
+      ],
+    );
+  }
 
+  // --- Helper to build the correct list based on selected tab ---
+  Widget _buildSelectedPendingList() {
+    switch (_selectedPendingActionTab) {
+      case 0: // Interventions
+        return _buildGeneralTaskStream(
+          key: const ValueKey('interventions'),
+          collection: 'interventions',
+          icon: Icons.handyman_rounded,
+          statusField: 'status',
+          pendingStatus: 'Planifiée',
+          titleField: 'interventionCode',
+          subtitleField: 'clientName',
+        );
+      case 1: // SAV
+        return _buildGeneralTaskStream(
+          key: const ValueKey('sav'),
+          collection: 'sav_tickets',
+          icon: Icons.support_agent_rounded,
+          statusField: 'status',
+          pendingStatus: 'Nouveau',
+          titleField: 'savCode',
+          subtitleField: 'clientName',
+        );
+      case 2: // Missions
+        return _buildGeneralTaskStream(
+          key: const ValueKey('missions'),
+          collection: 'missions',
+          icon: Icons.assignment_rounded,
+          statusField: 'status',
+          pendingStatus: 'En attente',
+          titleField: 'title',
+          subtitleField: 'clientName',
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  // --- General Task Stream (No user filter) ---
+  Widget _buildGeneralTaskStream({
+    required Key key,
+    required IconData icon,
+    required String collection,
+    required String statusField,
+    required String pendingStatus,
+    required String titleField,
+    String? subtitleField,
+  }) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection(collection)
+          .where(statusField, isEqualTo: pendingStatus)
+          .orderBy('timestamp', descending: true) // Assuming timestamp exists
+          .limit(10)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: Padding(padding: EdgeInsets.all(8.0), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))));
+        }
+        if (snapshot.hasError) {
+          // ignore: avoid_print
+          print('Error in GENERAL task stream ($collection): ${snapshot.error}');
+          return const Center(child: Text('Erreur de chargement.', style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic)));
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Center(child: Padding( // Add padding to empty message
+            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            child: Text('Aucun élément "$pendingStatus".', style: const TextStyle(color: Colors.white70, fontStyle: FontStyle.italic)),
+          ));
+        }
+
+        final tasks = snapshot.data!.docs;
+
+        return ListView.builder(
+          itemCount: tasks.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(0),
+          itemBuilder: (context, index) {
+            final task = tasks[index].data() as Map<String, dynamic>;
+
+            final String taskTitle = task[titleField] ?? 'Tâche inconnue';
+            String taskSubtitle = '';
+
+            if (subtitleField != null && task.containsKey(subtitleField) && task[subtitleField] != null) {
+              taskSubtitle = task[subtitleField];
+            }
+
+            // --- Display assigned technicians ---
+            List<String> assignedNames = [];
+            // Define expected field names based on collection
+            String techNameField = '';
+            if (collection == 'interventions' && task.containsKey('assignedTechniciansNames')) {
+              techNameField = 'assignedTechniciansNames';
+            } else if (collection == 'missions' && task.containsKey('assignedTechniciansNames')) {
+              techNameField = 'assignedTechniciansNames';
+            } else if (collection == 'sav_tickets' && task.containsKey('pickupTechnicianNames')) {
+              techNameField = 'pickupTechnicianNames';
+            }
+
+            if (techNameField.isNotEmpty && task[techNameField] is List) {
+              assignedNames = List<String>.from(task[techNameField] ?? []);
+            }
+
+            String assignedText = assignedNames.isNotEmpty ? 'Assigné à: ${assignedNames.join(', ')}' : 'Non assigné';
+            // --- END ---
+
+            String combinedSubtitle = taskSubtitle;
+            if (taskSubtitle.isNotEmpty) {
+              combinedSubtitle += '\n$assignedText';
+            } else {
+              combinedSubtitle = assignedText;
+            }
+
+            return ListTile(
+              isThreeLine: taskSubtitle.isNotEmpty && assignedNames.isNotEmpty,
+              leading: Icon(icon, color: Colors.white, size: 28),
+              title: Text(
+                taskTitle,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: Text(
+                combinedSubtitle,
+                style: TextStyle(color: Colors.white.withOpacity(0.8), height: 1.3),
+              ),
+              trailing: Icon(
+                Icons.arrow_forward_ios_rounded,
+                color: Colors.white.withOpacity(0.7),
+                size: 16,
+              ),
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        'Navigation vers $taskTitle non implémentée.'),
+                    backgroundColor: Colors.indigo,
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // --- Recent Activity Feed (Detailed View) ---
   Widget _buildRecentActivityFeed() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -678,10 +910,13 @@ class _AdministrationDashboardPageState
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(
-            child: Text(
-              'Aucune activité récente.',
-              style: TextStyle(
-                  color: Colors.white70, fontStyle: FontStyle.italic),
+            child: Padding( // Add padding to empty message
+              padding: EdgeInsets.symmetric(vertical: 16.0),
+              child: Text(
+                'Aucune activité récente.',
+                style: TextStyle(
+                    color: Colors.white70, fontStyle: FontStyle.italic),
+              ),
             ),
           );
         }
@@ -702,118 +937,81 @@ class _AdministrationDashboardPageState
           itemBuilder: (context, index) {
             final log = logs[index].data() as Map<String, dynamic>;
 
-            // ================== MODIFIED SECTION ==================
-
-            // --- 1. Get all the data safely ---
             final String message = log['message'] ?? 'Action inconnue';
             final String user = log['userName'] ?? 'Système';
             final String? category = log['category'] as String?;
             final Timestamp? timestamp = log['timestamp'];
             final String time = _formatRelativeTime(timestamp);
-
-            // Get optional context fields
             final String? clientName = log['clientName'] as String?;
             final String? storeName = log['storeName'] as String?;
             final String? storeLocation = log['storeLocation'] as String?;
 
-            // --- 2. Build the subtitle lines ---
-
-            // Line 1: Context (Client, Store, Location)
             List<String> contextParts = [];
-            if (clientName != null && clientName.isNotEmpty) {
-              contextParts.add(clientName);
-            }
-            if (storeName != null && storeName.isNotEmpty) {
-              contextParts.add(storeName);
-            }
-            if (storeLocation != null && storeLocation.isNotEmpty) {
-              contextParts.add(storeLocation);
-            }
-            String contextLine = contextParts.join(' • '); // e.g., "Client A • Magasin Alger"
+            if (clientName != null && clientName.isNotEmpty) contextParts.add(clientName);
+            if (storeName != null && storeName.isNotEmpty) contextParts.add(storeName);
+            if (storeLocation != null && storeLocation.isNotEmpty) contextParts.add(storeLocation);
+            String contextLine = contextParts.join(' • ');
+            String actorLine = '$user • $time';
+            String subtitleText = contextLine.isNotEmpty ? '$contextLine\n$actorLine' : actorLine;
 
-            // Line 2: Actor & Time
-            String actorLine = '$user • $time'; // e.g., "admin@boitex.com • 5 min ago"
-
-            // Combine them
-            String subtitleText = actorLine; // Default if no context
-            if (contextLine.isNotEmpty) {
-              subtitleText = '$contextLine\n$actorLine'; // 2-line subtitle
-            }
-
-            // --- 3. Build the ListTile ---
             return ListTile(
-              // This is important for a 2-line subtitle
               isThreeLine: contextLine.isNotEmpty,
-              leading: Icon(
-                _getIconForActivity(category),
-                color: Colors.white,
-              ),
+              leading: Icon(_getIconForActivity(category), color: Colors.white),
               title: Text(
-                message, // The main action
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
+                message,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                subtitleText, // Our new dynamic subtitle
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  height: 1.4, // Adds nice spacing between the lines
-                ),
+                subtitleText,
+                style: TextStyle(color: Colors.white.withOpacity(0.8), height: 1.4),
               ),
             );
-            // ======================================================
           },
         );
       },
     );
   }
+
   IconData _getIconForActivity(String? type) {
-    // You can expand this with more types from your ActivityLogger
     switch (type) {
-      case 'PROJECT':
-        return Icons.folder_rounded;
-      case 'CLIENT':
-        return Icons.store_rounded;
-      case 'STOCK':
-        return Icons.warehouse_rounded;
-      case 'MISSION':
-        return Icons.assignment_rounded;
-      case 'LIVRAISON':
-        return Icons.local_shipping_rounded;
-      case 'AUTH':
-        return Icons.login_rounded;
-      default:
-        return Icons.info_outline_rounded;
+      case 'PROJECT': return Icons.folder_rounded;
+      case 'CLIENT': return Icons.store_rounded;
+      case 'STOCK': return Icons.warehouse_rounded;
+      case 'MISSION': return Icons.assignment_rounded;
+      case 'LIVRAISON': return Icons.local_shipping_rounded;
+      case 'AUTH': return Icons.login_rounded;
+    // Add specific icons for intervention, SAV etc. if needed
+      case 'INTERVENTION': return Icons.handyman_rounded;
+      case 'SAV_TICKET': return Icons.support_agent_rounded;
+      default: return Icons.info_outline_rounded;
     }
   }
 
   String _formatRelativeTime(Timestamp? timestamp) {
     if (timestamp == null) return 'date inconnue';
-
     final dt = timestamp.toDate();
     final now = DateTime.now();
     final difference = now.difference(dt);
 
-    if (difference.inSeconds < 60) {
-      return 'à l\'instant';
-    } else if (difference.inMinutes < 60) {
-      return 'il y a ${difference.inMinutes} min';
-    } else if (difference.inHours < 24) {
-      return 'il y a ${difference.inHours} h';
-    } else if (difference.inDays == 1) {
-      return 'hier';
-    } else {
-      // Formats as '20 oct.'
+    if (difference.inSeconds < 60) return 'à l\'instant';
+    if (difference.inMinutes < 60) return 'il y a ${difference.inMinutes} min';
+    if (difference.inHours < 24) return 'il y a ${difference.inHours} h';
+    if (difference.inDays == 1) return 'hier';
+    try {
+      // Ensure locale is initialized (might need setup in main.dart)
       return DateFormat('d MMM', 'fr_FR').format(dt);
+    } catch (e) {
+      // Fallback if locale isn't ready
+      return DateFormat('d MMM').format(dt);
     }
   }
-}
+} // End of _AdministrationDashboardPageState
 
 // ========================= MODELS & CARDS =========================
+// (ActionData, ActionCard, Stat Cards like _ReplacementRequestsCard, _buildGlowingCard etc. remain unchanged below)
+
 
 class _ActionData {
   final String label;
@@ -860,12 +1058,12 @@ class _ActionCard extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(24),
           child: Padding(
-            padding: const EdgeInsets.all(14), // slightly tighter
+            padding: const EdgeInsets.all(14),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(14), // slightly tighter
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     gradient:
                     LinearGradient(colors: [color, color.withOpacity(0.7)]),
@@ -877,7 +1075,7 @@ class _ActionCard extends StatelessWidget {
                           offset: const Offset(0, 8)),
                     ],
                   ),
-                  child: Icon(icon, color: Colors.white, size: 28), // was 32
+                  child: Icon(icon, color: Colors.white, size: 28),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -904,7 +1102,7 @@ class _ActionCard extends StatelessWidget {
 // ======= STAT CARDS (streams) =======
 
 class _ReplacementRequestsCard extends StatelessWidget {
-  const _ReplacementRequestsCard();
+  const _ReplacementRequestsCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -939,14 +1137,14 @@ class _ReplacementRequestsCard extends StatelessWidget {
 
 class _RequisitionPipelineCard extends StatelessWidget {
   final String userRole;
-  const _RequisitionPipelineCard({required this.userRole});
+  const _RequisitionPipelineCard({super.key, required this.userRole});
 
   @override
   Widget build(BuildContext context) {
     return _buildGlowingCard(
       context: context,
       title: 'Commandes',
-      count: '',
+      count: '', // Count is handled by mini stats
       icon: Icons.shopping_cart_rounded,
       gradient:
       const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)]),
@@ -1014,20 +1212,12 @@ class _RequisitionPipelineCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
+            // Placeholder replaced by actual StreamBuilder
             StreamBuilder<QuerySnapshot>(
               stream: stream,
               builder: (c, s) {
                 final cnt = s.hasData ? s.data!.docs.length : 0;
-                return const Text(
-                  // placeholder while loading; value is in ShaderMask in real cards
-                  '',
-                );
-              },
-            ),
-            StreamBuilder<QuerySnapshot>(
-              stream: stream,
-              builder: (c, s) {
-                final cnt = s.hasData ? s.data!.docs.length : 0;
+                // Use ShaderMask if you want the gradient effect on the number
                 return Text(
                   cnt.toString(),
                   style: const TextStyle(
@@ -1055,14 +1245,16 @@ class _RequisitionPipelineCard extends StatelessWidget {
 }
 
 class _PendingBillingCard extends StatelessWidget {
-  const _PendingBillingCard();
+  const _PendingBillingCard({super.key});
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
+      // Check both interventions and potentially SAV tickets if they also need billing
       stream: FirebaseFirestore.instance
           .collection('interventions')
           .where('status', isEqualTo: "Terminé")
+      // Add .where('billingStatus', isEqualTo: 'pending') if you have such a field
           .snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
@@ -1082,7 +1274,7 @@ class _PendingBillingCard extends StatelessWidget {
 }
 
 class _PendingReplacementsCard extends StatelessWidget {
-  const _PendingReplacementsCard();
+  const _PendingReplacementsCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -1116,10 +1308,10 @@ class _PendingReplacementsCard extends StatelessWidget {
 }
 
 class _LivraisonsCard extends StatelessWidget {
-  const _LivraisonsCard();
+  const _LivraisonsCard({super.key});
 
   @override
-  Widget build(BuildContext context) { // <--- THIS WAS THE TYPO
+  Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('livraisons')
