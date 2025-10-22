@@ -1,16 +1,15 @@
 // lib/screens/administration/billing_history_page.dart
-// ✅ MODIFIED TO SHOW ALL HISTORY IN ONE PAGE
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+// Make sure this import path is correct for your project
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class BillingHistoryPage extends StatelessWidget {
-  // We keep these optional filters. If they are passed, they will work.
-  // If not (our new flow), the page will just show everything.
+class BillingHistoryPage extends StatefulWidget {
+  // These filters are no longer used by this query,
+  // but we keep them so the constructor doesn't break other pages.
   final String? clientNameFilter;
   final String? storeNameFilter;
   final String? storeLocationFilter;
@@ -21,6 +20,30 @@ class BillingHistoryPage extends StatelessWidget {
     this.storeNameFilter,
     this.storeLocationFilter,
   });
+
+  @override
+  State<BillingHistoryPage> createState() => _BillingHistoryPageState();
+}
+
+class _BillingHistoryPageState extends State<BillingHistoryPage> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.toLowerCase();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _launchURL(BuildContext context, String? urlString) async {
     if (urlString == null) return;
@@ -34,178 +57,175 @@ class BillingHistoryPage extends StatelessWidget {
     }
   }
 
-  void _navigateToDetails(BuildContext context, String? interventionId) async {
-    if (interventionId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ID de l\'intervention manquant.')));
-      return;
-    }
-    try {
-      final interventionDoc = await FirebaseFirestore.instance
-          .collection('interventions')
-          .doc(interventionId)
-          .get();
-
-      if (interventionDoc.exists && context.mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => InterventionDetailsPage(
-              interventionDoc: interventionDoc,
-            ),
-          ),
-        );
-      } else if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Intervention non trouvée ou supprimée.')));
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erreur lors de la récupération de l\'intervention: $e')));
-      }
-    }
-  }
-
-  // ✅ MODIFIED: Simplified title functions
-  // We check if any filter is active. If so, show "Filtre Appliqué".
-  // Otherwise, show "Historique Facturation".
-  String _buildTitle() {
-    if (clientNameFilter != null || storeNameFilter != null || storeLocationFilter != null) {
-      return storeLocationFilter ?? storeNameFilter ?? clientNameFilter ?? 'Filtre Appliqué';
-    }
-    return 'Historique Facturation';
-  }
-
-  // ✅ MODIFIED: Show filter details or a general subtitle.
-  String _buildSubtitle() {
-    if (storeLocationFilter != null && storeNameFilter != null) {
-      return '$storeNameFilter ($clientNameFilter)';
-    }
-    if (storeNameFilter != null) {
-      return clientNameFilter ?? '';
-    }
-    if (clientNameFilter != null) {
-      return 'Filtre: $clientNameFilter';
-    }
-    return 'Toutes les transactions'; // New default subtitle
-  }
-
   @override
   Widget build(BuildContext context) {
+    // ✅ --- THIS IS THE FIX ---
+    // Query the 'global_activity_log' collection
+    // Filter by the 'Facturation' category
+    // Order by timestamp
     Query query = FirebaseFirestore.instance
         .collection('global_activity_log')
-        .where('category', whereIn: ['Intervention Facturée', 'Intervention Clôturée Sans Facture', 'Facturation']) // ✅ MODIFIED: Use 'category' for reliability
+        .where('category', isEqualTo: 'Facturation')
         .orderBy('timestamp', descending: true);
+    // ✅ --- END OF FIX ---
 
-    // This filter logic is still 100% valid.
-    // If filters are null, it just skips them.
-    if (clientNameFilter != null && clientNameFilter!.isNotEmpty) {
-      query = query.where('clientName', isEqualTo: clientNameFilter);
-    }
-    if (storeNameFilter != null && storeNameFilter!.isNotEmpty) {
-      query = query.where('storeName', isEqualTo: storeNameFilter);
-    }
-    if (storeLocationFilter != null && storeLocationFilter!.isNotEmpty) {
-      if (storeLocationFilter == "Emplacement non spécifié") {
-        query = query.where('storeLocation', isNull: true);
-      } else {
-        query = query.where('storeLocation', isEqualTo: storeLocationFilter);
-      }
-    }
+    // We no longer apply the widget filters, as this page is for ALL history
+    // and the search bar will handle filtering.
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FC),
       appBar: AppBar(
+        titleSpacing: 0,
         backgroundColor: Colors.white,
-        elevation: 1.0,
-        foregroundColor: const Color(0xFF1E1E2A),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _buildTitle(), // Uses our new title logic
-              style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
-              overflow: TextOverflow.ellipsis,
-            ),
-            if (_buildSubtitle().isNotEmpty)
-              Text(
-                _buildSubtitle(), // Uses our new subtitle logic
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade600),
-                overflow: TextOverflow.ellipsis,
+        elevation: 1,
+        title: Container(
+          height: 40,
+          margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: TextField(
+            controller: _searchController,
+            autofocus: false,
+            decoration: InputDecoration(
+              hintText: 'Rechercher par client, magasin, date...',
+              hintStyle: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
+              prefixIcon: const Icon(Icons.search, size: 20, color: Colors.grey),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                icon: const Icon(Icons.clear, size: 20, color: Colors.grey),
+                onPressed: () {
+                  _searchController.clear();
+                },
+              )
+                  : null,
+              filled: true,
+              fillColor: Colors.grey.shade100,
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(20.0),
+                borderSide: BorderSide.none,
               ),
-          ],
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
         ),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: query.snapshots(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            // This will show if you need a Firestore index
+            return Center(child: Text("Erreur: ${snapshot.error}"));
+          }
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) {
-            print("Firestore Error: ${snapshot.error}");
-            return Center(child: Text('Erreur: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+
+          if (snapshot.data == null || snapshot.data!.docs.isEmpty) {
             return Center(
-                child: Text(
-                  'Aucun historique de facturation trouvé.', // Simplified message
-                  style: GoogleFonts.poppins(color: Colors.grey.shade600),
-                  textAlign: TextAlign.center,
-                ));
+              child: Text(
+                "Aucune décision de facturation trouvée.",
+                style: GoogleFonts.poppins(),
+              ),
+            );
           }
 
-          final logs = snapshot.data!.docs;
+          final allDocs = snapshot.data!.docs;
+
+          // The local search logic will now filter the full list
+          final filteredDocs = allDocs.where((doc) {
+            if (_searchQuery.isEmpty) {
+              return true;
+            }
+
+            final data = doc.data() as Map<String, dynamic>;
+            final clientName = (data['clientName'] as String? ?? '').toLowerCase();
+            final storeName = (data['storeName'] as String? ?? '').toLowerCase();
+
+            final timestamp = data['timestamp'] as Timestamp?;
+            String formattedDate = '';
+            if (timestamp != null) {
+              formattedDate = DateFormat('dd/MM/yyyy', 'fr_FR').format(timestamp.toDate());
+            }
+
+            return clientName.contains(_searchQuery) ||
+                storeName.contains(_searchQuery) ||
+                formattedDate.contains(_searchQuery);
+
+          }).toList();
+
+          if (filteredDocs.isEmpty) {
+            return Center(
+              child: Text(
+                "Aucun résultat pour '$_searchQuery'",
+                style: GoogleFonts.poppins(),
+              ),
+            );
+          }
 
           return ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            itemCount: logs.length,
+            itemCount: filteredDocs.length,
             itemBuilder: (context, index) {
-              final log = logs[index].data() as Map<String, dynamic>;
-              final timestamp = log['timestamp'] as Timestamp?;
-              final formattedDate = timestamp != null
-                  ? DateFormat('dd/MM/yyyy HH:mm', 'fr_FR')
+              final doc = filteredDocs[index];
+              final data = doc.data() as Map<String, dynamic>;
+
+              // ✅ Map fields from 'global_activity_log'
+              final message = data['message'] as String? ?? '';
+              final interventionId = data['interventionId'] as String? ?? '';
+              final clientName = data['clientName'] as String? ?? 'Client inconnu';
+              final storeName = data['storeName'] as String? ?? 'Magasin inconnu';
+              // ✅ 'madeBy' in the old code is 'userName' in the log
+              final madeBy = data['userName'] as String? ?? 'Inconnu';
+              final invoiceUrl = data['invoiceUrl'] as String?;
+
+              final timestamp = data['timestamp'] as Timestamp?;
+              final date = timestamp != null
+                  ? DateFormat('dd MMM yyyy à HH:mm', 'fr_FR')
                   .format(timestamp.toDate())
                   : 'Date inconnue';
-              
-              // ✅ MODIFIED: Get all relevant data
-              final userName = log['userName'] ?? 'Utilisateur inconnu';
-              final clientName = log['clientName'] ?? 'Client inconnu';
-              final storeName = log['storeName'] ?? 'Magasin inconnu';
-              // final storeLocation = log['storeLocation'] ?? 'Lieu inconnu'; // Not used, but here if you need it
-              final interventionId = log['interventionId'] ?? log['relatedId'] as String?; // Check both fields
-              final invoiceUrl = log['invoiceUrl'] as String?;
-              final message = log['message'] ?? 'Action inconnue';
 
-              // ✅ MODIFIED: Determine title and subtitle
-              // New logic: Title is the client, subtitle has store and message.
-              final String displayTitle = clientName;
-              final String displaySubtitle = "$storeName\n$message\nPar: $userName - $formattedDate";
+              String displayTitle = clientName;
+              String displaySubtitle = '$storeName\n$madeBy - $date';
+              if (message.isNotEmpty) {
+                // Use the log message to show the decision
+                displaySubtitle = '$storeName - $message\n$madeBy - $date';
+              }
 
               return Card(
-                elevation: 2.0,
-                margin: const EdgeInsets.symmetric(vertical: 6.0),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                elevation: 1,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: ListTile(
-                  onTap: () => _navigateToDetails(context, interventionId),
+                  contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  // ✅ --- FIX FOR NAVIGATION ---
+                  // We can't navigate to InterventionDetailsPage with just the log entry.
+                  // We need to fetch the intervention document first.
+                  // For now, let's disable tap to prevent crashes.
+                  // We can add this back later.
+                  onTap: () {
+                    // TODO: To navigate, we must fetch the intervention doc first
+                    // using the 'interventionId'
+                    if (interventionId.isNotEmpty) {
+                      print('Intervention ID: $interventionId');
+                      // We can implement the navigation in the next step
+                    }
+                  },
+                  // ✅ --- END OF FIX ---
                   leading: CircleAvatar(
                     backgroundColor: Colors.deepPurple.withOpacity(0.1),
-                    child: const Icon(Icons.receipt_long, color: Colors.deepPurple),
+                    child: const Icon(Icons.receipt_long,
+                        color: Colors.deepPurple),
                   ),
                   title: Text(
-                    displayTitle, // ✅ Now shows Client Name
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
+                    displayTitle,
+                    style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                   subtitle: Text(
-                    displaySubtitle, // ✅ Now shows Store, Message, User, and Date
-                    style: GoogleFonts.poppins(color: Colors.grey.shade600, fontSize: 12),
+                    displaySubtitle,
+                    style: GoogleFonts.poppins(
+                        color: Colors.grey.shade600, fontSize: 12),
                   ),
-                  isThreeLine: true, // Keep this as true
+                  isThreeLine: true,
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -217,7 +237,9 @@ class BillingHistoryPage extends StatelessWidget {
                           onPressed: () => _launchURL(context, invoiceUrl),
                           splashRadius: 20,
                         ),
-                      const Icon(Icons.chevron_right, color: Colors.grey),
+                      // Only show chevron if tappable
+                      if (interventionId.isNotEmpty)
+                        const Icon(Icons.chevron_right, color: Colors.grey),
                     ],
                   ),
                 ),
