@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/screens/administration/add_requisition_page.dart';
 import 'package:boitex_info_app/screens/administration/confirm_receipt_page.dart';
+import 'package:boitex_info_app/utils/user_roles.dart'; // <-- Add this line
 
 class RequisitionDetailsPage extends StatefulWidget {
   final String requisitionId;
@@ -602,19 +603,21 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
 
       case 'Commandée':
       case 'Partiellement Reçue':
-        if (isManager || isPdg) {
+      // ✅ Corrected permission check using the userRole passed to the page
+        if (RolePermissions.canManageRequisitions(widget.userRole)) {
           return ElevatedButton.icon(
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (context) => ConfirmReceiptPage(requisitionId: widget.requisitionId)),
-              ).then((_) => _fetchRequisitionDetails());
+              ); // Removed .then() call as StreamBuilder handles updates
             },
             icon: const Icon(Icons.inventory_2_outlined),
             label: const Text('Enregistrer une Réception'),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
           );
         }
-        return const Center(child: Text("En attente de réception."));
+        // Show nothing if the user doesn't have permission
+        return const SizedBox.shrink(); // Or return null if appropriate for the layout
 
       default:
         return Center(child: Chip(label: Text('Statut: $status')));
