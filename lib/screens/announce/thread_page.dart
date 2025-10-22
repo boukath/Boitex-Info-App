@@ -1,7 +1,6 @@
-// lib/screens/announce/channel_chat_page.dart
+// lib/screens/announce/thread_page.dart
 
 import 'dart:io';
-import 'package:boitex_info_app/models/channel_model.dart';
 import 'package:boitex_info_app/models/message_model.dart';
 import 'package:boitex_info_app/services/announce_service.dart';
 import 'package:file_picker/file_picker.dart';
@@ -15,45 +14,49 @@ import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 
-// Imports for reactions and threads
+// Imports for reactions
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart' show Uint8List;
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, Platform; // For Platform check
+import 'package:flutter/foundation.dart' show kIsWeb, Platform;
 
-// Import for Thread Page
-import 'thread_page.dart'; // We will create this next
+class ThreadPage extends StatefulWidget {
+  final String channelId;
+  final MessageModel parentMessage; // Pass the whole parent message
 
-class ChannelChatPage extends StatefulWidget {
-  final ChannelModel channel;
-  const ChannelChatPage({super.key, required this.channel});
+  const ThreadPage({
+    super.key,
+    required this.channelId,
+    required this.parentMessage,
+  });
 
   @override
-  State<ChannelChatPage> createState() => _ChannelChatPageState();
+  State<ThreadPage> createState() => _ThreadPageState();
 }
 
-class _ChannelChatPageState extends State<ChannelChatPage> {
+class _ThreadPageState extends State<ThreadPage> {
   final AnnounceService _announceService = AnnounceService();
-  final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _replyController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
   bool _isUploading = false;
 
-  // --- Sending Messages ---
-  void _sendTextMessage() {
-    if (_messageController.text.trim().isNotEmpty) {
-      // Send as a top-level message (threadParentId is null by default)
+  // --- Sending Replies ---
+  void _sendReplyMessage() {
+    if (_replyController.text.trim().isNotEmpty) {
+      // Call sendTextMessage WITH the threadParentId
       _announceService.sendTextMessage(
-        widget.channel.id,
-        _messageController.text.trim(),
+        widget.channelId,
+        _replyController.text.trim(),
+        threadParentId: widget.parentMessage.id, // Set the parent ID!
       );
-      _messageController.clear();
-      _scrollToBottom();
+      _replyController.clear();
+      // Don't need autoscroll on send here, happens via WidgetsBinding
     }
   }
 
-  void _pickAndUploadFile() async {
+  void _pickAndSendReplyFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -65,9 +68,13 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       if (result != null && result.files.single.path != null) {
         setState(() { _isUploading = true; });
         final PlatformFile file = result.files.first;
-        // Send as a top-level message (threadParentId is null by default)
-        await _announceService.sendFileMessage(widget.channel.id, file);
-        _scrollToBottom();
+        // Call sendFileMessage WITH the threadParentId
+        await _announceService.sendFileMessage(
+            widget.channelId,
+            file,
+            threadParentId: widget.parentMessage.id // Set the parent ID!
+        );
+        // Don't need autoscroll on send here
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error uploading file: $e')));
@@ -78,13 +85,9 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
 
   // --- Navigation & Helpers ---
   void _scrollToBottom() {
-    // Scrolls the list to the bottom, typically after sending a message
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        0, // Scroll to the top because the list is reversed
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+    // Scroll reply list to bottom (use jumpTo for instant scroll)
+    if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0) {
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
     }
   }
 
@@ -127,7 +130,6 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     }
   }
 
-  // --- Emoji Picker ---
   void _showEmojiPicker(String messageId) {
     // Shows the emoji picker bottom sheet
     showModalBottomSheet(
@@ -136,7 +138,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         return EmojiPicker(
           onEmojiSelected: (Category? category, Emoji emoji) {
             _announceService.toggleReaction(
-              widget.channel.id,
+              widget.channelId, // Use channelId from widget
               messageId,
               emoji.emoji,
             );
@@ -160,98 +162,105 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
-  // --- Thread Navigation ---
-  void _navigateToThread(MessageModel parentMessage) {
-    // Navigates to the dedicated ThreadPage for a message
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ThreadPage(
-          channelId: widget.channel.id,
-          parentMessage: parentMessage, // Pass the full parent message object
-        ),
-      ),
-    );
-  }
 
   // --- Build Method ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.channel.name)),
+      appBar: AppBar(
+        title: const Text('Thread'),
+      ),
       body: Column(
         children: [
-          // Message List Area
+          // --- Parent Message Display ---
+          _buildParentMessageHeader(widget.parentMessage),
+          const Divider(height: 1), // Separator
+
+          // --- Replies List ---
           Expanded(
             child: StreamBuilder<List<MessageModel>>(
-              // Use getMessages which filters out replies for the main view
-              stream: _announceService.getMessages(widget.channel.id),
+              stream: _announceService.getReplies(widget.channelId, widget.parentMessage.id),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(child: Text('Be the first to say something!'));
+                  return const Center(child: Text("No replies yet.", style: TextStyle(color: Colors.grey)));
                 }
-                final messages = snapshot.data!;
+                final replies = snapshot.data!;
+
+                // Scroll to bottom after the frame is built
+                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
                 return ListView.builder(
                   controller: _scrollController,
-                  reverse: true, // Show newest messages at the bottom
-                  itemCount: messages.length,
+                  // Replies are ordered oldest first, so NO reverse: true
+                  itemCount: replies.length,
                   itemBuilder: (context, index) {
-                    final message = messages[index];
-                    final isMe = message.senderId == _currentUserId;
-                    // Build each message bubble
-                    return _buildMessageBubble(message, isMe);
+                    final reply = replies[index];
+                    final isMe = reply.senderId == _currentUserId;
+                    // Use the unified bubble builder
+                    return _buildMessageBubble(reply, isMe, isReply: true);
                   },
                 );
               },
             ),
           ),
+
           // Upload Indicator
           if (_isUploading) const Padding(padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()),
-          // Message Input Bar
-          _buildMessageInput(), // Standard input for top-level messages
+
+          // --- Reply Input Bar ---
+          _buildReplyInput(),
         ],
       ),
     );
   }
 
-  // --- Message Input Bar ---
-  Widget _buildMessageInput() {
-    // Builds the text field, attach button, and send button
+  // --- Parent Message Header ---
+  Widget _buildParentMessageHeader(MessageModel message) {
+    // Renders the original message at the top of the thread
+    return Container(
+      color: Theme.of(context).canvasColor.withOpacity(0.5), // Subtle background differentiation
+      padding: const EdgeInsets.all(8.0),
+      child: _buildMessageBubble(message, message.senderId == _currentUserId, isParent: true),
+    );
+  }
+
+
+  // --- Reply Input Bar ---
+  Widget _buildReplyInput() {
+    // Input bar specifically for sending replies in the thread
     return Container(
       padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, -2),
-          ),
+          BoxShadow( color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0,-2))
         ],
       ),
       child: Row(
         children: [
           IconButton(
             icon: Icon(Icons.attach_file, color: Theme.of(context).primaryColor),
-            onPressed: _isUploading ? null : _pickAndUploadFile, // Disable while uploading
+            onPressed: _isUploading ? null : _pickAndSendReplyFile, // Call reply file picker
           ),
           Expanded(
             child: TextField(
-              controller: _messageController,
-              decoration: const InputDecoration(
-                hintText: 'Type a message...',
+              controller: _replyController,
+              decoration: InputDecoration(
+                hintText: 'Reply in thread...', // Different hint text
                 border: InputBorder.none,
                 filled: true,
+                // Use theme color or default grey
+                fillColor: Theme.of(context).inputDecorationTheme.fillColor ?? Theme.of(context).colorScheme.surfaceVariant,
               ),
-              onSubmitted: (_) => _sendTextMessage(),
+              onSubmitted: (_) => _sendReplyMessage(), // Call reply send function
             ),
           ),
           IconButton(
             icon: Icon(Icons.send, color: Theme.of(context).primaryColor),
-            onPressed: _isUploading ? null : _sendTextMessage, // Disable while uploading
+            onPressed: _isUploading ? null : _sendReplyMessage, // Call reply send function
           ),
         ],
       ),
@@ -259,54 +268,50 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   }
 
 
-  // --- Message Bubble ---
-  Widget _buildMessageBubble(MessageModel message, bool isMe) {
-    // Builds the entire message bubble structure, including content, reactions, and thread info
+  // --- Unified Message Bubble Builder ---
+  Widget _buildMessageBubble(MessageModel message, bool isMe, {bool isReply = false, bool isParent = false}) {
+    // Central function to build any message bubble (parent or reply)
     final bubbleColor = isMe
         ? Theme.of(context).primaryColor.withOpacity(0.8)
         : Theme.of(context).colorScheme.secondary.withOpacity(0.1);
     final textColor = isMe ? Colors.white : Colors.black87;
-    final bool hasReplies = message.replyCount > 0;
+    // Only show reply count on the parent message *when viewed in the main channel list*
+    final bool showReplyIndicator = !isReply && !isParent && message.replyCount > 0;
+    // Define borderRadius here
+    final BorderRadius borderRadius = BorderRadius.only(
+      topLeft: const Radius.circular(12),
+      topRight: const Radius.circular(12),
+      bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
+      bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
+    );
 
-    return GestureDetector( // Allows long-press for reactions
-      onLongPress: () { _showEmojiPicker(message.id); },
+    return GestureDetector(
+      onLongPress: () { if (!isParent) _showEmojiPicker(message.id); }, // Allow reactions on replies too, but not parent header
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        // Add subtle horizontal margin change for replies (visual indentation)
+        margin: EdgeInsets.symmetric(
+            vertical: 4,
+            horizontal: isReply && !isParent ? (isMe ? 12 : 20) : 8 // Indent replies slightly more
+        ),
         child: Row(
           mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.end, // Align reply button and bubble bottom
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // Reply Icon - Before bubble for others
-            if (!isMe)
-              _buildReplyButton(message),
-            if (!isMe) const SizedBox(width: 4),
-
-            // Main Bubble Content Container
+            // Bubble container
             Container(
               padding: EdgeInsets.zero, // Padding handled inside ClipRRect
               decoration: BoxDecoration(
-                color: bubbleColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(12),
-                  topRight: const Radius.circular(12),
-                  bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
-                  bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
-                ),
+                  color: bubbleColor,
+                  borderRadius: borderRadius // Use defined borderRadius
               ),
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.7, // Limit bubble width
-              ),
-              child: ClipRRect( // Clip content (like images) to rounded corners
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(12),
-                  topRight: const Radius.circular(12),
-                  bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
-                  bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
-                ),
+              // Adjust max width slightly for replies if indented
+              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * (isParent ? 0.9 : (isReply ? 0.65 : 0.7))),
+              child: ClipRRect(
+                borderRadius: borderRadius, // Use defined borderRadius
                 child: Column(
                   crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                   children: [
-                    // Sender Name (Only shown for others, and not on image messages)
+                    // Sender Name (adjust padding/visibility based on context)
                     if (message.messageType != 'image' && !isMe)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -320,20 +325,19 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                       ),
                     if (message.messageType != 'image' && !isMe) const SizedBox(height: 4),
 
-                    // Message Content (Text, Image, File)
+                    // Content
                     _buildMessageContent(message, textColor),
 
-                    // Reactions Display
+                    // Reactions (Show on parent and replies)
                     _buildReactionsDisplay(message, isMe),
 
-                    // Reply Count Indicator
-                    if (hasReplies)
-                      _buildReplyIndicator(message, isMe),
+                    // Reply Count Indicator (Only shown in main channel view)
+                    if (showReplyIndicator)
+                      _buildReplyIndicator(message, isMe), // This is only called from ChannelChatPage now
 
                     // Timestamp
                     Padding(
-                      // Adjust bottom padding based on content to keep timestamp aligned
-                      padding: (message.messageType == 'image' && !hasReplies && message.reactions.isEmpty)
+                      padding: (message.messageType == 'image' && !showReplyIndicator && message.reactions.isEmpty)
                           ? const EdgeInsets.fromLTRB(12, 4, 12, 8)
                           : const EdgeInsets.fromLTRB(12, 4, 12, 12),
                       child: Text(
@@ -348,41 +352,28 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                 ),
               ),
             ),
-
-            // Reply Icon - After bubble for self
-            if (isMe) const SizedBox(width: 4),
-            if (isMe)
-              _buildReplyButton(message),
           ],
         ),
       ),
     );
   }
 
-  // --- Helper for Reply Button ---
-  Widget _buildReplyButton(MessageModel message) {
-    // Builds the small reply icon button
-    return IconButton(
-      icon: Icon(Icons.reply, size: 18, color: Colors.grey.shade600),
-      onPressed: () => _navigateToThread(message),
-      tooltip: 'Reply in Thread',
-      padding: const EdgeInsets.all(4), // Keep it compact
-      constraints: const BoxConstraints(), // Keep it compact
-    );
-  }
-
-  // --- Helper for Reply Indicator ---
+  // --- Reply Indicator ---
   Widget _buildReplyIndicator(MessageModel message, bool isMe){
     // Builds the "💬 X Replies" text, clickable to open the thread
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       child: InkWell( // Make it tappable
-        onTap: () => _navigateToThread(message),
+        onTap: () {
+          // In ThreadPage, this ideally shouldn't be called, but safe fallback
+          // In ChannelChatPage, it correctly navigates
+          // _navigateToThread(message); // This function doesn't exist here, logic moved
+        },
         child: Text(
           '💬 ${message.replyCount} ${message.replyCount == 1 ? "Reply" : "Replies"}',
           style: TextStyle(
             fontSize: 11,
-            color: isMe ? Colors.white70 : Colors.blue.shade800, // Different colors for contrast
+            color: isMe ? Colors.white70 : Colors.blue.shade800,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -390,12 +381,11 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
-
   // --- Reactions Display ---
   Widget _buildReactionsDisplay(MessageModel message, bool isMe) {
     // Builds the row of emoji reaction chips
     if (message.reactions.isEmpty) {
-      return const SizedBox.shrink(); // Return empty widget if no reactions
+      return const SizedBox.shrink(); // Use SizedBox.shrink for zero size
     }
 
     return Padding(
@@ -414,7 +404,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
           return GestureDetector( // Allow tapping chip to toggle reaction
             onTap: () {
               _announceService.toggleReaction(
-                widget.channel.id,
+                widget.channelId, // Use channelId from widget
                 message.id,
                 emoji,
               );
@@ -443,33 +433,30 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
 
   // --- Message Content Builder ---
   Widget _buildMessageContent(MessageModel message, Color textColor) {
-    // Determines the type of content (text, image, pdf, video, file) and builds the appropriate widget
+    // Determines the type of content and builds the appropriate widget
     if (message.fileUrl == null && message.messageType != 'text') {
-      // Error handling for missing file URL
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 12),
-        child: Text('Error: File not found', style: TextStyle(color: Colors.red)),
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Add padding here
+        child: Text('Error: File not found', style: TextStyle(color: Colors.red.withOpacity(0.8))),
       );
     }
     switch (message.messageType) {
       case 'text':
-      // Simple text display
         return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 0), // Consistent padding
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Add padding here
           child: Text(
             message.text ?? '',
             style: TextStyle(color: textColor),
           ),
         );
       case 'image':
-      // Image display, tappable to open gallery
         return GestureDetector(
           onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => ImageGalleryPage(
-                  imageUrls: [message.fileUrl!], // Pass as list
+                  imageUrls: [message.fileUrl!],
                   initialIndex: 0,
                 ),
               ),
@@ -477,31 +464,32 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
           },
           child: Image.network(
             message.fileUrl!,
-            fit: BoxFit.cover, // Cover the bubble area
-            // Loading and error builders for network image
+            fit: BoxFit.cover,
             loadingBuilder: (context, child, loadingProgress) {
               if (loadingProgress == null) return child;
-              return const Center(child: CircularProgressIndicator());
+              // Consistent loading indicator size
+              return const Center(child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+              ));
             },
             errorBuilder: (context, error, stackTrace) {
               return Padding( // Add padding around error icon
-                padding: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.symmetric(vertical: 16.0),
                 child: Icon(Icons.broken_image, color: Colors.red.withOpacity(0.7)),
               );
             },
           ),
         );
       case 'pdf':
-      // PDF file bubble, tappable to open viewer
         return GestureDetector(
           onTap: () { _openPdf(message.fileUrl!, message.fileName ?? 'PDF'); },
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8), // Add vertical padding
             child: _buildFileBubble(message.fileName ?? 'File.pdf', Icons.picture_as_pdf, Colors.red),
           ),
         );
       case 'video':
-      // Video file bubble, tappable to open player
         return GestureDetector(
           onTap: () {
             Navigator.push(
@@ -512,16 +500,15 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
             );
           },
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8), // Add vertical padding
             child: _buildFileBubble(message.fileName ?? 'Video.mp4', Icons.videocam, Colors.blue),
           ),
         );
       default: // 'file' or other unknown types
-      // Generic file bubble, tappable to launch external app
         return GestureDetector(
           onTap: () { _launchFile(message.fileUrl!); },
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8), // Add vertical padding
             child: _buildFileBubble(message.fileName ?? 'File', Icons.insert_drive_file, Colors.grey),
           ),
         );
@@ -530,27 +517,28 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
 
   // --- File Bubble Builder ---
   Widget _buildFileBubble(String fileName, IconData icon, Color iconColor) {
-    // Builds the visual representation for non-image files (icon + name)
+    // Builds the visual representation for non-image files
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8), // Adjusted padding
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.4), // Semi-transparent white background
+        color: Colors.black.withOpacity(0.05), // More subtle background
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min, // Don't take full width
         children: [
-          Icon(icon, color: iconColor, size: 20), // Smaller icon
+          Icon(icon, color: iconColor, size: 20), // Standard icon size
           const SizedBox(width: 8),
           Flexible( // Allow text to wrap/ellipsis if too long
             child: Text(
               fileName,
-              style: const TextStyle(
-                color: Colors.black87,
+              style: TextStyle(
+                color: Colors.grey.shade800, // Darker grey text
                 fontWeight: FontWeight.w500,
-                fontSize: 13, // Slightly smaller text
+                fontSize: 13,
               ),
               overflow: TextOverflow.ellipsis, // Add ellipsis for long names
+              maxLines: 1, // Ensure single line
             ),
           ),
         ],
@@ -558,4 +546,4 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
-} // End of _ChannelChatPageState
+} // End of _ThreadPageState

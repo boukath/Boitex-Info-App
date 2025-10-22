@@ -16,7 +16,6 @@ class AnnounceService {
 
   // --- Channel Methods ---
 
-  /// Gets a real-time stream of all channels
   Stream<List<ChannelModel>> getChannels() {
     return _channelsCollection.snapshots().map((snapshot) {
       return snapshot.docs
@@ -25,12 +24,10 @@ class AnnounceService {
     });
   }
 
-  /// Creates a new channel (Salon)
   Future<void> createChannel(String name, String description) async {
     if (name.trim().isEmpty) {
       throw Exception('Channel name cannot be empty');
     }
-
     try {
       await _channelsCollection.add({
         'name': name.trim(),
@@ -38,7 +35,6 @@ class AnnounceService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     } on FirebaseException catch (e) {
-      // Handle potential errors, e.g., permissions
       print('Error creating channel: $e');
       rethrow;
     }
@@ -46,11 +42,13 @@ class AnnounceService {
 
   // --- Message Methods ---
 
-  /// Gets a real-time stream of messages for a specific channel, ordered by time
+  /// Gets messages for the main channel (excluding replies)
   Stream<List<MessageModel>> getMessages(String channelId) {
     return _channelsCollection
         .doc(channelId)
         .collection('messages')
+    // *** NEW: Filter out replies ***
+        .where('threadParentId', isNull: true)
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
@@ -60,21 +58,58 @@ class AnnounceService {
     });
   }
 
-  /// Helper to get current user's name
+  // *** NEW: Gets replies for a specific thread ***
+  Stream<List<MessageModel>> getReplies(
+      String channelId, String threadParentId) {
+    return _channelsCollection
+        .doc(channelId)
+        .collection('messages')
+    // Filter by the parent message ID
+        .where('threadParentId', isEqualTo: threadParentId)
+    // Order replies chronologically (oldest first in the thread view)
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => MessageModel.fromFirestore(doc))
+          .toList();
+    });
+  }
+
+  // *** NEW: Gets a single message by its ID (for the thread page header) ***
+  Future<MessageModel?> getMessageById(
+      String channelId, String messageId) async {
+    try {
+      final docSnapshot = await _channelsCollection
+          .doc(channelId)
+          .collection('messages')
+          .doc(messageId)
+          .get();
+      if (docSnapshot.exists) {
+        return MessageModel.fromFirestore(docSnapshot);
+      }
+      return null;
+    } catch (e) {
+      print("Error fetching message by ID: $e");
+      return null;
+    }
+  }
+
   String _getSenderName() {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return 'Unknown User';
     return currentUser.displayName ?? currentUser.email ?? 'Unknown User';
   }
 
-  /// Sends a new text message to a channel
-  Future<void> sendTextMessage(String channelId, String text) async {
+  /// Sends a text message, optionally as a reply within a thread
+  Future<void> sendTextMessage(String channelId, String text,
+      {String? threadParentId}) async { // *** Added threadParentId parameter ***
     final User? currentUser = _auth.currentUser;
-    if (currentUser == null) return; // Not logged in
+    if (currentUser == null) return;
 
     final String senderName = _getSenderName();
 
-    final newMessage = {
+    final newMessageData = {
       'senderId': currentUser.uid,
       'senderName': senderName,
       'timestamp': FieldValue.serverTimestamp(),
@@ -82,21 +117,42 @@ class AnnounceService {
       'text': text,
       'fileUrl': null,
       'fileName': null,
-      'reactions': {}, // Initialize reactions
+      'reactions': {},
+      'replyCount': 0, // *** Initialize replyCount ***
+      'threadParentId': threadParentId, // *** Add threadParentId ***
     };
 
-    await _channelsCollection
-        .doc(channelId)
-        .collection('messages')
-        .add(newMessage);
+    // Use a transaction to safely increment replyCount if this is a reply
+    if (threadParentId != null) {
+      final DocumentReference parentMessageRef =
+      _channelsCollection.doc(channelId).collection('messages').doc(threadParentId);
+      final DocumentReference newMessageRef =
+      _channelsCollection.doc(channelId).collection('messages').doc(); // Generate new ID
+
+      await _firestore.runTransaction((transaction) async {
+        // Increment replyCount on the parent
+        transaction.update(parentMessageRef, {
+          'replyCount': FieldValue.increment(1),
+        });
+        // Create the new reply message
+        transaction.set(newMessageRef, newMessageData);
+      });
+    } else {
+      // Just add the message if it's not a reply
+      await _channelsCollection
+          .doc(channelId)
+          .collection('messages')
+          .add(newMessageData);
+    }
   }
 
-  /// Uploads a file and sends the corresponding message
-  Future<void> sendFileMessage(String channelId, PlatformFile file) async {
+  /// Sends a file message, optionally as a reply within a thread
+  Future<void> sendFileMessage(String channelId, PlatformFile file,
+      {String? threadParentId}) async { // *** Added threadParentId parameter ***
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    // 1. Determine Message Type
+    // 1. Determine Message Type (unchanged)
     String messageType = 'file';
     final String extension = file.extension?.toLowerCase() ?? '';
     if (['jpg', 'jpeg', 'png', 'gif'].contains(extension)) {
@@ -107,38 +163,56 @@ class AnnounceService {
       messageType = 'pdf';
     }
 
-    // 2. Upload file to Firebase Storage
-    final String fileName =
-        '${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+    // 2. Upload file to Firebase Storage (unchanged)
+    final String fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.name}';
     final String path = 'announcements/$channelId/$fileName';
     final File localFile = File(file.path!);
-
     final UploadTask uploadTask = _storage.ref().child(path).putFile(localFile);
     final TaskSnapshot snapshot = await uploadTask;
     final String downloadUrl = await snapshot.ref.getDownloadURL();
 
-    // 3. Create the message in Firestore
+    // 3. Prepare message data
     final String senderName = _getSenderName();
-    final newMessage = {
+    final newMessageData = {
       'senderId': currentUser.uid,
       'senderName': senderName,
       'timestamp': FieldValue.serverTimestamp(),
       'messageType': messageType,
       'text': null,
       'fileUrl': downloadUrl,
-      'fileName': file.name, // Store original file name
-      'reactions': {}, // Initialize reactions
+      'fileName': file.name,
+      'reactions': {},
+      'replyCount': 0, // *** Initialize replyCount ***
+      'threadParentId': threadParentId, // *** Add threadParentId ***
     };
 
-    await _channelsCollection
-        .doc(channelId)
-        .collection('messages')
-        .add(newMessage);
+    // Use a transaction to safely increment replyCount if this is a reply
+    if (threadParentId != null) {
+      final DocumentReference parentMessageRef =
+      _channelsCollection.doc(channelId).collection('messages').doc(threadParentId);
+      final DocumentReference newMessageRef =
+      _channelsCollection.doc(channelId).collection('messages').doc(); // Generate new ID
+
+      await _firestore.runTransaction((transaction) async {
+        // Increment replyCount on the parent
+        transaction.update(parentMessageRef, {
+          'replyCount': FieldValue.increment(1),
+        });
+        // Create the new reply message
+        transaction.set(newMessageRef, newMessageData);
+      });
+    } else {
+      // Just add the message if it's not a reply
+      await _channelsCollection
+          .doc(channelId)
+          .collection('messages')
+          .add(newMessageData);
+    }
   }
 
-  /// Toggles an emoji reaction on a message
   Future<void> toggleReaction(
       String channelId, String messageId, String emoji) async {
+    // ... (This function remains unchanged)
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
     final String userId = currentUser.uid;
@@ -151,40 +225,26 @@ class AnnounceService {
     try {
       await _firestore.runTransaction((transaction) async {
         final DocumentSnapshot messageSnap = await transaction.get(messageRef);
-
         if (!messageSnap.exists) {
           throw Exception("Message does not exist!");
         }
-
-        // Get current reactions, ensuring it's a Map<String, dynamic>
         Map<String, dynamic> reactions =
             (messageSnap.data() as Map<String, dynamic>)['reactions'] ?? {};
-
-        // Get the list of users for this emoji, ensuring it's a List<dynamic>
         List<dynamic> userList = reactions[emoji] ?? [];
-
         if (userList.contains(userId)) {
-          // User has reacted, remove their reaction
           userList.remove(userId);
         } else {
-          // User has not reacted, add their reaction
           userList.add(userId);
         }
-
-        // Update the reactions map
         if (userList.isEmpty) {
-          // If no one has this reaction anymore, remove the emoji key
           reactions.remove(emoji);
         } else {
           reactions[emoji] = userList;
         }
-
-        // Commit the change
         transaction.update(messageRef, {'reactions': reactions});
       });
     } catch (e) {
       print("Failed to toggle reaction: $e");
-      // Optionally show a snackbar to the user
     }
   }
 }
