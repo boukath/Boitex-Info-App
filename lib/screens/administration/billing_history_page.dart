@@ -1,4 +1,5 @@
 // lib/screens/administration/billing_history_page.dart
+// ✅ MODIFIED TO SHOW ALL HISTORY IN ONE PAGE
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +9,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class BillingHistoryPage extends StatelessWidget {
+  // We keep these optional filters. If they are passed, they will work.
+  // If not (our new flow), the page will just show everything.
   final String? clientNameFilter;
   final String? storeNameFilter;
   final String? storeLocationFilter;
@@ -64,45 +67,39 @@ class BillingHistoryPage extends StatelessWidget {
     }
   }
 
+  // ✅ MODIFIED: Simplified title functions
+  // We check if any filter is active. If so, show "Filtre Appliqué".
+  // Otherwise, show "Historique Facturation".
   String _buildTitle() {
-    if (storeLocationFilter != null && storeLocationFilter != "Emplacement non spécifié") {
-      return storeLocationFilter!;
-    }
-    if (storeLocationFilter == "Emplacement non spécifié" && storeNameFilter != null) {
-      return storeNameFilter!; // Show store name if location is unspecified
-    }
-    if (storeNameFilter != null) {
-      return storeNameFilter!;
-    }
-    if (clientNameFilter != null) {
-      return clientNameFilter!;
+    if (clientNameFilter != null || storeNameFilter != null || storeLocationFilter != null) {
+      return storeLocationFilter ?? storeNameFilter ?? clientNameFilter ?? 'Filtre Appliqué';
     }
     return 'Historique Facturation';
   }
 
+  // ✅ MODIFIED: Show filter details or a general subtitle.
   String _buildSubtitle() {
     if (storeLocationFilter != null && storeNameFilter != null) {
-      // Show store(client) if location is specific, or just client if location unspecified
-      return storeLocationFilter != "Emplacement non spécifié"
-          ? '$storeNameFilter ($clientNameFilter)'
-          : clientNameFilter ?? '';
+      return '$storeNameFilter ($clientNameFilter)';
     }
     if (storeNameFilter != null) {
       return clientNameFilter ?? '';
     }
-    return 'Tous'; // More concise default
+    if (clientNameFilter != null) {
+      return 'Filtre: $clientNameFilter';
+    }
+    return 'Toutes les transactions'; // New default subtitle
   }
 
   @override
   Widget build(BuildContext context) {
     Query query = FirebaseFirestore.instance
         .collection('global_activity_log')
-    // --- MODIFIED: Use whereIn for type ---
-        .where('type', whereIn: ['Facturation', 'Intervention Facturée'])
-    // --- END MODIFIED ---
+        .where('category', whereIn: ['Intervention Facturée', 'Intervention Clôturée Sans Facture', 'Facturation']) // ✅ MODIFIED: Use 'category' for reliability
         .orderBy('timestamp', descending: true);
 
-    // Apply filters conditionally
+    // This filter logic is still 100% valid.
+    // If filters are null, it just skips them.
     if (clientNameFilter != null && clientNameFilter!.isNotEmpty) {
       query = query.where('clientName', isEqualTo: clientNameFilter);
     }
@@ -111,9 +108,7 @@ class BillingHistoryPage extends StatelessWidget {
     }
     if (storeLocationFilter != null && storeLocationFilter!.isNotEmpty) {
       if (storeLocationFilter == "Emplacement non spécifié") {
-        // Query for null or potentially empty string if that's how you store it
         query = query.where('storeLocation', isNull: true);
-        // or query = query.where('storeLocation', isEqualTo: '');
       } else {
         query = query.where('storeLocation', isEqualTo: storeLocationFilter);
       }
@@ -129,13 +124,13 @@ class BillingHistoryPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _buildTitle(),
+              _buildTitle(), // Uses our new title logic
               style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
             if (_buildSubtitle().isNotEmpty)
               Text(
-                _buildSubtitle(),
+                _buildSubtitle(), // Uses our new subtitle logic
                 style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade600),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -159,9 +154,9 @@ class BillingHistoryPage extends StatelessWidget {
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return Center(
                 child: Text(
-                  'Aucun historique trouvé pour les filtres sélectionnés.',
+                  'Aucun historique de facturation trouvé.', // Simplified message
                   style: GoogleFonts.poppins(color: Colors.grey.shade600),
-                  textAlign: TextAlign.center, // Center text
+                  textAlign: TextAlign.center,
                 ));
           }
 
@@ -177,23 +172,20 @@ class BillingHistoryPage extends StatelessWidget {
                   ? DateFormat('dd/MM/yyyy HH:mm', 'fr_FR')
                   .format(timestamp.toDate())
                   : 'Date inconnue';
+              
+              // ✅ MODIFIED: Get all relevant data
               final userName = log['userName'] ?? 'Utilisateur inconnu';
-              // Fallbacks added just in case, though filters should ensure they exist
-              final storeName = log['storeName'] ?? storeNameFilter ?? 'Magasin inconnu';
-              final storeLocation = log['storeLocation'] ?? storeLocationFilter ?? 'Lieu inconnu';
-              final interventionId = log['relatedId'] as String?;
+              final clientName = log['clientName'] ?? 'Client inconnu';
+              final storeName = log['storeName'] ?? 'Magasin inconnu';
+              // final storeLocation = log['storeLocation'] ?? 'Lieu inconnu'; // Not used, but here if you need it
+              final interventionId = log['interventionId'] ?? log['relatedId'] as String?; // Check both fields
               final invoiceUrl = log['invoiceUrl'] as String?;
+              final message = log['message'] ?? 'Action inconnue';
 
-              // Determine the title based on context
-              String displayTitle = storeName;
-              // Only add location if we aren't already filtered to a specific location
-              if (storeLocationFilter == null && storeLocation.isNotEmpty && storeLocation != "Emplacement non spécifié") {
-                displayTitle += ' - $storeLocation';
-              } else if (storeLocationFilter == "Emplacement non spécifié") {
-                // Optionally indicate if the location was specifically unknown
-                // displayTitle += ' (Lieu inconnu)';
-              }
-
+              // ✅ MODIFIED: Determine title and subtitle
+              // New logic: Title is the client, subtitle has store and message.
+              final String displayTitle = clientName;
+              final String displaySubtitle = "$storeName\n$message\nPar: $userName - $formattedDate";
 
               return Card(
                 elevation: 2.0,
@@ -206,14 +198,14 @@ class BillingHistoryPage extends StatelessWidget {
                     child: const Icon(Icons.receipt_long, color: Colors.deepPurple),
                   ),
                   title: Text(
-                    displayTitle, // Use the dynamically determined title
+                    displayTitle, // ✅ Now shows Client Name
                     style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                   subtitle: Text(
-                    "${log['message'] ?? 'Action inconnue'}\nPar: $userName\n$formattedDate",
+                    displaySubtitle, // ✅ Now shows Store, Message, User, and Date
                     style: GoogleFonts.poppins(color: Colors.grey.shade600, fontSize: 12),
                   ),
-                  isThreeLine: true,
+                  isThreeLine: true, // Keep this as true
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
