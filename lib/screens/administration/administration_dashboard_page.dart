@@ -16,7 +16,7 @@ import 'package:boitex_info_app/screens/administration/billing_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/activity_log_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
-
+import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
 import 'dart:math' as math;
 
 class AdministrationDashboardPage extends StatefulWidget {
@@ -30,7 +30,8 @@ class AdministrationDashboardPage extends StatefulWidget {
   });
 
   @override
-  State<AdministrationDashboardPage> createState() => _AdministrationDashboardPageState();
+  State<AdministrationDashboardPage> createState() =>
+      _AdministrationDashboardPageState();
 }
 
 class _AdministrationDashboardPageState extends State<AdministrationDashboardPage>
@@ -46,8 +47,10 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
-    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
+    _fadeAnimation =
+        CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
+        .animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
     );
     _controller.forward();
@@ -64,6 +67,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
 
+      // *** THIS IS THE FIRST FIX: Removed the stray "WELCOME_MSG" line ***
       final canSeeMgmt = <String>{
         'PDG',
         'Admin',
@@ -84,7 +88,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
 
   // ========================= WEB =========================
 
-  Widget _buildWebDashboard(BuildContext context, bool canSeeMgmt, double width) {
+  Widget _buildWebDashboard(
+      BuildContext context, bool canSeeMgmt, double width) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -115,7 +120,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
                           // LEFT COLUMN - Actions Grid
                           Expanded(
                             flex: 3,
-                            child: _buildGlassCard(child: _buildWebActionsGrid(context)),
+                            child: _buildGlassCard(
+                                child: _buildWebActionsGrid(context)),
                           ),
                           const SizedBox(width: 24),
                           // RIGHT COLUMN - Urgent Tasks
@@ -170,13 +176,18 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 14),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
+                        colors: [
+                          Colors.white.withOpacity(0.25),
+                          Colors.white.withOpacity(0.15)
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
                     child: Row(
                       children: [
@@ -226,7 +237,16 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             // Notification Button
             _glassIconButton(
               icon: Icons.notifications_rounded,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RappelPage())),
+              onTap: () => Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => const RappelPage())),
+            ),
+
+            // *** ANNOUNCE BUTTON (WEB) ***
+            const SizedBox(width: 12),
+            _glassIconButton(
+              icon: Icons.campaign_rounded,
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const AnnounceHubPage())),
             ),
           ],
         ),
@@ -362,13 +382,18 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
+                        colors: [
+                          Colors.white.withOpacity(0.25),
+                          Colors.white.withOpacity(0.15)
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
                     child: Row(
                       children: [
@@ -417,7 +442,16 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             const SizedBox(width: 12),
             _glassIconButton(
               icon: Icons.notifications_rounded,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RappelPage())),
+              onTap: () => Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => const RappelPage())),
+            ),
+
+            // *** ANNOUNCE BUTTON (MOBILE) ***
+            const SizedBox(width: 12),
+            _glassIconButton(
+              icon: Icons.campaign_rounded,
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const AnnounceHubPage())),
             ),
           ],
         ),
@@ -484,7 +518,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         'Nouveau\nProjet',
         Icons.note_add_rounded,
         const Color(0xFF10B981),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const AddProjectPage())),
       ),
       _ActionData(
         'Clients',
@@ -492,7 +527,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         const Color(0xFF3B82F6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ManageClientsPage(userRole: widget.userRole)),
+          MaterialPageRoute(
+              builder: (_) => ManageClientsPage(userRole: widget.userRole)),
         ),
       ),
       _ActionData(
@@ -501,32 +537,37 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         const Color(0xFF8B5CF6),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ManageProjectsPage(userRole: widget.userRole)),
+          MaterialPageRoute(
+              builder: (_) => ManageProjectsPage(userRole: widget.userRole)),
         ),
       ),
       _ActionData(
         'Produits',
         Icons.inventory_2_rounded,
         const Color(0xFF14B8A6),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const ProductCatalogPage())),
       ),
       _ActionData(
         'Stock',
         Icons.warehouse_rounded,
         const Color(0xFF6366F1),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockPage())),
+            () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const StockPage())),
       ),
       _ActionData(
         'Missions',
         Icons.assignment_rounded,
         const Color(0xFFA855F7),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const ManageMissionsPage())),
       ),
       _ActionData(
         'Livraisons',
         Icons.local_shipping_rounded,
         const Color(0xFFF59E0B),
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
       ),
       _ActionData(
         'Historique',
@@ -534,7 +575,8 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
         const Color(0xFF78716C),
             () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ActivityLogPage(userRole: widget.userRole)),
+          MaterialPageRoute(
+              builder: (_) => ActivityLogPage(userRole: widget.userRole)),
         ),
       ),
     ];
@@ -641,12 +683,18 @@ class _ActionCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
+          colors: [
+            Colors.white.withOpacity(0.25),
+            Colors.white.withOpacity(0.15)
+          ],
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              offset: const Offset(0, 10)),
         ],
       ),
       child: Material(
@@ -662,10 +710,14 @@ class _ActionCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(14), // slightly tighter
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [color, color.withOpacity(0.7)]),
+                    gradient:
+                    LinearGradient(colors: [color, color.withOpacity(0.7)]),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
-                      BoxShadow(color: color.withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)),
+                      BoxShadow(
+                          color: color.withOpacity(0.4),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8)),
                     ],
                   ),
                   child: Icon(icon, color: Colors.white, size: 28), // was 32
@@ -711,7 +763,8 @@ class _ReplacementRequestsCard extends StatelessWidget {
           title: 'Demandes de Remplacement',
           count: count.toString(),
           icon: Icons.sync_problem_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFEF4444), Color(0xFFDC2626)]),
+          gradient:
+          const LinearGradient(colors: [Color(0xFFEF4444), Color(0xFFDC2626)]),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -738,7 +791,8 @@ class _RequisitionPipelineCard extends StatelessWidget {
       title: 'Commandes',
       count: '',
       icon: Icons.shopping_cart_rounded,
-      gradient: const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)]),
+      gradient:
+      const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)]),
       customBody: Row(
         children: [
           Expanded(
@@ -751,7 +805,8 @@ class _RequisitionPipelineCard extends StatelessWidget {
                   .snapshots(),
                   () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => RequisitionApprovalPage(userRole: userRole)),
+                MaterialPageRoute(
+                    builder: (_) => RequisitionApprovalPage(userRole: userRole)),
               ),
             ),
           ),
@@ -762,7 +817,11 @@ class _RequisitionPipelineCard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.white.withOpacity(0.0), Colors.white.withOpacity(0.3), Colors.white.withOpacity(0.0)],
+                colors: [
+                  Colors.white.withOpacity(0.0),
+                  Colors.white.withOpacity(0.3),
+                  Colors.white.withOpacity(0.0)
+                ],
               ),
             ),
           ),
@@ -776,7 +835,8 @@ class _RequisitionPipelineCard extends StatelessWidget {
                   .snapshots(),
                   () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => PurchasingHubPage(userRole: userRole)),
+                MaterialPageRoute(
+                    builder: (_) => PurchasingHubPage(userRole: userRole)),
               ),
             ),
           ),
@@ -813,7 +873,10 @@ class _RequisitionPipelineCard extends StatelessWidget {
                 final cnt = s.hasData ? s.data!.docs.length : 0;
                 return Text(
                   cnt.toString(),
-                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white),
                 );
               },
             ),
@@ -840,8 +903,10 @@ class _PendingBillingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream:
-      FirebaseFirestore.instance.collection('interventions').where('status', isEqualTo: "Terminé").snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('interventions')
+          .where('status', isEqualTo: "Terminé")
+          .snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
         return _buildGlowingCard(
@@ -849,8 +914,10 @@ class _PendingBillingCard extends StatelessWidget {
           title: 'Facturation en Attente',
           count: count.toString(),
           icon: Icons.receipt_long_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF14B8A6), Color(0xFF0D9488)]),
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BillingHubPage())),
+          gradient:
+          const LinearGradient(colors: [Color(0xFF14B8A6), Color(0xFF0D9488)]),
+          onTap: () => Navigator.push(
+              context, MaterialPageRoute(builder: (_) => const BillingHubPage())),
         );
       },
     );
@@ -874,7 +941,8 @@ class _PendingReplacementsCard extends StatelessWidget {
           title: 'Remplacements à Préparer',
           count: count.toString(),
           icon: Icons.inventory_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
+          gradient:
+          const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -893,12 +961,14 @@ class _PendingReplacementsCard extends StatelessWidget {
 class _LivraisonsCard extends StatelessWidget {
   const _LivraisonsCard();
 
+  // *** THIS IS THE SECOND FIX: Changed BuildContextContext to BuildContext ***
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('livraisons')
-          .where('status', whereIn: const ["À Préparer", "En Cours de Livraison"])
+          .where('status',
+          whereIn: const ["À Préparer", "En Cours de Livraison"])
           .snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
@@ -907,8 +977,10 @@ class _LivraisonsCard extends StatelessWidget {
           title: 'Livraisons Actives',
           count: count.toString(),
           icon: Icons.local_shipping_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]),
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
+          gradient:
+          const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]),
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
         );
       },
     );
@@ -930,15 +1002,20 @@ Widget _buildGlowingCard({
   return Container(
     margin: isWeb ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 20),
     decoration: BoxDecoration(
-      gradient:
-      LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [
-        Colors.white.withOpacity(0.2),
-        Colors.white.withOpacity(0.1),
-      ]),
+      gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withOpacity(0.2),
+            Colors.white.withOpacity(0.1),
+          ]),
       borderRadius: BorderRadius.circular(28),
       border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
       boxShadow: [
-        BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 30, offset: const Offset(0, 15)),
+        BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 30,
+            offset: const Offset(0, 15)),
       ],
     ),
     child: Material(
