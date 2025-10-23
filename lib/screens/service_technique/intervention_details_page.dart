@@ -1,6 +1,6 @@
 // lib/screens/service_technique/intervention_details_page.dart
 
-import 'dart:io';
+import 'dart:io'; // ✅ Needed for File
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -46,7 +46,8 @@ class InterventionDetailsPage extends StatefulWidget {
   const InterventionDetailsPage({super.key, required this.interventionDoc});
 
   @override
-  State<InterventionDetailsPage> createState() => _InterventionDetailsPageState();
+  State<InterventionDetailsPage> createState() =>
+      _InterventionDetailsPageState();
 }
 
 class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
@@ -72,9 +73,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
+  // ✅ 1. DEFINE YOUR FILE SIZE LIMIT (50MB in bytes)
+  static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
+
   // Status options derived from current doc
   List<String> get statusOptions {
-    final current = (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
+    final current =
+        (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
     if (current == 'Clôturé' || current == 'Facturé') {
       return ['Clôturé', 'Facturé'];
     }
@@ -83,7 +88,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
   // Read-only when closed or invoiced
   bool get isReadOnly {
-    final status = (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
+    final status =
+        (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
     return ['Clôturé', 'Facturé'].contains(status);
   }
 
@@ -92,18 +98,23 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     super.initState();
     final data = widget.interventionDoc.data() ?? {};
 
-    _managerNameController = TextEditingController(text: data['managerName'] ?? '');
-    _managerPhoneController = TextEditingController(text: data['managerPhone'] ?? '');
-    _diagnosticController = TextEditingController(text: data['diagnostic'] ?? '');
+    _managerNameController =
+        TextEditingController(text: data['managerName'] ?? '');
+    _managerPhoneController =
+        TextEditingController(text: data['managerPhone'] ?? '');
+    _diagnosticController =
+        TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
     _signatureController = SignatureController();
 
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
-    _existingMediaUrls.addAll(List<String>.from(data['mediaUrls'] ?? const []));
+    _existingMediaUrls
+        .addAll(List<String>.from(data['mediaUrls'] ?? const []));
 
     _fetchTechnicians().then((_) {
-      final List<dynamic> assigned = List.from(data['assignedTechnicians'] ?? const []);
+      final List<dynamic> assigned =
+      List.from(data['assignedTechnicians'] ?? const []);
       _selectedTechnicians = _allTechnicians.where((tech) {
         return assigned.any((a) => (a is Map && a['uid'] == tech.uid));
       }).toList();
@@ -130,7 +141,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         ),
         iconTheme: IconThemeData(color: Colors.white),
       ),
-      cardTheme: CardThemeData(                                // <-- was CardTheme
+      cardTheme: CardThemeData( // <-- was CardTheme
         color: Colors.white.withOpacity(0.95),
         elevation: 8,
         shadowColor: const Color(0xFF667EEA).withOpacity(0.15),
@@ -151,7 +162,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           borderRadius: BorderRadius.circular(20),
           borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         labelStyle: TextStyle(color: Colors.grey.shade700),
         hintStyle: TextStyle(color: Colors.grey.shade400),
       ),
@@ -159,12 +171,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF667EEA),
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           padding: const EdgeInsets.symmetric(vertical: 16),
           elevation: 0,
         ),
       ),
-      dividerTheme: const DividerThemeData(color: Color(0xFFE5E7EB), thickness: 1),
+      dividerTheme:
+      const DividerThemeData(color: Color(0xFFE5E7EB), thickness: 1),
     );
   }
 
@@ -188,16 +202,65 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ✅ 2. CREATE A CLASS-LEVEL HELPER FUNCTION FOR CHECKING VIDEO TYPE
+  bool _isVideoPath(String path) {
+    final p = path.toLowerCase();
+    // Added .mkv and .avi just in case, adjust as needed
+    return p.endsWith('.mp4') ||
+        p.endsWith('.mov') ||
+        p.endsWith('.avi') ||
+        p.endsWith('.mkv');
+  }
+
+  // ✅ 3. MODIFY _pickMedia TO CHECK FILE SIZES
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
-    if (pickedFiles.isNotEmpty) {
-      setState(() => _mediaFilesToUpload.addAll(pickedFiles));
+    if (pickedFiles.isEmpty) return;
+
+    final List<XFile> validFiles = [];
+    final List<String> rejectedFiles = []; // To show in the error message
+
+    // Loop through all selected files to validate them
+    for (final file in pickedFiles) {
+      final int fileSize = await file.length();
+      final bool isVideo = _isVideoPath(file.name);
+
+      if (isVideo && fileSize > _maxFileSizeInBytes) {
+        // This is a video and it's too large, reject it
+        rejectedFiles.add(
+          '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
+        );
+      } else {
+        // This is either an image (any size) or a video within the limit
+        validFiles.add(file);
+      }
+    }
+
+    // Add all valid files to the upload queue
+    if (validFiles.isNotEmpty) {
+      setState(() => _mediaFilesToUpload.addAll(validFiles));
+    }
+
+    // Show a single error message for all rejected files, if any
+    if (rejectedFiles.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          duration:
+          const Duration(seconds: 5), // Give user time to read the list
+          content: Text(
+            'Fichiers suivants non ajoutés (limite 50 Mo):\n${rejectedFiles.join('\n')}',
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+      );
     }
   }
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
       if (response.statusCode == 200) {
         return json.decode(response.body) as Map<String, dynamic>;
       } else {
@@ -210,18 +273,21 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  Future<String?> _uploadFileToB2(XFile file, Map<String, dynamic> b2Creds) async {
+  Future<String?> _uploadFileToB2(
+      XFile file, Map<String, dynamic> b2Creds) async {
     try {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+
+      // Use file.name directly, B2 headers handle encoding
       final fileName = file.name.split('/').last;
 
       final resp = await http.post(
         uploadUri,
         headers: {
           'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'X-Bz-File-Name': Uri.encodeComponent(fileName), // URL-encode the file name
           'Content-Type': file.mimeType ?? 'b2/x-auto',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': fileBytes.length.toString(),
@@ -231,8 +297,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       if (resp.statusCode == 200) {
         final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath =
-        (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+
+        // The file name from B2 response might need encoding for the URL path
+        final encodedPath = (body['fileName'] as String)
+            .split('/')
+            .map(Uri.encodeComponent) // Properly encode each part of the path
+            .join('/');
+
         return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
       } else {
         debugPrint('Failed to upload to B2: ${resp.body}');
@@ -254,19 +325,20 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       if (_signatureController.isNotEmpty) {
         final png = await _signatureController.toPngBytes();
         if (png != null) {
-          final ref = FirebaseStorage.instance
-              .ref()
-              .child('signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png');
+          final ref = FirebaseStorage.instance.ref().child(
+              'signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png');
           final snap = await ref.putData(png).whenComplete(() {});
           newSignatureUrl = await snap.ref.getDownloadURL();
         }
       }
 
       // 2) Media uploads to B2
+      // This list is now pre-filtered by _pickMedia, so all files are valid
       final uploaded = List<String>.from(_existingMediaUrls);
       for (final file in _mediaFilesToUpload) {
         final creds = await _getB2UploadCredentials();
-        if (creds == null) throw Exception('Impossible de récupérer les accès B2.');
+        if (creds == null)
+          throw Exception('Impossible de récupérer les accès B2.');
         final url = await _uploadFileToB2(file, creds);
         if (url != null) {
           uploaded.add(url);
@@ -357,7 +429,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ ADD THIS NEW FUNCTION
   Future<void> _generateAndShowPdfViewer() async {
     setState(() => _isLoading = true);
     try {
@@ -495,17 +566,20 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const SizedBox(height: 8),
             Text(
               'Client: ${data['clientName']} - Magasin: ${data['storeName']}',
+              // ✅ FIX 1: Changed black50 to black54
               style: const TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 4),
             Text(
               'Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}',
+              // ✅ FIX 2: Changed black50 to black54
               style: const TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 12),
             const Divider(),
             const SizedBox(height: 12),
-            const Text('Description du Problème:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Description du Problème:',
+                style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(data['description'] ?? 'Non spécifié'),
           ],
@@ -519,16 +593,16 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Rapport d'Intervention", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text("Rapport d'Intervention",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _managerNameController,
             readOnly: isReadOnly,
-            decoration: const InputDecoration(labelText: 'Nom du contact sur site'),
+            decoration:
+            const InputDecoration(labelText: 'Nom du contact sur site'),
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _managerPhoneController,
             readOnly: isReadOnly,
@@ -536,7 +610,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             decoration: const InputDecoration(labelText: 'Téléphone du contact'),
           ),
           const SizedBox(height: 16),
-
           MultiSelectDialogField<AppUser>(
             items: _allTechnicians
                 .map((t) => MultiSelectItem<AppUser>(t, t.displayName))
@@ -558,12 +631,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
               },
             ),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300, width: 1),
+              color: const Color(0xFFF8FAFC), // Match TextFormField
+              border: Border.all(color: Colors.grey.shade200, width: 1),
               borderRadius: BorderRadius.circular(20),
             ),
+            dialogWidth: MediaQuery.of(context).size.width * 0.9,
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _diagnosticController,
             readOnly: isReadOnly,
@@ -574,7 +648,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             ),
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _workDoneController,
             readOnly: isReadOnly,
@@ -585,29 +658,33 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             ),
           ),
           const SizedBox(height: 24),
-
           _buildMediaSection(),
           const SizedBox(height: 24),
-
-          const Text('Signature du Client', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('Signature du Client',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-
           if (_signatureImageUrl != null && _signatureController.isEmpty)
             Container(
               height: 150,
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.grey.shade300),
                 borderRadius: BorderRadius.circular(20),
+                color: const Color(0xFFF1F5F9), // Match empty signature bg
               ),
-              child: Center(child: Image.network(_signatureImageUrl!)),
+              child: Center(
+                  child: Image.network(_signatureImageUrl!,
+                      fit: BoxFit.contain)),
             )
           else if (!isReadOnly)
-            Signature(
-              controller: _signatureController,
-              height: 150,
-              backgroundColor: const Color(0xFFF1F5F9),
+            ClipRRect(
+              // Clip the signature box
+              borderRadius: BorderRadius.circular(20),
+              child: Signature(
+                controller: _signatureController,
+                height: 150,
+                backgroundColor: const Color(0xFFF1F5F9),
+              ),
             ),
-
           if (!isReadOnly)
             Align(
               alignment: Alignment.centerRight,
@@ -619,26 +696,26 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 child: const Text('Effacer la signature'),
               ),
             ),
-
           const SizedBox(height: 24),
-
           DropdownButtonFormField<String>(
             value: _currentStatus,
             items: statusOptions
                 .map((s) => DropdownMenuItem<String>(value: s, child: Text(s)))
                 .toList(),
-            onChanged: isReadOnly ? null : (v) => setState(() => _currentStatus = v!),
-            decoration: const InputDecoration(labelText: "Statut de l'intervention"),
+            onChanged:
+            isReadOnly ? null : (v) => setState(() => _currentStatus = v!),
+            decoration:
+            const InputDecoration(labelText: "Statut de l'intervention"),
           ),
           const SizedBox(height: 24),
-
           if (!isReadOnly)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _saveReport,
                 child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
+                    ? const CircularProgressIndicator(
+                    color: Colors.white, strokeWidth: 3)
                     : const Text('Enregistrer le Rapport'),
               ),
             ),
@@ -651,34 +728,42 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Photos & Vidéos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text('Photos & Vidéos',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
-
         if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
-          const Text('Aucun fichier ajouté.', style: TextStyle(color: Colors.grey)),
+          const Text('Aucun fichier ajouté.',
+              style: TextStyle(color: Colors.grey)),
 
         // Existing (uploaded) media
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: _existingMediaUrls.map((url) => _buildMediaThumbnail(url: url)).toList(),
+          children: _existingMediaUrls
+              .map((url) => _buildMediaThumbnail(url: url))
+              .toList(),
         ),
 
         // Pending (local) media
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: _mediaFilesToUpload.map((file) => _buildMediaThumbnail(file: file)).toList(),
+          children: _mediaFilesToUpload
+              .map((file) => _buildMediaThumbnail(file: file))
+              .toList(),
         ),
-
         const SizedBox(height: 16),
-
         if (!isReadOnly)
           Center(
             child: ElevatedButton.icon(
               icon: const Icon(Icons.add_a_photo),
               label: const Text('Ajouter Photos/Vidéos'),
               onPressed: _pickMedia,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white, // Different style
+                foregroundColor: const Color(0xFF667EEA),
+                side: const BorderSide(color: Color(0xFF667EEA)),
+              ),
             ),
           ),
       ],
@@ -687,29 +772,28 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
   // Thumbnail for existing or local media
   Widget _buildMediaThumbnail({String? url, XFile? file}) {
-    bool isVideoPath(String path) {
-      final p = path.toLowerCase();
-      return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
-    }
-
-    final bool isVideo =
-        (url != null && isVideoPath(url)) || (file != null && isVideoPath(file.path));
+    // ✅ 4. USE THE CLASS-LEVEL HELPER FUNCTION
+    final bool isVideo = (url != null && _isVideoPath(url)) ||
+        (file != null && _isVideoPath(file.path));
 
     Widget content;
     if (file != null) {
       // Local not-yet-uploaded file
       if (isVideo) {
-        content = const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        content = const Center(
+            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
       } else {
         content = ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.file(File(file.path), width: 100, height: 100, fit: BoxFit.cover),
+          child: Image.file(File(file.path),
+              width: 100, height: 100, fit: BoxFit.cover),
         );
       }
     } else if (url != null && url.isNotEmpty) {
       // Existing URL
       if (isVideo) {
-        content = const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        content = const Center(
+            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
       } else {
         content = Hero(
           tag: url,
@@ -720,9 +804,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
               width: 100,
               height: 100,
               fit: BoxFit.cover,
-              loadingBuilder: (c, child, prog) =>
-              prog == null ? child : const Center(child: CircularProgressIndicator()),
-              errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.grey),
+              loadingBuilder: (c, child, prog) => prog == null
+                  ? child
+                  : const Center(child: CircularProgressIndicator()),
+              errorBuilder: (c, e, s) =>
+              const Icon(Icons.broken_image, color: Colors.grey),
             ),
           ),
         );
@@ -736,7 +822,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         // Local media can't be previewed in viewer until uploaded
         if (url == null || url.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
+            const SnackBar(
+                content:
+                Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
           );
           return;
         }
@@ -745,7 +833,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)),
           );
         } else {
-          final images = _existingMediaUrls.where((u) => !isVideoPath(u)).toList();
+          final images =
+          _existingMediaUrls.where((u) => !_isVideoPath(u)).toList();
           if (images.isEmpty) return;
           final initial = images.indexOf(url);
           Navigator.of(context).push(
@@ -773,12 +862,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
             // Remove button for local pending file
             if (!isReadOnly && file != null)
+            // ✅ FIX 3: Changed PositionRealSmall to Positioned
               Positioned(
                 top: -10,
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () => setState(() => _mediaFilesToUpload.remove(file)),
+                  onPressed: () =>
+                      setState(() => _mediaFilesToUpload.remove(file)),
                 ),
               ),
 
@@ -789,7 +880,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () => setState(() => _existingMediaUrls.remove(url)),
+                  onPressed: () =>
+                      setState(() => _existingMediaUrls.remove(url)),
                 ),
               ),
           ],
