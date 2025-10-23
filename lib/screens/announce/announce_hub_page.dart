@@ -7,9 +7,8 @@ import 'channel_chat_page.dart';
 
 class AnnounceHubPage extends StatefulWidget {
   const AnnounceHubPage({super.key});
-
   @override
-  State<AnnounceHubPage> createState() => _AnnounceHubPageState();
+  State createState() => _AnnounceHubPageState();
 }
 
 class _AnnounceHubPageState extends State<AnnounceHubPage> {
@@ -26,7 +25,6 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
     _fetchCurrentUserRole();
   }
 
-  /// Fetches the user's role from the 'users' collection
   Future<void> _fetchCurrentUserRole() async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) {
@@ -35,7 +33,6 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
       });
       return;
     }
-
     try {
       final doc =
       await _firestore.collection('users').doc(currentUser.uid).get();
@@ -47,22 +44,18 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
       } else {
         setState(() {
           _isLoadingRole = false;
-          // Handle case where user document doesn't exist, if necessary
-          print('User document not found for uid: ${currentUser.uid}');
         });
       }
     } catch (e) {
-      print("Error fetching user role: $e");
       setState(() {
         _isLoadingRole = false;
       });
     }
   }
 
-  /// Your permission logic, translated to Dart
   bool _isSuperManager(String? role) {
     if (role == null) return false;
-    const List<String> managerRoles = [
+    const List managerRoles = [
       'Admin',
       'PDG',
       'Responsable Administratif',
@@ -74,12 +67,10 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
     return managerRoles.contains(role);
   }
 
-  /// Shows the dialog to create a new channel
   void _showCreateChannelDialog() {
     final TextEditingController nameController = TextEditingController();
     final TextEditingController descController = TextEditingController();
     final GlobalKey<FormState> formKey = GlobalKey<FormState>();
-
     showDialog(
       context: context,
       builder: (context) {
@@ -128,11 +119,9 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
                       nameController.text,
                       descController.text,
                     );
-                    Navigator.pop(context); // Close dialog
+                    Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content: Text(
-                              'Salon "${nameController.text}" créé avec succès!')),
+                      SnackBar(content: Text('Salon "${nameController.text}" créé avec succès!')),
                     );
                   } catch (e) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -151,14 +140,112 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Determine if the "Create" button should be shown
     final bool canCreate = !_isLoadingRole && _isSuperManager(_currentUserRole);
+    final width = MediaQuery.of(context).size.width;
+    final bool isWeb = width > 900;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Announcements 📢'),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
       ),
-      body: StreamBuilder<List<ChannelModel>>(
+      extendBodyBehindAppBar: true,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF3B82F6),
+              Color(0xFF1E40AF),
+              Color(0xFF1E3A8A),
+            ],
+            stops: [0.0, 0.5, 1.0],
+          ),
+        ),
+        child: SafeArea(
+          child: isWeb ? _buildWebLayout(canCreate) : _buildMobileLayout(canCreate),
+        ),
+      ),
+      floatingActionButton: Visibility(
+        visible: canCreate,
+        child: FloatingActionButton(
+          onPressed: _showCreateChannelDialog,
+          tooltip: 'Créer un Salon',
+          child: const Icon(Icons.add),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWebLayout(bool canCreate) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1000),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 32),
+          child: StreamBuilder<List<ChannelModel>>(
+            stream: _announceService.getChannels(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return Center(
+                  child: _isLoadingRole
+                      ? const CircularProgressIndicator()
+                      : const Text('No channels found. Contact an admin.',
+                      style: TextStyle(color: Colors.white, fontSize: 22)),
+                );
+              }
+              final channels = snapshot.data!..sort((a, b) => a.name.compareTo(b.name));
+              return GridView.builder(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisExtent: 120,
+                  crossAxisSpacing: 24,
+                  mainAxisSpacing: 24,
+                ),
+                itemCount: channels.length,
+                itemBuilder: (context, index) {
+                  final channel = channels[index];
+                  return Card(
+                    color: Colors.white.withOpacity(0.12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    child: ListTile(
+                      leading: const Icon(Icons.forum_outlined, color: Colors.white, size: 32),
+                      title: Text(
+                        channel.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
+                      ),
+                      subtitle: channel.description != null
+                          ? Text(channel.description!, style: const TextStyle(color: Colors.white70))
+                          : null,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ChannelChatPage(channel: channel),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout(bool canCreate) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+      child: StreamBuilder<List<ChannelModel>>(
         stream: _announceService.getChannels(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -166,30 +253,26 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
           }
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return Center(
-              child: _isLoadingRole // Show a loader while checking role
+              child: _isLoadingRole
                   ? const CircularProgressIndicator()
-                  : const Text('No channels found. Contact an admin.'),
+                  : const Text('No channels found. Contact an admin.',
+                  style: TextStyle(color: Colors.white)),
             );
           }
-
-          final channels = snapshot.data!;
-          // Sort channels, e.g., alphabetically
-          channels.sort((a, b) => a.name.compareTo(b.name));
-
+          final channels = snapshot.data!..sort((a, b) => a.name.compareTo(b.name));
           return ListView.builder(
             itemCount: channels.length,
             itemBuilder: (context, index) {
               final channel = channels[index];
               return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                color: Colors.white.withOpacity(0.13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 child: ListTile(
-                  leading: const Icon(Icons.forum_outlined),
-                  title: Text(
-                    channel.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  leading: const Icon(Icons.forum_outlined, color: Colors.white, size: 28),
+                  title: Text(channel.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                   subtitle: channel.description != null
-                      ? Text(channel.description!)
+                      ? Text(channel.description!, style: const TextStyle(color: Colors.white70))
                       : null,
                   onTap: () {
                     Navigator.push(
@@ -204,15 +287,6 @@ class _AnnounceHubPageState extends State<AnnounceHubPage> {
             },
           );
         },
-      ),
-      // NEW Floating Action Button
-      floatingActionButton: Visibility(
-        visible: canCreate,
-        child: FloatingActionButton(
-          onPressed: _showCreateChannelDialog,
-          tooltip: 'Créer un Salon',
-          child: const Icon(Icons.add),
-        ),
       ),
     );
   }
