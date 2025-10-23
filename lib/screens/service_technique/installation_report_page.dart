@@ -45,6 +45,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
+  // ✅ 1. DEFINE YOUR FILE SIZE LIMIT (50MB in bytes)
+  static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +82,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         setState(() {
           _isLoadingData = false;
         });
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Installation non trouvée.')));
       }
@@ -86,17 +90,55 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       setState(() {
         _isLoadingData = false;
       });
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }
 
+  // ✅ 2. MODIFY _pickMedia TO CHECK FILE SIZES
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
-    if (pickedFiles.isNotEmpty) {
-      setState(() {
-        _mediaFilesToUpload.addAll(pickedFiles);
-      });
+    if (pickedFiles.isEmpty) return;
+
+    final List<XFile> validFiles = [];
+    final List<String> rejectedFiles = []; // To show in the error message
+
+    // Loop through all selected files to validate them
+    for (final file in pickedFiles) {
+      final int fileSize = await file.length();
+      // We use the existing _isVideoUrl helper function
+      final bool isVideo = _isVideoUrl(file.name);
+
+      if (isVideo && fileSize > _maxFileSizeInBytes) {
+        // This is a video and it's too large, reject it
+        rejectedFiles.add(
+          '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
+        );
+      } else {
+        // This is either an image (any size) or a video within the limit
+        validFiles.add(file);
+      }
+    }
+
+    // Add all valid files to the upload queue
+    if (validFiles.isNotEmpty) {
+      setState(() => _mediaFilesToUpload.addAll(validFiles));
+    }
+
+    // Show a single error message for all rejected files, if any
+    if (rejectedFiles.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          duration:
+          const Duration(seconds: 5), // Give user time to read the list
+          content: Text(
+            'Fichiers suivants non ajoutés (limite 50 Mo):\n${rejectedFiles.join('\n')}',
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+      );
     }
   }
 
@@ -178,6 +220,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       }
 
       // 2. Upload Media to Backblaze B2
+      // ✅ This list is now pre-filtered by _pickMedia, so all files are valid
       List<String> uploadedMediaUrls = List.from(_existingMediaUrls);
       for (XFile file in _mediaFilesToUpload) {
         // 1. Get temporary credentials
@@ -207,16 +250,20 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         'completedAt': FieldValue.serverTimestamp(),
       });
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Rapport enregistré avec succès!')));
       Navigator.of(context).pop();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')));
     } finally {
-      setState(() {
-        _isSaving = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
   }
   // ✅ --- END: UPDATED _saveReport FUNCTION ---
@@ -234,9 +281,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     final storeName = data?['storeName'] ?? 'N/A';
 
     // Check if the report is read-only (already completed)
-    final bool isReadOnly = (_installationDoc?.data()
-    as Map<String, dynamic>?)?['status'] ==
-        'Terminée';
+    final bool isReadOnly =
+        (_installationDoc?.data() as Map<String, dynamic>?)?['status'] ==
+            'Terminée';
 
     return Scaffold(
       appBar: AppBar(
@@ -315,7 +362,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
         if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
-          const Text('Aucun fichier ajouté.', style: TextStyle(color: Colors.grey)),
+          const Text('Aucun fichier ajouté.',
+              style: TextStyle(color: Colors.grey)),
 
         // Display existing media from Backblaze
         Wrap(
@@ -353,7 +401,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             child: ElevatedButton.icon(
               icon: const Icon(Icons.add_a_photo),
               label: const Text('Ajouter Photos/Vidéos'),
-              onPressed: _pickMedia,
+              onPressed: _pickMedia, // ✅ This now calls our validation logic
               style: ElevatedButton.styleFrom(
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
@@ -410,7 +458,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     required bool isReadOnly,
     VoidCallback? onTap,
   }) {
-    bool isVideo = (url != null && _isVideoUrl(url)) || (file != null && _isVideoUrl(file.path));
+    bool isVideo = (url != null && _isVideoUrl(url)) ||
+        (file != null && _isVideoUrl(file.path));
     Widget mediaContent;
 
     if (file != null) {
@@ -440,8 +489,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               width: 100,
               height: 100,
               fit: BoxFit.cover,
-              loadingBuilder: (context, child, progress) =>
-              progress == null
+              loadingBuilder: (context, child, progress) => progress == null
                   ? child
                   : const Center(child: CircularProgressIndicator()),
               errorBuilder: (context, error, stackTrace) =>
@@ -523,8 +571,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         child: Center(
           child: Image.network(
             signatureUrl,
-            loadingBuilder: (context, child, progress) =>
-            progress == null
+            loadingBuilder: (context, child, progress) => progress == null
                 ? child
                 : const Center(child: CircularProgressIndicator()),
             errorBuilder: (context, error, stackTrace) =>
