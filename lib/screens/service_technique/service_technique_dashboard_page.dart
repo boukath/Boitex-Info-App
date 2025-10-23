@@ -11,6 +11,11 @@ import 'package:boitex_info_app/screens/service_technique/sav_list_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
 import 'package:boitex_info_app/screens/service_technique/ready_replacements_list_page.dart';
 
+// ***** START CODE TO ADD *****
+// Import the AnnounceHubPage
+import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
+// ***** END CODE TO ADD *****
+
 import 'dart:math' as math;
 
 class ServiceTechniqueDashboardPage extends StatefulWidget {
@@ -74,6 +79,7 @@ class _ServiceTechniqueDashboardPageState
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
+            // Keeping your original gradient colors
             colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
             stops: [0.0, 0.5, 1.0],
           ),
@@ -82,7 +88,7 @@ class _ServiceTechniqueDashboardPageState
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              _buildWebHeader(),
+              _buildWebHeader(), // Uses your web header
               SliverToBoxAdapter(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
@@ -106,7 +112,7 @@ class _ServiceTechniqueDashboardPageState
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Statistiques',
+                                  'Statistiques', // Your original title
                                   style: TextStyle(
                                     color: Colors.white.withOpacity(0.95),
                                     fontSize: 24,
@@ -115,7 +121,7 @@ class _ServiceTechniqueDashboardPageState
                                   ),
                                 ),
                                 const SizedBox(height: 16),
-                                _buildWebStatsColumn(),
+                                _buildWebStatsColumn(), // Uses your web stats column
                               ],
                             ),
                           ),
@@ -144,7 +150,7 @@ class _ServiceTechniqueDashboardPageState
               onTap: () => Navigator.pop(context),
             ),
             const Spacer(),
-            Expanded(
+            Expanded( // Keeping your user info chip structure
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
@@ -165,33 +171,21 @@ class _ServiceTechniqueDashboardPageState
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                              letterSpacing: 0.2,
+                              fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2,
                             ),
                           ),
                         ),
                         Container(
                           margin: const EdgeInsets.symmetric(horizontal: 12),
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.7),
-                            shape: BoxShape.circle,
-                          ),
+                          width: 6, height: 6,
+                          decoration: BoxDecoration( color: Colors.white.withOpacity(0.7), shape: BoxShape.circle, ),
                         ),
                         Expanded(
                           child: Text(
                             widget.userRole,
-                            maxLines: 1,
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1, textAlign: TextAlign.right, overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white.withOpacity(0.95),
-                              letterSpacing: 0.2,
+                              fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.95), letterSpacing: 0.2,
                             ),
                           ),
                         ),
@@ -202,10 +196,24 @@ class _ServiceTechniqueDashboardPageState
               ),
             ),
             const Spacer(),
+            // Keeping your original engineering icon button
             _glassIconButton(
               icon: Icons.engineering,
               onTap: () {},
             ),
+            // ***** START CODE TO ADD *****
+            const SizedBox(width: 12), // Add spacing
+            _glassIconButton(
+              icon: Icons.campaign_outlined, // Or Icons.campaign_rounded
+              tooltip: 'Announcements',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const AnnounceHubPage()),
+                );
+              },
+            ),
+            // ***** END CODE TO ADD *****
           ],
         ),
       ),
@@ -213,33 +221,23 @@ class _ServiceTechniqueDashboardPageState
   }
 
   Widget _buildWebActionsGrid(BuildContext context) {
+    // Keeping your original web actions grid structure
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Actions Rapides',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
-        ),
+        const Text( 'Actions Rapides', style: TextStyle( color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.5, ), ),
         const SizedBox(height: 24),
         GridView.count(
-          crossAxisCount: 4,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 20,
-          crossAxisSpacing: 20,
-          childAspectRatio: 1.0,
-          children: _buildQuickActions(context),
+          crossAxisCount: 4, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 20, crossAxisSpacing: 20, childAspectRatio: 1.0,
+          children: _buildQuickActions(context), // Uses your quick actions builder
         ),
       ],
     );
   }
 
   Widget _buildWebStatsColumn() {
+    // Keeping your original web stats column structure
     final cards = <Widget>[
       _InterventionsCard(userRole: widget.userRole),
       const SizedBox(height: 16),
@@ -251,7 +249,6 @@ class _ServiceTechniqueDashboardPageState
       const SizedBox(height: 16),
       _MissionsCard(userRole: widget.userRole),
     ];
-
     return Column(
       children: cards.asMap().entries.map((entry) {
         final index = entry.key;
@@ -260,10 +257,7 @@ class _ServiceTechniqueDashboardPageState
           duration: Duration(milliseconds: 600 + (index * 100)),
           tween: Tween(begin: 0, end: 1),
           builder: (context, value, child) {
-            return Transform.translate(
-              offset: Offset(0, 30 * (1 - value)),
-              child: Opacity(opacity: value, child: child),
-            );
+            return Transform.translate( offset: Offset(0, 30 * (1 - value)), child: Opacity(opacity: value, child: child), );
           },
           child: card,
         );
@@ -274,12 +268,13 @@ class _ServiceTechniqueDashboardPageState
   // ========================= MOBILE =========================
 
   Widget _buildMobileDashboard(BuildContext context) {
+    // Keeping your original mobile dashboard structure
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            // Keeping your original gradient
             colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
             stops: [0.0, 0.5, 1.0],
           ),
@@ -288,7 +283,7 @@ class _ServiceTechniqueDashboardPageState
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              _buildUltraCompactHeader(),
+              _buildUltraCompactHeader(), // Uses your mobile header
               SliverToBoxAdapter(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
@@ -297,9 +292,9 @@ class _ServiceTechniqueDashboardPageState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildGlassCard(child: _buildActionsGrid(context)),
+                        _buildGlassCard(child: _buildActionsGrid(context)), // Uses your mobile actions grid
                         const SizedBox(height: 24),
-                        _buildStatsSection(),
+                        _buildStatsSection(), // Uses your mobile stats section
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -314,6 +309,7 @@ class _ServiceTechniqueDashboardPageState
   }
 
   Widget _buildUltraCompactHeader() {
+    // Keeping your original mobile header structure
     return SliverToBoxAdapter(
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -324,57 +320,22 @@ class _ServiceTechniqueDashboardPageState
               onTap: () => Navigator.pop(context),
             ),
             const SizedBox(width: 12),
-            Expanded(
+            Expanded( // Keeping your user info chip
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
-                      ),
+                      gradient: LinearGradient( colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)], ),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
-                    child: Row(
+                    child: Row( // Keeping inner structure
                       children: [
-                        Expanded(
-                          child: Text(
-                            widget.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 10),
-                          width: 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.7),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            widget.userRole,
-                            maxLines: 1,
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white.withOpacity(0.95),
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ),
+                        Expanded(child: Text(widget.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2,),)),
+                        Container( margin: const EdgeInsets.symmetric(horizontal: 10), width: 5, height: 5, decoration: BoxDecoration(color: Colors.white.withOpacity(0.7), shape: BoxShape.circle,), ),
+                        Expanded(child: Text(widget.userRole, maxLines: 1, textAlign: TextAlign.right, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.95), letterSpacing: 0.2,),)),
                       ],
                     ),
                   ),
@@ -382,10 +343,24 @@ class _ServiceTechniqueDashboardPageState
               ),
             ),
             const SizedBox(width: 12),
+            // Keeping your original engineering icon button
             _glassIconButton(
               icon: Icons.engineering,
               onTap: () {},
             ),
+            // ***** START CODE TO ADD *****
+            const SizedBox(width: 12), // Add spacing
+            _glassIconButton(
+              icon: Icons.campaign_outlined, // Or Icons.campaign_rounded
+              tooltip: 'Announcements',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const AnnounceHubPage()),
+                );
+              },
+            ),
+            // ***** END CODE TO ADD *****
           ],
         ),
       ),
@@ -394,7 +369,8 @@ class _ServiceTechniqueDashboardPageState
 
   // ========================= SHARED UI =========================
 
-  Widget _glassIconButton({required IconData icon, required VoidCallback onTap}) {
+  // Keeping your original _glassIconButton function
+  Widget _glassIconButton({required IconData icon, required VoidCallback onTap, String? tooltip}) { // Added tooltip parameter back
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.2),
@@ -404,10 +380,12 @@ class _ServiceTechniqueDashboardPageState
       child: IconButton(
         icon: Icon(icon, color: Colors.white, size: 20),
         onPressed: onTap,
+        tooltip: tooltip, // Use tooltip parameter
       ),
     );
   }
 
+  // Keeping your original _buildGlassCard function
   Widget _buildGlassCard({required Widget child}) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -434,121 +412,32 @@ class _ServiceTechniqueDashboardPageState
 
   // ========================= ACTIONS GRID =========================
 
+  // Keeping your original _buildActionsGrid function
   Widget _buildActionsGrid(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Actions Rapides',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
-        ),
+        const Text( 'Actions Rapides', style: TextStyle( color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 0.5, ), ),
         const SizedBox(height: 20),
         GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          childAspectRatio: 0.90, // taller tiles to prevent bottom overflow
-          children: _buildQuickActions(context),
+          crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 16, crossAxisSpacing: 16, childAspectRatio: 0.90,
+          children: _buildQuickActions(context), // Uses your quick actions builder
         ),
       ],
     );
   }
 
+  // Keeping your original _buildQuickActions function
   List<Widget> _buildQuickActions(BuildContext context) {
     final actions = <_ActionData>[
-      _ActionData(
-        'Interventions',
-        Icons.construction_rounded,
-        const Color(0xFF10B981),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => InterventionListPage(
-              userRole: widget.userRole,
-              serviceType: 'Service Technique',
-            ),
-          ),
-        ),
-      ),
-      _ActionData(
-        'Installations',
-        Icons.router_rounded,
-        const Color(0xFF3B82F6),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => InstallationListPage(
-              userRole: widget.userRole,
-              serviceType: 'Service Technique',
-            ),
-          ),
-        ),
-      ),
-      _ActionData(
-        'Tickets SAV',
-        Icons.support_agent_rounded,
-        const Color(0xFFF59E0B),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const SavListPage(serviceType: 'Service Technique'),
-          ),
-        ),
-      ),
-      _ActionData(
-        'Remplacements',
-        Icons.inventory_2_rounded,
-        const Color(0xFFEC4899),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const ReadyReplacementsListPage(serviceType: 'Service Technique'),
-          ),
-        ),
-      ),
-      _ActionData(
-        'Missions',
-        Icons.assignment_rounded,
-        const Color(0xFF8B5CF6),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ManageMissionsPage(serviceType: 'Service Technique'),
-          ),
-        ),
-      ),
-      _ActionData(
-        'Livraisons',
-        Icons.local_shipping_rounded,
-        const Color(0xFF14B8A6),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const LivraisonsHubPage(serviceType: 'Service Technique'),
-          ),
-        ),
-      ),
-      _ActionData(
-        'Historique',
-        Icons.history,
-        const Color(0xFF78716C),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => HistoricInterventionsPage(
-              serviceType: 'Service Technique',
-              userRole: widget.userRole,
-            ),
-          ),
-        ),
-      ),
+      _ActionData('Interventions', Icons.construction_rounded, const Color(0xFF10B981), () => Navigator.push(context, MaterialPageRoute(builder: (_) => InterventionListPage(userRole: widget.userRole, serviceType: 'Service Technique',),),),),
+      _ActionData('Installations', Icons.router_rounded, const Color(0xFF3B82F6), () => Navigator.push(context, MaterialPageRoute(builder: (_) => InstallationListPage(userRole: widget.userRole, serviceType: 'Service Technique',),),),),
+      _ActionData('Tickets SAV', Icons.support_agent_rounded, const Color(0xFFF59E0B), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SavListPage(serviceType: 'Service Technique'),),),),
+      _ActionData('Remplacements', Icons.inventory_2_rounded, const Color(0xFFEC4899), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReadyReplacementsListPage(serviceType: 'Service Technique'),),),),
+      _ActionData('Missions', Icons.assignment_rounded, const Color(0xFF8B5CF6), () => Navigator.push(context, MaterialPageRoute(builder: (_) => ManageMissionsPage(serviceType: 'Service Technique'),),),),
+      _ActionData('Livraisons', Icons.local_shipping_rounded, const Color(0xFF14B8A6), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage(serviceType: 'Service Technique'),),),),
+      _ActionData('Historique', Icons.history, const Color(0xFF78716C), () => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoricInterventionsPage(serviceType: 'Service Technique', userRole: widget.userRole,),),),),
     ];
 
     return actions.asMap().entries.map((entry) {
@@ -558,23 +447,16 @@ class _ServiceTechniqueDashboardPageState
         duration: Duration(milliseconds: 400 + (index * 80)),
         tween: Tween(begin: 0, end: 1),
         builder: (context, value, child) {
-          return Transform.scale(
-            scale: 0.8 + (0.2 * value),
-            child: Opacity(opacity: value, child: child),
-          );
+          return Transform.scale(scale: 0.8 + (0.2 * value), child: Opacity(opacity: value, child: child),);
         },
-        child: _ActionCard(
-          label: action.label,
-          icon: action.icon,
-          color: action.color,
-          onTap: action.onTap,
-        ),
+        child: _ActionCard( label: action.label, icon: action.icon, color: action.color, onTap: action.onTap, ),
       );
     }).toList();
   }
 
   // ========================= STATS SECTION (MOBILE) =========================
 
+  // Keeping your original _buildStatsSection function
   Widget _buildStatsSection() {
     final cards = <Widget>[
       _InterventionsCard(userRole: widget.userRole),
@@ -589,15 +471,7 @@ class _ServiceTechniqueDashboardPageState
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Text(
-            'Statistiques',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.95),
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
-          ),
+          child: Text( 'Statistiques', style: TextStyle( color: Colors.white.withOpacity(0.95), fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 0.5, ), ),
         ),
         const SizedBox(height: 16),
         Column(
@@ -608,25 +482,20 @@ class _ServiceTechniqueDashboardPageState
               duration: Duration(milliseconds: 600 + (index * 100)),
               tween: Tween(begin: 0, end: 1),
               builder: (context, value, child) {
-                return Transform.translate(
-                  offset: Offset(0, 30 * (1 - value)),
-                  child: Opacity(opacity: value, child: child),
-                );
+                return Transform.translate( offset: Offset(0, 30 * (1 - value)), child: Opacity(opacity: value, child: child), );
               },
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: card,
-              ),
+              child: Padding( padding: const EdgeInsets.only(bottom: 16), child: card, ),
             );
           }).toList(),
         ),
       ],
     );
   }
-}
+} // End of State Class
 
 // ========================= MODELS & CARDS =========================
 
+// Keeping your original _ActionData class
 class _ActionData {
   final String label;
   final IconData icon;
@@ -635,33 +504,23 @@ class _ActionData {
   _ActionData(this.label, this.icon, this.color, this.onTap);
 }
 
+// Keeping your original _ActionCard widget
 class _ActionCard extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
 
-  const _ActionCard({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
+  const _ActionCard({ required this.label, required this.icon, required this.color, required this.onTap, });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
-        ),
+        gradient: LinearGradient( begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)], ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10)),
-        ],
+        boxShadow: [ BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10)), ],
       ),
       child: Material(
         color: Colors.transparent,
@@ -669,33 +528,23 @@ class _ActionCard extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(24),
           child: Padding(
-            padding: const EdgeInsets.all(14), // tighter to avoid label clipping
+            padding: const EdgeInsets.all(14),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(14), // tighter
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [color, color.withOpacity(0.7)]),
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(color: color.withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)),
-                    ],
+                    boxShadow: [ BoxShadow(color: color.withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 8)), ],
                   ),
-                  child: Icon(icon, color: Colors.white, size: 28), // was 32
+                  child: Icon(icon, color: Colors.white, size: 28),
                 ),
-                const SizedBox(height: 10), // was 12
+                const SizedBox(height: 10),
                 Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13, // was 14
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 0.3,
-                  ),
+                  label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle( fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.3, ),
                 ),
               ],
             ),
@@ -708,36 +557,17 @@ class _ActionCard extends StatelessWidget {
 
 // ========================= STAT CARDS =========================
 
+// Keeping your original Stat Card widgets
 class _InterventionsCard extends StatelessWidget {
   final String userRole;
   const _InterventionsCard({required this.userRole});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('interventions')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', isEqualTo: 'Nouveau')
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('interventions').where('serviceType', isEqualTo: 'Service Technique').where('status', isEqualTo: 'Nouveau').snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Interventions',
-          count: count.toString(),
-          icon: Icons.construction_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF059669)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InterventionListPage(
-                userRole: userRole,
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        );
+        return _buildGlowingCard( context: context, title: 'Interventions', count: count.toString(), icon: Icons.construction_rounded, gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF059669)]), onTap: () => Navigator.push( context, MaterialPageRoute( builder: (_) => InterventionListPage( userRole: userRole, serviceType: 'Service Technique', ), ), ), );
       },
     );
   }
@@ -746,33 +576,13 @@ class _InterventionsCard extends StatelessWidget {
 class _InstallationsCard extends StatelessWidget {
   final String userRole;
   const _InstallationsCard({required this.userRole});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('installations')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', isEqualTo: 'Nouveau')
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('installations').where('serviceType', isEqualTo: 'Service Technique').where('status', isEqualTo: 'Nouveau').snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Installations',
-          count: count.toString(),
-          icon: Icons.router_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF2563EB)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InstallationListPage(
-                userRole: userRole,
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        );
+        return _buildGlowingCard( context: context, title: 'Installations', count: count.toString(), icon: Icons.router_rounded, gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF2563EB)]), onTap: () => Navigator.push( context, MaterialPageRoute( builder: (_) => InstallationListPage( userRole: userRole, serviceType: 'Service Technique', ), ), ), );
       },
     );
   }
@@ -781,28 +591,13 @@ class _InstallationsCard extends StatelessWidget {
 class _SavTicketsCard extends StatelessWidget {
   final String userRole;
   const _SavTicketsCard({required this.userRole});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('sav_tickets')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', isEqualTo: 'Nouveau')
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('sav_tickets').where('serviceType', isEqualTo: 'Service Technique').where('status', isEqualTo: 'Nouveau').snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Tickets SAV',
-          count: count.toString(),
-          icon: Icons.support_agent_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const SavListPage(serviceType: 'Service Technique')),
-          ),
-        );
+        return _buildGlowingCard( context: context, title: 'Tickets SAV', count: count.toString(), icon: Icons.support_agent_rounded, gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]), onTap: () => Navigator.push( context, MaterialPageRoute(builder: (_) => const SavListPage(serviceType: 'Service Technique')), ), );
       },
     );
   }
@@ -811,30 +606,13 @@ class _SavTicketsCard extends StatelessWidget {
 class _ReadyReplacementsCard extends StatelessWidget {
   final String userRole;
   const _ReadyReplacementsCard({required this.userRole});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('replacementRequests')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('requestStatus', isEqualTo: 'Prêt pour Technicien')
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('replacementRequests').where('serviceType', isEqualTo: 'Service Technique').where('requestStatus', isEqualTo: 'Prêt pour Technicien').snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Remplacements Prêts',
-          count: count.toString(),
-          icon: Icons.inventory_2_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFFDB2777)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const ReadyReplacementsListPage(serviceType: 'Service Technique'),
-            ),
-          ),
-        );
+        return _buildGlowingCard( context: context, title: 'Remplacements Prêts', count: count.toString(), icon: Icons.inventory_2_rounded, gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFFDB2777)]), onTap: () => Navigator.push( context, MaterialPageRoute( builder: (_) => const ReadyReplacementsListPage(serviceType: 'Service Technique'), ), ), );
       },
     );
   }
@@ -843,34 +621,19 @@ class _ReadyReplacementsCard extends StatelessWidget {
 class _MissionsCard extends StatelessWidget {
   final String userRole;
   const _MissionsCard({required this.userRole});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('missions')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', whereIn: ['En cours', 'Planifiée'])
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('missions').where('serviceType', isEqualTo: 'Service Technique').where('status', whereIn: ['En cours', 'Planifiée']).snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Missions Actives',
-          count: count.toString(),
-          icon: Icons.assignment_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => ManageMissionsPage(serviceType: 'Service Technique')),
-          ),
-        );
+        return _buildGlowingCard( context: context, title: 'Missions Actives', count: count.toString(), icon: Icons.assignment_rounded, gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]), onTap: () => Navigator.push( context, MaterialPageRoute(builder: (_) => ManageMissionsPage(serviceType: 'Service Technique')), ), );
       },
     );
   }
 }
 
-// Shared glowing stat card
+// Keeping your original _buildGlowingCard function
 Widget _buildGlowingCard({
   required BuildContext context,
   required String title,
@@ -884,16 +647,10 @@ Widget _buildGlowingCard({
   return Container(
     margin: isWeb ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 20),
     decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.1)],
-      ),
+      gradient: LinearGradient( begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.1)], ),
       borderRadius: BorderRadius.circular(28),
       border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-      boxShadow: [
-        BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 30, offset: const Offset(0, 15)),
-      ],
+      boxShadow: [ BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 30, offset: const Offset(0, 15)), ],
     ),
     child: Material(
       color: Colors.transparent,
@@ -910,39 +667,18 @@ Widget _buildGlowingCard({
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      gradient: gradient,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: gradient.colors.first.withOpacity(0.4),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
+                      gradient: gradient, borderRadius: BorderRadius.circular(16),
+                      boxShadow: [ BoxShadow( color: gradient.colors.first.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 10), ), ],
                     ),
                     child: Icon(icon, color: Colors.white, size: 28),
                   ),
                   const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
+                  Expanded( child: Text( title, style: const TextStyle( fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600, letterSpacing: 0.3, ), ), ),
                   if (onTap != null)
                     Container(
                       padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(Icons.arrow_forward_ios_rounded,
-                          size: 16, color: Colors.white.withOpacity(0.9)),
+                      decoration: BoxDecoration( color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10), ),
+                      child: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.white.withOpacity(0.9)),
                     ),
                 ],
               ),
@@ -951,12 +687,7 @@ Widget _buildGlowingCard({
                 shaderCallback: (bounds) => gradient.createShader(bounds),
                 child: Text(
                   count,
-                  style: const TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: -1,
-                  ),
+                  style: const TextStyle( fontSize: 48, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: -1, ),
                 ),
               ),
             ],
