@@ -479,7 +479,7 @@ export const getB2UploadUrl = onRequest(
         const bucketId = backblazeBucketId.value();
 
         const uploadUrlResponse = await b2.getUploadUrl({ bucketId: bucketId });
-        const bucketName = "boitex-info-app";
+        const bucketName = "BoitexInfo";
         const downloadUrlPrefix = `${downloadUrl}/file/${bucketName}/`;
 
         functions.logger.info("Successfully generated B2 upload URL.");
