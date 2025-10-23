@@ -7,7 +7,7 @@ class MessageModel {
   final Timestamp timestamp;
 
   // Fields for different message types
-  final String messageType; // 'text', 'image', 'video', 'file'
+  final String messageType; // 'text', 'image', 'video', 'pdf', 'file'
   final String? text;
   final String? fileUrl;
   final String? fileName;
@@ -15,10 +15,7 @@ class MessageModel {
   // Field for reactions
   final Map<String, List<String>> reactions;
 
-  // *** NEW FIELDS FOR THREADS ***
-  final String? threadParentId; // ID of the message this is replying to (if any)
-  final int replyCount;       // Number of direct replies this message has
-
+  // Constructor without thread fields
   MessageModel({
     required this.id,
     required this.senderId,
@@ -29,15 +26,13 @@ class MessageModel {
     this.fileUrl,
     this.fileName,
     required this.reactions,
-    this.threadParentId, // Make it optional in constructor
-    required this.replyCount, // Make it required
   });
 
-  // Updated factory constructor
+  // Updated factory constructor without thread fields
   factory MessageModel.fromFirestore(DocumentSnapshot doc) {
     Map data = doc.data() as Map<String, dynamic>;
 
-    // Helper to parse reactions
+    // Helper to parse reactions (remains the same)
     Map<String, List<String>> parsedReactions = {};
     if (data['reactions'] != null) {
       (data['reactions'] as Map<String, dynamic>).forEach((emoji, userList) {
@@ -57,9 +52,6 @@ class MessageModel {
       fileUrl: data['fileUrl'],
       fileName: data['fileName'],
       reactions: parsedReactions,
-      // *** PARSE NEW FIELDS ***
-      threadParentId: data['threadParentId'], // Directly get the value (can be null)
-      replyCount: data['replyCount'] ?? 0,   // Default to 0 if field doesn't exist
     );
   }
 }

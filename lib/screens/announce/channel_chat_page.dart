@@ -1,6 +1,6 @@
-// lib/screens/announce/channel_chat_page.dart
-
+import 'dart:ui';
 import 'dart:io';
+
 import 'package:boitex_info_app/models/channel_model.dart';
 import 'package:boitex_info_app/models/message_model.dart';
 import 'package:boitex_info_app/services/announce_service.dart';
@@ -9,27 +9,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-
-// Viewer page imports
 import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
-
-// Imports for reactions and threads
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart' show Uint8List;
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, Platform; // For Platform check
-
-// Import for Thread Page
-import 'thread_page.dart'; // We will create this next
+import 'package:flutter/foundation.dart' show kIsWeb, Platform;
 
 class ChannelChatPage extends StatefulWidget {
   final ChannelModel channel;
   const ChannelChatPage({super.key, required this.channel});
-
   @override
-  State<ChannelChatPage> createState() => _ChannelChatPageState();
+  State createState() => _ChannelChatPageState();
 }
 
 class _ChannelChatPageState extends State<ChannelChatPage> {
@@ -37,19 +29,15 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-
   bool _isUploading = false;
 
-  // --- Sending Messages ---
   void _sendTextMessage() {
     if (_messageController.text.trim().isNotEmpty) {
-      // Send as a top-level message (threadParentId is null by default)
       _announceService.sendTextMessage(
         widget.channel.id,
         _messageController.text.trim(),
       );
       _messageController.clear();
-      _scrollToBottom();
     }
   }
 
@@ -63,43 +51,48 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         ],
       );
       if (result != null && result.files.single.path != null) {
-        setState(() { _isUploading = true; });
+        setState(() {
+          _isUploading = true;
+        });
         final PlatformFile file = result.files.first;
-        // Send as a top-level message (threadParentId is null by default)
         await _announceService.sendFileMessage(widget.channel.id, file);
-        _scrollToBottom();
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error uploading file: $e')));
     } finally {
-      setState(() { _isUploading = false; });
+      setState(() {
+        _isUploading = false;
+      });
     }
   }
 
-  // --- Navigation & Helpers ---
   void _scrollToBottom() {
-    // Scrolls the list to the bottom, typically after sending a message
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        0, // Scroll to the top because the list is reversed
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+    if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
     }
   }
 
-  Future<void> _launchFile(String url) async {
-    // Uses url_launcher to open non-standard file types
+  Future _launchFile(String url) async {
     final Uri uri = Uri.parse(url);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open file: $url')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open file: $url')),
+        );
+      }
     }
   }
 
-  Future<void> _openPdf(String url, String title) async {
-    // Downloads PDF bytes and navigates to the PdfViewerPage
+  Future _openPdf(String url, String title) async {
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -107,9 +100,11 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
     try {
       final http.Response response = await http.get(Uri.parse(url));
+      if (!mounted) return;
+      Navigator.pop(context); // Hide loading dialog
       if (response.statusCode == 200) {
         final Uint8List bytes = response.bodyBytes;
-        Navigator.pop(context); // Hide loading dialog
+        if (!mounted) return;
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -120,16 +115,16 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         throw Exception('Failed to load PDF: ${response.statusCode}');
       }
     } catch (e) {
-      Navigator.pop(context); // Hide loading dialog
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error opening PDF: $e')),
-      );
+      if (mounted) {
+        if (Navigator.of(context).canPop()) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error opening PDF: $e')),
+        );
+      }
     }
   }
 
-  // --- Emoji Picker ---
   void _showEmojiPicker(String messageId) {
-    // Shows the emoji picker bottom sheet
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -140,7 +135,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
               messageId,
               emoji.emoji,
             );
-            Navigator.pop(context); // Close the bottom sheet
+            Navigator.pop(context);
           },
           config: Config(
             height: 256,
@@ -148,86 +143,97 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
             emojiViewConfig: EmojiViewConfig(
               emojiSizeMax: 28 * (Platform.isIOS ? 1.20 : 1.0),
               columns: 8,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             ),
             swapCategoryAndBottomBar: false,
-            skinToneConfig: const SkinToneConfig(),
-            categoryViewConfig: const CategoryViewConfig(),
-            bottomActionBarConfig: const BottomActionBarConfig(),
-            searchViewConfig: const SearchViewConfig(),
+            skinToneConfig: const SkinToneConfig(enabled: false),
+            categoryViewConfig: CategoryViewConfig(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              indicatorColor: Theme.of(context).primaryColor,
+              iconColorSelected: Theme.of(context).primaryColor,
+            ),
+            bottomActionBarConfig: const BottomActionBarConfig(enabled: false),
+            searchViewConfig: SearchViewConfig(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            ),
           ),
         );
       },
     );
   }
 
-  // --- Thread Navigation ---
-  void _navigateToThread(MessageModel parentMessage) {
-    // Navigates to the dedicated ThreadPage for a message
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ThreadPage(
-          channelId: widget.channel.id,
-          parentMessage: parentMessage, // Pass the full parent message object
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.channel.name)),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.white,
+              const Color(0xFFE3F0FF),
+              Colors.white
+            ],
+            stops: const [0.0, 0.7, 1.0],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: StreamBuilder<List<MessageModel>>(
+                stream: _announceService.getMessages(widget.channel.id),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(
+                        child: Text("Error loading messages: ${snapshot.error}",
+                            style: const TextStyle(color: Colors.red)));
+                  }
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return const Center(
+                        child: Text("Be the first to say something!",
+                            style: TextStyle(color: Colors.grey)));
+                  }
+                  final messages = snapshot.data!;
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                  return ListView.builder(
+                    controller: _scrollController,
+                    reverse: false,
+                    itemCount: messages.length,
+                    padding: const EdgeInsets.only(bottom: 8.0, top: 8.0),
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      final isMe = message.senderId == _currentUserId;
+                      return _buildMessageBubble(message, isMe);
+                    },
+                  );
+                },
+              ),
+            ),
+            if (_isUploading)
+              const Padding(
+                  padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()),
+            _buildMessageInput(),
+          ],
         ),
       ),
     );
   }
 
-  // --- Build Method ---
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.channel.name)),
-      body: Column(
-        children: [
-          // Message List Area
-          Expanded(
-            child: StreamBuilder<List<MessageModel>>(
-              // Use getMessages which filters out replies for the main view
-              stream: _announceService.getMessages(widget.channel.id),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(child: Text('Be the first to say something!'));
-                }
-                final messages = snapshot.data!;
-                return ListView.builder(
-                  controller: _scrollController,
-                  reverse: true, // Show newest messages at the bottom
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final message = messages[index];
-                    final isMe = message.senderId == _currentUserId;
-                    // Build each message bubble
-                    return _buildMessageBubble(message, isMe);
-                  },
-                );
-              },
-            ),
-          ),
-          // Upload Indicator
-          if (_isUploading) const Padding(padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()),
-          // Message Input Bar
-          _buildMessageInput(), // Standard input for top-level messages
-        ],
-      ),
-    );
-  }
-
-  // --- Message Input Bar ---
   Widget _buildMessageInput() {
-    // Builds the text field, attach button, and send button
     return Container(
       padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+        color: Colors.white.withOpacity(0.90),
+        borderRadius: BorderRadius.vertical(top: const Radius.circular(18)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
+            color: Colors.blueAccent.withOpacity(0.10),
+            blurRadius: 10,
             offset: const Offset(0, -2),
           ),
         ],
@@ -235,205 +241,188 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       child: Row(
         children: [
           IconButton(
-            icon: Icon(Icons.attach_file, color: Theme.of(context).primaryColor),
-            onPressed: _isUploading ? null : _pickAndUploadFile, // Disable while uploading
+            icon: Icon(Icons.attach_file, color: const Color(0xFF6AA3FF)),
+            onPressed: _isUploading ? null : _pickAndUploadFile,
           ),
           Expanded(
             child: TextField(
               controller: _messageController,
               decoration: const InputDecoration(
                 hintText: 'Type a message...',
+                hintStyle: TextStyle(color: Color(0xFFB4C7DF)),
                 border: InputBorder.none,
                 filled: true,
+                fillColor: Colors.transparent,
               ),
+              style: const TextStyle(color: Colors.black87),
               onSubmitted: (_) => _sendTextMessage(),
+              textCapitalization: TextCapitalization.sentences,
+              minLines: 1,
+              maxLines: 5,
             ),
           ),
           IconButton(
-            icon: Icon(Icons.send, color: Theme.of(context).primaryColor),
-            onPressed: _isUploading ? null : _sendTextMessage, // Disable while uploading
+            icon: Icon(Icons.send, color: const Color(0xFF3380FF)),
+            onPressed: _isUploading ? null : _sendTextMessage,
           ),
         ],
       ),
     );
   }
 
-
-  // --- Message Bubble ---
+  // -------- Bubble UI ---------
   Widget _buildMessageBubble(MessageModel message, bool isMe) {
-    // Builds the entire message bubble structure, including content, reactions, and thread info
+    final borderRadius = BorderRadius.circular(24.0);
     final bubbleColor = isMe
-        ? Theme.of(context).primaryColor.withOpacity(0.8)
-        : Theme.of(context).colorScheme.secondary.withOpacity(0.1);
-    final textColor = isMe ? Colors.white : Colors.black87;
-    final bool hasReplies = message.replyCount > 0;
+        ? const Color(0xFFEDF4FF)
+        : const Color(0xFFF8FBFF);
+    final bubbleBorder = Border.all(
+      color: isMe
+          ? const Color(0xFFB4D0FF).withOpacity(0.43)
+          : const Color(0xFFBFCDEB).withOpacity(0.45),
+      width: 1.2,
+    );
+    final textColor = isMe ? const Color(0xFF174485) : const Color(0xFF335075);
 
-    return GestureDetector( // Allows long-press for reactions
-      onLongPress: () { _showEmojiPicker(message.id); },
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        child: Row(
-          mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.end, // Align reply button and bubble bottom
-          children: [
-            // Reply Icon - Before bubble for others
-            if (!isMe)
-              _buildReplyButton(message),
-            if (!isMe) const SizedBox(width: 4),
-
-            // Main Bubble Content Container
-            Container(
-              padding: EdgeInsets.zero, // Padding handled inside ClipRRect
-              decoration: BoxDecoration(
-                color: bubbleColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(12),
-                  topRight: const Radius.circular(12),
-                  bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
-                  bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
-                ),
-              ),
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.7, // Limit bubble width
-              ),
-              child: ClipRRect( // Clip content (like images) to rounded corners
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(12),
-                  topRight: const Radius.circular(12),
-                  bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
-                  bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                  children: [
-                    // Sender Name (Only shown for others, and not on image messages)
-                    if (message.messageType != 'image' && !isMe)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                        child: Text(
-                          message.senderName,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 12,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ),
-                      ),
-                    if (message.messageType != 'image' && !isMe) const SizedBox(height: 4),
-
-                    // Message Content (Text, Image, File)
-                    _buildMessageContent(message, textColor),
-
-                    // Reactions Display
-                    _buildReactionsDisplay(message, isMe),
-
-                    // Reply Count Indicator
-                    if (hasReplies)
-                      _buildReplyIndicator(message, isMe),
-
-                    // Timestamp
-                    Padding(
-                      // Adjust bottom padding based on content to keep timestamp aligned
-                      padding: (message.messageType == 'image' && !hasReplies && message.reactions.isEmpty)
-                          ? const EdgeInsets.fromLTRB(12, 4, 12, 8)
-                          : const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                      child: Text(
-                        DateFormat('HH:mm').format(message.timestamp.toDate()),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isMe ? Colors.white70 : Colors.black54,
-                        ),
-                      ),
+    return Container(
+      margin: EdgeInsets.symmetric(
+          vertical: 8, horizontal: isMe ? 20 : 8),
+      child: Column(
+        crossAxisAlignment: isMe
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          if (!isMe)
+            Padding(
+              padding: const EdgeInsets.only(left: 6, bottom: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6AA3FF), Color(0xFFB9DFFD)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(17),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.lightBlueAccent.withOpacity(0.22),
+                      blurRadius: 8,
+                      spreadRadius: 1,
                     ),
                   ],
                 ),
+                child: Text(
+                  message.senderName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13.5,
+                    color: Colors.white,
+                    letterSpacing: 0.18,
+                  ),
+                ),
               ),
             ),
-
-            // Reply Icon - After bubble for self
-            if (isMe) const SizedBox(width: 4),
-            if (isMe)
-              _buildReplyButton(message),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- Helper for Reply Button ---
-  Widget _buildReplyButton(MessageModel message) {
-    // Builds the small reply icon button
-    return IconButton(
-      icon: Icon(Icons.reply, size: 18, color: Colors.grey.shade600),
-      onPressed: () => _navigateToThread(message),
-      tooltip: 'Reply in Thread',
-      padding: const EdgeInsets.all(4), // Keep it compact
-      constraints: const BoxConstraints(), // Keep it compact
-    );
-  }
-
-  // --- Helper for Reply Indicator ---
-  Widget _buildReplyIndicator(MessageModel message, bool isMe){
-    // Builds the "💬 X Replies" text, clickable to open the thread
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-      child: InkWell( // Make it tappable
-        onTap: () => _navigateToThread(message),
-        child: Text(
-          '💬 ${message.replyCount} ${message.replyCount == 1 ? "Reply" : "Replies"}',
-          style: TextStyle(
-            fontSize: 11,
-            color: isMe ? Colors.white70 : Colors.blue.shade800, // Different colors for contrast
-            fontWeight: FontWeight.w600,
+          Stack(
+            children: [
+              Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width *
+                      (kIsWeb ? 0.54 : 0.80),
+                ),
+                decoration: BoxDecoration(
+                  color: bubbleColor,
+                  borderRadius: borderRadius,
+                  border: bubbleBorder,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.withOpacity(isMe ? 0.09 : 0.08),
+                      blurRadius: 22,
+                      spreadRadius: 2,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 18, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: isMe
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
+                    children: [
+                      _buildMessageContent(
+                          message, textColor),
+                      SizedBox(
+                          height: message.reactions.isNotEmpty ? 8 : 2),
+                      _buildReactionsDisplay(message, isMe),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(
+                          message.timestamp != null
+                              ? DateFormat('HH:mm').format(
+                              message.timestamp.toDate())
+                              : '--:--',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF8BA2BA),
+                            fontFamily: "FiraCode",
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
+        ],
       ),
     );
   }
 
-
-  // --- Reactions Display ---
   Widget _buildReactionsDisplay(MessageModel message, bool isMe) {
-    // Builds the row of emoji reaction chips
     if (message.reactions.isEmpty) {
-      return const SizedBox.shrink(); // Return empty widget if no reactions
+      return const SizedBox.shrink();
     }
-
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0), // Spacing below content
-      child: Wrap( // Use Wrap for multi-line reactions if needed
-        spacing: 4, // Horizontal space between chips
-        runSpacing: 4, // Vertical space if wraps
-        alignment: isMe ? WrapAlignment.end : WrapAlignment.start, // Align based on sender
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 2,
+        alignment: isMe ? WrapAlignment.end : WrapAlignment.start,
         children: message.reactions.entries.map((entry) {
           final String emoji = entry.key;
-          final List<String> userIds = entry.value;
+          final List userIds = entry.value;
           final bool iReacted = userIds.contains(_currentUserId);
-
-          if (userIds.isEmpty) return const SizedBox.shrink(); // Skip empty lists
-
-          return GestureDetector( // Allow tapping chip to toggle reaction
+          if (userIds.isEmpty) return const SizedBox.shrink();
+          return GestureDetector(
             onTap: () {
               _announceService.toggleReaction(
-                widget.channel.id,
-                message.id,
-                emoji,
-              );
+                  widget.channel.id, message.id, emoji);
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: iReacted // Highlight if current user reacted
-                    ? Theme.of(context).primaryColor.withOpacity(0.3)
-                    : Colors.black.withOpacity(0.1),
+                color: iReacted
+                    ? const Color(0xFF6AA3FF).withOpacity(0.10)
+                    : Colors.black.withOpacity(0.03),
                 borderRadius: BorderRadius.circular(10),
-                border: iReacted // Add border if current user reacted
-                    ? Border.all(color: Theme.of(context).primaryColor, width: 1)
+                border: iReacted
+                    ? Border.all(
+                  color: const Color(0xFF6AA3FF).withOpacity(0.18),
+                  width: 1.1,
+                )
                     : null,
               ),
-              child: Text(
-                '$emoji ${userIds.length}', // Display emoji and count
-                style: const TextStyle(fontSize: 12),
-              ),
+              child: Text('$emoji ${userIds.length}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: isMe
+                          ? const Color(0xFF24509E)
+                          : const Color(0xFF2F406D))),
             ),
           );
         }).toList(),
@@ -441,121 +430,142 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
-  // --- Message Content Builder ---
   Widget _buildMessageContent(MessageModel message, Color textColor) {
-    // Determines the type of content (text, image, pdf, video, file) and builds the appropriate widget
     if (message.fileUrl == null && message.messageType != 'text') {
-      // Error handling for missing file URL
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 12),
-        child: Text('Error: File not found', style: TextStyle(color: Colors.red)),
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+        child: Text('Error: File not found',
+            style: TextStyle(color: Colors.red.withOpacity(0.8))),
       );
     }
     switch (message.messageType) {
       case 'text':
-      // Simple text display
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 0), // Consistent padding
-          child: Text(
-            message.text ?? '',
-            style: TextStyle(color: textColor),
+        return Text(
+          message.text ?? '',
+          style: TextStyle(
+            color: textColor,
+            fontSize: 15,
+            fontFamily: "Inter",
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.02,
+            height: 1.33,
           ),
         );
       case 'image':
-      // Image display, tappable to open gallery
         return GestureDetector(
           onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => ImageGalleryPage(
-                  imageUrls: [message.fileUrl!], // Pass as list
+                  imageUrls: [message.fileUrl!],
                   initialIndex: 0,
                 ),
               ),
             );
           },
-          child: Image.network(
-            message.fileUrl!,
-            fit: BoxFit.cover, // Cover the bubble area
-            // Loading and error builders for network image
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return const Center(child: CircularProgressIndicator());
-            },
-            errorBuilder: (context, error, stackTrace) {
-              return Padding( // Add padding around error icon
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.broken_image, color: Colors.red.withOpacity(0.7)),
-              );
-            },
+          child: Padding(
+            padding: const EdgeInsets.all(2.0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(
+                message.fileUrl!,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return const Center(
+                      child: Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2))));
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    child: Icon(Icons.broken_image,
+                        color: Colors.red.withOpacity(0.7), size: 40),
+                  );
+                },
+              ),
+            ),
           ),
         );
       case 'pdf':
-      // PDF file bubble, tappable to open viewer
         return GestureDetector(
-          onTap: () { _openPdf(message.fileUrl!, message.fileName ?? 'PDF'); },
+          onTap: () =>
+              _openPdf(message.fileUrl!, message.fileName ?? 'PDF'),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-            child: _buildFileBubble(message.fileName ?? 'File.pdf', Icons.picture_as_pdf, Colors.red),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: _buildFileBubble(
+                message.fileName ?? 'File.pdf',
+                Icons.picture_as_pdf_rounded,
+                Colors.red.shade700),
           ),
         );
       case 'video':
-      // Video file bubble, tappable to open player
         return GestureDetector(
           onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => VideoPlayerPage(videoUrl: message.fileUrl!),
+                builder: (context) =>
+                    VideoPlayerPage(videoUrl: message.fileUrl!),
               ),
             );
           },
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-            child: _buildFileBubble(message.fileName ?? 'Video.mp4', Icons.videocam, Colors.blue),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: _buildFileBubble(
+                message.fileName ?? 'Video.mp4',
+                Icons.videocam_rounded,
+                Colors.blue.shade700),
           ),
         );
-      default: // 'file' or other unknown types
-      // Generic file bubble, tappable to launch external app
+      default:
         return GestureDetector(
-          onTap: () { _launchFile(message.fileUrl!); },
+          onTap: () => _launchFile(message.fileUrl!),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-            child: _buildFileBubble(message.fileName ?? 'File', Icons.insert_drive_file, Colors.grey),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: _buildFileBubble(
+                message.fileName ?? 'File',
+                Icons.insert_drive_file_rounded,
+                Colors.grey.shade700),
           ),
         );
     }
   }
 
-  // --- File Bubble Builder ---
   Widget _buildFileBubble(String fileName, IconData icon, Color iconColor) {
-    // Builds the visual representation for non-image files (icon + name)
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.4), // Semi-transparent white background
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFFE8F2FF),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min, // Don't take full width
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: iconColor, size: 20), // Smaller icon
+          Icon(icon, color: iconColor, size: 22),
           const SizedBox(width: 8),
-          Flexible( // Allow text to wrap/ellipsis if too long
+          Flexible(
             child: Text(
               fileName,
               style: const TextStyle(
-                color: Colors.black87,
+                color: Color(0xFF27416A),
                 fontWeight: FontWeight.w500,
-                fontSize: 13, // Slightly smaller text
+                fontSize: 13,
+                fontFamily: "FiraCode",
+                letterSpacing: 0.24,
               ),
-              overflow: TextOverflow.ellipsis, // Add ellipsis for long names
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
             ),
           ),
         ],
       ),
     );
   }
-
-} // End of _ChannelChatPageState
+}
