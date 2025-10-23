@@ -15,6 +15,9 @@ class FirebaseApi {
   static const String _techStTopic = 'technician_st_alerts';
   static const String _techItTopic = 'technician_it_alerts';
 
+  // ✅ NEWLY ADDED TOPIC
+  static const String _globalAnnouncementsTopic = 'GLOBAL_ANNOUNCEMENTS';
+
   // Helper function to convert role names to valid FCM topic names
   String _roleToTopic(String role) {
     // Replace spaces with underscores to make valid FCM topic names
@@ -134,6 +137,10 @@ class FirebaseApi {
     await unsubscribeFromAllTopics();
     print('🔄 Subscribing to topics for role: $userRole');
 
+    // ✅ ADDED: Subscribe EVERYONE to global announcements
+    await _firebaseMessaging.subscribeToTopic(_globalAnnouncementsTopic);
+    print('✅ Subscribed to: $_globalAnnouncementsTopic');
+
     // Check if user is a manager
     if (isManagerRole(userRole)) {
       await _firebaseMessaging.subscribeToTopic(_managersTopic);
@@ -203,6 +210,9 @@ class FirebaseApi {
 
   Future<void> unsubscribeFromAllTopics() async {
     print('🔄 Unsubscribing from all topics...');
+
+    // ✅ ADDED: Unsubscribe from global announcements
+    await _firebaseMessaging.unsubscribeFromTopic(_globalAnnouncementsTopic);
 
     // Unsubscribe from existing topics
     await _firebaseMessaging.unsubscribeFromTopic(_managersTopic);
