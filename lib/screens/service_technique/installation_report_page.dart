@@ -16,6 +16,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 
+// ✅ 1. ADD THIS IMPORT AT THE TOP OF THE FILE
+import 'package:video_thumbnail/video_thumbnail.dart';
+
 class InstallationReportPage extends StatefulWidget {
   final String installationId;
   const InstallationReportPage({super.key, required this.installationId});
@@ -41,11 +44,10 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     exportBackgroundColor: Colors.white,
   );
 
-  // The URL for our deployed Cloud Function
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
-  // ✅ 1. DEFINE YOUR FILE SIZE LIMIT (50MB in bytes)
+  // File size limit (50MB in bytes)
   static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
 
   @override
@@ -73,7 +75,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         setState(() {
           _installationDoc = snapshot;
           _notesController.text = data['notes'] ?? '';
-          // Load existing media URLs (supports old 'photoUrls' field for compatibility)
           _existingMediaUrls =
           List<String>.from(data['mediaUrls'] ?? data['photoUrls'] ?? []);
           _isLoadingData = false;
@@ -96,43 +97,36 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     }
   }
 
-  // ✅ 2. MODIFY _pickMedia TO CHECK FILE SIZES
+  // Pick media with file size check
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
     if (pickedFiles.isEmpty) return;
 
     final List<XFile> validFiles = [];
-    final List<String> rejectedFiles = []; // To show in the error message
+    final List<String> rejectedFiles = [];
 
-    // Loop through all selected files to validate them
     for (final file in pickedFiles) {
       final int fileSize = await file.length();
-      // We use the existing _isVideoUrl helper function
-      final bool isVideo = _isVideoUrl(file.name);
+      final bool isVideo = _isVideoUrl(file.name); // Using helper function
 
       if (isVideo && fileSize > _maxFileSizeInBytes) {
-        // This is a video and it's too large, reject it
         rejectedFiles.add(
           '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
         );
       } else {
-        // This is either an image (any size) or a video within the limit
         validFiles.add(file);
       }
     }
 
-    // Add all valid files to the upload queue
     if (validFiles.isNotEmpty) {
       setState(() => _mediaFilesToUpload.addAll(validFiles));
     }
 
-    // Show a single error message for all rejected files, if any
     if (rejectedFiles.isNotEmpty && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
-          duration:
-          const Duration(seconds: 5), // Give user time to read the list
+          duration: const Duration(seconds: 5),
           content: Text(
             'Fichiers suivants non ajoutés (limite 50 Mo):\n${rejectedFiles.join('\n')}',
             style: const TextStyle(color: Colors.white),
@@ -142,8 +136,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     }
   }
 
-  // --- START: B2 UPLOAD LOGIC ---
-
+  // --- B2 UPLOAD LOGIC (Unchanged) ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response =
@@ -196,10 +189,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       return null;
     }
   }
+  // --- END B2 UPLOAD ---
 
-  // --- END: B2 UPLOAD LOGIC ---
-
-  // ✅ --- START: UPDATED _saveReport FUNCTION ---
   Future<void> _saveReport() async {
     if (_isSaving) return;
     setState(() {
@@ -210,7 +201,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       final signatureBytes = await _signatureController.toPngBytes();
       String? signatureUrl;
 
-      // 1. Upload Signature (Unchanged)
+      // 1. Upload Signature
       if (signatureBytes != null) {
         final storageRef = FirebaseStorage.instance.ref().child(
             'signatures/installations/${widget.installationId}_${DateTime.now().millisecondsSinceEpoch}.png');
@@ -220,15 +211,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       }
 
       // 2. Upload Media to Backblaze B2
-      // ✅ This list is now pre-filtered by _pickMedia, so all files are valid
       List<String> uploadedMediaUrls = List.from(_existingMediaUrls);
       for (XFile file in _mediaFilesToUpload) {
-        // 1. Get temporary credentials
         final b2Credentials = await _getB2UploadCredentials();
         if (b2Credentials == null) {
           throw Exception('Could not get B2 upload credentials.');
         }
-        // 2. Upload the file
         final downloadUrl = await _uploadFileToB2(file, b2Credentials);
         if (downloadUrl != null) {
           uploadedMediaUrls.add(downloadUrl);
@@ -245,8 +233,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         'status': 'Terminée',
         'notes': _notesController.text,
         'signatureUrl': signatureUrl,
-        'mediaUrls': uploadedMediaUrls, // <-- Save to the new 'mediaUrls' field
-        'photoUrls': FieldValue.delete(), // <-- Delete the old 'photoUrls' field
+        'mediaUrls': uploadedMediaUrls,
+        'photoUrls': FieldValue.delete(),
         'completedAt': FieldValue.serverTimestamp(),
       });
 
@@ -266,7 +254,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       }
     }
   }
-  // ✅ --- END: UPDATED _saveReport FUNCTION ---
 
   @override
   Widget build(BuildContext context) {
@@ -279,11 +266,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     final data = _installationDoc?.data() as Map<String, dynamic>?;
     final clientName = data?['clientName'] ?? 'N/A';
     final storeName = data?['storeName'] ?? 'N/A';
-
-    // Check if the report is read-only (already completed)
-    final bool isReadOnly =
-        (_installationDoc?.data() as Map<String, dynamic>?)?['status'] ==
-            'Terminée';
+    final bool isReadOnly = data?['status'] == 'Terminée';
 
     return Scaffold(
       appBar: AppBar(
@@ -300,7 +283,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             const SizedBox(height: 24),
             TextField(
               controller: _notesController,
-              readOnly: isReadOnly, // Make read-only if completed
+              readOnly: isReadOnly,
               decoration: const InputDecoration(
                 labelText: 'Notes d\'installation',
                 border: OutlineInputBorder(),
@@ -309,8 +292,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             ),
             const SizedBox(height: 24),
 
-            // ✅ REPLACED GridView with our new _buildMediaSection
-            _buildMediaSection(isReadOnly),
+            _buildMediaSection(isReadOnly), // Uses the modified thumbnail widget
 
             const SizedBox(height: 24),
             Row(
@@ -319,7 +301,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                 const Text('Signature du Client',
                     style:
                     TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                if (!isReadOnly) // Only show "Clear" button if editable
+                if (!isReadOnly)
                   TextButton(
                       child: const Text('Effacer'),
                       onPressed: () => _signatureController.clear())
@@ -327,13 +309,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             ),
             const SizedBox(height: 8),
 
-            // Handle Signature display
             _buildSignatureSection(isReadOnly, data?['signatureUrl']),
 
             const SizedBox(height: 32),
             if (_isSaving)
               const Center(child: CircularProgressIndicator())
-            else if (!isReadOnly) // Only show "Save" button if editable
+            else if (!isReadOnly)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -352,7 +333,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     );
   }
 
-  // ✅ --- START: ADDED MEDIA SECTION WIDGETS ---
+  // --- START: MEDIA SECTION WIDGETS ---
 
   Widget _buildMediaSection(bool isReadOnly) {
     return Column(
@@ -365,12 +346,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           const Text('Aucun fichier ajouté.',
               style: TextStyle(color: Colors.grey)),
 
-        // Display existing media from Backblaze
+        // Existing media
         Wrap(
           spacing: 8.0,
           runSpacing: 8.0,
           children: _existingMediaUrls
-              .asMap() // Get index for the gallery
+              .asMap()
               .map((index, url) => MapEntry(
             index,
             _buildMediaThumbnail(
@@ -383,7 +364,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               .toList(),
         ),
 
-        // Display new media to be uploaded
+        // New media
         Wrap(
           spacing: 8.0,
           runSpacing: 8.0,
@@ -401,7 +382,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             child: ElevatedButton.icon(
               icon: const Icon(Icons.add_a_photo),
               label: const Text('Ajouter Photos/Vidéos'),
-              onPressed: _pickMedia, // ✅ This now calls our validation logic
+              onPressed: _pickMedia,
               style: ElevatedButton.styleFrom(
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
@@ -412,7 +393,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     );
   }
 
-  // Helper function to check for common video extensions
+  // Helper to check for video extensions
   bool _isVideoUrl(String path) {
     final lowercasePath = path.toLowerCase();
     return lowercasePath.endsWith('.mp4') ||
@@ -421,25 +402,19 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         lowercasePath.endsWith('.mkv');
   }
 
-  // New function to handle opening the correct media player
+  // Open the correct media player
   void _openMedia(String url) {
     if (_isVideoUrl(url)) {
-      // --- Open the Video Player Page ---
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => VideoPlayerPage(videoUrl: url),
         ),
       );
     } else {
-      // --- Open the Image Gallery Page ---
-
-      // 1. Filter the list to get only image URLs
       final List<String> imageLinks =
       _existingMediaUrls.where((link) => !_isVideoUrl(link)).toList();
-
-      // 2. Find the index of the image that was tapped
       final int initialIndex = imageLinks.indexOf(url);
-      if (imageLinks.isEmpty) return; // No images to show
+      if (imageLinks.isEmpty) return;
 
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -452,22 +427,50 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     }
   }
 
+  // ✅ 2. THIS IS THE MODIFIED THUMBNAIL WIDGET
   Widget _buildMediaThumbnail({
     String? url,
     XFile? file,
     required bool isReadOnly,
     VoidCallback? onTap,
   }) {
-    bool isVideo = (url != null && _isVideoUrl(url)) ||
-        (file != null && _isVideoUrl(file.path));
+    bool isVideo = (url != null && _isVideoUrl(url)) || (file != null && _isVideoUrl(file.path));
     Widget mediaContent;
 
     if (file != null) {
       // New file (XFile)
       if (isVideo) {
-        mediaContent = const Center(
-            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        // --- START NEW LOGIC FOR LOCAL VIDEO ---
+        mediaContent = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(
+            video: file.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 100,
+            quality: 30,
+          ),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasData && snapshot.data != null) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(11), // Match image border radius
+                child: Image.memory(
+                  snapshot.data!,
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                ),
+              );
+            }
+            // Fallback icon
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+          },
+        );
+        // --- END NEW LOGIC FOR LOCAL VIDEO ---
       } else {
+        // Local Image
         mediaContent = ClipRRect(
           borderRadius: BorderRadius.circular(11),
           child: Image.file(File(file.path),
@@ -477,11 +480,39 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     } else if (url != null && url.isNotEmpty) {
       // Existing file (URL)
       if (isVideo) {
-        mediaContent = const Center(
-            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        // --- START NEW LOGIC FOR NETWORK VIDEO ---
+        mediaContent = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(
+            video: url,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 100,
+            quality: 30,
+          ),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasData && snapshot.data != null) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(11),
+                child: Image.memory(
+                  snapshot.data!,
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                ),
+              );
+            }
+            // Fallback icon
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+          },
+        );
+        // --- END NEW LOGIC FOR NETWORK VIDEO ---
       } else {
+        // Network Image
         mediaContent = Hero(
-          tag: url, // Tag for hero animation
+          tag: url,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(11),
             child: Image.network(
@@ -489,7 +520,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               width: 100,
               height: 100,
               fit: BoxFit.cover,
-              loadingBuilder: (context, child, progress) => progress == null
+              loadingBuilder: (context, child, progress) =>
+              progress == null
                   ? child
                   : const Center(child: CircularProgressIndicator()),
               errorBuilder: (context, error, stackTrace) =>
@@ -502,11 +534,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       mediaContent = const Icon(Icons.image_not_supported, color: Colors.grey);
     }
 
+    // --- NO CHANGES to the GestureDetector or Container below ---
     return GestureDetector(
       onTap: (onTap != null)
           ? onTap
           : () {
-        // Handle tap for new files (XFile)
         if (file != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -524,8 +556,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           color: Colors.grey.shade200,
         ),
         child: Stack(
+          clipBehavior: Clip.none, // Allow overflow for the remove button
           children: [
-            mediaContent,
+            mediaContent, // This is now the FutureBuilder for videos
             if (!isReadOnly && file != null)
               Positioned(
                 top: -10,
@@ -558,10 +591,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     );
   }
 
-  // ✅ ADDED: Widget to handle signature display
+  // Widget to handle signature display
   Widget _buildSignatureSection(bool isReadOnly, String? signatureUrl) {
     if (isReadOnly && signatureUrl != null) {
-      // If report is read-only and has a signature, display it
       return Container(
         height: 150,
         decoration: BoxDecoration(
@@ -580,7 +612,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         ),
       );
     } else {
-      // Otherwise, show the signature pad
       return Container(
         height: 150,
         decoration:
@@ -591,5 +622,5 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       );
     }
   }
-// ✅ --- END: ADDED MEDIA SECTION WIDGETS ---
+// --- END: MEDIA SECTION WIDGETS ---
 }

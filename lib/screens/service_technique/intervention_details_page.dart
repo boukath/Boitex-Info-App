@@ -1,6 +1,6 @@
 // lib/screens/service_technique/intervention_details_page.dart
 
-import 'dart:io'; // ✅ Needed for File
+import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -20,6 +20,9 @@ import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 // ✅ In‑app media viewers
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
+
+// ✅ 1. ADD THIS IMPORT AT THE TOP OF THE FILE
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 // ----------------------------------------------------------------------
 // Data model
@@ -73,7 +76,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
-  // ✅ 1. DEFINE YOUR FILE SIZE LIMIT (50MB in bytes)
+  // File size limit (50MB in bytes)
   static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
 
   // Status options derived from current doc
@@ -202,52 +205,45 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ 2. CREATE A CLASS-LEVEL HELPER FUNCTION FOR CHECKING VIDEO TYPE
+  // Helper function for checking video type
   bool _isVideoPath(String path) {
     final p = path.toLowerCase();
-    // Added .mkv and .avi just in case, adjust as needed
     return p.endsWith('.mp4') ||
         p.endsWith('.mov') ||
         p.endsWith('.avi') ||
         p.endsWith('.mkv');
   }
 
-  // ✅ 3. MODIFY _pickMedia TO CHECK FILE SIZES
+  // Pick media with file size check
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
     if (pickedFiles.isEmpty) return;
 
     final List<XFile> validFiles = [];
-    final List<String> rejectedFiles = []; // To show in the error message
+    final List<String> rejectedFiles = [];
 
-    // Loop through all selected files to validate them
     for (final file in pickedFiles) {
       final int fileSize = await file.length();
       final bool isVideo = _isVideoPath(file.name);
 
       if (isVideo && fileSize > _maxFileSizeInBytes) {
-        // This is a video and it's too large, reject it
         rejectedFiles.add(
           '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
         );
       } else {
-        // This is either an image (any size) or a video within the limit
         validFiles.add(file);
       }
     }
 
-    // Add all valid files to the upload queue
     if (validFiles.isNotEmpty) {
       setState(() => _mediaFilesToUpload.addAll(validFiles));
     }
 
-    // Show a single error message for all rejected files, if any
     if (rejectedFiles.isNotEmpty && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
-          duration:
-          const Duration(seconds: 5), // Give user time to read the list
+          duration: const Duration(seconds: 5),
           content: Text(
             'Fichiers suivants non ajoutés (limite 50 Mo):\n${rejectedFiles.join('\n')}',
             style: const TextStyle(color: Colors.white),
@@ -280,14 +276,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
 
-      // Use file.name directly, B2 headers handle encoding
       final fileName = file.name.split('/').last;
 
       final resp = await http.post(
         uploadUri,
         headers: {
           'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName), // URL-encode the file name
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
           'Content-Type': file.mimeType ?? 'b2/x-auto',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': fileBytes.length.toString(),
@@ -297,13 +292,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       if (resp.statusCode == 200) {
         final body = json.decode(resp.body) as Map<String, dynamic>;
-
-        // The file name from B2 response might need encoding for the URL path
         final encodedPath = (body['fileName'] as String)
             .split('/')
-            .map(Uri.encodeComponent) // Properly encode each part of the path
+            .map(Uri.encodeComponent)
             .join('/');
-
         return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
       } else {
         debugPrint('Failed to upload to B2: ${resp.body}');
@@ -333,12 +325,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
 
       // 2) Media uploads to B2
-      // This list is now pre-filtered by _pickMedia, so all files are valid
       final uploaded = List<String>.from(_existingMediaUrls);
       for (final file in _mediaFilesToUpload) {
         final creds = await _getB2UploadCredentials();
-        if (creds == null)
+        if (creds == null) {
           throw Exception('Impossible de récupérer les accès B2.');
+        }
         final url = await _uploadFileToB2(file, creds);
         if (url != null) {
           uploaded.add(url);
@@ -433,21 +425,15 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.interventionDoc.data() ?? {};
-
-      // 1. Get signature bytes (same as your other functions)
       Uint8List? signatureBytes;
       if (data['signatureUrl'] != null) {
         final r = await http.get(Uri.parse(data['signatureUrl'] as String));
         if (r.statusCode == 200) signatureBytes = r.bodyBytes;
       }
       final pdfData = {...data, 'signatureUrl': signatureBytes};
-
-      // 2. Generate PDF bytes
-      //    (IMPORTANT: You must create this function in your InterventionPdfService)
       final Uint8List pdfBytes =
       await InterventionPdfService.generatePdfBytes(pdfData);
 
-      // 3. Navigate to the new viewer
       if (!mounted) return;
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -491,7 +477,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         appBar: AppBar(
           title: Text(
             "${data['interventionCode'] ?? 'Détails'} - ${data['storeName'] ?? ''}",
-            overflow: TextOverflow.ellipsis, // Prevents overflow on long names
+            overflow: TextOverflow.ellipsis,
           ),
           actions: [
             IconButton(
@@ -566,13 +552,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const SizedBox(height: 8),
             Text(
               'Client: ${data['clientName']} - Magasin: ${data['storeName']}',
-              // ✅ FIX 1: Changed black50 to black54
               style: const TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 4),
             Text(
               'Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}',
-              // ✅ FIX 2: Changed black50 to black54
               style: const TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 12),
@@ -658,7 +642,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             ),
           ),
           const SizedBox(height: 24),
-          _buildMediaSection(),
+          _buildMediaSection(), // Uses the modified thumbnail widget
           const SizedBox(height: 24),
           const Text('Signature du Client',
               style: TextStyle(fontWeight: FontWeight.bold)),
@@ -677,7 +661,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             )
           else if (!isReadOnly)
             ClipRRect(
-              // Clip the signature box
               borderRadius: BorderRadius.circular(20),
               child: Signature(
                 controller: _signatureController,
@@ -770,9 +753,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
-  // Thumbnail for existing or local media
+  // ✅ 2. THIS IS THE MODIFIED THUMBNAIL WIDGET
   Widget _buildMediaThumbnail({String? url, XFile? file}) {
-    // ✅ 4. USE THE CLASS-LEVEL HELPER FUNCTION
     final bool isVideo = (url != null && _isVideoPath(url)) ||
         (file != null && _isVideoPath(file.path));
 
@@ -780,9 +762,36 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     if (file != null) {
       // Local not-yet-uploaded file
       if (isVideo) {
-        content = const Center(
-            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        // --- START NEW LOGIC FOR LOCAL VIDEO ---
+        content = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(
+            video: file.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 100,
+            quality: 30,
+          ),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasData && snapshot.data != null) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  snapshot.data!,
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                ),
+              );
+            }
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+          },
+        );
+        // --- END NEW LOGIC FOR LOCAL VIDEO ---
       } else {
+        // Local Image
         content = ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: Image.file(File(file.path),
@@ -792,9 +801,36 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     } else if (url != null && url.isNotEmpty) {
       // Existing URL
       if (isVideo) {
-        content = const Center(
-            child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        // --- START NEW LOGIC FOR NETWORK VIDEO ---
+        content = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(
+            video: url,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 100,
+            quality: 30,
+          ),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasData && snapshot.data != null) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  snapshot.data!,
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                ),
+              );
+            }
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+          },
+        );
+        // --- END NEW LOGIC FOR NETWORK VIDEO ---
       } else {
+        // Network Image (No change)
         content = Hero(
           tag: url,
           child: ClipRRect(
@@ -862,7 +898,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
             // Remove button for local pending file
             if (!isReadOnly && file != null)
-            // ✅ FIX 3: Changed PositionRealSmall to Positioned
               Positioned(
                 top: -10,
                 right: -10,
