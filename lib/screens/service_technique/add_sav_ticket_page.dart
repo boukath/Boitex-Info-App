@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_storage/firebase_storage.dart'; // Still needed for signature
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
@@ -12,7 +12,11 @@ import 'package:signature/signature.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
-import 'package:video_thumbnail/video_thumbnail.dart'; // ✅ ADDED for video thumbnails
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:http/http.dart' as http; // ✅ ADDED for B2
+import 'package:crypto/crypto.dart';      // ✅ ADDED for B2
+import 'dart:convert';                   // ✅ ADDED for B2
+
 
 class UserViewModel {
   final String id;
@@ -64,9 +68,13 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     penColor: Colors.black,
     exportBackgroundColor: Colors.white,
   );
-  // ✅ RENAMED variable to hold media files
   List<File> _pickedMediaFiles = [];
   bool _isLoading = false;
+
+  // ✅ ADDED B2 Cloud Function URL constant
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+
 
   @override
   void initState() {
@@ -262,14 +270,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // ✅ MODIFIED picker function
   Future<void> _pickMediaFiles() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.media, // Changed from FileType.image to FileType.media
+      type: FileType.media,
       allowMultiple: true,
     );
     if (result != null) {
-      // Basic size check (e.g., 50MB per file) - adjust as needed
       const maxFileSize = 50 * 1024 * 1024;
       final validFiles = result.files.where((file) {
         if (file.path != null && File(file.path!).existsSync()) {
@@ -281,8 +287,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       final rejectedCount = result.files.length - validFiles.length;
 
       setState(() {
-        _pickedMediaFiles = // Use the renamed state variable
-        validFiles.map((f) => File(f.path!)).toList();
+        _pickedMediaFiles = validFiles.map((f) => File(f.path!)).toList();
       });
 
       if (rejectedCount > 0 && mounted) {
@@ -296,6 +301,76 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
+  // ✅ --- START: ADDED B2 HELPER FUNCTIONS ---
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _uploadFileToB2(
+      File file, Map<String, dynamic> b2Creds) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final fileName = path.basename(file.path); // Use path.basename
+
+      // Determine mime type (optional but helpful)
+      String? mimeType;
+      if (fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (fileName.toLowerCase().endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (fileName.toLowerCase().endsWith('.mp4')) {
+        mimeType = 'video/mp4';
+      } else if (fileName.toLowerCase().endsWith('.mov')) {
+        mimeType = 'video/quicktime';
+      }
+      // Add more mime types if needed
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(fileName), // Use Uri.encodeComponent for safety
+          'Content-Type': mimeType ?? 'b2/x-auto', // Provide mime type or default
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        // Correctly encode each part of the path
+        final encodedPath = (body['fileName'] as String)
+            .split('/')
+            .map(Uri.encodeComponent)
+            .join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+  // ✅ --- END: ADDED B2 HELPER FUNCTIONS ---
+
+  // ✅ MODIFIED to use B2 for media uploads
   Future<void> _saveTicket() async {
     if (!_formKey.currentState!.validate()) return;
     if (_signatureController.isEmpty) {
@@ -306,11 +381,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
     setState(() => _isLoading = true);
 
-    // Capture context before async gaps
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
     try {
+      // --- 1. Generate Ticket Code ---
       final year = DateTime.now().year;
       final counterRef = FirebaseFirestore.instance
           .collection('counters')
@@ -325,6 +400,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         },
       );
 
+      // --- 2. Upload Signature (Firebase Storage) ---
       final Uint8List? sigData = await _signatureController.toPngBytes();
       if (sigData == null) throw Exception("Impossible de générer la signature.");
       final sigRef = FirebaseStorage.instance
@@ -332,18 +408,26 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       await sigRef.putData(sigData);
       final sigUrl = await sigRef.getDownloadURL();
 
-      // ✅ RENAMED variable for clarity
+      // --- 3. Upload Media (Backblaze B2) ---
       List<String> mediaUrls = [];
-      // ✅ Use the renamed state variable
-      for (var file in _pickedMediaFiles) {
-        final filename =
-            '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
-        final ref =
-        FirebaseStorage.instance.ref('sav_items/$newCode/$filename');
-        await ref.putFile(file);
-        mediaUrls.add(await ref.getDownloadURL());
+      // Get B2 credentials ONCE before the loop
+      final b2Credentials = await _getB2UploadCredentials();
+      if (b2Credentials == null) {
+        throw Exception('Impossible de récupérer les accès B2.');
       }
 
+      for (var file in _pickedMediaFiles) {
+        // Use the B2 upload function
+        final downloadUrl = await _uploadFileToB2(file, b2Credentials);
+        if (downloadUrl != null) {
+          mediaUrls.add(downloadUrl);
+        } else {
+          // Optionally notify user about failed upload for this file
+          debugPrint('Skipping file due to B2 upload failure: ${path.basename(file.path)}');
+        }
+      }
+
+      // --- 4. Prepare Firestore Data ---
       final clientDoc = _clients
           .firstWhere((doc) => doc.id == _selectedClientId);
       final prodDoc = _products
@@ -371,21 +455,20 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         productName: prodDoc['nom'],
         serialNumber: _serialNumberController.text,
         problemDescription: _problemDescriptionController.text,
-        // ✅ Use mediaUrls here. IMPORTANT: The SavTicket model still expects 'itemPhotoUrls'.
-        // Ideally, you should rename the field in the SavTicket model to 'itemMediaUrls'.
-        // For now, we are assigning mediaUrls to the existing field name.
-        itemPhotoUrls: mediaUrls,
+        itemPhotoUrls: mediaUrls, // Still using 'itemPhotoUrls' field name
         storeManagerName: _managerNameController.text,
         storeManagerSignatureUrl: sigUrl,
         status: 'Nouveau',
-        createdBy: 'Current User', // TODO: Replace with actual user name/ID
+        createdBy: 'Current User', // TODO: Replace
         createdAt: DateTime.now(),
       );
 
+      // --- 5. Save to Firestore ---
       await FirebaseFirestore.instance
           .collection('sav_tickets')
           .add(ticket.toJson());
 
+      // --- 6. Success Feedback & Navigation ---
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
         const SnackBar(content: Text('Ticket créé!')),
@@ -401,6 +484,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -521,7 +605,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              MultiSelectDialogField<UserViewModel>( // ✅ CORRECTED - REMOVED buttonIcon
+              MultiSelectDialogField<UserViewModel>(
                 items: _availableTechnicians
                     .map((u) => MultiSelectItem<UserViewModel>(u, u.name))
                     .toList(),
@@ -666,10 +750,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
               const SizedBox(height: 16),
               OutlinedButton.icon(
-                // ✅ UPDATED picker function call
                 onPressed: _pickMediaFiles,
                 icon: const Icon(Icons.perm_media_outlined),
-                // ✅ UPDATED button text and count variable
                 label:
                 Text('Ajouter Photos/Vidéos (${_pickedMediaFiles.length})'),
                 style: OutlinedButton.styleFrom(
@@ -680,7 +762,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 ),
               ),
 
-              // ✅ UPDATED media list view
               if (_pickedMediaFiles.isNotEmpty)
                 Container(
                   height: 100,
@@ -700,7 +781,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(8),
                             child: isVideo
-                            // Video Thumbnail
                                 ? FutureBuilder<Uint8List?>(
                               future: VideoThumbnail.thumbnailData(
                                 video: file.path,
@@ -721,11 +801,9 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                     ],
                                   );
                                 }
-                                // Fallback icon for video if thumbnail fails
                                 return const Center(child: Icon(Icons.videocam_outlined, size: 40, color: Colors.black54));
                               },
                             )
-                            // Image File
                                 : Image.file(file, fit: BoxFit.cover),
                           ),
                         ),
@@ -733,7 +811,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     },
                   ),
                 ),
-
 
               const Divider(height: 40),
               Row(
