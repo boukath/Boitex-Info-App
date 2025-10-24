@@ -12,6 +12,7 @@ import 'package:signature/signature.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
+import 'package:video_thumbnail/video_thumbnail.dart'; // ✅ ADDED for video thumbnails
 
 class UserViewModel {
   final String id;
@@ -63,7 +64,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     penColor: Colors.black,
     exportBackgroundColor: Colors.white,
   );
-  List<File> _pickedItemPhotos = [];
+  // ✅ RENAMED variable to hold media files
+  List<File> _pickedMediaFiles = [];
   bool _isLoading = false;
 
   @override
@@ -81,6 +83,16 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     _signatureController.dispose();
     super.dispose();
   }
+
+  // Helper function for checking video type by path extension
+  bool _isVideoPath(String filePath) {
+    final p = filePath.toLowerCase();
+    return p.endsWith('.mp4') ||
+        p.endsWith('.mov') ||
+        p.endsWith('.avi') ||
+        p.endsWith('.mkv');
+  }
+
 
   Future<void> _fetchClients() async {
     try {
@@ -250,14 +262,37 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  Future<void> _pickItemPhotos() async {
-    final result = await FilePicker.platform
-        .pickFiles(type: FileType.image, allowMultiple: true);
+  // ✅ MODIFIED picker function
+  Future<void> _pickMediaFiles() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.media, // Changed from FileType.image to FileType.media
+      allowMultiple: true,
+    );
     if (result != null) {
+      // Basic size check (e.g., 50MB per file) - adjust as needed
+      const maxFileSize = 50 * 1024 * 1024;
+      final validFiles = result.files.where((file) {
+        if (file.path != null && File(file.path!).existsSync()) {
+          return File(file.path!).lengthSync() <= maxFileSize;
+        }
+        return false;
+      }).toList();
+
+      final rejectedCount = result.files.length - validFiles.length;
+
       setState(() {
-        _pickedItemPhotos =
-            result.paths.map((p) => File(p!)).toList();
+        _pickedMediaFiles = // Use the renamed state variable
+        validFiles.map((f) => File(f.path!)).toList();
       });
+
+      if (rejectedCount > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$rejectedCount fichier(s) dépassent la limite de 50 Mo.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     }
   }
 
@@ -270,6 +305,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       return;
     }
     setState(() => _isLoading = true);
+
+    // Capture context before async gaps
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
     try {
       final year = DateTime.now().year;
       final counterRef = FirebaseFirestore.instance
@@ -286,19 +326,22 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       );
 
       final Uint8List? sigData = await _signatureController.toPngBytes();
+      if (sigData == null) throw Exception("Impossible de générer la signature.");
       final sigRef = FirebaseStorage.instance
           .ref('sav_signatures/$newCode.png');
-      await sigRef.putData(sigData!);
+      await sigRef.putData(sigData);
       final sigUrl = await sigRef.getDownloadURL();
 
-      List<String> photoUrls = [];
-      for (var file in _pickedItemPhotos) {
+      // ✅ RENAMED variable for clarity
+      List<String> mediaUrls = [];
+      // ✅ Use the renamed state variable
+      for (var file in _pickedMediaFiles) {
         final filename =
             '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
         final ref =
         FirebaseStorage.instance.ref('sav_items/$newCode/$filename');
         await ref.putFile(file);
-        photoUrls.add(await ref.getDownloadURL());
+        mediaUrls.add(await ref.getDownloadURL());
       }
 
       final clientDoc = _clients
@@ -328,11 +371,14 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         productName: prodDoc['nom'],
         serialNumber: _serialNumberController.text,
         problemDescription: _problemDescriptionController.text,
-        itemPhotoUrls: photoUrls,
+        // ✅ Use mediaUrls here. IMPORTANT: The SavTicket model still expects 'itemPhotoUrls'.
+        // Ideally, you should rename the field in the SavTicket model to 'itemMediaUrls'.
+        // For now, we are assigning mediaUrls to the existing field name.
+        itemPhotoUrls: mediaUrls,
         storeManagerName: _managerNameController.text,
         storeManagerSignatureUrl: sigUrl,
         status: 'Nouveau',
-        createdBy: 'Current User',
+        createdBy: 'Current User', // TODO: Replace with actual user name/ID
         createdAt: DateTime.now(),
       );
 
@@ -340,18 +386,17 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           .collection('sav_tickets')
           .add(ticket.toJson());
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ticket créé!')),
-        );
-        Navigator.of(context).pop();
-      }
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(content: Text('Ticket créé!')),
+      );
+      navigator.pop();
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
-      }
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('Erreur: $e')),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -412,7 +457,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     padding: EdgeInsets.all(8),
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                      : null,
+                      : const Icon(Icons.person_outline),
                 ),
                 validator: (v) => v == null ? 'Sélectionner un client' : null,
               ),
@@ -437,7 +482,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     padding: EdgeInsets.all(8),
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                      : null,
+                      : const Icon(Icons.store_outlined),
                 ),
               ),
 
@@ -445,9 +490,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               TextFormField(
                 controller: _managerNameController,
                 decoration: InputDecoration(
-                    labelText: 'Nom du Gérant',
-                    border: defaultBorder,
-                    focusedBorder: focusedBorder),
+                  labelText: 'Nom du Gérant/Contact',
+                  border: defaultBorder,
+                  focusedBorder: focusedBorder,
+                  prefixIcon: const Icon(Icons.badge_outlined),
+                ),
                 validator: (v) =>
                 v == null || v.isEmpty ? 'Entrer le nom' : null,
               ),
@@ -463,16 +510,18 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 onTap: _selectDate,
                 child: InputDecorator(
                   decoration: InputDecoration(
-                      labelText: 'Date de récupération',
-                      border: defaultBorder,
-                      focusedBorder: focusedBorder),
+                    labelText: 'Date de récupération',
+                    border: defaultBorder,
+                    focusedBorder: focusedBorder,
+                    prefixIcon: const Icon(Icons.calendar_today_outlined),
+                  ),
                   child: Text(_pickupDate == null
                       ? 'Sélectionner une date'
-                      : DateFormat('dd/MM/yyyy').format(_pickupDate!)),
+                      : DateFormat('dd MMMM yyyy', 'fr_FR').format(_pickupDate!)),
                 ),
               ),
               const SizedBox(height: 16),
-              MultiSelectDialogField<UserViewModel>(
+              MultiSelectDialogField<UserViewModel>( // ✅ CORRECTED - REMOVED buttonIcon
                 items: _availableTechnicians
                     .map((u) => MultiSelectItem<UserViewModel>(u, u.name))
                     .toList(),
@@ -482,7 +531,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     : const Text('Assigner techniciens'),
                 onConfirm: (results) =>
                     setState(() => _selectedTechnicians = results),
-                chipDisplay: MultiSelectChipDisplay(),
+                chipDisplay: MultiSelectChipDisplay(
+                  chipColor: primaryColor.withOpacity(0.1),
+                  textStyle: const TextStyle(color: primaryColor),
+                ),
                 decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey.shade300),
                     borderRadius: BorderRadius.circular(12)),
@@ -511,9 +563,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   }
                 },
                 decoration: InputDecoration(
-                    labelText: 'Section Principale',
-                    border: defaultBorder,
-                    focusedBorder: focusedBorder),
+                  labelText: 'Section Principale',
+                  border: defaultBorder,
+                  focusedBorder: focusedBorder,
+                  prefixIcon: const Icon(Icons.category_outlined),
+                ),
                 validator: (v) =>
                 v == null ? 'Sélectionner une section' : null,
               ),
@@ -534,15 +588,16 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   }
                 },
                 decoration: InputDecoration(
-                    labelText: 'Catégorie',
-                    border: defaultBorder,
-                    focusedBorder: focusedBorder,
-                    prefixIcon: _isLoadingSubCategories
-                        ? const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                        : null),
+                  labelText: 'Catégorie',
+                  border: defaultBorder,
+                  focusedBorder: focusedBorder,
+                  prefixIcon: _isLoadingSubCategories
+                      ? const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                      : const Icon(Icons.dashboard_customize_outlined),
+                ),
                 validator: (v) => v == null ? 'Sélectionner une catégorie' : null,
               ),
               const SizedBox(height: 16),
@@ -558,15 +613,16 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     ? null
                     : (v) => setState(() => _selectedProductId = v),
                 decoration: InputDecoration(
-                    labelText: 'Produit',
-                    border: defaultBorder,
-                    focusedBorder: focusedBorder,
-                    prefixIcon: _isLoadingProducts
-                        ? const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                        : null),
+                  labelText: 'Produit',
+                  border: defaultBorder,
+                  focusedBorder: focusedBorder,
+                  prefixIcon: _isLoadingProducts
+                      ? const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                      : const Icon(Icons.inventory_2_outlined),
+                ),
                 hint: !_isLoadingProducts &&
                     _selectedSubCategory != null &&
                     _products.isEmpty
@@ -582,6 +638,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   labelText: 'Numéro de Série',
                   border: defaultBorder,
                   focusedBorder: focusedBorder,
+                  prefixIcon: const Icon(Icons.qr_code_2_outlined),
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.qr_code_scanner),
                     onPressed: _openScanner,
@@ -600,6 +657,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     labelText: 'Description du Problème',
                     border: defaultBorder,
                     focusedBorder: focusedBorder,
+                    prefixIcon: const Icon(Icons.report_problem_outlined),
                     alignLabelWithHint: true),
                 maxLines: 4,
                 validator: (v) =>
@@ -608,38 +666,80 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
               const SizedBox(height: 16),
               OutlinedButton.icon(
-                onPressed: _pickItemPhotos,
-                icon: const Icon(Icons.camera_alt_outlined),
+                // ✅ UPDATED picker function call
+                onPressed: _pickMediaFiles,
+                icon: const Icon(Icons.perm_media_outlined),
+                // ✅ UPDATED button text and count variable
                 label:
-                Text('Prendre des photos (${_pickedItemPhotos.length})'),
+                Text('Ajouter Photos/Vidéos (${_pickedMediaFiles.length})'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: primaryColor,
                   side: const BorderSide(color: primaryColor),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
 
-              if (_pickedItemPhotos.isNotEmpty)
+              // ✅ UPDATED media list view
+              if (_pickedMediaFiles.isNotEmpty)
                 Container(
                   height: 100,
                   margin: const EdgeInsets.only(top: 16),
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    itemCount: _pickedItemPhotos.length,
+                    itemCount: _pickedMediaFiles.length,
                     itemBuilder: (context, index) {
+                      final file = _pickedMediaFiles[index];
+                      final isVideo = _isVideoPath(file.path);
+
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: Image.file(_pickedItemPhotos[index],
-                            width: 100, height: 100, fit: BoxFit.cover),
+                        child: SizedBox(
+                          width: 100,
+                          height: 100,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: isVideo
+                            // Video Thumbnail
+                                ? FutureBuilder<Uint8List?>(
+                              future: VideoThumbnail.thumbnailData(
+                                video: file.path,
+                                imageFormat: ImageFormat.JPEG,
+                                maxWidth: 100,
+                                quality: 30,
+                              ),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return const Center(child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasData && snapshot.data != null) {
+                                  return Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      Image.memory(snapshot.data!, fit: BoxFit.cover),
+                                      const Center(child: Icon(Icons.play_circle_fill_outlined, color: Colors.white70, size: 30)),
+                                    ],
+                                  );
+                                }
+                                // Fallback icon for video if thumbnail fails
+                                return const Center(child: Icon(Icons.videocam_outlined, size: 40, color: Colors.black54));
+                              },
+                            )
+                            // Image File
+                                : Image.file(file, fit: BoxFit.cover),
+                          ),
+                        ),
                       );
                     },
                   ),
                 ),
 
+
               const Divider(height: 40),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Signature du Gérant',
+                  const Text('Signature du Gérant/Contact',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -667,7 +767,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
+                child: ElevatedButton.icon(
                   onPressed: _isLoading ? null : _saveTicket,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
@@ -675,8 +775,9 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
+                  icon: _isLoading ? Container() : const Icon(Icons.save_alt_outlined),
+                  label: _isLoading
+                      ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3,))
                       : const Text('Créer le Ticket SAV'),
                 ),
               ),
