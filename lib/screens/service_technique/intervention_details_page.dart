@@ -57,6 +57,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   // Controllers
   late final TextEditingController _managerNameController;
   late final TextEditingController _managerPhoneController;
+  late final TextEditingController _managerEmailController; // ✅ ADDED
   late final TextEditingController _diagnosticController;
   late final TextEditingController _workDoneController;
   late final SignatureController _signatureController;
@@ -105,6 +106,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         TextEditingController(text: data['managerName'] ?? '');
     _managerPhoneController =
         TextEditingController(text: data['managerPhone'] ?? '');
+    _managerEmailController =
+        TextEditingController(text: data['managerEmail'] ?? ''); // ✅ ADDED
     _diagnosticController =
         TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
@@ -307,9 +310,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ✅ CORRECTED FUNCTION TO PREVENT RUNTIME ERROR
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
+
+    // Capture context-dependent variables BEFORE async operations
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     try {
       // 1) Signature
@@ -343,6 +351,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
+        'managerEmail': _managerEmailController.text.trim(), // ✅ YOUR EMAIL FIELD
         'diagnostic': _diagnosticController.text.trim(),
         'workDone': _workDoneController.text.trim(),
         'signatureUrl': newSignatureUrl,
@@ -361,18 +370,25 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       await widget.interventionDoc.reference.update(reportData);
 
+      // Check if mounted BEFORE showing snackbar and popping
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+
+      scaffoldMessenger.showSnackBar(
         const SnackBar(content: Text('Rapport enregistré avec succès!')),
       );
-      Navigator.of(context).pop();
+      navigator.pop();
+
     } catch (e) {
+      // Check if mounted BEFORE showing error
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      // Add a mounted check here to prevent calling setState on a disposed widget
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -400,6 +416,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ✅ CORRECTED FUNCTION SYNTAX
   Future<void> _generateAndPrintPdf() async {
     setState(() => _isLoading = true);
     try {
@@ -413,9 +430,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       await InterventionPdfService.generateAndPrintPdf(pdfData);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar( // Corrected line
         SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')),
-      );
+      ); // Corrected line
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -457,6 +474,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   void dispose() {
     _managerNameController.dispose();
     _managerPhoneController.dispose();
+    _managerEmailController.dispose(); // ✅ ADDED
     _diagnosticController.dispose();
     _workDoneController.dispose();
     _signatureController.dispose();
@@ -594,6 +612,20 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             decoration: const InputDecoration(labelText: 'Téléphone du contact'),
           ),
           const SizedBox(height: 16),
+
+          // ✅ ADDED THIS BLOCK
+          TextFormField(
+            controller: _managerEmailController,
+            readOnly: isReadOnly,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Email du contact',
+              prefixIcon: Icon(Icons.email_outlined),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // ✅ END OF ADDED BLOCK
+
           MultiSelectDialogField<AppUser>(
             items: _allTechnicians
                 .map((t) => MultiSelectItem<AppUser>(t, t.displayName))
