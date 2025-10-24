@@ -7,10 +7,16 @@ import 'package:boitex_info_app/services/activity_logger.dart';
 import 'package:intl/intl.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:boitex_info_app/screens/service_technique/finalize_sav_return_page.dart';
-import 'dart:typed_data'; // ✅ ADDED for Uint8List
-import 'package:video_thumbnail/video_thumbnail.dart'; // ✅ ADDED for video thumbnails
-import 'package:boitex_info_app/widgets/image_gallery_page.dart'; // ✅ ADDED image viewer
-import 'package:boitex_info_app/widgets/video_player_page.dart'; // ✅ ADDED video viewer
+import 'dart:typed_data';
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+import 'package:boitex_info_app/widgets/video_player_page.dart';
+import 'dart:io';                       // ✅ ADDED for File
+import 'package:http/http.dart' as http; // ✅ ADDED for B2
+import 'package:crypto/crypto.dart';      // ✅ ADDED for B2
+import 'dart:convert';                   // ✅ ADDED for B2
+import 'package:path/path.dart' as path; // ✅ ADDED for basename
+import 'package:file_picker/file_picker.dart'; // ✅ ADDED for file picking
 
 class SavTicketDetailsPage extends StatefulWidget {
   final SavTicket ticket;
@@ -26,15 +32,23 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   bool _isUpdating = false;
   Map<String, int> _stockStatus = {};
 
+  // ✅ ADDED: State variable for new technician media uploads
+  List<File> _technicianMediaToUpload = [];
+
   final List<String> _statusOptions = [
     'Nouveau',
     'En Diagnostic',
     'En Réparation',
     'Terminé',
     'Irréparable - Remplacement Demandé',
-    'Approuvé - Prêt pour retour', // Added missing status if needed
-    'Retourné', // Added missing status if needed
+    'Approuvé - Prêt pour retour',
+    'Retourné',
   ];
+
+  // ✅ ADDED B2 Cloud Function URL constant
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+
 
   @override
   void initState() {
@@ -43,7 +57,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     _reportController =
         TextEditingController(text: _currentTicket.technicianReport ?? '');
 
-    // Listen for real-time updates to the ticket
     FirebaseFirestore.instance
         .collection('sav_tickets')
         .doc(widget.ticket.id)
@@ -53,11 +66,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         setState(() {
           _currentTicket = SavTicket.fromFirestore(
               doc as DocumentSnapshot<Map<String, dynamic>>);
-          // Update report controller only if text has actually changed
           if (_reportController.text != (_currentTicket.technicianReport ?? '')) {
             _reportController.text = _currentTicket.technicianReport ?? '';
           }
-          // Re-check stock if broken parts change
           if (_currentTicket.brokenParts.isNotEmpty) {
             _checkStockForParts(_currentTicket.brokenParts);
           }
@@ -65,7 +76,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       }
     });
 
-    // Initial stock check
     if (_currentTicket.brokenParts.isNotEmpty) {
       _checkStockForParts(_currentTicket.brokenParts);
     }
@@ -77,14 +87,21 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     super.dispose();
   }
 
-  // ✅ ADDED Helper function to check for video extensions
   bool _isVideoUrl(String url) {
     final lowercaseUrl = url.toLowerCase();
-    // Add more video extensions if needed
     return lowercaseUrl.endsWith('.mp4') ||
         lowercaseUrl.endsWith('.mov') ||
         lowercaseUrl.endsWith('.avi') ||
         lowercaseUrl.endsWith('.mkv');
+  }
+
+  // ✅ ADDED: Helper to check local file path too
+  bool _isVideoPath(String filePath) {
+    final p = filePath.toLowerCase();
+    return p.endsWith('.mp4') ||
+        p.endsWith('.mov') ||
+        p.endsWith('.avi') ||
+        p.endsWith('.mkv');
   }
 
   Future<void> _checkStockForParts(List<BrokenPart> parts) async {
@@ -105,11 +122,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             tempStatus[part.productId] = 0;
           }
         } else {
-          tempStatus[part.productId] = 0; // Product doesn't exist
+          tempStatus[part.productId] = 0;
         }
       } catch (e) {
         print('Error checking stock for ${part.productId}: $e');
-        tempStatus[part.productId] = 0; // Error means we assume 0 stock
+        tempStatus[part.productId] = 0;
       }
     }
     if (mounted) {
@@ -119,38 +136,172 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     }
   }
 
+  // ✅ --- START: ADDED B2 HELPER FUNCTIONS ---
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
 
+  Future<String?> _uploadFileToB2(
+      File file, Map<String, dynamic> b2Creds) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final fileName = path.basename(file.path);
+
+      String? mimeType; // Basic mime type detection
+      if (fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (fileName.toLowerCase().endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (fileName.toLowerCase().endsWith('.mp4')) {
+        mimeType = 'video/mp4';
+      } else if (fileName.toLowerCase().endsWith('.mov')) {
+        mimeType = 'video/quicktime';
+      }
+      // Add more as needed...
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': mimeType ?? 'b2/x-auto',
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        final encodedPath = (body['fileName'] as String)
+            .split('/')
+            .map(Uri.encodeComponent)
+            .join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload SAV media to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading SAV media file to B2: $e');
+      return null;
+    }
+  }
+  // ✅ --- END: ADDED B2 HELPER FUNCTIONS ---
+
+
+  // ✅ ADDED: Function to pick technician media
+  Future<void> _pickTechnicianMedia() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.media,
+      allowMultiple: true,
+    );
+    if (result != null) {
+      const maxFileSize = 50 * 1024 * 1024; // 50 MB limit
+      final validFiles = result.files.where((file) {
+        if (file.path != null && File(file.path!).existsSync()) {
+          return File(file.path!).lengthSync() <= maxFileSize;
+        }
+        return false;
+      }).toList();
+
+      final rejectedCount = result.files.length - validFiles.length;
+
+      setState(() {
+        // Add to existing list, don't replace
+        _technicianMediaToUpload.addAll(validFiles.map((f) => File(f.path!)).toList());
+      });
+
+      if (rejectedCount > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$rejectedCount fichier(s) dépassent la limite de 50 Mo.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+
+  // ✅ MODIFIED to handle technician media upload
   Future<void> _updateTicket(String newStatus) async {
     setState(() => _isUpdating = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context); // Capture context
+
     try {
+      // --- Upload NEW Technician Media ---
+      List<String> newMediaUrls = [];
+      if (_technicianMediaToUpload.isNotEmpty) {
+        final b2Credentials = await _getB2UploadCredentials();
+        if (b2Credentials == null) {
+          throw Exception('Impossible de récupérer les accès B2 pour les médias technicien.');
+        }
+        for (var file in _technicianMediaToUpload) {
+          final downloadUrl = await _uploadFileToB2(file, b2Credentials);
+          if (downloadUrl != null) {
+            newMediaUrls.add(downloadUrl);
+          } else {
+            debugPrint('Skipping technician media file due to B2 upload failure: ${path.basename(file.path)}');
+            // Optionally inform user about specific file failures
+          }
+        }
+      }
+
+      // --- Prepare Update Data ---
+      // Combine existing URLs with newly uploaded URLs
+      final combinedMediaUrls = List<String>.from(_currentTicket.itemPhotoUrls)..addAll(newMediaUrls);
+
+      final updateData = {
+        'status': newStatus,
+        'technicianReport': _reportController.text,
+        'brokenParts': _currentTicket.brokenParts.map((p) => p.toJson()).toList(),
+        'itemPhotoUrls': combinedMediaUrls, // Save combined list
+      };
+
+
+      // --- Update Firestore ---
       await FirebaseFirestore.instance
           .collection('sav_tickets')
           .doc(_currentTicket.id)
-          .update({
-        'status': newStatus,
-        'technicianReport': _reportController.text,
-        'brokenParts':
-        _currentTicket.brokenParts.map((p) => p.toJson()).toList(),
-      });
+          .update(updateData);
 
+      // --- Log Activity ---
       await ActivityLogger.logActivity(
         message:
-        "Le statut du ticket SAV ${_currentTicket.savCode} a été mis à jour à '$newStatus'.",
+        "Le statut du ticket SAV ${_currentTicket.savCode} a été mis à jour à '$newStatus'. ${newMediaUrls.isNotEmpty ? '${newMediaUrls.length} média(s) ajouté(s).' : ''}",
         interventionId: _currentTicket.id,
         category: 'SAV',
       );
 
+      // --- Clear pending uploads and show success ---
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        setState(() {
+          _technicianMediaToUpload.clear(); // Clear list after successful upload
+        });
+        scaffoldMessenger.showSnackBar(
           const SnackBar(
               content: Text('Ticket mis à jour avec succès.'),
               backgroundColor: Colors.green),
         );
-        // No pop here, stay on the details page
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(
               content: Text('Erreur: ${e.toString()}'),
               backgroundColor: Colors.red),
@@ -162,6 +313,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       }
     }
   }
+
 
   Future<void> _showAddPartsDialog() async {
     final selectedProducts = await showDialog<List<DocumentSnapshot>>(
@@ -176,14 +328,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         return BrokenPart(
           productId: doc.id,
           productName: doc['nom'] as String,
-          status: 'À Remplacer', // Default status when adding
+          status: 'À Remplacer',
         );
       }).toList();
 
-      // Update the local state first for immediate UI feedback
       setState(() {
-        // Create a new SavTicket object with the updated parts.
-        // Using a copyWith method in SavTicket would be cleaner.
         _currentTicket = SavTicket(
           id: _currentTicket.id,
           serviceType: _currentTicket.serviceType,
@@ -198,14 +347,14 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           productName: _currentTicket.productName,
           serialNumber: _currentTicket.serialNumber,
           problemDescription: _currentTicket.problemDescription,
-          itemPhotoUrls: _currentTicket.itemPhotoUrls, // Keep existing media
+          itemPhotoUrls: _currentTicket.itemPhotoUrls,
           storeManagerName: _currentTicket.storeManagerName,
           storeManagerSignatureUrl: _currentTicket.storeManagerSignatureUrl,
-          status: _currentTicket.status, // Keep current status
-          technicianReport: _reportController.text, // Keep current report text
+          status: _currentTicket.status,
+          technicianReport: _reportController.text,
           createdBy: _currentTicket.createdBy,
           createdAt: _currentTicket.createdAt,
-          brokenParts: newParts, // Use the NEW list of parts
+          brokenParts: newParts, // Use the NEW list
           billingStatus: _currentTicket.billingStatus,
           invoiceUrl: _currentTicket.invoiceUrl,
           returnClientName: _currentTicket.returnClientName,
@@ -213,14 +362,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           returnPhotoUrl: _currentTicket.returnPhotoUrl,
         );
       });
-      // Check stock for the newly added parts
       _checkStockForParts(newParts);
-      // Immediately save the updated parts list to Firestore
-      _updateTicket(_currentTicket.status); // Save with current status
+      _updateTicket(_currentTicket.status); // Save updated parts
     }
   }
 
-  // ✅ ADDED: Function to open the correct media viewer
   void _openMedia(String url) {
     if (_isVideoUrl(url)) {
       Navigator.of(context).push(
@@ -229,18 +375,16 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         ),
       );
     } else {
-      // Filter out video URLs to only show images in the gallery
       final List<String> imageLinks = _currentTicket.itemPhotoUrls
           .where((link) => !_isVideoUrl(link))
           .toList();
-      if (imageLinks.isEmpty) return; // Should not happen if url is an image
+      if (imageLinks.isEmpty) return;
 
       final int initialIndex = imageLinks.indexOf(url);
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => ImageGalleryPage(
             imageUrls: imageLinks,
-            // Ensure index is valid, default to 0 if not found (shouldn't happen)
             initialIndex: (initialIndex != -1) ? initialIndex : 0,
           ),
         ),
@@ -254,7 +398,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_currentTicket.savCode),
-        backgroundColor: Colors.orange, // Match SAV theme
+        backgroundColor: Colors.orange,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -263,14 +407,13 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           children: [
             _buildInfoCard(),
             const SizedBox(height: 16),
-            // ✅ ADDED call to the new media section widget
+            // Display INITIAL media (from ticket creation)
             if (_currentTicket.itemPhotoUrls.isNotEmpty) ...[
-              _buildMediaSection(),
+              _buildMediaSection(), // This shows existing media
               const SizedBox(height: 16),
             ],
-            _buildTechnicianSection(),
+            _buildTechnicianSection(), // This contains the add media button
             const SizedBox(height: 24),
-            // Conditional button for finalizing return
             if (_currentTicket.status == 'Approuvé - Prêt pour retour')
               Center(
                 child: SizedBox(
@@ -304,7 +447,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   Widget _buildInfoCard() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 4, // Added subtle elevation
+      elevation: 4,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -320,7 +463,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             const SizedBox(height: 8),
             const Text('Description du Problème:',
                 style: TextStyle(fontWeight: FontWeight.bold)),
-            Padding( // Added padding for better readability
+            Padding(
               padding: const EdgeInsets.only(top: 4.0),
               child: Text(_currentTicket.problemDescription,
                   style: const TextStyle(height: 1.4)),
@@ -340,7 +483,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     );
   }
 
-  // ✅ ADDED: Widget to display media thumbnails
   Widget _buildMediaSection() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -350,17 +492,17 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Photos/Vidéos de l\'Article',
+            Text('Photos/Vidéos (Initiales)', // Clarify these are the initial ones
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.orange)),
             const Divider(height: 20),
             if (_currentTicket.itemPhotoUrls.isEmpty)
-              const Text('Aucun fichier joint.', style: TextStyle(color: Colors.grey))
+              const Text('Aucun fichier joint initialement.', style: TextStyle(color: Colors.grey))
             else
               Wrap(
-                spacing: 8.0, // Horizontal space between items
-                runSpacing: 8.0, // Vertical space between lines
+                spacing: 8.0,
+                runSpacing: 8.0,
                 children: _currentTicket.itemPhotoUrls
-                    .map((url) => _buildMediaThumbnail(url))
+                    .map((url) => _buildMediaThumbnail(url: url)) // Pass url named parameter
                     .toList(),
               ),
           ],
@@ -369,58 +511,72 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     );
   }
 
-  // ✅ ADDED: Widget to build a single thumbnail (image or video)
-  Widget _buildMediaThumbnail(String url) {
-    bool isVideo = _isVideoUrl(url);
+  // Modified to accept named 'url' or 'file' parameter
+  Widget _buildMediaThumbnail({String? url, File? file}) {
+    bool isVideo = (url != null && _isVideoUrl(url)) || (file != null && _isVideoPath(file.path));
+    Widget mediaContent;
+
+    if (file != null) {
+      // Local file preview
+      if (isVideo) {
+        mediaContent = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(video: file.path, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+            if (snapshot.hasData && snapshot.data != null) {
+              return Stack(fit: StackFit.expand, children: [
+                Image.memory(snapshot.data!, fit: BoxFit.cover),
+                const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30)),
+              ]);
+            }
+            return const Center(child: Icon(Icons.videocam, color: Colors.black54));
+          },
+        );
+      } else {
+        mediaContent = Image.file(file, fit: BoxFit.cover);
+      }
+    } else if (url != null) {
+      // Network media preview (existing)
+      if (isVideo) {
+        mediaContent = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(video: url, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+            if (snapshot.hasData && snapshot.data != null) {
+              return Stack(fit: StackFit.expand, children: [
+                Image.memory(snapshot.data!, fit: BoxFit.cover),
+                const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30)),
+              ]);
+            }
+            return const Center(child: Icon(Icons.videocam, color: Colors.black54));
+          },
+        );
+      } else {
+        mediaContent = Image.network(
+          url,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, progress) => progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.grey),
+        );
+      }
+    } else {
+      mediaContent = const Icon(Icons.error, color: Colors.red); // Should not happen
+    }
+
 
     return GestureDetector(
-      onTap: () => _openMedia(url),
+      onTap: url != null ? () => _openMedia(url) : null, // Only allow opening existing media
       child: Container(
-        width: 80, // Smaller thumbnail size
+        width: 80,
         height: 80,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.grey.shade300),
-          color: Colors.grey.shade200, // Placeholder color
+          color: Colors.grey.shade200,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: isVideo
-              ? FutureBuilder<Uint8List?>(
-            future: VideoThumbnail.thumbnailData(
-              video: url,
-              imageFormat: ImageFormat.JPEG,
-              maxWidth: 80, // Match container size
-              quality: 25, // Lower quality for list thumbnail
-            ),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-              }
-              if (snapshot.hasData && snapshot.data != null) {
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.memory(snapshot.data!, fit: BoxFit.cover),
-                    const Center(
-                      child: Icon(Icons.play_circle_fill,
-                          color: Colors.white70, size: 30),
-                    ),
-                  ],
-                );
-              }
-              // Fallback for failed thumbnail generation
-              return const Center(child: Icon(Icons.videocam, color: Colors.black54));
-            },
-          )
-              : Image.network(
-            url,
-            fit: BoxFit.cover,
-            loadingBuilder: (context, child, progress) =>
-            progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            errorBuilder: (context, error, stackTrace) =>
-            const Icon(Icons.broken_image, color: Colors.grey),
-          ),
+          child: mediaContent, // Display the determined content
         ),
       ),
     );
@@ -453,12 +609,14 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                   ? null
                   : (value) {
                 if (value != null && value != _currentTicket.status) {
-                  _updateTicket(value); // Update status immediately on change
+                  // NOTE: Status update now happens within _updateTicket
+                  // Consider if you want separate status updates or only with report/media save
+                  _updateTicket(value); // Example: Update status immediately
                 }
               },
               decoration: const InputDecoration(
                 labelText: 'Changer le statut',
-                border: OutlineInputBorder(), // Added border
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -473,13 +631,63 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
               maxLines: 5,
             ),
             const SizedBox(height: 16),
+
+            // --- ✅ START: Technician Media Upload UI ---
+            if (!isReadOnly) ...[
+              OutlinedButton.icon(
+                onPressed: _pickTechnicianMedia,
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                label: const Text('Ajouter Photos/Vidéos (Technicien)'),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.orange),
+                  foregroundColor: Colors.orange,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Preview for newly added technician media
+              if (_technicianMediaToUpload.isNotEmpty)
+                Container(
+                  height: 100, // Adjust height as needed
+                  margin: const EdgeInsets.only(top: 8, bottom: 8),
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _technicianMediaToUpload.length,
+                    itemBuilder: (context, index) {
+                      final file = _technicianMediaToUpload[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: Stack( // Use Stack to add remove button
+                          alignment: Alignment.topRight,
+                          children: [
+                            _buildMediaThumbnail(file: file), // Pass file named parameter
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20),
+                              onPressed: () {
+                                setState(() {
+                                  _technicianMediaToUpload.removeAt(index);
+                                });
+                              },
+                            )
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 16),
+            ],
+            // --- ✅ END: Technician Media Upload UI ---
+
+
             if (!isReadOnly)
               OutlinedButton.icon(
                 onPressed: _showAddPartsDialog,
                 icon: const Icon(Icons.add_circle_outline),
                 label: const Text('Ajouter/Modifier Pièces Défectueuses'),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: Colors.orange), // Match theme
+                  side: const BorderSide(color: Colors.orange),
                   foregroundColor: Colors.orange,
                 ),
               ),
@@ -488,10 +696,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
               const Text('Pièces Défectueuses:',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              // Use ListView.builder for potentially long lists
               ListView.builder(
-                  shrinkWrap: true, // Important inside SingleChildScrollView
-                  physics: const NeverScrollableScrollPhysics(), // Disable internal scrolling
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
                   itemCount: _currentTicket.brokenParts.length,
                   itemBuilder: (context, index){
                     final part = _currentTicket.brokenParts[index];
@@ -499,8 +706,8 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                     final stockText = stock == null ? '...' : stock.toString();
                     final stockColor = stock == null ? Colors.grey : (stock > 0 ? Colors.green : Colors.red);
                     return ListTile(
-                      contentPadding: EdgeInsets.zero, // Remove default padding
-                      leading: Icon(Icons.build_circle_outlined, color: Colors.grey[600]), // Add an icon
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.build_circle_outlined, color: Colors.grey[600]),
                       title: Text(part.productName),
                       trailing: Text( 'Stock: $stockText',
                         style: TextStyle(color: stockColor, fontWeight: FontWeight.bold),
@@ -510,21 +717,21 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
               ),
             ],
             const SizedBox(height: 24),
-            // "Save" button now only saves the report text, status is saved on change
+            // "Save" button now saves report, parts (implicitly via dialog), AND new media
             if (!isReadOnly)
               ElevatedButton.icon(
-                onPressed: _isUpdating
-                    ? null
-                    : () => _updateTicket(_currentTicket.status), // Pass current status to save report
+                // Use current status when saving report/media
+                onPressed: _isUpdating ? null : () => _updateTicket(_currentTicket.status),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange, // Match theme
+                  backgroundColor: Colors.orange,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 icon: _isUpdating ? Container() : const Icon(Icons.save_outlined),
                 label: _isUpdating
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3,))
-                    : const Text('Enregistrer Rapport'),
+                // Clarify what is being saved
+                    : const Text('Enregistrer Rapport & Médias'),
               ),
           ],
         ),
@@ -533,7 +740,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 
   Widget _buildInfoRow(String label, String value, {bool isStatus = false}) {
-    Color statusColor = Colors.black87; // Default color
+    Color statusColor = Colors.black87;
     if (isStatus) {
       switch (value) {
         case 'Nouveau': statusColor = Colors.blue; break;
@@ -556,7 +763,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           Expanded(
               child: Text(value,
                 style: TextStyle(
-                    color: statusColor, // Use dynamic color
+                    color: statusColor,
                     fontWeight: isStatus ? FontWeight.bold : FontWeight.normal),
               )),
         ],
@@ -565,7 +772,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 }
 
-// --- Add Parts Dialog --- (No changes needed below this line for media display)
+// --- Add Parts Dialog ---
 class _AddPartsDialog extends StatefulWidget {
   final List<String> initialSelected;
   const _AddPartsDialog({required this.initialSelected});
@@ -589,16 +796,15 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
   }
 
   Future<void> _fetchAllProducts() async {
-    setState(() => _isLoadingProducts = true); // Start loading
+    setState(() => _isLoadingProducts = true);
     try {
       final snapshot =
       await FirebaseFirestore.instance.collection('produits')
-          .orderBy('categorie').orderBy('nom') // Order for consistency
+          .orderBy('categorie').orderBy('nom')
           .get();
       if (mounted) {
         setState(() {
           _allProducts = snapshot.docs;
-          // Pre-select parts based on initialSelected list
           _selectedParts
               .addAll(_allProducts.where((p) => widget.initialSelected.contains(p.id)));
           _isLoadingProducts = false;
@@ -629,33 +835,32 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // Extract unique categories efficiently
     final categories =
     _allProducts.map((doc) {
       final data = doc.data() as Map<String, dynamic>?;
       return data?['categorie'] as String?;
-    }).where((c) => c != null).toSet().toList()..sort(); // Sort categories alphabetically
+    }).where((c) => c != null).toSet().toList()..sort();
 
 
     return AlertDialog(
       title: const Text('Ajouter/Modifier Pièces'),
       content: SizedBox(
-        width: double.maxFinite, // Use available width
-        height: MediaQuery.of(context).size.height * 0.6, // Set a max height
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.6,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<String>(
               value: _selectedCategory,
               hint: const Text('Sélectionner une catégorie'),
-              isExpanded: true, // Allow dropdown to expand
+              isExpanded: true,
               onChanged: (value) {
                 if (value != null) _filterProductsByCategory(value);
               },
               items: categories
                   .map((c) => DropdownMenuItem(value: c, child: Text(c!)))
                   .toList(),
-              decoration: const InputDecoration(border: OutlineInputBorder()), // Add border
+              decoration: const InputDecoration(border: OutlineInputBorder()),
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -678,7 +883,6 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
                     onChanged: (bool? selected) {
                       setState(() {
                         if (selected == true) {
-                          // Add only if not already present (safety check)
                           if (!_selectedParts.any((p) => p.id == product.id)) {
                             _selectedParts.add(product);
                           }
@@ -688,7 +892,7 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
                         }
                       });
                     },
-                    controlAffinity: ListTileControlAffinity.leading, // Checkbox on left
+                    controlAffinity: ListTileControlAffinity.leading,
                   );
                 },
               ),
@@ -699,10 +903,10 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
       actions: [
         TextButton(
             child: const Text('ANNULER'),
-            onPressed: () => Navigator.of(context).pop()), // Pop without value
+            onPressed: () => Navigator.of(context).pop()),
         ElevatedButton(
             child: const Text('CONFIRMER'),
-            onPressed: () => Navigator.of(context).pop(_selectedParts)), // Pop WITH value
+            onPressed: () => Navigator.of(context).pop(_selectedParts)),
       ],
     );
   }
