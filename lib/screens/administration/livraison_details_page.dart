@@ -6,7 +6,7 @@ import 'package:boitex_info_app/services/activity_logger.dart';
 import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
 import 'package:signature/signature.dart';
 import 'dart:typed_data';
-import 'package:firebase_storage/firebase_storage.dart';
+// ❌ REMOVED: import 'package:firebase_storage/firebase_storage.dart';
 
 // ✅ ADDED: Imports for custom viewers and file handling
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
@@ -40,6 +40,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   bool _isLoading = true;
   bool _isCompleting = false;
 
+  // ✅ NEW: Flag to track if the delivery is completed
+  bool _isLivraisonCompleted = false;
+
   List<dynamic> _existingMedia = []; // From Firestore
   List<PlatformFile> _pickedMediaFiles = []; // Newly picked
   bool _isUploadingMedia = false;
@@ -52,6 +55,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   final _recipientEmailController = TextEditingController();
 
   bool get _allCompleted {
+    // If already completed, don't re-evaluate
+    if (_isLivraisonCompleted) return true;
     if (_serializedItems.isEmpty && _bulkItems.isEmpty) return false;
     final serializedDone = _serializedItems.isEmpty ||
         _serializedItems.every((item) => item['scanned'] == true);
@@ -95,7 +100,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         final products = data['products'] as List? ?? [];
         final deliveryMedia = data['deliveryMedia'] as List? ?? [];
 
-        // ✅ ADDED: Load recipient details if they exist
+        // ✅ NEW: Check the status here
+        final status = data['status'] as String?;
+        final bool isCompleted = status == 'Livré';
+
         _recipientNameController.text = data['recipientName'] ?? '';
         _recipientPhoneController.text = data['recipientPhone'] ?? '';
         _recipientEmailController.text = data['recipientEmail'] ?? '';
@@ -107,48 +115,48 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           final int quantity = product['quantity'] ?? 0;
           final String productName = product['productName'] ?? 'N/A';
           final String? partNumber = product['partNumber'] as String?;
-          final List serials = product['serialNumbers'] as List? ?? [];
+          final List serials = product['serialNumbers'] as List? ?? []; // Original serials expected
+          final List serialsFound = product['serialNumbersFound'] as List? ?? []; // Serials actually scanned
+          // ✅ If completed, assume items were delivered/scanned correctly
+          final bool wasDelivered = isCompleted;
 
-          if (quantity > 5 && serials.isEmpty) {
+          if (quantity > 0 && serials.isEmpty && serialsFound.isEmpty && quantity > 5) { // Treat as bulk only if no serials expected or found
             bulk.add({
               'productName': productName,
               'partNumber': partNumber,
               'quantity': quantity,
-              'delivered': false,
+              'delivered': wasDelivered, // ✅ Use loaded status
               'type': 'bulk',
             });
-          } else {
-            if (serials.isNotEmpty) {
-              for (final sn in serials) {
-                serialized.add({
-                  'productName': productName,
-                  'partNumber': partNumber,
-                  'serialNumber': sn.toString(),
-                  'scanned': false,
-                  'type': 'serialized',
-                });
-              }
-            } else {
-              for (int i = 0; i < quantity; i++) {
-                serialized.add({
-                  'productName': productName,
-                  'partNumber': partNumber,
-                  'serialNumber': null,
-                  'scanned': false,
-                  'type': 'serialized',
-                });
-              }
+          } else { // Treat as serialized if serials expected OR if serials were found (even if not expected)
+            int itemsToAdd = quantity > 0 ? quantity : serialsFound.length; // Use quantity or found serials length
+            if (itemsToAdd == 0 && serials.isNotEmpty) itemsToAdd = serials.length; // Fallback if quantity is 0 but serials expected
+
+            for (int i = 0; i < itemsToAdd; i++) {
+              serialized.add({
+                'productName': productName,
+                'partNumber': partNumber,
+                // Show found serial if available, otherwise null
+                'serialNumber': (i < serialsFound.length) ? serialsFound[i] : null,
+                // Store original expected serial for display if needed
+                'originalSerialNumber': (i < serials.length) ? serials[i] : null,
+                'scanned': wasDelivered, // ✅ Use loaded status (true if 'Livré')
+                'type': 'serialized',
+              });
             }
           }
         }
 
         setState(() {
           _livraisonDoc = doc;
+          // ✅ Set the completed flag
+          _isLivraisonCompleted = isCompleted;
           _serializedItems = serialized;
           _bulkItems = bulk;
           _existingMedia = deliveryMedia;
           _isLoading = false;
         });
+
       } else {
         setState(() => _isLoading = false);
         if (mounted) {
@@ -164,11 +172,15 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           SnackBar(content: Text('Erreur de chargement: $e')),
         );
       }
+      debugPrint("Error loading livraison details: $e"); // Added for debugging
     }
   }
 
-  // --- Scan/Mark Logic (No Changes) ---
+  // --- Scan/Mark Logic ---
   void _scanSerializedItem(Map<String, dynamic> item) async {
+    // ✅ Prevent scanning if completed
+    if (_isLivraisonCompleted) return;
+
     String? scannedCode;
     await Navigator.push(
       context,
@@ -179,9 +191,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     final code = scannedCode?.trim();
     if (code == null || code.isEmpty) return;
     setState(() {
-      if (item['serialNumber'] == null) {
-        item['serialNumber'] = code;
-      }
+      // Update the serialNumber field which is displayed
+      item['serialNumber'] = code;
       item['scanned'] = true;
     });
     ScaffoldMessenger.of(context).showSnackBar(
@@ -194,6 +205,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   void _markBulkItemDelivered(Map<String, dynamic> item) {
+    // ✅ Prevent marking if completed
+    if (_isLivraisonCompleted) return;
     setState(() {
       item['delivered'] = true;
     });
@@ -208,6 +221,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   void _verifySingleFromBulk(Map<String, dynamic> item) async {
+    // ✅ Prevent verifying if completed
+    if (_isLivraisonCompleted) return;
     String? scannedCode;
     await Navigator.push(
       context,
@@ -218,7 +233,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     final code = scannedCode?.trim();
     if (code == null || code.isEmpty) return;
     setState(() {
-      item['delivered'] = true;
+      item['delivered'] = true; // Mark as delivered upon verification
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -229,21 +244,47 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     );
   }
 
-  // --- Signature Logic (No Changes) ---
+  // --- Signature Upload Logic ---
   Future<String?> _uploadSignature() async {
-    if (_signatureController.isEmpty) return null;
+    // Should not be called if completed, but check anyway
+    if (_isLivraisonCompleted || _signatureController.isEmpty) return null;
     final Uint8List? data = await _signatureController.toPngBytes();
     if (data == null) return null;
-    final storageRef = FirebaseStorage.instance.ref().child(
-        'livraison_signatures/${widget.livraisonId}/${DateTime.now().toIso8601String()}.png');
-    final uploadTask = storageRef.putData(data);
-    final snapshot = await uploadTask.whenComplete(() {});
-    return await snapshot.ref.getDownloadURL();
+
+    try {
+      final b2Credentials = await _getB2UploadCredentials();
+      if (b2Credentials == null) {
+        throw Exception('Impossible de récupérer les accès B2 pour la signature.');
+      }
+      final fileName =
+          'livraison_signatures/${widget.livraisonId}/${DateTime.now().toIso8601String()}.png';
+      const mimeType = 'image/png';
+      final uploadedFileMap =
+      await _uploadBytesToB2(data, fileName, mimeType, b2Credentials);
+
+      if (uploadedFileMap != null && uploadedFileMap['url'] != null) {
+        return uploadedFileMap['url'];
+      } else {
+        throw Exception('Échec de l\'upload de la signature sur B2.');
+      }
+    } catch (e) {
+      debugPrint('Erreur lors de l\'upload de la signature sur B2: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Erreur upload signature: $e'),
+              backgroundColor: Colors.red),
+        );
+      }
+      return null;
+    }
   }
 
   // --- Completion Logic ---
   Future<void> _completeLivraison() async {
-    // ✅ ADDED: Validate recipient name
+    // ✅ Prevent completion if already completed
+    if (_isLivraisonCompleted) return;
+
     if (!_proofFormKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -252,11 +293,26 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       );
       return;
     }
+    // Check if signature is empty
+    if (_signatureController.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Veuillez obtenir la signature du client.'),
+            backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
     if (_livraisonDoc == null) return;
     setState(() => _isCompleting = true);
 
     try {
       final signatureUrl = await _uploadSignature();
+      // Ensure signature uploaded successfully
+      if (signatureUrl == null) { // Check specifically if upload failed
+        throw Exception('Échec de l\'upload de la signature.');
+      }
+
       final livraisonData = _livraisonDoc!.data() as Map<String, dynamic>;
       final clientId = livraisonData['clientId'];
       final storeId = livraisonData['storeId'];
@@ -264,74 +320,121 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         throw Exception(
             'Impossible de sauvegarder l\'historique: Magasin non spécifié.');
       }
+
+      // Prepare product list with found serial numbers
       final Map<String, Map<String, dynamic>> groupedProducts = {};
+      // Get original products list to preserve original serial numbers
+      final List originalProducts = livraisonData['products'] as List? ?? [];
+
       for (final item in _serializedItems) {
         final key = item['partNumber'] ?? item['productName'];
         if (!groupedProducts.containsKey(key)) {
+          // Find the original product entry
+          final originalProduct = originalProducts.firstWhere(
+                  (p) => (p['partNumber'] ?? p['productName']) == key,
+              orElse: () => null);
           groupedProducts[key] = {
             'productName': item['productName'],
             'partNumber': item['partNumber'],
             'quantity': 0,
-            'serialNumbers': [],
+            // Keep original serials if they existed
+            'serialNumbers': originalProduct?['serialNumbers'] as List? ?? [],
+            'serialNumbersFound': [], // Serials actually scanned/found
           };
         }
         groupedProducts[key]!['quantity'] =
             (groupedProducts[key]!['quantity'] as int) + 1;
         if (item['serialNumber'] != null) {
-          (groupedProducts[key]!['serialNumbers'] as List)
+          // Add scanned/entered serial to found list
+          (groupedProducts[key]!['serialNumbersFound'] as List)
               .add(item['serialNumber']);
         }
       }
       for (final item in _bulkItems) {
         final key = item['partNumber'] ?? item['productName'];
+        final originalProduct = originalProducts.firstWhere(
+                (p) => (p['partNumber'] ?? p['productName']) == key,
+            orElse: () => null);
         if (!groupedProducts.containsKey(key)) {
           groupedProducts[key] = {
             'productName': item['productName'],
             'partNumber': item['partNumber'],
             'quantity': item['quantity'],
-            'serialNumbers': [],
+            // Keep original serials if they existed (unlikely for bulk but safe)
+            'serialNumbers': originalProduct?['serialNumbers'] as List? ?? [],
+            'serialNumbersFound': [],
           };
+        } else {
+          // Add quantity for bulk items
+          groupedProducts[key]!['quantity'] = (groupedProducts[key]!['quantity'] as int) + (item['quantity'] as int);
         }
       }
+
+      // Ensure 'serialNumbersFound' list only contains unique non-null values
+      groupedProducts.values.forEach((productData) {
+        if (productData['serialNumbersFound'] is List) {
+          productData['serialNumbersFound'] = (productData['serialNumbersFound'] as List)
+              .where((sn) => sn != null) // Filter out nulls
+              .toSet() // Get unique values
+              .toList(); // Convert back to list
+        }
+      });
+
+
       final List<Map<String, dynamic>> updatedProductsList =
       List<Map<String, dynamic>>.from(groupedProducts.values);
+
       final batch = FirebaseFirestore.instance.batch();
       final livraisonRef = FirebaseFirestore.instance
           .collection('livraisons')
           .doc(widget.livraisonId);
 
-      // ✅ ADDED: Include recipient details in the update
       batch.update(livraisonRef, {
         'status': 'Livré',
         'completedAt': FieldValue.serverTimestamp(),
         'signatureUrl': signatureUrl,
-        'products': updatedProductsList,
+        'products': updatedProductsList, // Save products with potentially found serials
         'recipientName': _recipientNameController.text.trim(),
         'recipientPhone': _recipientPhoneController.text.trim(),
         'recipientEmail': _recipientEmailController.text.trim(),
       });
 
+      // --- Update materiel_installe using ONLY the found/scanned serial numbers ---
       final materielCollectionRef = FirebaseFirestore.instance
           .collection('clients')
           .doc(clientId)
           .collection('stores')
           .doc(storeId)
           .collection('materiel_installe');
-      for (final product in updatedProductsList) {
-        final serials = product['serialNumbers'] as List? ?? [];
-        if (serials.isNotEmpty) {
-          for (final sn in serials) {
-            final newMaterielDoc = materielCollectionRef.doc();
-            batch.set(newMaterielDoc, {
-              'productName': product['productName'],
-              'partNumber': product['partNumber'],
-              'serialNumber': sn,
-              'installationDate': FieldValue.serverTimestamp(),
-              'livraisonId': widget.livraisonId,
-            });
+
+      for (final productGroup in updatedProductsList) {
+        final serialsFound = productGroup['serialNumbersFound'] as List? ?? [];
+        if (serialsFound.isNotEmpty) {
+          for (final sn in serialsFound) {
+            // Check if this exact serial number already exists for this store
+            final existingQuery = await materielCollectionRef
+                .where('serialNumber', isEqualTo: sn)
+                .limit(1)
+                .get();
+
+            if (existingQuery.docs.isEmpty) { // Only add if it doesn't exist
+              final newMaterielDoc = materielCollectionRef.doc();
+              batch.set(newMaterielDoc, {
+                'productName': productGroup['productName'],
+                'partNumber': productGroup['partNumber'],
+                'serialNumber': sn,
+                'installationDate': FieldValue.serverTimestamp(), // Date of delivery completion
+                'livraisonId': widget.livraisonId, // Link back to the delivery
+              });
+            } else {
+              debugPrint("Serial number $sn already exists in materiel_installe for store $storeId. Skipping.");
+            }
           }
         }
       }
+      // --- End materiel_installe update ---
+
+
       await batch.commit();
       await ActivityLogger.logActivity(
         message:
@@ -345,15 +448,16 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
+          SnackBar(content: Text('Erreur lors de la complétion: $e')),
         );
       }
+      debugPrint("Error completing livraison: $e"); // Added for debugging
     } finally {
       if (mounted) setState(() => _isCompleting = false);
     }
   }
 
-  // ✅ --- START: B2 UPLOAD & FILE LOGIC (No Changes from previous) ---
+  // ✅ --- START: B2 UPLOAD & FILE LOGIC (REFACTORED) ---
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
@@ -371,31 +475,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     }
   }
 
-  Future<Map<String, String>?> _uploadFileToB2(
-      PlatformFile file, Map<String, dynamic> b2Creds) async {
+  Future<Map<String, String>?> _uploadBytesToB2(
+      Uint8List fileBytes,
+      String fileName,
+      String? mimeType,
+      Map<String, dynamic> b2Creds) async {
     try {
-      final fileBytes = file.bytes;
-      if (fileBytes == null) {
-        debugPrint('File bytes are null for ${file.name}');
-        return null;
-      }
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final fileName = file.name;
-
-      String? mimeType;
-      if (fileName.toLowerCase().endsWith('.jpg') ||
-          fileName.toLowerCase().endsWith('.jpeg')) {
-        mimeType = 'image/jpeg';
-      } else if (fileName.toLowerCase().endsWith('.png')) {
-        mimeType = 'image/png';
-      } else if (fileName.toLowerCase().endsWith('.pdf')) {
-        mimeType = 'application/pdf';
-      } else if (fileName.toLowerCase().endsWith('.mp4')) {
-        mimeType = 'video/mp4';
-      } else if (fileName.toLowerCase().endsWith('.mov')) {
-        mimeType = 'video/quicktime';
-      }
 
       final resp = await http.post(
         uploadUri,
@@ -428,7 +515,40 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     }
   }
 
+  Future<Map<String, String>?> _uploadFileToB2(
+      PlatformFile file, Map<String, dynamic> b2Creds) async {
+    try {
+      final fileBytes = file.bytes;
+      if (fileBytes == null) {
+        debugPrint('File bytes are null for ${file.name}');
+        return null;
+      }
+      final fileName = file.name;
+
+      String? mimeType;
+      if (fileName.toLowerCase().endsWith('.jpg') ||
+          fileName.toLowerCase().endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (fileName.toLowerCase().endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (fileName.toLowerCase().endsWith('.pdf')) {
+        mimeType = 'application/pdf';
+      } else if (fileName.toLowerCase().endsWith('.mp4')) {
+        mimeType = 'video/mp4';
+      } else if (fileName.toLowerCase().endsWith('.mov')) {
+        mimeType = 'video/quicktime';
+      }
+
+      return await _uploadBytesToB2(fileBytes, fileName, mimeType, b2Creds);
+    } catch (e) {
+      debugPrint('Error preparing file for B2 upload: $e');
+      return null;
+    }
+  }
+
   Future<void> _pickMediaFiles() async {
+    // ✅ Prevent picking if completed
+    if (_isLivraisonCompleted) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.media, // Allows images and videos
       allowMultiple: true,
@@ -442,7 +562,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   Future<void> _uploadAndSaveMedia() async {
-    if (_pickedMediaFiles.isEmpty) return;
+    // ✅ Prevent uploading if completed
+    if (_isLivraisonCompleted || _pickedMediaFiles.isEmpty) return;
     setState(() => _isUploadingMedia = true);
 
     try {
@@ -451,9 +572,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         throw Exception('Impossible de récupérer les accès B2.');
       }
 
-      // Get current list of media from state
-      List<Map<String, dynamic>> mediaList =
-      List<Map<String, dynamic>>.from(
+      List<Map<String, dynamic>> mediaList = List<Map<String, dynamic>>.from(
           _existingMedia.map((e) => e as Map<String, dynamic>));
 
       for (final file in _pickedMediaFiles) {
@@ -463,13 +582,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         }
       }
 
-      // Update Firestore
       await FirebaseFirestore.instance
           .collection('livraisons')
           .doc(widget.livraisonId)
           .update({'deliveryMedia': mediaList});
 
-      // Update local state and clear picked files
       setState(() {
         _existingMedia = mediaList;
         _pickedMediaFiles.clear();
@@ -502,6 +619,22 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     final extension = path.extension(fileName).toLowerCase();
     final uri = Uri.parse(urlString);
 
+    // Combine all image URLs for the gallery
+    final List<String> imageUrls = _existingMedia
+        .where((m) {
+      final fname = m['fileName'] as String?;
+      if (fname == null) return false;
+      final ext = path.extension(fname).toLowerCase();
+      return ['.jpg', '.jpeg', '.png'].contains(ext);
+    })
+        .map((m) => m['url'] as String)
+        .toList();
+
+    // Find the index of the currently tapped image
+    int initialImageIndex = imageUrls.indexOf(urlString);
+    if (initialImageIndex == -1) initialImageIndex = 0; // Fallback
+
+
     if (['.mp4', '.mov', '.avi'].contains(extension)) {
       Navigator.push(
         context,
@@ -514,13 +647,13 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         context,
         MaterialPageRoute(
           builder: (context) => ImageGalleryPage(
-            imageUrls: [urlString],
-            initialIndex: 0,
+            imageUrls: imageUrls, // Pass all image URLs
+            initialIndex: initialImageIndex, // Pass the correct starting index
           ),
         ),
       );
     } else if (extension == '.pdf') {
-      setState(() => _isCompleting = true); // Show loading indicator
+      setState(() => _isLoading = true); // Use _isLoading for consistency
       try {
         final response = await http.get(uri);
         if (response.statusCode == 200) {
@@ -545,7 +678,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           );
         }
       } finally {
-        if (mounted) setState(() => _isCompleting = false); // Hide loading
+        if (mounted) setState(() => _isLoading = false);
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -572,23 +705,47 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Détails de la Livraison')),
+        appBar: AppBar(title: const Text('Chargement Détails...')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    final data = _livraisonDoc?.data() as Map<String, dynamic>? ?? {};
+    if (_livraisonDoc == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Erreur')),
+        body: const Center(child: Text('Impossible de charger les détails de la livraison.')),
+      );
+    }
+
+
+    final data = _livraisonDoc!.data() as Map<String, dynamic>; // Now safe to assume not null
+    final int totalSerializedItems = _serializedItems.length;
     final int totalSerializedScanned =
         _serializedItems.where((item) => item['scanned'] == true).length;
+    final int totalBulkItems = _bulkItems.length;
     final int totalBulkDelivered =
         _bulkItems.where((item) => item['delivered'] == true).length;
 
     final String? fileUrl = data['externalBonUrl'] as String?;
     final String? fileName = data['externalBonFileName'] as String?;
+    final String? signatureImageUrl = data['signatureUrl'] as String?; // ✅ Get signature URL
+
 
     return Scaffold(
       appBar: AppBar(
         title: Text(data['bonLivraisonCode'] ?? 'Détails de la Livraison'),
+        // ✅ Add indicator if completed
+        actions: [
+          if (_isLivraisonCompleted)
+            Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Chip(
+                label: Text('Terminé', style: TextStyle(color: Colors.white)),
+                backgroundColor: Colors.green,
+                avatar: Icon(Icons.check_circle, color: Colors.white, size: 18),
+              ),
+            )
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -596,9 +753,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: ListTile(
-                leading: const Icon(Icons.business),
-                title: Text(data['clientName'] ?? 'Client Inconnu'),
+                leading: const Icon(Icons.business, color: Colors.blueGrey),
+                title: Text(data['clientName'] ?? 'Client Inconnu', style: TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text(
                     'Magasin: ${data['storeName'] ?? 'N/A'}\nAdresse: ${data['deliveryAddress'] ?? 'N/A'}'),
               ),
@@ -607,16 +766,18 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             if (fileUrl != null && fileUrl.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
-                'Fichier Attaché',
+                'Fichier Attaché (Bon)',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 8),
               Card(
+                elevation: 1,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 color: Colors.blue.shade50,
                 child: ListTile(
-                  leading: Icon(_getFileIcon(fileName), color: Colors.blue),
+                  leading: Icon(_getFileIcon(fileName), color: Colors.blue.shade700),
                   title: Text(fileName ?? 'Bon de Livraison'),
                   subtitle: const Text('Appuyez pour ouvrir'),
                   trailing: const Icon(Icons.open_in_new),
@@ -632,7 +793,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                   const Icon(Icons.qr_code_scanner, color: Colors.blue),
                   const SizedBox(width: 8),
                   Text(
-                    'Produits avec N/S ($totalSerializedScanned/${_serializedItems.length})',
+                    'Produits avec N/S ($totalSerializedScanned/$totalSerializedItems)',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -641,23 +802,31 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               ),
               const SizedBox(height: 8),
               Card(
-                child: Column(
-                  children: _serializedItems.map((item) {
+                elevation: 1,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                child: ListView.separated( // Use ListView.separated for dividers
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: _serializedItems.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, indent: 16, endIndent: 16),
+                  itemBuilder: (context, index) {
+                    final item = _serializedItems[index];
+                    bool isScanned = item['scanned'] ?? false;
                     return ListTile(
-                      leading: item['scanned']
+                      leading: isScanned
                           ? const Icon(Icons.check_circle,
                           color: Colors.green, size: 30)
-                          : const Icon(Icons.inventory_2_outlined,
-                          color: Colors.orange, size: 30),
-                      title: Text(item['productName']),
+                          : Icon(Icons.inventory_2_outlined,
+                          color: _isLivraisonCompleted ? Colors.grey : Colors.orange, size: 30),
+                      title: Text(item['productName'] ?? 'Produit Inconnu'),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Réf: ${item['partNumber'] ?? 'À scanner'}'),
+                          Text('Réf: ${item['partNumber'] ?? 'N/A'}'),
                           Text(
                             item['serialNumber'] != null
-                                ? 'N/S: ${item['serialNumber']}'
-                                : 'N/S: À scanner',
+                                ? 'N/S Scanné: ${item['serialNumber']}'
+                                : (item['originalSerialNumber'] != null ? 'N/S Attendu: ${item['originalSerialNumber']}' : 'N/S: À scanner'),
                             style: TextStyle(
                               color: item['serialNumber'] != null
                                   ? Colors.black87
@@ -669,20 +838,21 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                           ),
                         ],
                       ),
-                      trailing: !item['scanned']
+                      trailing: !isScanned && !_isLivraisonCompleted
                           ? IconButton(
                         icon: const Icon(Icons.qr_code_scanner),
                         color: Colors.blue,
                         tooltip: 'Scanner',
                         onPressed: () => _scanSerializedItem(item),
                       )
-                          : const Icon(Icons.check, color: Colors.green),
+                          : (isScanned ? const Icon(Icons.check, color: Colors.green) : null),
                     );
-                  }).toList(),
+                  },
                 ),
               ),
               const SizedBox(height: 24),
             ],
+
 
             if (_bulkItems.isNotEmpty) ...[
               Row(
@@ -690,7 +860,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                   const Icon(Icons.inventory, color: Colors.green),
                   const SizedBox(width: 8),
                   Text(
-                    'Produits Cons ($totalBulkDelivered/${_bulkItems.length})',
+                    'Produits Cons ($totalBulkDelivered/$totalBulkItems)',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -699,17 +869,25 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               ),
               const SizedBox(height: 8),
               Card(
+                elevation: 1,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 color: Colors.green.shade50,
-                child: Column(
-                  children: _bulkItems.map((item) {
+                child: ListView.separated( // Use ListView.separated
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: _bulkItems.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, indent: 16, endIndent: 16),
+                  itemBuilder: (context, index) {
+                    final item = _bulkItems[index];
+                    bool isDelivered = item['delivered'] ?? false;
                     return ListTile(
-                      leading: item['delivered']
+                      leading: isDelivered
                           ? const Icon(Icons.check_circle,
                           color: Colors.green, size: 30)
                           : const Icon(Icons.inventory_2_outlined,
                           color: Colors.grey, size: 30),
                       title: Text(
-                        item['productName'],
+                        item['productName'] ?? 'Produit Inconnu',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Column(
@@ -726,7 +904,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                           ),
                         ],
                       ),
-                      trailing: !item['delivered']
+                      trailing: !isDelivered && !_isLivraisonCompleted
                           ? Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -746,18 +924,20 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
                           ),
                         ],
                       )
-                          : const Icon(Icons.check,
-                          color: Colors.green, size: 28),
+                          : (isDelivered ? const Icon(Icons.check,
+                          color: Colors.green, size: 28) : null),
                     );
-                  }).toList(),
+                  },
                 ),
               ),
               const SizedBox(height: 24),
             ],
+
 
             const Divider(height: 32),
 
@@ -765,35 +945,38 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
-                // ✅ ADDED Form widget
                 child: Form(
                   key: _proofFormKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // --- Media Upload Section (No Changes)---
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('Photos / Vidéos',
                               style: TextStyle(
                                   fontSize: 16, fontWeight: FontWeight.bold)),
-                          OutlinedButton.icon(
-                            onPressed: _pickMediaFiles,
-                            icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-                            label: const Text('Ajouter'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.blue,
-                              side: const BorderSide(color: Colors.blue),
+                          if (!_isLivraisonCompleted)
+                            OutlinedButton.icon(
+                              onPressed: _pickMediaFiles,
+                              icon:
+                              const Icon(Icons.add_a_photo_outlined, size: 18),
+                              label: const Text('Ajouter'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.blue,
+                                side: const BorderSide(color: Colors.blue),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
                             ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _buildMediaThumbnails(),
-                      if (_pickedMediaFiles.isNotEmpty) ...[
+                      _buildMediaThumbnails(_isLivraisonCompleted),
+                      if (!_isLivraisonCompleted && _pickedMediaFiles.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         SizedBox(
                           width: double.infinity,
@@ -814,25 +997,28 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
                           ),
                         ),
                       ],
                       const Divider(height: 24),
-                      // ✅ --- START: ADDED RECIPIENT DETAILS FIELDS ---
                       const Text('Détails du Réceptionnaire',
                           style: TextStyle(
                               fontSize: 16, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
                       TextFormField(
+                        enabled: !_isLivraisonCompleted,
                         controller: _recipientNameController,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Nom Complet *',
-                          prefixIcon: Icon(Icons.person_outline),
-                          border: OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.person_outline),
+                          fillColor: _isLivraisonCompleted ? Colors.grey.shade200 : null,
+                          filled: _isLivraisonCompleted,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
+                          if (!_isLivraisonCompleted && (value == null || value.trim().isEmpty)) {
                             return 'Le nom est requis';
                           }
                           return null;
@@ -840,46 +1026,95 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
+                        enabled: !_isLivraisonCompleted,
                         controller: _recipientPhoneController,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Numéro de Téléphone (Optionnel)',
-                          prefixIcon: Icon(Icons.phone_outlined),
-                          border: OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.phone_outlined),
+                          fillColor: _isLivraisonCompleted ? Colors.grey.shade200 : null,
+                          filled: _isLivraisonCompleted,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         keyboardType: TextInputType.phone,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
+                        enabled: !_isLivraisonCompleted,
                         controller: _recipientEmailController,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Email (Optionnel)',
-                          prefixIcon: Icon(Icons.email_outlined),
-                          border: OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.email_outlined),
+                          fillColor: _isLivraisonCompleted ? Colors.grey.shade200 : null,
+                          filled: _isLivraisonCompleted,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         keyboardType: TextInputType.emailAddress,
                       ),
-                      // ✅ --- END: ADDED RECIPIENT DETAILS FIELDS ---
                       const Divider(height: 24),
-                      // --- Signature Section (No Changes) ---
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('Signature du Client',
                               style: TextStyle(
                                   fontSize: 16, fontWeight: FontWeight.bold)),
-                          TextButton(
-                            child: const Text('Effacer'),
-                            onPressed: () => _signatureController.clear(),
-                          )
+                          if (!_isLivraisonCompleted)
+                            TextButton(
+                              child: const Text('Effacer'),
+                              onPressed: _signatureController.isEmpty ? null : () => _signatureController.clear(),
+                            )
                         ],
                       ),
-                      Container(
+                      // ✅ Conditionally show Signature pad or saved Image
+                      _isLivraisonCompleted
+                          ? (signatureImageUrl != null
+                          ? Container( // Display the saved signature image
                         height: 150,
                         decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade400)),
-                        child: Signature(
-                          controller: _signatureController,
-                          backgroundColor: Colors.grey[200]!,
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(4), // Add border radius
+                          color: Colors.grey.shade100, // Background color
+                        ),
+                        child: ClipRRect( // Clip the image to the border radius
+                          borderRadius: BorderRadius.circular(4),
+                          child: Image.network(
+                            signatureImageUrl,
+                            fit: BoxFit.contain, // Or BoxFit.fill
+                            loadingBuilder: (context, child, progress) {
+                              return progress == null
+                                  ? child
+                                  : Center(child: CircularProgressIndicator(
+                                value: progress.expectedTotalBytes != null
+                                    ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                    : null,
+                              ));
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(child: Icon(Icons.error_outline, color: Colors.red, size: 40));
+                            },
+                          ),
+                        ),
+                      )
+                          : Container( // Placeholder if URL missing but completed
+                        height: 150,
+                        decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade400),
+                            borderRadius: BorderRadius.circular(4),
+                            color: Colors.grey.shade200),
+                        child: const Center(child: Text('Signature non disponible', style: TextStyle(color: Colors.grey))),
+                      )
+                      )
+                          : Container( // Show editable signature pad if NOT completed
+                        height: 150,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(4), // Add border radius
+                        ),
+                        child: ClipRRect( // Clip the signature pad
+                          borderRadius: BorderRadius.circular(4),
+                          child: Signature(
+                            controller: _signatureController,
+                            backgroundColor: Colors.grey[200]!,
+                          ),
                         ),
                       ),
                     ],
@@ -890,21 +1125,23 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
             const Divider(height: 32),
 
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: (_isCompleting || !_allCompleted || _isUploadingMedia)
-                    ? null
-                    : _completeLivraison,
-                icon: const Icon(Icons.check_circle),
-                label: const Text('Confirmer la Livraison'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+            if (!_isLivraisonCompleted)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: (_isCompleting || !_allCompleted || _isUploadingMedia) // Removed signature check here, added validation earlier
+                      ? null
+                      : _completeLivraison,
+                  icon: const Icon(Icons.check_circle),
+                  label: const Text('Confirmer la Livraison'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
                 ),
               ),
-            ),
             if (_isCompleting)
               const Padding(
                 padding: EdgeInsets.all(16.0),
@@ -916,13 +1153,13 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     );
   }
 
-  // ✅ --- START: THUMBNAIL WIDGETS (No Changes) ---
+  // ✅ --- START: THUMBNAIL WIDGETS (Added isReadOnly parameter) ---
 
-  Widget _buildMediaThumbnails() {
+  Widget _buildMediaThumbnails([bool isReadOnly = false]) { // Add parameter
     final allMedia = [
       ..._existingMedia.map((media) => {'isPicked': false, 'data': media}),
-      ..._pickedMediaFiles
-          .map((file) => {'isPicked': true, 'data': file})
+      // Only show newly picked files if not read-only
+      if (!isReadOnly) ..._pickedMediaFiles.map((file) => {'isPicked': true, 'data': file})
     ];
 
     if (allMedia.isEmpty) {
@@ -936,7 +1173,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       runSpacing: 8.0,
       children: allMedia.map((media) {
         if (media['isPicked'] as bool) {
-          return _buildPickedFileThumbnail(media['data'] as PlatformFile);
+          // Pass read-only flag to disable remove button
+          return _buildPickedFileThumbnail(media['data'] as PlatformFile, isReadOnly);
         } else {
           return _buildExistingMediaThumbnail(
               media['data'] as Map<String, dynamic>);
@@ -959,26 +1197,39 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           color: Colors.grey.shade200,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            if (icon == Icons.image)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(url!,
-                    fit: BoxFit.cover, width: 80, height: 80),
-              )
-            else
-              Icon(icon, size: 40, color: Colors.grey.shade700),
-            if (icon == Icons.videocam)
-              Icon(Icons.play_circle_fill, color: Colors.white70, size: 30),
-          ],
+        child: ClipRRect( // Clip content
+          borderRadius: BorderRadius.circular(8),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (icon == Icons.image)
+                Image.network(
+                  url!,
+                  fit: BoxFit.cover, width: 80, height: 80,
+                  loadingBuilder: (context, child, progress) => progress == null ? child : Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: 40, color: Colors.grey.shade700),
+                )
+              else if (icon == Icons.videocam)
+                _buildVideoThumbnailFromUrl(url) // Use helper for URL thumbs
+              else
+                Icon(icon, size: 40, color: Colors.grey.shade700),
+              if (icon == Icons.videocam)
+                Icon(Icons.play_circle_fill, color: Colors.white70, size: 30),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildPickedFileThumbnail(PlatformFile file) {
+
+  Widget _buildVideoThumbnailFromUrl(String? url) {
+    // Placeholder - Actual URL thumbnail generation might need more work
+    return Icon(Icons.videocam, size: 40, color: Colors.grey.shade700);
+  }
+
+
+  Widget _buildPickedFileThumbnail(PlatformFile file, [bool isReadOnly = false]) { // Add parameter
     final fileName = file.name;
     final icon = _getFileIcon(fileName);
 
@@ -990,50 +1241,63 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.blue),
       ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          if (icon == Icons.image && file.bytes != null)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.memory(file.bytes!,
-                  fit: BoxFit.cover, width: 80, height: 80),
-            )
-          else if (icon == Icons.videocam)
-            _buildVideoThumbnail(file)
-          else
-            Icon(icon, size: 40, color: Colors.blue.shade700),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(4),
+      child: ClipRRect( // Clip content
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (icon == Icons.image && file.bytes != null)
+              Image.memory(file.bytes!,
+                  fit: BoxFit.cover, width: 80, height: 80)
+            else if (icon == Icons.videocam)
+              _buildVideoThumbnail(file) // Assumes file.path is available
+            else
+              Icon(icon, size: 40, color: Colors.blue.shade700),
+            // Show add icon only if not read-only
+            if (!isReadOnly)
+              Positioned(
+                top: 2, // Adjusted position
+                right: 2, // Adjusted position
+                child: Container(
+                  padding: const EdgeInsets.all(1),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.8), // Slightly transparent
+                    shape: BoxShape.circle, // Make it circular
+                  ),
+                  child: const Icon(Icons.add, color: Colors.white, size: 14), // Smaller icon
+                ),
               ),
-              child: const Icon(Icons.add, color: Colors.white, size: 12),
-            ),
-          ),
-          Positioned(
-            bottom: -10,
-            right: -10,
-            child: IconButton(
-              icon: const Icon(Icons.remove_circle, color: Colors.red, size: 20),
-              onPressed: () {
-                setState(() {
-                  _pickedMediaFiles.remove(file);
-                });
-              },
-            ),
-          )
-        ],
+            // Show remove button only if not read-only
+            if (!isReadOnly)
+              Positioned(
+                bottom: -12, // Adjusted position
+                right: -12, // Adjusted position
+                child: Material( // Wrap IconButton in Material for ink splash
+                  color: Colors.transparent,
+                  child: IconButton(
+                    icon: const Icon(Icons.remove_circle),
+                    color: Colors.red.withOpacity(0.9), // Slightly transparent
+                    iconSize: 22, // Slightly larger icon
+                    tooltip: 'Supprimer',
+                    padding: EdgeInsets.zero, // Remove padding
+                    constraints: BoxConstraints(), // Remove constraints
+                    onPressed: () {
+                      setState(() {
+                        _pickedMediaFiles.remove(file);
+                      });
+                    },
+                  ),
+                ),
+              )
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildVideoThumbnail(PlatformFile file) {
     if (file.path == null) {
+      // Show placeholder if path isn't available
       return Stack(
         alignment: Alignment.center,
         children: [
@@ -1046,25 +1310,34 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       future: VideoThumbnail.thumbnailData(
         video: file.path!,
         imageFormat: ImageFormat.JPEG,
-        maxWidth: 80,
-        quality: 30,
+        maxWidth: 120, // Increased size for better quality if needed
+        quality: 50,    // Increased quality
       ),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const CircularProgressIndicator(strokeWidth: 2);
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        if (snapshot.hasError) {
+          debugPrint("Error generating video thumbnail: ${snapshot.error}");
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(Icons.videocam_off, size: 40, color: Colors.red.shade700),
+              Icon(Icons.error_outline, color: Colors.black45, size: 30),
+            ],
+          );
         }
         if (snapshot.hasData && snapshot.data != null) {
           return Stack(
             alignment: Alignment.center,
             fit: StackFit.expand,
             children: [
-              ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(snapshot.data!, fit: BoxFit.cover)),
-              Icon(Icons.play_circle_fill, color: Colors.white70, size: 30),
+              Image.memory(snapshot.data!, fit: BoxFit.cover),
+              Icon(Icons.play_circle_fill, color: Colors.white.withOpacity(0.7), size: 30), // Adjusted opacity
             ],
           );
         }
+        // Fallback if data is null for some reason
         return Stack(
           alignment: Alignment.center,
           children: [
