@@ -2,8 +2,8 @@
 
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:path/path.dart' as path;
+// ✅ REMOVED: import 'package:firebase_storage/firebase_storage.dart';
+// ✅ REMOVED: import 'package:path/path.dart' as path;
 
 /// A helper class to store data for each individual endpoint (TPV, Printer, etc.)
 class EndpointData {
@@ -34,7 +34,6 @@ class EndpointData {
   }
 }
 
-// ✅ --- NEW CLASS ADDED ---
 /// A new helper class to store data for the client's existing hardware
 class ClientDeviceData {
   String? deviceType;
@@ -61,7 +60,6 @@ class ClientDeviceData {
     };
   }
 }
-// ✅ --- END OF NEW CLASS ---
 
 
 /// Main data class for the IT Evaluation
@@ -108,13 +106,11 @@ class ItEvaluationData {
   List<EndpointData> kioskList = [];
   List<EndpointData> screenList = [];
 
-  // ✅ --- NEW LIST ADDED ---
   // 9. Client Hardware Inventory
   List<ClientDeviceData> clientDeviceList = [];
-  // ✅ --- END OF NEW LIST ---
 
   // 10. Photos
-  List<File> photos = [];
+  List<File> photos = []; // Local files are still stored here
 
   void dispose() {
     networkNotesController.dispose();
@@ -131,23 +127,13 @@ class ItEvaluationData {
     for (var item in printerList) { item.dispose(); }
     for (var item in kioskList) { item.dispose(); }
     for (var item in screenList) { item.dispose(); }
-
-    // ✅ --- DISPOSE NEW LIST ---
     for (var item in clientDeviceList) { item.dispose(); }
-    // ✅ --- END OF DISPOSE ---
   }
 
-  Future<Map<String, dynamic>> toMap(String projectId) async {
-    List<String> photoUrls = [];
-    for (var file in photos) {
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
-      final ref = FirebaseStorage.instance
-          .ref()
-          .child('it_evaluations/$projectId/$fileName');
-      await ref.putFile(file);
-      final url = await ref.getDownloadURL();
-      photoUrls.add(url);
-    }
+  // ✅ CHANGED: This function no longer uploads files and is not async.
+  // It just prepares the data map.
+  Map<String, dynamic> getDataMap() {
+    // ✅ REMOVED: File upload loop
 
     // Convert all controllers and bools to a map
     return {
@@ -180,11 +166,9 @@ class ItEvaluationData {
       'kioskList': kioskList.map((e) => e.toMap()).toList(),
       'screenList': screenList.map((e) => e.toMap()).toList(),
 
-      // ✅ --- SAVE NEW LIST TO FIRESTORE ---
       'clientDeviceList': clientDeviceList.map((e) => e.toMap()).toList(),
-      // ✅ --- END OF SAVE ---
 
-      'photos': photoUrls,
+      // ✅ REMOVED: 'photos' key. Will be added in _saveEvaluation
       'evaluatedAt': DateTime.now(),
     };
   }

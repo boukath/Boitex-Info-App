@@ -6,6 +6,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:boitex_info_app/models/it_evaluation_data.dart';
 import 'package:flutter/services.dart'; // Needed for number input
+import 'package:path/path.dart' as path;
+
+// ✅ ADDED: Imports for Backblaze B2 upload
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
 
 class ItEvaluationPage extends StatefulWidget {
   final String projectId;
@@ -21,6 +27,10 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
   bool _isLoading = false;
   static const Color primaryColor = Colors.blue; // IT Service theme color
   final OutlineInputBorder defaultBorder = OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12.0));
+
+  // ✅ ADDED: B2 Cloud Function URL constant (cloned from technical_evaluation_page.dart)
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
   @override
   void dispose() {
@@ -42,7 +52,6 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       _evaluationData.tpvList.removeAt(index);
     });
   }
-  // ... (other add/remove helpers for Printer, Kiosk, Screen) ...
   void _addPrinter() {
     setState(() {
       _evaluationData.printerList.add(
@@ -99,28 +108,166 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
   // ✅ --- END: New Client Hardware list helpers ---
 
 
+  // ✅ --- START: ADDED B2 HELPER FUNCTIONS (cloned from technical_evaluation_page.dart) ---
+
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+  // ✅ MODIFIED: This version is adapted for it_evaluation
+  Future<String?> _uploadFileToB2(
+      File file,
+      Map<String, dynamic> b2Creds, {
+        required String projectId,
+      }) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+
+      // --- Start: Logic from original it_evaluation_data.dart ---
+      final originalFileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
+
+      // This is the B2-compatible file name (which is the full path)
+      // This path is based on your *original* Firebase Storage path
+      final String b2FileName =
+          'it_evaluations/$projectId/$originalFileName';
+      // --- End: Logic from original it_evaluation_data.dart ---
+
+      // Determine mime type
+      final String extension = path.extension(file.path).toLowerCase();
+      String mimeType = 'b2/x-auto'; // Default
+      if (extension == '.jpg' || extension == '.jpeg') {
+        mimeType = 'image/jpeg';
+      } else if (extension == '.png') {
+        mimeType = 'image/png';
+      }
+
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(b2FileName), // Use the full path
+          'Content-Type': mimeType,
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        // Correctly encode each part of the path
+        final encodedPath = (body['fileName'] as String)
+            .split('/')
+            .map(Uri.encodeComponent)
+            .join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+  // ✅ --- END: ADDED B2 HELPER FUNCTIONS ---
+
+
+  // ✅ CHANGED: Added file size check
   Future<void> _pickPhotos() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowMultiple: true,
     );
     if (result != null) {
+      // ✅ ADDED: File size check
+      const maxFileSize = 50 * 1024 * 1024; // 50 MB
+      final validFiles = result.files.where((file) {
+        if (file.path != null && File(file.path!).existsSync()) {
+          return File(file.path!).lengthSync() <= maxFileSize;
+        }
+        return false;
+      }).toList();
+
+      final rejectedCount = result.files.length - validFiles.length;
+
       setState(() {
         _evaluationData.photos.addAll(
-          result.paths.map((path) => File(path!)).toList(),
+          validFiles.map((f) => File(f.path!)).toList(),
         );
       });
+
+      if (rejectedCount > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$rejectedCount image(s) dépassent la limite de 50 Mo.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     }
   }
 
+  // ✅ CHANGED: This function now orchestrates the B2 upload
   Future<void> _saveEvaluation() async {
     setState(() { _isLoading = true; });
+
+    // ✅ ADDED: Get B2 credentials ONCE.
+    final b2Credentials = await _getB2UploadCredentials();
+    if (b2Credentials == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur: Impossible de contacter le service d\'upload.'), backgroundColor: Colors.red),
+        );
+        setState(() { _isLoading = false; });
+      }
+      return;
+    }
+
     try {
-      final evaluationMap = await _evaluationData.toMap(widget.projectId);
+      // 1. Get the non-file data from the model
+      final evaluationMap = _evaluationData.getDataMap();
+
+      // 2. Upload photos for this evaluation to B2
+      final List<String> photoUrls = [];
+      for (final file in _evaluationData.photos) {
+        final String? downloadUrl = await _uploadFileToB2(
+          file,
+          b2Credentials,
+          projectId: widget.projectId,
+        );
+        if (downloadUrl != null) {
+          photoUrls.add(downloadUrl);
+        } else {
+          debugPrint('Failed to upload file: ${path.basename(file.path)}');
+          // Optionally throw an error or show a snackbar for the failed file
+        }
+      }
+
+      // 3. Add the uploaded URLs to the map
+      evaluationMap['photos'] = photoUrls;
+
+      // 4. Save the final map to Firestore
       await FirebaseFirestore.instance.collection('projects').doc(widget.projectId).update({
         'it_evaluation': evaluationMap,
         'status': 'Évaluation IT Terminé',
       });
+
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -368,14 +515,13 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
               ),
             ),
 
-            // ✅ --- NEW SECTION ADDED ---
+            // Section: Inventaire Matériel Client
             _buildExpansionSection(
               title: 'Inventaire Matériel Client',
               icon: Icons.devices,
               initiallyExpanded: true,
               child: _buildClientHardwareList(),
             ),
-            // ✅ --- END OF NEW SECTION ---
 
             // Section: Photos
             _buildExpansionSection(
@@ -595,7 +741,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
   }
 
 
-  // ✅ --- START: New Helper Widgets for Client Hardware ---
+  // --- Helper Widgets for Client Hardware ---
 
   /// Builds the whole "Client Hardware" list section
   Widget _buildClientHardwareList() {
@@ -724,5 +870,4 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       ),
     );
   }
-// ✅ --- END: New Helper Widgets for Client Hardware ---
 }

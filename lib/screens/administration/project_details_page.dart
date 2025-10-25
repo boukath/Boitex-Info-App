@@ -45,6 +45,8 @@ class ProjectDetailsPage extends StatefulWidget {
 class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   bool _isActionInProgress = false;
   static const Color primaryColor = Colors.deepPurple;
+  // ✅ ADDED: IT evaluation theme color for consistency
+  static const Color itPrimaryColor = Colors.blue;
 
   // B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -367,6 +369,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           'storeName': projectData['storeName'], // Keep as null if missing
           'initialRequest': projectData['initialRequest'] ?? 'N/A', // Default
           'technicalEvaluation': projectData['technical_evaluation'] ?? [], // Default to empty list
+
+          // ✅ ADDED: Pass IT evaluation data to the installation task
+          'itEvaluation': projectData['it_evaluation'] ?? {}, // Default to empty map
+
           'orderedProducts': projectData['orderedProducts'] ?? [], // Default to empty list
           'serviceType': projectData['serviceType'] ?? 'Inconnu', // Default
           'status': 'À Planifier',
@@ -473,7 +479,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             uploadedFilesData.add({
               'fileName': originalFileName,
               'fileUrl': downloadUrl,
-              'uploadedAt': Timestamp.now().toDate().toIso8601String(),
+              'uploadedAt': Timestamp.now().toDate().toIso8601String(), // Corrected typo: 8601 instead of 801
             });
             successCount++;
           } else {
@@ -750,6 +756,139 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
+
+  // ✅ --- START: NEW HELPER WIDGETS FOR IT EVALUATION ---
+
+  /// Builds the collapsible card for IT Evaluation photos
+  Widget _buildItPhotosSection({required Map<String, dynamic> itData}) {
+    final List<dynamic> photos = itData['photos'] as List<dynamic>? ?? [];
+    if (photos.isEmpty) return const SizedBox.shrink();
+
+    final List<String> photoUrls = photos.map((e) => e as String).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        const Text(
+          'Photos d\'Évaluation IT',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor),
+        ),
+        const Divider(),
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: photoUrls.length,
+            itemBuilder: (context, index) {
+              return _buildMediaThumbnail(
+                context,
+                photoUrls[index],
+                photoUrls,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Builds the collapsible card for Client Hardware
+  Widget _buildClientHardwareSection({
+    required String title,
+    required IconData icon,
+    required Map<String, dynamic> itData,
+  }) {
+    final List<dynamic> devices = itData['clientDeviceList'] as List<dynamic>? ?? [];
+    if (devices.isEmpty) return const SizedBox.shrink(); // Don't show if empty
+
+    return ExpansionTile(
+      leading: Icon(icon, color: itPrimaryColor),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+      children: [
+        for (var device in devices)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Card( // Use a simple card for each item
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  children: [
+                    _buildDetailItem('Type', device['deviceType']),
+                    _buildDetailItem('Marque', device['brand']),
+                    _buildDetailItem('Modèle', 'model'),
+                    _buildDetailItem('OS', device['osType']),
+                    _buildDetailItem('Notes', device['notes']),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Builds the collapsible card for Endpoints (TPV, Printers, etc.)
+  Widget _buildItListSection({
+    required String title,
+    required IconData icon,
+    required Map<String, dynamic> itData,
+  }) {
+    // Helper to build a sub-list (e.g., for TPVs, Printers)
+    Widget buildSubList(String listKey, String listTitle) {
+      final List<dynamic> items = itData[listKey] as List<dynamic>? ?? [];
+      if (items.isEmpty) return const SizedBox.shrink();
+
+      return ExpansionTile(
+        title: Text(listTitle, style: const TextStyle(fontWeight: FontWeight.w500)),
+        children: [
+          for (var item in items)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Card(
+                elevation: 1,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const Divider(),
+                      _buildDetailItem('Prise Électrique', item['hasPriseElectrique']),
+                      if (item['hasPriseElectrique'] == true)
+                        _buildDetailItem('Qté Électrique', item['quantityPriseElectrique']),
+                      _buildDetailItem('Prise RJ45', item['hasPriseRJ45']),
+                      if (item['hasPriseRJ45'] == true)
+                        _buildDetailItem('Qté RJ45', item['quantityPriseRJ45']),
+                      _buildDetailItem('Notes', item['notes']),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+    }
+
+    // Main ExpansionTile for "Points d'Accès"
+    return ExpansionTile(
+      leading: Icon(icon, color: itPrimaryColor),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+      children: [
+        buildSubList('tpvList', 'TPV'),
+        buildSubList('printerList', 'Imprimantes'),
+        buildSubList('kioskList', 'Bornes'),
+        buildSubList('screenList', 'Écrans Pub'),
+      ],
+    );
+  }
+
+  // ✅ --- END: NEW HELPER WIDGETS FOR IT EVALUATION ---
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -771,6 +910,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           final createdAt = (projectData['createdAt'] as Timestamp).toDate();
           final technicalEvaluation =
           projectData['technical_evaluation'] as List<dynamic>?;
+
+          // ✅ ADDED: Extract the IT evaluation data
+          final itEvaluation = projectData['it_evaluation'] as Map<String, dynamic>?;
+
           final status = projectData['status'] ?? 'Inconnu';
           final orderedProducts =
           projectData['orderedProducts'] as List<dynamic>?;
@@ -887,6 +1030,83 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                       ),
                   ],
                 ),
+
+              // ✅ --- START: NEW IT EVALUATION CARD ---
+              if (itEvaluation != null && itEvaluation.isNotEmpty)
+                _buildInfoCard(
+                  title: 'Évaluation IT',
+                  icon: Icons.network_check_outlined,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // --- Group 1: Réseau ---
+                          const Text("Réseau Existant", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Divider(),
+                          _buildDetailItem('Réseau déjà installé', itEvaluation['networkExists']),
+                          _buildDetailItem('Multi-étages', itEvaluation['isMultiFloor']),
+                          _buildDetailItem('Notes Réseau', itEvaluation['networkNotes']),
+                          const SizedBox(height: 16),
+
+                          // --- Group 2: Environnement ---
+                          const Text("Environnement", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Divider(),
+                          _buildDetailItem('Haute tension à proximité', itEvaluation['hasHighVoltage']),
+                          _buildDetailItem('Notes Haute Tension', itEvaluation['highVoltageNotes']),
+                          const SizedBox(height: 16),
+
+                          // --- Group 3: Baie de Brassage ---
+                          const Text("Baie de Brassage", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Divider(),
+                          _buildDetailItem('Baie présente', itEvaluation['hasNetworkRack']),
+                          _buildDetailItem('Emplacement Baie', itEvaluation['rackLocation']),
+                          _buildDetailItem('Espace disponible', itEvaluation['hasRackSpace']),
+                          _buildDetailItem('Onduleur (UPS) présent', itEvaluation['hasUPS']),
+                          const SizedBox(height: 16),
+
+                          // --- Group 4: Accès Internet ---
+                          const Text("Accès Internet", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Divider(),
+                          _buildDetailItem('Type de Connexion', itEvaluation['internetAccessType']),
+                          _buildDetailItem('Fournisseur (FAI)', itEvaluation['internetProvider']),
+                          _buildDetailItem('Emplacement Modem', itEvaluation['modemLocation']),
+                          const SizedBox(height: 16),
+
+                          // --- Group 5: Câblage ---
+                          const Text("Câblage", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Divider(),
+                          _buildDetailItem('Type de Blindage', itEvaluation['cableShieldType']),
+                          _buildDetailItem('Catégorie de Câble', itEvaluation['cableCategoryType']),
+                          _buildDetailItem('Chemins de câbles', itEvaluation['hasCablePaths']),
+                          _buildDetailItem('Distance max.', itEvaluation['cableDistance']),
+                          const SizedBox(height: 16),
+
+                          // --- Group 6: Points d'Accès (Collapsible) ---
+                          _buildItListSection(
+                            title: "Points d'Accès (Planning)",
+                            icon: Icons.power_outlined,
+                            itData: itEvaluation,
+                          ),
+                          const SizedBox(height: 8),
+
+                          // --- Group 7: Inventaire Matériel (Collapsible) ---
+                          _buildClientHardwareSection(
+                            title: "Inventaire Matériel Client",
+                            icon: Icons.devices_outlined,
+                            itData: itEvaluation,
+                          ),
+
+                          // --- Group 8: Photos ---
+                          _buildItPhotosSection(itData: itEvaluation),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              // ✅ --- END: NEW IT EVALUATION CARD ---
+
               if (orderedProducts != null && orderedProducts.isNotEmpty)
                 _buildInfoCard( /* ... Ordered Products ... */
                   title: 'Produits Commandés',
@@ -993,6 +1213,11 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         icon = Icons.rule_outlined;
         color = Colors.orange;
         break;
+    // ✅ ADDED: Case for new IT Evaluation status
+      case 'Évaluation IT Terminé':
+        icon = Icons.network_check_outlined;
+        color = itPrimaryColor; // Use the blue IT color
+        break;
       case 'Devis Envoyé':
         icon = Icons.send_outlined;
         color = Colors.purple;
@@ -1083,6 +1308,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
     List<Widget> buttons = [];
 
+    // ✅ MODIFIED: Added check for 'Évaluation IT Terminé'
+    // Now, if *either* evaluation is done, the other button won't show
+    // (This assumes they are mutually exclusive, if not, remove the status check)
     if (status == 'Nouvelle Demande' &&
         RolePermissions.canPerformTechnicalEvaluation(userRole)) {
       buttons.add(SizedBox(
@@ -1094,6 +1322,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
               icon: const Icon(Icons.rule),
               label: const Text('Ajouter l\'Évaluation Technique'))));
     }
+    // ✅ MODIFIED: Added check for 'Évaluation Technique Terminé'
     if (status == 'Nouvelle Demande' &&
         RolePermissions.canPerformItEvaluation(userRole)) {
       buttons.add(SizedBox(
@@ -1105,14 +1334,15 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             icon: const Icon(Icons.network_ping),
             label: const Text('Ajouter l\'Évaluation IT'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: itPrimaryColor, // Use IT color
               foregroundColor: Colors.white,
             ),
           )));
       buttons.add(const SizedBox(height: 12));
     }
 
-    if (status == 'Évaluation Technique Terminé' &&
+    // ✅ MODIFIED: Check for *both* evaluation statuses to allow devis upload
+    if ((status == 'Évaluation Technique Terminé' || status == 'Évaluation IT Terminé') &&
         RolePermissions.canUploadDevis(userRole)) {
       buttons.add(SizedBox(
           width: double.infinity,

@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/administration/add_product_page.dart';
+// Import the image gallery page
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+// Import the PDF viewer page
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
+// Imports for PDF handling and file type checking
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as path;
+import 'package:url_launcher/url_launcher.dart'; // For fallback file opening
 
 class ProductDetailsPage extends StatefulWidget {
   final DocumentSnapshot productDoc;
@@ -14,8 +23,10 @@ class ProductDetailsPage extends StatefulWidget {
 class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
-  int _currentImageIndex = 0;
-  final PageController _pageController = PageController();
+  // ❌ REMOVED: No longer needed for top PageView
+  // int _currentImageIndex = 0;
+  // final PageController _pageController = PageController();
+  bool _isOpeningPdf = false;
 
   @override
   void initState() {
@@ -34,19 +45,81 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
   @override
   void dispose() {
     _animationController.dispose();
-    _pageController.dispose();
+    // ❌ REMOVED: No longer needed for top PageView
+    // _pageController.dispose();
     super.dispose();
   }
+
+  // --- PDF Opening Logic (Keep existing) ---
+  Future<void> _openPdfViewer(String pdfUrl, String title) async { /* ... Keep existing ... */
+    if (_isOpeningPdf) return;
+    setState(() => _isOpeningPdf = true);
+    ScaffoldMessengerState? scaffoldMessenger;
+    if (mounted) scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      final response = await http.get(Uri.parse(pdfUrl));
+      if (response.statusCode == 200) {
+        final pdfBytes = response.bodyBytes;
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PdfViewerPage(
+                pdfBytes: pdfBytes,
+                title: title,
+              ),
+            ),
+          );
+        }
+      } else {
+        throw Exception('Impossible de télécharger le PDF (${response.statusCode})');
+      }
+    } catch (e) {
+      debugPrint('Error opening PDF viewer: $e');
+      scaffoldMessenger?.showSnackBar(
+        SnackBar(
+          content: Text('Erreur ouverture PDF: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _openUrl(pdfUrl);
+    } finally {
+      if (mounted) setState(() => _isOpeningPdf = false);
+    }
+  }
+
+  Future<void> _openUrl(String? urlString) async { /* ... Keep existing ... */
+    if (urlString == null) return;
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      debugPrint('Could not launch $url');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible d\'ouvrir le lien $url')),
+        );
+      }
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
     final data = widget.productDoc.data() as Map<String, dynamic>;
     final imageUrls = (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
     final tags = (data['tags'] as List<dynamic>?)?.cast<String>() ?? [];
+    final manualFiles = (data['manualFiles'] as List<dynamic>?)
+        ?.cast<Map<String, dynamic>>()
+        .map((map) => {
+      'fileName': map['fileName']?.toString() ?? 'Document.pdf',
+      'fileUrl': map['fileUrl']?.toString() ?? '',
+    }).where((map) => map['fileUrl']!.isNotEmpty)
+        .toList() ?? [];
 
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
+        decoration: BoxDecoration( // Keep background
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -67,14 +140,24 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   child: ListView(
                     padding: const EdgeInsets.all(20),
                     children: [
-                      if (imageUrls.isNotEmpty) _buildImageGallery(imageUrls),
-                      if (imageUrls.isNotEmpty) const SizedBox(height: 20),
+                      // ❌ REMOVED: Large image gallery from top
+                      // if (imageUrls.isNotEmpty) _buildImageGallery(imageUrls),
+                      // if (imageUrls.isNotEmpty) const SizedBox(height: 20),
+
                       _buildProductHeader(data),
                       const SizedBox(height: 20),
                       _buildInfoCards(data),
                       const SizedBox(height: 20),
                       if (data['description']?.toString().isNotEmpty ?? false) _buildDescriptionCard(data),
                       if (data['description']?.toString().isNotEmpty ?? false) const SizedBox(height: 20),
+
+                      // ✅ ADDED: Photos Card (placed above Manuals card)
+                      if (imageUrls.isNotEmpty) _buildPhotosCard(imageUrls),
+                      if (imageUrls.isNotEmpty) const SizedBox(height: 20),
+
+                      if (manualFiles.isNotEmpty) _buildManualsCard(manualFiles),
+                      if (manualFiles.isNotEmpty) const SizedBox(height: 20),
+
                       if (tags.isNotEmpty) _buildTagsCard(tags),
                       if (tags.isNotEmpty) const SizedBox(height: 20),
                     ],
@@ -88,7 +171,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     );
   }
 
-  Widget _buildAppBar(BuildContext context, Map<String, dynamic> data) {
+  // --- Keep build methods: _buildAppBar, _buildProductHeader, _buildInfoCards, _buildInfoCard, _buildDescriptionCard, _buildManualsCard, _buildTagsCard, _getTagColor ---
+  Widget _buildAppBar(BuildContext context, Map<String, dynamic> data) { /* ... Keep existing ... */
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -175,155 +259,10 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     );
   }
 
-  Widget _buildImageGallery(List<String> imageUrls) {
-    return Container(
-      height: 300,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: PageView.builder(
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() {
-                  _currentImageIndex = index;
-                });
-              },
-              itemCount: imageUrls.length,
-              itemBuilder: (context, index) {
-                return GestureDetector(
-                  onTap: () => _showFullScreenImage(context, imageUrls, index),
-                  child: Hero(
-                    tag: 'product_image_$index',
-                    child: Image.network(
-                      imageUrls[index],
-                      fit: BoxFit.cover,
-                      loadingBuilder: (context, child, progress) {
-                        if (progress == null) return child;
-                        return Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.grey.shade200,
-                                Colors.grey.shade100,
-                              ],
-                            ),
-                          ),
-                          child: const Center(
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF667EEA)),
-                            ),
-                          ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Colors.grey.shade300, Colors.grey.shade200],
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.broken_image_rounded, size: 64, color: Colors.grey.shade400),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Image non disponible',
-                                style: TextStyle(color: Colors.grey.shade600),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (imageUrls.length > 1)
-            Positioned(
-              bottom: 16,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(imageUrls.length, (index) {
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: _currentImageIndex == index ? 32 : 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      gradient: _currentImageIndex == index
-                          ? const LinearGradient(
-                        colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                      )
-                          : null,
-                      color: _currentImageIndex == index ? null : Colors.white.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(4),
-                      boxShadow: _currentImageIndex == index
-                          ? [
-                        BoxShadow(
-                          color: const Color(0xFF667EEA).withOpacity(0.5),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                          : [],
-                    ),
-                  );
-                }),
-              ),
-            ),
-          if (imageUrls.length > 1)
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.black.withOpacity(0.6),
-                      Colors.black.withOpacity(0.4),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.image_rounded, color: Colors.white, size: 16),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${_currentImageIndex + 1}/${imageUrls.length}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  // ❌ REMOVED: Large PageView gallery builder
+  // Widget _buildImageGallery(List<String> imageUrls) { ... }
 
-  Widget _buildProductHeader(Map<String, dynamic> data) {
+  Widget _buildProductHeader(Map<String, dynamic> data) { /* ... Keep existing ... */
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -428,8 +367,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-
-  Widget _buildInfoCards(Map<String, dynamic> data) {
+  Widget _buildInfoCards(Map<String, dynamic> data) { /* ... Keep existing ... */
     return Column(
       children: [
         Row(
@@ -469,8 +407,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ],
     );
   }
-
-  Widget _buildInfoCard({
+  Widget _buildInfoCard({ /* ... Keep existing ... */
     required IconData icon,
     required String label,
     required String value,
@@ -527,8 +464,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-
-  Widget _buildDescriptionCard(Map<String, dynamic> data) {
+  Widget _buildDescriptionCard(Map<String, dynamic> data) { /* ... Keep existing ... */
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -587,7 +523,226 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     );
   }
 
-  Widget _buildTagsCard(List<String> tags) {
+  // ✅ --- START: NEW PHOTOS CARD WIDGET ---
+  Widget _buildPhotosCard(List<String> imageUrls) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withOpacity(0.9),
+            Colors.white.withOpacity(0.7),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient( // Use a different gradient for photos
+                    colors: [Color(0xFF4FACFE), Color(0xFF00F2FE)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.photo_library_rounded, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 16),
+              const Text(
+                'Photos',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (imageUrls.isEmpty)
+            Text( // Should not happen due to outer check, but good practice
+              'Aucune photo disponible.',
+              style: TextStyle(color: Colors.grey.shade600),
+            )
+          else
+            SizedBox(
+              height: 100, // Define height for horizontal list
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: imageUrls.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12.0),
+                    child: _buildImageThumbnail(
+                      context: context,
+                      imageUrl: imageUrls[index],
+                      allImageUrls: imageUrls,
+                      index: index,
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+  // ✅ --- END: NEW PHOTOS CARD WIDGET ---
+
+  // ✅ --- START: NEW IMAGE THUMBNAIL WIDGET ---
+  Widget _buildImageThumbnail({
+    required BuildContext context,
+    required String imageUrl,
+    required List<String> allImageUrls,
+    required int index,
+  }) {
+    // Use the URL as the tag, matching the original gallery implementation
+    final String heroTag = imageUrl;
+
+    return GestureDetector(
+      onTap: () => _showFullScreenImageGallery(context, allImageUrls, index),
+      child: Hero(
+        tag: heroTag,
+        child: Container(
+          width: 100,
+          height: 100,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(color: Colors.grey.shade200, width: 1.5),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return Container(
+                  color: Colors.grey.shade100,
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF667EEA)),
+                      strokeWidth: 2,
+                      value: progress.expectedTotalBytes != null
+                          ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                          : null,
+                    ),
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.grey.shade200,
+                  child: Icon(Icons.broken_image_outlined, color: Colors.grey.shade400, size: 40),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  // ✅ --- END: NEW IMAGE THUMBNAIL WIDGET ---
+
+  Widget _buildManualsCard(List<Map<String, String>> manualFiles) { /* ... Keep existing ... */
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withOpacity(0.9),
+            Colors.white.withOpacity(0.7),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFF97316), Color(0xFFEA580C)], // Orange gradient
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 16),
+              const Text(
+                'Manuels / Fichiers',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (manualFiles.isEmpty)
+            Text(
+              'Aucun manuel disponible.',
+              style: TextStyle(color: Colors.grey.shade600),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true, // Important inside ListView
+              physics: const NeverScrollableScrollPhysics(), // Important inside ListView
+              itemCount: manualFiles.length,
+              itemBuilder: (context, index) {
+                final fileData = manualFiles[index];
+                return ListTile(
+                  leading: const Icon(Icons.picture_as_pdf_outlined, color: Color(0xFFB91C1C)),
+                  title: Text(
+                    fileData['fileName']!,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF1F2937)
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: _isOpeningPdf ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onTap: () => _openPdfViewer(fileData['fileUrl']!, fileData['fileName']!),
+                  contentPadding: EdgeInsets.zero,
+                );
+              },
+              separatorBuilder: (context, index) => const Divider(height: 1),
+            ),
+        ],
+      ),
+    );
+  }
+  Widget _buildTagsCard(List<String> tags) { /* ... Keep existing ... */
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -673,8 +828,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-
-  List<Color> _getTagColor(int index) {
+  List<Color> _getTagColor(int index) { /* ... Keep existing ... */
     final colors = [
       [const Color(0xFF667EEA), const Color(0xFF764BA2)],
       [const Color(0xFFF093FB), const Color(0xFFF5576C)],
@@ -686,58 +840,23 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     return colors[index % colors.length];
   }
 
-  void _showFullScreenImage(BuildContext context, List<String> imageUrls, int initialIndex) {
+  // Keep existing _showFullScreenImageGallery and _showDeleteDialog ---
+  void _showFullScreenImageGallery(BuildContext context, List<String> imageUrls, int initialIndex) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            children: [
-              PageView.builder(
-                controller: PageController(initialPage: initialIndex),
-                itemCount: imageUrls.length,
-                itemBuilder: (context, index) {
-                  return Center(
-                    child: Hero(
-                      tag: 'product_image_$index',
-                      child: InteractiveViewer(
-                        child: Image.network(
-                          imageUrls[index],
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.5),
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.close_rounded, color: Colors.white),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+      PageRouteBuilder(
+        opaque: false,
+        pageBuilder: (context, animation, secondaryAnimation) => ImageGalleryPage(
+          imageUrls: imageUrls,
+          initialIndex: initialIndex,
+          // ❌ REMOVED: heroTagPrefix parameter
         ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
       ),
     );
   }
-
-  void _showDeleteDialog(BuildContext context) {
+  void _showDeleteDialog(BuildContext context) { /* ... Keep existing ... */
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) {

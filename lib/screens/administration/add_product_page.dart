@@ -5,6 +5,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:boitex_info_app/screens/administration/barcode_scanner_page.dart';
+// ✅ ADDED: file_picker for picking PDFs
+import 'package:file_picker/file_picker.dart';
+// ✅ ADDED: Imports for B2 upload helpers
+import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as path; // Use 'as path' to avoid conflicts
 
 class AddProductPage extends StatefulWidget {
   final DocumentSnapshot? productDoc;
@@ -17,6 +22,7 @@ class AddProductPage extends StatefulWidget {
 
 class _AddProductPageState extends State<AddProductPage> with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
+  // ... (Keep existing controllers) ...
   final _nomController = TextEditingController();
   final _marqueController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -28,11 +34,20 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   String? _mainCategory;
   String? _selectedSubcategory;
 
+  // Image related state
   final List<File> _selectedImages = [];
   final List<String> _existingImageUrls = [];
   final ImagePicker _picker = ImagePicker();
+
+  // ✅ ADDED: PDF related state
+  final List<File> _selectedPdfs = [];
+  final List<Map<String, String>> _existingPdfData = []; // Store name and URL
+
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
   final List<Map<String, dynamic>> _mainCategories = [
     {'name': 'Antivol', 'icon': Icons.shield_rounded, 'color': const Color(0xFF6366F1)},
@@ -45,6 +60,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
+    // ... (Keep existing initState logic for animations and editing) ...
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -74,11 +90,21 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       if (imageUrls != null) {
         _existingImageUrls.addAll(imageUrls.cast<String>());
       }
+
+      // ✅ ADDED: Load existing PDF data
+      final pdfDataList = data['manualFiles'] as List<dynamic>?;
+      if (pdfDataList != null) {
+        _existingPdfData.addAll(pdfDataList.cast<Map<String, dynamic>>().map((map) => {
+          'fileName': map['fileName']?.toString() ?? 'Document.pdf', // Provide default
+          'fileUrl': map['fileUrl']?.toString() ?? '',
+        }).where((map) => map['fileUrl']!.isNotEmpty)); // Filter out invalid entries
+      }
     }
   }
 
   @override
   void dispose() {
+    // ... (Keep existing dispose logic) ...
     _animationController.dispose();
     _nomController.dispose();
     _marqueController.dispose();
@@ -89,7 +115,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     super.dispose();
   }
 
-  Future<void> _pickImageFromCamera() async {
+  // --- Image Picking (Keep existing logic) ---
+  Future<void> _pickImageFromCamera() async { /* ... Keep existing ... */
     try {
       final XFile? photo = await _picker.pickImage(
         source: ImageSource.camera,
@@ -99,9 +126,15 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       );
 
       if (photo != null) {
-        setState(() {
-          _selectedImages.add(File(photo.path));
-        });
+        final file = File(photo.path);
+        const maxFileSize = 50 * 1024 * 1024; // 50 MB
+        if (file.lengthSync() <= maxFileSize) {
+          setState(() {
+            _selectedImages.add(file);
+          });
+        } else if (mounted) {
+          _showErrorSnackBar('L\'image dépasse la limite de 50 Mo.');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -110,7 +143,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     }
   }
 
-  Future<void> _pickImageFromGallery() async {
+  Future<void> _pickImageFromGallery() async { /* ... Keep existing ... */
     try {
       final List<XFile> images = await _picker.pickMultiImage(
         imageQuality: 85,
@@ -119,9 +152,26 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       );
 
       if (images.isNotEmpty) {
+        const maxFileSize = 50 * 1024 * 1024; // 50 MB
+        final validFiles = <File>[];
+        int rejectedCount = 0;
+
+        for (var xFile in images) {
+          final file = File(xFile.path);
+          if (file.existsSync() && file.lengthSync() <= maxFileSize) {
+            validFiles.add(file);
+          } else {
+            rejectedCount++;
+          }
+        }
+
         setState(() {
-          _selectedImages.addAll(images.map((xFile) => File(xFile.path)));
+          _selectedImages.addAll(validFiles);
         });
+
+        if (rejectedCount > 0 && mounted) {
+          _showErrorSnackBar('$rejectedCount image(s) dépassent la limite de 50 Mo.');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -130,7 +180,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     }
   }
 
-  void _showImagePickerOptions() {
+  void _showImagePickerOptions() { /* ... Keep existing ... */
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -196,7 +246,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  Widget _buildImagePickerOption({
+  Widget _buildImagePickerOption({ /* ... Keep existing ... */
     required IconData icon,
     required String title,
     required Gradient gradient,
@@ -249,54 +299,183 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  Future<List<String>> _uploadImagesToB2(String productId) async {
-    final List<String> uploadedUrls = [];
-
+  // --- ✅ ADDED: PDF Picking Logic ---
+  Future<void> _pickPdf() async {
     try {
-      final response = await http.get(
-        Uri.parse('https://europe-west1-boitex-info-app.cloudfunctions.net/getB2UploadUrl'),
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        allowMultiple: true, // Allow selecting multiple PDFs at once
       );
 
-      if (response.statusCode != 200) {
-        throw Exception('Failed to get upload URL from Firebase');
-      }
+      if (result != null && result.files.isNotEmpty) {
+        const maxFileSize = 50 * 1024 * 1024; // 50 MB
+        final validFiles = <File>[];
+        int rejectedCount = 0;
 
-      final data = json.decode(response.body);
-      final uploadUrl = data['uploadUrl'] as String;
-      final authToken = data['authorizationToken'] as String;
-      final downloadUrlPrefix = data['downloadUrlPrefix'] as String;
+        for (var platformFile in result.files) {
+          if (platformFile.path != null) {
+            final file = File(platformFile.path!);
+            if (file.existsSync() && file.lengthSync() <= maxFileSize) {
+              validFiles.add(file);
+            } else {
+              rejectedCount++;
+            }
+          } else {
+            rejectedCount++; // Handle case where path is null
+          }
+        }
 
-      for (int i = 0; i < _selectedImages.length; i++) {
-        final file = _selectedImages[i];
-        final fileName = 'products/$productId/${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-        final fileBytes = await file.readAsBytes();
+        setState(() {
+          _selectedPdfs.addAll(validFiles);
+        });
 
-        final uploadResponse = await http.post(
-          Uri.parse(uploadUrl),
-          headers: {
-            'Authorization': authToken,
-            'X-Bz-File-Name': fileName,
-            'Content-Type': 'image/jpeg',
-            'X-Bz-Content-Sha1': 'do_not_verify',
-          },
-          body: fileBytes,
-        );
-
-        if (uploadResponse.statusCode == 200) {
-          final downloadUrl = '$downloadUrlPrefix$fileName';
-          uploadedUrls.add(downloadUrl);
-        } else {
-          throw Exception('Failed to upload image: ${uploadResponse.body}');
+        if (rejectedCount > 0 && mounted) {
+          _showErrorSnackBar('$rejectedCount PDF(s) dépassent la limite de 50 Mo ou sont invalides.');
         }
       }
-
-      return uploadedUrls;
     } catch (e) {
-      throw Exception('Error uploading to B2: $e');
+      if (mounted) {
+        _showErrorSnackBar('Erreur lors de la sélection du PDF: $e');
+      }
     }
   }
 
-  void _removeImage(int index, {bool isExisting = false}) {
+  // --- B2 Helper Functions (Keep existing) ---
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async { /* ... Keep existing ... */
+    try {
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+
+  // ✅ MODIFIED: Generalized B2 Upload Helper
+  Future<String?> _uploadSingleFileToB2({
+    required File file,
+    required Map<String, dynamic> b2Creds,
+    required String b2FileName, // The full desired path in B2
+  }) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final String originalFileName = path.basename(file.path);
+
+      // Determine mime type
+      String mimeType = 'b2/x-auto'; // Default
+      final String extension = path.extension(originalFileName).toLowerCase();
+      if (extension == '.jpg' || extension == '.jpeg') {
+        mimeType = 'image/jpeg';
+      } else if (extension == '.png') {
+        mimeType = 'image/png';
+      } else if (extension == '.pdf') {
+        mimeType = 'application/pdf'; // Added PDF MIME type
+      }
+      // Add more if needed
+
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(b2FileName),
+          'Content-Type': mimeType,
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload file ($originalFileName) to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading file (${path.basename(file.path)}) to B2: $e');
+      return null;
+    }
+  }
+
+
+  // ✅ MODIFIED: Renamed and kept logic for images
+  Future<List<String>> _uploadImagesToB2(String productId, Map<String, dynamic> b2Credentials) async {
+    final List<String> uploadedUrls = [];
+    if (_selectedImages.isEmpty) return uploadedUrls;
+
+    try {
+      for (int i = 0; i < _selectedImages.length; i++) {
+        final file = _selectedImages[i];
+        final originalFileName = path.basename(file.path);
+        // Use 'images' subfolder
+        final String b2FileName = 'products/$productId/images/${DateTime.now().millisecondsSinceEpoch}_$i\_$originalFileName';
+
+        final downloadUrl = await _uploadSingleFileToB2(
+          file: file,
+          b2Creds: b2Credentials,
+          b2FileName: b2FileName,
+        );
+
+        if (downloadUrl != null) {
+          uploadedUrls.add(downloadUrl);
+        } else {
+          debugPrint('Failed to upload image: ${path.basename(file.path)}');
+        }
+      }
+      return uploadedUrls;
+    } catch (e) {
+      debugPrint('Error uploading images to B2: $e');
+      throw Exception('Erreur lors de l\'upload des images.');
+    }
+  }
+
+  // ✅ ADDED: New function to upload PDFs to B2
+  Future<List<Map<String, String>>> _uploadPdfsToB2(String productId, Map<String, dynamic> b2Credentials) async {
+    final List<Map<String, String>> uploadedPdfData = [];
+    if (_selectedPdfs.isEmpty) return uploadedPdfData;
+
+    try {
+      for (int i = 0; i < _selectedPdfs.length; i++) {
+        final file = _selectedPdfs[i];
+        final originalFileName = path.basename(file.path);
+        // Use 'manuals' subfolder
+        final String b2FileName = 'products/$productId/manuals/${DateTime.now().millisecondsSinceEpoch}_$i\_$originalFileName';
+
+        final downloadUrl = await _uploadSingleFileToB2(
+          file: file,
+          b2Creds: b2Credentials,
+          b2FileName: b2FileName,
+        );
+
+        if (downloadUrl != null) {
+          uploadedPdfData.add({
+            'fileName': originalFileName, // Store original name
+            'fileUrl': downloadUrl,
+          });
+        } else {
+          debugPrint('Failed to upload PDF: ${path.basename(file.path)}');
+        }
+      }
+      return uploadedPdfData;
+    } catch (e) {
+      debugPrint('Error uploading PDFs to B2: $e');
+      throw Exception('Erreur lors de l\'upload des PDFs.');
+    }
+  }
+
+  // --- Remove Functions ---
+  void _removeImage(int index, {bool isExisting = false}) { /* ... Keep existing ... */
     setState(() {
       if (isExisting) {
         _existingImageUrls.removeAt(index);
@@ -306,7 +485,19 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     });
   }
 
-  Future<void> _scanBarcode() async {
+  // ✅ ADDED: Function to remove PDFs
+  void _removePdf(int index, {bool isExisting = false}) {
+    setState(() {
+      if (isExisting) {
+        _existingPdfData.removeAt(index);
+      } else {
+        _selectedPdfs.removeAt(index);
+      }
+    });
+  }
+
+  // --- Barcode Scan (Keep existing) ---
+  Future<void> _scanBarcode() async { /* ... Keep existing ... */
     final scannedCode = await Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (context) => const BarcodeScannerPage()),
@@ -316,7 +507,9 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     }
   }
 
-  List<String> _extractUniqueCategories(QuerySnapshot snapshot, String mainCat) {
+
+  // --- Category Extraction (Keep existing) ---
+  List<String> _extractUniqueCategories(QuerySnapshot snapshot, String mainCat) { /* ... Keep existing ... */
     final categories = <String>{};
 
     for (var doc in snapshot.docs) {
@@ -333,7 +526,9 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     return list;
   }
 
-  void _showErrorSnackBar(String message) {
+  // --- Snackbars (Keep existing) ---
+  void _showErrorSnackBar(String message) { /* ... Keep existing ... */
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -350,8 +545,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-
-  void _showSuccessSnackBar(String message) {
+  void _showSuccessSnackBar(String message) { /* ... Keep existing ... */
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -369,22 +564,40 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
+  // ✅ MODIFIED: _saveProduct to handle both Images and PDFs
   Future<void> _saveProduct() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+    if (!_formKey.currentState!.validate()) return;
     if (_mainCategory == null) {
       _showErrorSnackBar('Veuillez sélectionner une catégorie principale');
       return;
     }
-
     if (_selectedSubcategory == null) {
       _showErrorSnackBar('Veuillez sélectionner une catégorie');
       return;
     }
+    // Keep image check if images are mandatory
+    if (_existingImageUrls.isEmpty && _selectedImages.isEmpty) {
+      _showErrorSnackBar('Veuillez ajouter au moins une image du produit');
+      return;
+    }
 
     setState(() => _isLoading = true);
+
+    String productId;
+    if (_isEditing) {
+      productId = widget.productDoc!.id;
+    } else {
+      final docRef = FirebaseFirestore.instance.collection('produits').doc();
+      productId = docRef.id;
+    }
+
+    // Get B2 Credentials ONCE
+    final b2Credentials = await _getB2UploadCredentials();
+    if (b2Credentials == null) {
+      _showErrorSnackBar('Erreur: Impossible de contacter le service d\'upload.');
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
 
     try {
       final tagsInput = _tagsController.text.trim();
@@ -392,20 +605,19 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
           ? <String>[]
           : tagsInput.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
 
-      String productId;
-      if (_isEditing) {
-        productId = widget.productDoc!.id;
-      } else {
-        final docRef = FirebaseFirestore.instance.collection('produits').doc();
-        productId = docRef.id;
-      }
+      // Upload Images and PDFs in parallel (optional but faster)
+      final imageUploadFuture = _uploadImagesToB2(productId, b2Credentials);
+      final pdfUploadFuture = _uploadPdfsToB2(productId, b2Credentials);
 
-      List<String> newImageUrls = [];
-      if (_selectedImages.isNotEmpty) {
-        newImageUrls = await _uploadImagesToB2(productId);
-      }
+      // Wait for both uploads to complete
+      final List<String> newImageUrls = await imageUploadFuture;
+      final List<Map<String, String>> newPdfData = await pdfUploadFuture;
+
+      // Combine existing files with newly uploaded ones
       final allImageUrls = [..._existingImageUrls, ...newImageUrls];
+      final allPdfData = [..._existingPdfData, ...newPdfData];
 
+      // Prepare product data for Firestore
       final productData = {
         'nom': _nomController.text.trim(),
         'mainCategory': _mainCategory,
@@ -416,36 +628,36 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         'origine': _origineController.text.trim(),
         'tags': tagsList,
         'imageUrls': allImageUrls,
+        'manualFiles': allPdfData, // Save combined list of PDF data
       };
 
       if (_isEditing) {
         productData['updatedAt'] = FieldValue.serverTimestamp();
         await widget.productDoc!.reference.update(productData);
-        if (mounted) {
-          _showSuccessSnackBar('Produit mis à jour avec succès');
-        }
+        _showSuccessSnackBar('Produit mis à jour avec succès');
       } else {
         productData['createdAt'] = FieldValue.serverTimestamp();
+        productData['quantiteEnStock'] = 0; // Set initial stock ONLY for new products
         await FirebaseFirestore.instance.collection('produits').doc(productId).set(productData);
-        if (mounted) {
-          _showSuccessSnackBar('Produit ajouté avec succès');
-        }
+        _showSuccessSnackBar('Produit ajouté avec succès');
       }
 
       if (mounted) Navigator.pop(context, true);
+
     } catch (e) {
-      if (mounted) {
-        _showErrorSnackBar('Erreur: $e');
-      }
+      _showErrorSnackBar('Erreur lors de l\'enregistrement: ${e.toString()}');
+      debugPrint('Error saving product: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
+        // ... (Keep existing decoration) ...
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -475,8 +687,11 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                         const SizedBox(height: 20),
                         _buildSubcategorySection(),
                         const SizedBox(height: 20),
-                        _buildPhotosSection(),
+                        _buildPhotosSection(), // Existing Photos section
                         const SizedBox(height: 20),
+                        _buildManualsSection(), // ✅ ADDED: New Manuals section
+                        const SizedBox(height: 20),
+                        // ... (Keep existing TextFields) ...
                         _buildTextField(
                           controller: _nomController,
                           label: 'Nom du produit',
@@ -552,7 +767,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  Widget _buildAppBar() {
+  // --- Keep existing build methods for AppBar, LoadingState, Category Sections, TextField, SaveButton ---
+  Widget _buildAppBar() { /* ... Keep existing ... */
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -611,8 +827,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-
-  Widget _buildLoadingState() {
+  Widget _buildLoadingState() { /* ... Keep existing ... */
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -653,8 +868,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-
-  Widget _buildMainCategorySection() {
+  Widget _buildMainCategorySection() { /* ... Keep existing ... */
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -772,8 +986,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-
-  Widget _buildSubcategorySection() {
+  Widget _buildSubcategorySection() { /* ... Keep existing ... */
     if (_mainCategory == null) {
       return Container(
         padding: const EdgeInsets.all(20),
@@ -951,8 +1164,134 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       },
     );
   }
+  Widget _buildTextField({ /* ... Keep existing ... */
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    required Gradient gradient,
+    String? hint,
+    int? maxLines,
+    Widget? suffixIcon,
+    String? Function(String?)? validator,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withOpacity(0.9),
+            Colors.white.withOpacity(0.7),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: controller,
+        maxLines: maxLines ?? 1,
+        validator: validator,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF1F2937),
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          labelStyle: TextStyle(
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w600,
+          ),
+          hintStyle: TextStyle(
+            color: Colors.grey.shade400,
+            fontSize: 14,
+          ),
+          prefixIcon: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: gradient,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: Colors.white, size: 20),
+          ),
+          suffixIcon: suffixIcon,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(20),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(20),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(20),
+            borderSide: BorderSide(
+              color: gradient.colors.first,
+              width: 2,
+            ),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(20),
+            borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+          ),
+          filled: false,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        ),
+      ),
+    );
+  }
+  Widget _buildSaveButton() { /* ... Keep existing ... */
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF667EEA).withOpacity(0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isLoading ? null : _saveProduct,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 24),
+                const SizedBox(width: 12),
+                Text(
+                  _isEditing ? 'Mettre à jour le Produit' : 'Enregistrer le Produit',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-  Widget _buildPhotosSection() {
+  // --- Photos Section (Keep existing) ---
+  Widget _buildPhotosSection() { /* ... Keep existing ... */
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1120,8 +1459,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-
-  Widget _buildImageThumbnail({
+  Widget _buildImageThumbnail({ /* ... Keep existing ... */
     String? imageUrl,
     File? imageFile,
     required VoidCallback onRemove,
@@ -1192,17 +1530,10 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    required Gradient gradient,
-    String? hint,
-    int? maxLines,
-    Widget? suffixIcon,
-    String? Function(String?)? validator,
-  }) {
+  // ✅ --- START: NEW WIDGETS FOR MANUALS SECTION ---
+  Widget _buildManualsSection() {
     return Container(
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -1210,112 +1541,190 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
             Colors.white.withOpacity(0.7),
           ],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: TextFormField(
-        controller: controller,
-        maxLines: maxLines ?? 1,
-        validator: validator,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-          color: Color(0xFF1F2937),
-        ),
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hint,
-          labelStyle: TextStyle(
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w600,
-          ),
-          hintStyle: TextStyle(
-            color: Colors.grey.shade400,
-            fontSize: 14,
-          ),
-          prefixIcon: Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              gradient: gradient,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: Colors.white, size: 20),
-          ),
-          suffixIcon: suffixIcon,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: BorderSide(
-              color: gradient.colors.first,
-              width: 2,
-            ),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(20),
-            borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
-          ),
-          filled: false,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSaveButton() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF667EEA).withOpacity(0.4),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: _isLoading ? null : _saveProduct,
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 18),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 24),
-                const SizedBox(width: 12),
-                Text(
-                  _isEditing ? 'Mettre à jour le Produit' : 'Enregistrer le Produit',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFF97316), Color(0xFFEA580C)], // Orange gradient for manuals
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.white, size: 24),
+                  ),
+                  const SizedBox(width: 16),
+                  const Text(
+                    'PDF',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1F2937),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFF97316), Color(0xFFEA580C)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFF97316).withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _pickPdf, // Call the PDF picker function
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.attach_file_rounded, color: Colors.white, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Ajouter',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          if (_existingPdfData.isEmpty && _selectedPdfs.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade200, width: 2, strokeAlign: BorderSide.strokeAlignInside),
+              ),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.file_copy_outlined, size: 48, color: Colors.grey.shade400),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Aucun fichier PDF ajouté',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_existingPdfData.isNotEmpty) ...[
+                  Text(
+                    'Fichiers PDF existants',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: List.generate(_existingPdfData.length, (index) {
+                      final pdfInfo = _existingPdfData[index];
+                      return _buildPdfChip(
+                        fileName: pdfInfo['fileName']!,
+                        onRemove: () => _removePdf(index, isExisting: true),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (_selectedPdfs.isNotEmpty) ...[
+                  Text(
+                    'Nouveaux fichiers PDF',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: List.generate(_selectedPdfs.length, (index) {
+                      return _buildPdfChip(
+                        fileName: path.basename(_selectedPdfs[index].path),
+                        onRemove: () => _removePdf(index),
+                      );
+                    }),
+                  ),
+                ],
               ],
             ),
-          ),
-        ),
+        ],
       ),
     );
   }
+
+  Widget _buildPdfChip({
+    required String fileName,
+    required VoidCallback onRemove,
+  }) {
+    return Chip(
+      avatar: const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFB91C1C), size: 18),
+      label: Text(
+        fileName,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Color(0xFF1F2937),
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      deleteIcon: const Icon(Icons.close_rounded, size: 16),
+      onDeleted: onRemove,
+      backgroundColor: Colors.red.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: Colors.red.shade100),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    );
+  }
+// ✅ --- END: NEW WIDGETS FOR MANUALS SECTION ---
 }
