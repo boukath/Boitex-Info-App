@@ -202,6 +202,8 @@ class FirebaseApi {
     return [
       UserRoles.admin,
       UserRoles.pdg,
+      UserRoles.responsableAdministratif,
+      UserRoles.responsableCommercial,
       UserRoles.responsableTechnique,
       UserRoles.responsableIT,
       UserRoles.chefDeProjet,
