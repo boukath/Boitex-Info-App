@@ -3,13 +3,21 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // ✅ ADDED: For user roles
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/models/mission.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+// ❌ REMOVED: import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path/path.dart' as path;
-import 'package:url_launcher/url_launcher.dart';
+import 'package:url_launcher/url_launcher.dart'; // Still needed if you open other URLs
+
+// ✅ ADDED: B2 Imports
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
+
+// ✅ ADDED: Import for the image gallery viewer
+import 'package:boitex_info_app/widgets/image_gallery_page.dart'; // Make sure this path is correct
 
 class MissionDetailsPage extends StatefulWidget {
   final Mission mission;
@@ -23,16 +31,20 @@ class MissionDetailsPage extends StatefulWidget {
 class _MissionDetailsPageState extends State<MissionDetailsPage> {
   late Mission _currentMission;
   bool _isUpdatingStatus = false;
-  String? _userRole; // ✅ ADDED: To store user role
+  String? _userRole;
+
+  // ✅ ADDED: B2 Cloud Function URL constant (from add_sav_ticket_page.dart)
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
   @override
   void initState() {
     super.initState();
     _currentMission = widget.mission;
-    _fetchUserRole(); // ✅ ADDED: Fetch role on init
+    _fetchUserRole();
   }
 
-  // ✅ NEW: Fetches the current user's role from Firestore
+  // Fetches the current user's role from Firestore
   Future<void> _fetchUserRole() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -101,7 +113,7 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Shows a dialog to edit mission dates
+  // Shows a dialog to edit mission dates
   Future<void> _showEditDatesDialog() async {
     DateTime? newStartDate = _currentMission.startDate;
     DateTime? newEndDate = _currentMission.endDate;
@@ -168,7 +180,7 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Updates mission dates after checking vehicle availability
+  // Updates mission dates after checking vehicle availability
   Future<void> _updateMissionDates(DateTime newStartDate, DateTime newEndDate) async {
     if (_currentMission.resources?.vehicleId == null) {
       // If no vehicle, just update the dates
@@ -211,7 +223,7 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Helper function to perform the Firestore update
+  // Helper function to perform the Firestore update
   Future<void> _performDateUpdate(DateTime startDate, DateTime endDate) async {
     try {
       await FirebaseFirestore.instance.collection('missions').doc(_currentMission.id!).update({
@@ -236,7 +248,72 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
   }
 
 
-  // Shows a dialog to add an expense with file attachments
+  // ✅ --- START: B2 HELPER FUNCTIONS ---
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _uploadFileToB2(
+      File file, Map<String, dynamic> b2Creds) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final fileName = path.basename(file.path);
+
+      String? mimeType;
+      if (fileName.toLowerCase().endsWith('.jpg') ||
+          fileName.toLowerCase().endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (fileName.toLowerCase().endsWith('.png')) {
+        mimeType = 'image/png';
+      }
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name':
+          Uri.encodeComponent(fileName),
+          'Content-Type': mimeType ?? 'b2/x-auto',
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        final encodedPath = (body['fileName'] as String)
+            .split('/')
+            .map(Uri.encodeComponent)
+            .join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+  // ✅ --- END: B2 HELPER FUNCTIONS ---
+
+
+  // ✅ This function uses B2 for uploads
   Future<void> _showAddExpenseDialog(String categoryName, String categoryKey) async {
     final amountController = TextEditingController();
     List<File> pickedFiles = [];
@@ -310,14 +387,19 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
 
                     try {
                       List<String> uploadedUrls = [];
+
+                      final b2Credentials = await _getB2UploadCredentials();
+                      if (b2Credentials == null) {
+                        throw Exception('Impossible de récupérer les accès B2.');
+                      }
+
                       for (var file in pickedFiles) {
-                        final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
-                        final storageRef = FirebaseStorage.instance
-                            .ref()
-                            .child('missions/${_currentMission.id}/$categoryKey/$fileName');
-                        await storageRef.putFile(file);
-                        final url = await storageRef.getDownloadURL();
-                        uploadedUrls.add(url);
+                        final downloadUrl = await _uploadFileToB2(file, b2Credentials);
+                        if (downloadUrl != null) {
+                          uploadedUrls.add(downloadUrl);
+                        } else {
+                          debugPrint('Skipping file due to B2 upload failure: ${path.basename(file.path)}');
+                        }
                       }
 
                       final double amount = double.tryParse(amountController.text) ?? 0.0;
@@ -336,7 +418,7 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
                         setState(() {
                           _currentMission = Mission.fromFirestore(updatedDoc);
                         });
-                        Navigator.of(context).pop();
+                        Navigator.of(context).pop(); // Close the dialog
                       }
 
                     } catch (e) {
@@ -358,7 +440,7 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
     );
   }
 
-  // Shows a dialog with the list of bills (justificatifs)
+  // ✅ MODIFIED: This function now uses ImageGalleryPage to view receipts
   void _showBillsDialog(String categoryName, ExpenseCategory category) {
     showDialog(
       context: context,
@@ -376,17 +458,17 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
               return ListTile(
                 leading: const Icon(Icons.image, color: Colors.blue),
                 title: Text('Justificatif ${index + 1}'),
-                onTap: () async {
-                  final uri = Uri.parse(url);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri);
-                  } else {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Impossible d\'ouvrir le lien: $url')),
-                      );
-                    }
-                  }
+                onTap: () {
+                  // Navigate to the full-screen gallery instead of launching URL
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ImageGalleryPage(
+                        imageUrls: category.billUrls, // Pass the whole list
+                        initialIndex: index,         // Tell it which image to show first
+                      ),
+                    ),
+                  );
                 },
               );
             },
@@ -401,6 +483,8 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
       ),
     );
   }
+
+  // --- BUILD METHODS --- (No changes needed below this line)
 
   @override
   Widget build(BuildContext context) {
@@ -561,13 +645,14 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 OutlinedButton.icon(
+                  // This button now calls the modified dialog function
                   onPressed: () => _showBillsDialog(title, category),
                   icon: const Icon(Icons.receipt_long_outlined),
                   label: Text('Justificatifs (${category.billUrls.length})'),
                 ),
                 ElevatedButton(
                   onPressed: () => _showAddExpenseDialog(title, categoryKey),
-                  child: const Text('Ajouter Dépense'),
+                  child: const Text('Ajouter'),
                 ),
               ],
             )
@@ -648,7 +733,6 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
   Widget _buildInfoCard() {
     final formattedStartDate = DateFormat('dd MMM yyyy', 'fr_FR').format(_currentMission.startDate);
     final formattedEndDate = DateFormat('dd MMM yyyy', 'fr_FR').format(_currentMission.endDate);
-    // ✅ CHANGED: Determine if the edit button should be visible
     final bool canEdit = (_userRole == 'Responsable Administratif' || _userRole == 'Admin') &&
         (_currentMission.status == 'Planifiée' || _currentMission.status == 'En Cours');
 
@@ -672,7 +756,6 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
             leading: const Icon(Icons.calendar_today_outlined),
             title: const Text('Dates'),
             subtitle: Text('Du $formattedStartDate au $formattedEndDate', style: const TextStyle(fontSize: 16)),
-            // ✅ CHANGED: Show edit button based on role and status
             trailing: canEdit
                 ? IconButton(
               icon: const Icon(Icons.edit_calendar_outlined, color: Colors.blue),
