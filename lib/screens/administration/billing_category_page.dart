@@ -1,28 +1,43 @@
-// lib/screens/administration/billing_history_page.dart
+// lib/screens/administration/billing_category_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-// ✅ ADDED: Import for the next page in the flow
-import 'package:boitex_info_app/screens/administration/billing_category_page.dart';
+// ✅ ADDED: Import for the final page in the flow
+import 'package:boitex_info_app/screens/administration/billing_filtered_list_page.dart';
 
-// ✅ CHANGED: Converted to a StatelessWidget
-class BillingHistoryPage extends StatelessWidget {
-  const BillingHistoryPage({super.key});
+class BillingCategoryPage extends StatelessWidget {
+  final String type; // 'intervention' or 'sav'
+  final String title;
+
+  const BillingCategoryPage({
+    super.key,
+    required this.type,
+    required this.title,
+  });
+
+  // Helper to determine icon and color based on type
+  IconData _getIcon() {
+    return type == 'intervention'
+        ? Icons.construction_outlined
+        : Icons.support_agent_outlined;
+  }
+
+  Color _getColor() {
+    return type == 'intervention' ? Colors.deepPurple : Colors.orange;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // ✅ CHANGED: Removed search bar and set a simple title
         title: Text(
-          'Historique de Facturation',
+          title,
           style: GoogleFonts.poppins(),
         ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         elevation: 1,
       ),
-      // ✅ CHANGED: Body is now a simple ListView for navigation
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
@@ -30,27 +45,28 @@ class BillingHistoryPage extends StatelessWidget {
             elevation: 2,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: ListTile(
-              leading: const CircleAvatar(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-                child: Icon(Icons.construction_outlined),
+              leading: CircleAvatar(
+                backgroundColor: _getColor().withOpacity(0.1),
+                foregroundColor: _getColor(),
+                child: const Icon(Icons.receipt_long_outlined),
               ),
               title: Text(
-                'Interventions',
+                'Facturé',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
               ),
               subtitle: Text(
-                "Voir l'historique des interventions",
+                'Voir les dossiers facturés',
                 style: GoogleFonts.poppins(),
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                // Navigate to Page 2, passing 'intervention' as the type
+                // Navigate to Page 3
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => const BillingCategoryPage(
-                      type: 'intervention',
-                      title: 'Historique Interventions',
+                    builder: (context) => BillingFilteredListPage(
+                      type: type,
+                      billingStatus: 'Facturé',
+                      title: '$title: Facturé',
                     ),
                   ),
                 );
@@ -62,27 +78,28 @@ class BillingHistoryPage extends StatelessWidget {
             elevation: 2,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: ListTile(
-              leading: const CircleAvatar(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                child: Icon(Icons.support_agent_outlined),
+              leading: CircleAvatar(
+                backgroundColor: Colors.grey.shade200,
+                foregroundColor: Colors.grey.shade700,
+                child: const Icon(Icons.do_not_disturb_alt_outlined),
               ),
               title: Text(
-                'SAV',
+                'Sans Facturation',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
               ),
               subtitle: Text(
-                "Voir l'historique des tickets SAV",
+                "Voir les dossiers clôturés sans facture",
                 style: GoogleFonts.poppins(),
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                // Navigate to Page 2, passing 'sav' as the type
+                // Navigate to Page 3
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => const BillingCategoryPage(
-                      type: 'sav',
-                      title: 'Historique SAV',
+                    builder: (context) => BillingFilteredListPage(
+                      type: type,
+                      billingStatus: 'Sans Facture',
+                      title: '$title: Sans Facture',
                     ),
                   ),
                 );
