@@ -12,8 +12,10 @@ import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart'
 import 'package:boitex_info_app/screens/service_technique/ready_replacements_list_page.dart';
 
 // ***** START CODE TO ADD *****
-// Import the AnnounceHubPage
+// Import the AnnounceHubPage (already present in your code)
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
+// Import the new IT evaluations list page
+import 'package:boitex_info_app/screens/service_it/pending_it_evaluations_list.dart';
 // ***** END CODE TO ADD *****
 
 
@@ -61,26 +63,48 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final width = constraints.maxWidth;
-      if (width > 900) {
-        return _buildWebDashboard(context, width);
-      } else {
-        return _buildMobileDashboard(context);
-      }
-    });
+    // ***** START MODIFIED CODE *****
+    // Wrap LayoutBuilder in StreamBuilder to get the count
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('projects')
+          .where('status', isEqualTo: 'Nouvelle Demande') // Query for pending projects
+          .snapshots(),
+      builder: (context, projectSnapshot) {
+        // Calculate the count (0 if loading or no data)
+        final int evaluationCount =
+        projectSnapshot.hasData ? projectSnapshot.data!.docs.length : 0;
+
+        // Keep your original LayoutBuilder
+        return LayoutBuilder(builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          if (width > 900) {
+            // Pass the count to the web layout
+            return _buildWebDashboard(context, width, evaluationCount);
+          } else {
+            // Pass the count to the mobile layout
+            return _buildMobileDashboard(context, evaluationCount);
+          }
+        });
+      },
+    );
+    // ***** END MODIFIED CODE *****
   }
 
   // ========================= WEB =========================
 
-  Widget _buildWebDashboard(BuildContext context, double width) {
+  // ***** START MODIFIED CODE *****
+  // Add evaluationCount parameter
+  Widget _buildWebDashboard(BuildContext context, double width, int evaluationCount) {
+    // ***** END MODIFIED CODE *****
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)], // Keep original gradient
+            // Keeping your IT gradient
+            colors: [Color(0xFF06B6D4), Color(0xFF0891B2), Color(0xFF0E7490)],
             stops: [0.0, 0.5, 1.0],
           ),
         ),
@@ -121,7 +145,10 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                                   ),
                                 ),
                                 const SizedBox(height: 16),
-                                _buildWebStatsColumn(), // Uses your web stats column
+                                // ***** START MODIFIED CODE *****
+                                // Pass the count to the stats column
+                                _buildWebStatsColumn(evaluationCount),
+                                // ***** END MODIFIED CODE *****
                               ],
                             ),
                           ),
@@ -140,6 +167,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   }
 
   Widget _buildWebHeader() {
+    // No changes needed here, keep your original code
     return SliverToBoxAdapter(
       child: Container(
         padding: const EdgeInsets.fromLTRB(40, 20, 40, 32),
@@ -173,15 +201,13 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
               ),
             ),
             const Spacer(),
-            // Keeping your original computer icon button
-            _glassIconButton(
-              icon: Icons.computer,
+            _glassIconButton( // Using computer icon for IT
+              icon: Icons.computer_rounded,
               onTap: () {},
             ),
-            // ***** START CODE TO ADD *****
-            const SizedBox(width: 12), // Add spacing
-            _glassIconButton(
-              icon: Icons.campaign_outlined, // Or Icons.campaign_rounded
+            const SizedBox(width: 12),
+            _glassIconButton( // Announcements icon (already present in your code)
+              icon: Icons.campaign_outlined,
               tooltip: 'Announcements',
               onTap: () {
                 Navigator.push(
@@ -190,7 +216,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                 );
               },
             ),
-            // ***** END CODE TO ADD *****
           ],
         ),
       ),
@@ -198,7 +223,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   }
 
   Widget _buildWebActionsGrid(BuildContext context) {
-    // Keeping your original web actions grid
+    // No changes needed here, keep your original code
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -213,15 +238,26 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
     );
   }
 
-  Widget _buildWebStatsColumn() {
-    // Keeping your original web stats column
+  // ***** START MODIFIED CODE *****
+  // Add evaluationCount parameter
+  Widget _buildWebStatsColumn(int evaluationCount) {
+    // ***** END MODIFIED CODE *****
+    // Keeping your original web stats column structure
     final cards = <Widget>[
+      // ***** START CODE TO ADD *****
+      // Add the new IT Evaluation Card first
+      _ItEvaluationsCard(userRole: widget.userRole, evaluationCount: evaluationCount),
+      const SizedBox(height: 16),
+      // ***** END CODE TO ADD *****
+
+      // Your existing cards remain
       _InterventionsCard(userRole: widget.userRole), const SizedBox(height: 16),
       _InstallationsCard(userRole: widget.userRole), const SizedBox(height: 16),
       _SavTicketsCard(userRole: widget.userRole), const SizedBox(height: 16),
       _ReadyReplacementsCard(userRole: widget.userRole), const SizedBox(height: 16),
       _MissionsCard(userRole: widget.userRole),
     ];
+    // Keep your animation logic
     return Column(
       children: cards.asMap().entries.map((entry) {
         final index = entry.key; final card = entry.value;
@@ -236,15 +272,18 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   // ========================= MOBILE =========================
 
-  Widget _buildMobileDashboard(BuildContext context) {
+  // ***** START MODIFIED CODE *****
+  // Add evaluationCount parameter
+  Widget _buildMobileDashboard(BuildContext context, int evaluationCount) {
+    // ***** END MODIFIED CODE *****
     // Keeping your original mobile dashboard structure
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft, end: Alignment.bottomRight,
-            // Keeping your gradient
-            colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
+            // Keeping your IT gradient
+            colors: [Color(0xFF06B6D4), Color(0xFF0891B2), Color(0xFF0E7490)],
             stops: [0.0, 0.5, 1.0],
           ),
         ),
@@ -263,7 +302,10 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                       children: [
                         _buildGlassCard(child: _buildActionsGrid(context)), // Uses your mobile grid
                         const SizedBox(height: 24),
-                        _buildStatsSection(), // Uses your mobile stats
+                        // ***** START MODIFIED CODE *****
+                        // Pass the count to the mobile stats section
+                        _buildStatsSection(evaluationCount),
+                        // ***** END MODIFIED CODE *****
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -278,7 +320,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   }
 
   Widget _buildUltraCompactHeader() {
-    // Keeping your original mobile header structure
+    // No changes needed here, keep your original code
     return SliverToBoxAdapter(
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -309,15 +351,13 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
               ),
             ),
             const SizedBox(width: 12),
-            // Keeping your original computer icon button
-            _glassIconButton(
-              icon: Icons.computer,
+            _glassIconButton( // Using computer icon for IT
+              icon: Icons.computer_rounded,
               onTap: () {},
             ),
-            // ***** START CODE TO ADD *****
-            const SizedBox(width: 12), // Add spacing
-            _glassIconButton(
-              icon: Icons.campaign_outlined, // Or Icons.campaign_rounded
+            const SizedBox(width: 12),
+            _glassIconButton( // Announcements icon (already present in your code)
+              icon: Icons.campaign_outlined,
               tooltip: 'Announcements',
               onTap: () {
                 Navigator.push(
@@ -326,7 +366,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                 );
               },
             ),
-            // ***** END CODE TO ADD *****
           ],
         ),
       ),
@@ -395,6 +434,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
       _ActionData('Historique', Icons.history, const Color(0xFF78716C), () => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoricInterventionsPage(serviceType: 'Service IT', userRole: widget.userRole),),),),
     ];
 
+    // Keep your animation logic
     return actions.asMap().entries.map((entry) {
       final index = entry.key; final action = entry.value;
       return TweenAnimationBuilder<double>(
@@ -407,9 +447,17 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   // ========================= STATS (MOBILE) =========================
 
-  // Keeping your original _buildStatsSection function
-  Widget _buildStatsSection() {
+  // ***** START MODIFIED CODE *****
+  // Add evaluationCount parameter
+  Widget _buildStatsSection(int evaluationCount) {
+    // ***** END MODIFIED CODE *****
     final cards = <Widget>[
+      // ***** START CODE TO ADD *****
+      // Add the new IT Evaluation Card first
+      _ItEvaluationsCard(userRole: widget.userRole, evaluationCount: evaluationCount),
+      // ***** END CODE TO ADD *****
+
+      // Your existing cards remain
       _InterventionsCard(userRole: widget.userRole),
       _InstallationsCard(userRole: widget.userRole),
       _SavTicketsCard(userRole: widget.userRole),
@@ -417,6 +465,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
       _MissionsCard(userRole: widget.userRole),
     ];
 
+    // Keep your layout and animation logic
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -504,7 +553,36 @@ class _ActionCard extends StatelessWidget {
 
 // ========================= STAT CARDS =========================
 
+// ***** START CODE TO ADD *****
+// New Stat Card Widget for IT Evaluations
+class _ItEvaluationsCard extends StatelessWidget {
+  final String userRole;
+  final int evaluationCount; // Takes count as parameter
+  const _ItEvaluationsCard({required this.userRole, required this.evaluationCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return _buildGlowingCard(
+      context: context,
+      title: 'Évaluations IT à Faire',
+      count: evaluationCount.toString(),
+      icon: Icons.dns_rounded, // Specific IT icon
+      // Using a different gradient for distinction, maybe purple?
+      gradient: const LinearGradient(colors: [Color(0xFFa78bfa), Color(0xFF7c3aed)]),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          // Navigate to the new IT evaluations list page
+          builder: (_) => PendingItEvaluationsListPage(userRole: userRole),
+        ),
+      ),
+    );
+  }
+}
+// ***** END CODE TO ADD *****
+
 // Keeping your original Stat Card widgets (_InterventionsCard, _InstallationsCard, etc.)
+// These should already use 'Service IT' in their queries based on your previous file.
 class _InterventionsCard extends StatelessWidget {
   final String userRole;
   const _InterventionsCard({required this.userRole});
