@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 // ✅ ADDED: Import for the final page in the flow
 import 'package:boitex_info_app/screens/administration/billing_filtered_list_page.dart';
+// ✅ ADDED: Import for the NEW service type selection page
+import 'package:boitex_info_app/screens/administration/billing_service_type_page.dart';
+
 
 class BillingCategoryPage extends StatelessWidget {
   final String type; // 'intervention' or 'sav'
@@ -60,16 +63,30 @@ class BillingCategoryPage extends StatelessWidget {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                // Navigate to Page 3
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => BillingFilteredListPage(
-                      type: type,
-                      billingStatus: 'Facturé',
-                      title: '$title: Facturé',
+                // ✅ CHANGED: Conditional navigation
+                if (type == 'intervention') {
+                  // Navigate to the NEW service type page first
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => BillingServiceTypePage(
+                        billingStatus: 'Facturé',
+                        // Pass the title or construct a new one
+                        title: '$title: Facturé',
+                      ),
                     ),
-                  ),
-                );
+                  );
+                } else {
+                  // SAV goes directly to the final list
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => BillingFilteredListPage(
+                        type: type, // 'sav'
+                        billingStatus: 'Facturé',
+                        title: '$title: Facturé',
+                      ),
+                    ),
+                  );
+                }
               },
             ),
           ),
@@ -93,16 +110,30 @@ class BillingCategoryPage extends StatelessWidget {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                // Navigate to Page 3
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => BillingFilteredListPage(
-                      type: type,
-                      billingStatus: 'Sans Facture',
-                      title: '$title: Sans Facture',
+                // ✅ CHANGED: Conditional navigation
+                if (type == 'intervention') {
+                  // Navigate to the NEW service type page first
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => BillingServiceTypePage(
+                        billingStatus: 'Sans Facture',
+                        // Pass the title or construct a new one
+                        title: '$title: Sans Facture',
+                      ),
                     ),
-                  ),
-                );
+                  );
+                } else {
+                  // SAV goes directly to the final list
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => BillingFilteredListPage(
+                        type: type, // 'sav'
+                        billingStatus: 'Sans Facture',
+                        title: '$title: Sans Facture',
+                      ),
+                    ),
+                  );
+                }
               },
             ),
           ),
