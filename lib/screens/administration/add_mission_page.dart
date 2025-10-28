@@ -56,6 +56,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
   final Map<String, TextEditingController> _perPersonBudgetControllers = {};
   final _fuelBudgetController = TextEditingController(text: '0');
   final _hotelBudgetController = TextEditingController(text: '0');
+  // ✅ ADDED: Controller for Purchase Budget
+  final _purchaseBudgetController = TextEditingController(text: '0');
   Vehicle? _selectedVehicle;
   List<Vehicle> _availableVehicles = [];
   String? _vehicleAvailabilityStatus;
@@ -119,9 +121,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
 
       if (mounted) {
         setState(() {
-          _availableVehicles = snap.docs
-              .map((doc) => Vehicle.fromFirestore(doc))
-              .toList();
+          _availableVehicles =
+              snap.docs.map((doc) => Vehicle.fromFirestore(doc)).toList();
         });
       }
     } catch (e) {
@@ -147,12 +148,14 @@ class _AddMissionPageState extends State<AddMissionPage> {
       final data = mission.data();
       final existingStart = (data['startDate'] as Timestamp).toDate();
       final existingEnd = (data['endDate'] as Timestamp).toDate();
-      if (_startDate!.isBefore(existingEnd) && _endDate!.isAfter(existingStart)) {
+      if (_startDate!.isBefore(existingEnd) &&
+          _endDate!.isAfter(existingStart)) {
         hasConflict = true;
         break;
       }
     }
-    setState(() => _vehicleAvailabilityStatus = hasConflict ? 'conflict' : 'available');
+    setState(() =>
+    _vehicleAvailabilityStatus = hasConflict ? 'conflict' : 'available');
   }
 
   // ACTIONS
@@ -195,7 +198,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
       // Create budget controllers for new members
       for (var tech in selected) {
         if (!_perPersonBudgetControllers.containsKey(tech.id)) {
-          _perPersonBudgetControllers[tech.id] = TextEditingController(text: '2000');
+          _perPersonBudgetControllers[tech.id] =
+              TextEditingController(text: '2000');
         }
       }
     });
@@ -236,15 +240,21 @@ class _AddMissionPageState extends State<AddMissionPage> {
         // Build expense report with per-person budgets
         final dailyAllowances = <String, ExpenseCategory>{};
         for (var tech in _selectedTechnicians) {
-          final budget = double.tryParse(_perPersonBudgetControllers[tech.id]?.text ?? '0') ?? 0.0;
+          final budget = double.tryParse(
+              _perPersonBudgetControllers[tech.id]?.text ?? '0') ??
+              0.0;
           dailyAllowances[tech.name] = ExpenseCategory(budget: budget);
         }
 
         final expenseReport = ExpenseReport(
           dailyAllowancesPerTechnician: dailyAllowances,
-          fuel: ExpenseCategory(budget: double.tryParse(_fuelBudgetController.text) ?? 0.0),
-          purchases: ExpenseCategory(budget: 0.0),
-          hotel: ExpenseCategory(budget: double.tryParse(_hotelBudgetController.text) ?? 0.0),
+          fuel: ExpenseCategory(
+              budget: double.tryParse(_fuelBudgetController.text) ?? 0.0),
+          // ✅ MODIFIED: Using the new controller's value instead of 0.0
+          purchases: ExpenseCategory(
+              budget: double.tryParse(_purchaseBudgetController.text) ?? 0.0),
+          hotel: ExpenseCategory(
+              budget: double.tryParse(_hotelBudgetController.text) ?? 0.0),
         );
 
         // Build resources
@@ -265,8 +275,10 @@ class _AddMissionPageState extends State<AddMissionPage> {
           startDate: _startDate!,
           endDate: _endDate!,
           assignedTechniciansIds: _selectedTechnicians.map((t) => t.id).toList(),
-          assignedTechniciansNames: _selectedTechnicians.map((t) => t.name).toList(),
-          assignedTechniciansRoles: _selectedTechnicians.map((t) => t.role).toList(),
+          assignedTechniciansNames:
+          _selectedTechnicians.map((t) => t.name).toList(),
+          assignedTechniciansRoles:
+          _selectedTechnicians.map((t) => t.role).toList(),
           tasks: _tasks,
           status: 'Planifiée',
           expenseReport: expenseReport,
@@ -344,9 +356,10 @@ class _AddMissionPageState extends State<AddMissionPage> {
                   children: [
                     const Icon(Icons.error_outline, size: 64, color: Colors.red),
                     const SizedBox(height: 16),
-                    Text(
+                    const Text(
                       'Erreur de chargement',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      style:
+                      TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -363,7 +376,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
                       label: const Text('Réessayer'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.purple,
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 16),
                       ),
                     ),
                   ],
@@ -464,7 +478,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
                     title: Text(_destinations[index]),
                     trailing: IconButton(
                       icon: const Icon(Icons.close, color: Colors.red),
-                      onPressed: () => setState(() => _destinations.removeAt(index)),
+                      onPressed: () =>
+                          setState(() => _destinations.removeAt(index)),
                     ),
                   ),
                 );
@@ -549,11 +564,13 @@ class _AddMissionPageState extends State<AddMissionPage> {
                 style: TextStyle(fontWeight: FontWeight.bold)),
             ..._selectedTechnicians.map(
                   (tech) => ListTile(
-                leading: Icon(Icons.person, color: roleBadgeColors[tech.role] ?? Colors.grey),
+                leading: Icon(Icons.person,
+                    color: roleBadgeColors[tech.role] ?? Colors.grey),
                 title: Text(tech.name),
                 trailing: Chip(
                   label: Text(tech.role,
-                      style: const TextStyle(color: Colors.white, fontSize: 11)),
+                      style:
+                      const TextStyle(color: Colors.white, fontSize: 11)),
                   backgroundColor: roleBadgeColors[tech.role] ?? Colors.grey,
                 ),
               ),
@@ -601,6 +618,16 @@ class _AddMissionPageState extends State<AddMissionPage> {
             ),
             keyboardType: TextInputType.number,
           ),
+          // ✅ ADDED: New TextFormField for Purchase Budget
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _purchaseBudgetController,
+            decoration: const InputDecoration(
+              labelText: 'Budget Achats (DZD)',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.number,
+          ),
         ],
       ),
     );
@@ -613,7 +640,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('── VÉHICULE ──', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('── VÉHICULE ──',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           DropdownButtonFormField<Vehicle>(
             value: _selectedVehicle,
@@ -656,7 +684,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
             ),
           ],
           const SizedBox(height: 16),
-          const Text('── ÉQUIPEMENT ──', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('── ÉQUIPEMENT ──',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           if (_equipment.isNotEmpty)
             ..._equipment.map(
                   (eq) => ListTile(
@@ -719,13 +748,15 @@ class _AddMissionPageState extends State<AddMissionPage> {
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.number,
-                      onChanged: (val) => item.estimatedBudget = double.tryParse(val) ?? 0,
+                      onChanged: (val) =>
+                      item.estimatedBudget = double.tryParse(val) ?? 0,
                     ),
                     Align(
                       alignment: Alignment.topRight,
                       child: IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () => setState(() => _preMissionPurchases.removeAt(index)),
+                        onPressed: () =>
+                            setState(() => _preMissionPurchases.removeAt(index)),
                       ),
                     ),
                   ],
@@ -854,6 +885,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
     _taskController.dispose();
     _fuelBudgetController.dispose();
     _hotelBudgetController.dispose();
+    // ✅ ADDED: Dispose the new controller
+    _purchaseBudgetController.dispose();
     _equipmentController.dispose();
     _purchaseNotesController.dispose();
     for (var controller in _perPersonBudgetControllers.values) {
