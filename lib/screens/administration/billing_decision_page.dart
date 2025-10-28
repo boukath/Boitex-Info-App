@@ -34,10 +34,10 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
         'closedAt': Timestamp.now(), // Use closedAt for consistency, unless updatedAt is specifically needed here
       });
 
-      // Log activity using the correct parameters for ActivityLogger
+      // ✅ FIX: Log activity using the correct category "Facturation"
       await ActivityLogger.logActivity(
         message: "Intervention clôturée sans facture.",
-        category: "Intervention Clôturée Sans Facture",
+        category: "Facturation", // <-- CORRECTED
         interventionId: widget.interventionDoc.id,
         clientName: data['clientName'] ?? '',
         storeName: data['storeName'] ?? '',
@@ -85,10 +85,10 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
           'invoiceUrl': downloadUrl,
         });
 
-        // Log activity using the correct parameters for ActivityLogger
+        // ✅ FIX: Log activity using the correct category "Facturation"
         await ActivityLogger.logActivity(
           message: "Intervention facturée et clôturée.",
-          category: "Intervention Facturée",
+          category: "Facturation", // <-- CORRECTED
           interventionId: widget.interventionDoc.id,
           clientName: data['clientName'] ?? '',
           storeName: data['storeName'] ?? '',

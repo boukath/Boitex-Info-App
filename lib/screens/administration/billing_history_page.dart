@@ -66,20 +66,30 @@ class _BillingHistoryPageState extends State<BillingHistoryPage> {
 
   // ✅ NEW: Function to fetch COMBINED history data
   Future<List<Map<String, dynamic>>> _fetchCombinedBillingHistory() async {
-    // Query 1: Activity Log for Interventions (as per your original code)
+    // Query 1: Activity Log for Interventions
     final activityLogFuture = FirebaseFirestore.instance
         .collection('global_activity_log')
-        .where('category', isEqualTo: 'Facturation') // Original filter
+    // ✅ FIX: Use 'whereIn' to find the new "Facturation" category
+    // AND the two old categories you were using before.
+        .where('category', whereIn: [
+      'Facturation',
+      'Intervention Facturée',
+      'Intervention Clôturée Sans Facture'
+    ])
         .orderBy('timestamp', descending: true)
         .get();
 
     // Query 2: SAV Tickets with billing status
     final savTicketsFuture = FirebaseFirestore.instance
         .collection('sav_tickets')
-        .where('status', isEqualTo: 'Retourné') // Only show completed SAVs
+    // ✅ FIX: Use 'whereIn' to find the status you are writing
+    // ('Approuvé - Prêt pour retour') AND the one you are querying ('Retourné')
+    // This makes the query robust for old and new data.
+        .where('status', whereIn: ['Retourné', 'Approuvé - Prêt pour retour'])
         .where('billingStatus', isNotEqualTo: null) // Ensure billing decision was made
         .orderBy('createdAt', descending: true) // Sort SAV tickets by creation date
         .get();
+
 
     // Wait for both queries
     final results = await Future.wait([activityLogFuture, savTicketsFuture]);
