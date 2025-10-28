@@ -18,6 +18,8 @@ import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
 import 'package:boitex_info_app/screens/service_it/pending_it_evaluations_list.dart';
 // ***** END CODE TO ADD *****
 
+// ✅✅✅ NOUVELLE IMPORTATION AJOUTÉE ✅✅✅
+import 'package:boitex_info_app/screens/service_it/it_activity_feed_page.dart';
 
 import 'dart:math' as math;
 
@@ -421,7 +423,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
     );
   }
 
-  // Keeping your original _buildQuickActions function
+  // 🔽🔽🔽 FONCTION MODIFIÉE 🔽🔽🔽
   List<Widget> _buildQuickActions(BuildContext context) {
     // Uses your specific actions for Service IT
     final actions = <_ActionData>[
@@ -432,6 +434,18 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
       _ActionData('Missions', Icons.assignment_rounded, const Color(0xFF8B5CF6), () => Navigator.push(context, MaterialPageRoute(builder: (_) => ManageMissionsPage(serviceType: 'Service IT')),),),
       _ActionData('Livraisons', Icons.local_shipping_rounded, const Color(0xFF14B8A6), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LivraisonsHubPage(serviceType: 'Service IT')),),),
       _ActionData('Historique', Icons.history, const Color(0xFF78716C), () => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoricInterventionsPage(serviceType: 'Service IT', userRole: widget.userRole),),),),
+
+      // ✅✅✅ NOUVELLE ACTION AJOUTÉE ICI ✅✅✅
+      _ActionData(
+        "Journal d'activité",
+        Icons.timeline_rounded, // Nouvelle icône
+        const Color(0xFFfd746c), // Nouveau dégradé
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ItActivityFeedPage()),
+        ),
+      ),
+      // ✅✅✅ FIN DE L'AJOUT ✅✅✅
     ];
 
     // Keep your animation logic
@@ -444,6 +458,8 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
       );
     }).toList();
   }
+  // 🔼🔼🔼 FIN DE LA FONCTION MODIFIÉE 🔼🔼🔼
+
 
   // ========================= STATS (MOBILE) =========================
 

@@ -20,18 +20,32 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
     _calculateDateRange();
   }
 
+  // 🔽🔽🔽 FONCTION MISE À JOUR 🔽🔽🔽
   void _calculateDateRange() {
-    // Get "now"
     final DateTime now = DateTime.now();
 
-    // Set the start time to 7:00 AM today
-    _startOfToday = DateTime(now.year, now.month, now.day, 7, 0, 0);
+    // Vérifie s'il est avant 7h du matin
+    if (now.hour < 7) {
+      // Nous sommes "le jour ouvrable" d'HIER
+      // Début = 7h00 HIER
+      final DateTime yesterday = now.subtract(const Duration(days: 1));
+      _startOfToday =
+          DateTime(yesterday.year, yesterday.month, yesterday.day, 7, 0, 0);
 
-    // Set the end time to 7:00 AM tomorrow
-    // This query will include everything from 7:00:00 AM today
-    // up to 6:59:59 AM tomorrow.
-    _endOfToday = _startOfToday.add(const Duration(days: 1));
+      // Fin = 7h00 AUJOURD'HUI
+      _endOfToday = DateTime(now.year, now.month, now.day, 7, 0, 0);
+
+    } else {
+      // Nous sommes "le jour ouvrable" AUJOURD'HUI (il est 7h00 ou plus tard)
+      // Début = 7h00 AUJOURD'HUI
+      _startOfToday = DateTime(now.year, now.month, now.day, 7, 0, 0);
+
+      // Fin = 7h00 DEMAIN
+      _endOfToday = _startOfToday.add(const Duration(days: 1));
+    }
   }
+  // 🔼🔼🔼 FIN DE LA FONCTION MISE À JOUR 🔼🔼🔼
+
 
   /// Helper to get an icon based on the task type
   IconData _getIconForTask(String? taskType) {
