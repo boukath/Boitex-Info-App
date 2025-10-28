@@ -43,6 +43,7 @@ class UserRoles {
 class RolePermissions {
   // --- Role Groups (Private) ---
 
+  // ✅ FIXED: This is now the ONLY list for all managers, matching Firestore rules.
   // Full administrative access
   static const List<String> _fullAccessRoles = [
     UserRoles.admin,
@@ -54,52 +55,6 @@ class RolePermissions {
     UserRoles.chefDeProjet,
   ];
 
-  // Can manage sales, quotes, and projects
-  static const List<String> _salesRoles = [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableAdministratif,
-    UserRoles.responsableCommercial,
-    UserRoles.chefDeProjet,
-  ];
-
-  // Can manage technical services and installations
-  static const List<String> _technicalManagementRoles = [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableAdministratif,
-    UserRoles.responsableTechnique,
-    UserRoles.chefDeProjet,
-  ];
-
-  // Can schedule and manage installations (Admin + Tech)
-  static const List<String> _installationSchedulerRoles = [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableAdministratif,
-    UserRoles.responsableTechnique,
-  ];
-
-  // Can manage requisitions
-  static const List<String> _requisitionRoles = [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableAdministratif,
-    UserRoles.responsableCommercial,
-    UserRoles.responsableTechnique,
-    UserRoles.responsableIT,
-    UserRoles.chefDeProjet,
-  ];
-
-  // Can edit or create livraison
-  static const List<String> _livraisonEditorRoles = [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableAdministratif,
-    UserRoles.responsableCommercial,
-    UserRoles.chefDeProjet,
-  ];
-
   // --- Private Helper ---
   static bool _checkRole(String userRole, List<String> allowedRoles) {
     return allowedRoles.contains(userRole);
@@ -107,34 +62,32 @@ class RolePermissions {
 
   // --- Asynchronous Public Permission Checks (for use in UI) ---
 
-  // ✅ --- ADD THIS NEW METHOD ---
   /// Asynchronously checks if the *currently logged-in user* can edit livraisons.
   static Future<bool> canCurrentUserEditLivraison() async {
     final role = await UserRoles.getCurrentUserRole();
     if (role == null) return false;
     return canManageLivraisons(role);
   }
-  // ✅ --- END OF NEW METHOD ---
 
 
   // --- Synchronous Public Permission Checks (for when role is already known) ---
 
-  /// Check if user can schedule installations.
+  /// ✅ FIXED: Check if user can schedule installations.
   static bool canScheduleInstallation(String userRole) {
-    return _checkRole(userRole, _installationSchedulerRoles);
+    return _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// Check if user can upload devis (quotes).
+  /// ✅ FIXED: Check if user can upload devis (quotes).
   static bool canUploadDevis(String userRole) {
-    return _checkRole(userRole, _salesRoles);
+    return _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// ✅ ALL MANAGEMENT ROLES CAN SEE ADMIN CARD
+  /// ALL MANAGEMENT ROLES CAN SEE ADMIN CARD
   static bool canSeeAdminCard(String userRole) {
     return _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// ✅ ALL MANAGEMENT ROLES + TECHNICIANS CAN SEE TECH SERVICE CARD
+  /// ALL MANAGEMENT ROLES + TECHNICIANS CAN SEE TECH SERVICE CARD
   static bool canSeeTechServiceCard(String userRole) {
     if (userRole == UserRoles.technicienST) {
       return true;
@@ -142,7 +95,7 @@ class RolePermissions {
     return _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// ✅ ALL MANAGEMENT ROLES + IT TECHNICIANS CAN SEE IT SERVICE CARD
+  /// ALL MANAGEMENT ROLES + IT TECHNICIANS CAN SEE IT SERVICE CARD
   static bool canSeeITServiceCard(String userRole) {
     if (userRole == UserRoles.technicienIT) {
       return true;
@@ -150,32 +103,34 @@ class RolePermissions {
     return _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// Check if user can add interventions.
+  /// ✅ FIXED: Check if user can add interventions.
+  /// (Allows Technicien ST *or* any Super Manager)
   static bool canAddIntervention(String userRole) {
     return userRole == UserRoles.technicienST ||
-        _checkRole(userRole, _technicalManagementRoles);
+        _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// Check if user can perform technical evaluations.
+  /// ✅ FIXED: Check if user can perform technical evaluations.
+  /// (Allows Technicien ST *or* any Super Manager)
   static bool canPerformTechnicalEvaluation(String userRole) {
     return userRole == UserRoles.technicienST ||
-        _checkRole(userRole, _technicalManagementRoles);
+        _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// Check if user can perform IT evaluations.
+  /// ✅ FIXED: Check if user can perform IT evaluations.
+  /// (Allows Technicien IT *or* any Super Manager)
   static bool canPerformItEvaluation(String userRole) {
-    return userRole == UserRoles.admin ||
-        userRole == UserRoles.responsableIT ||
-        userRole == UserRoles.technicienIT;
+    return userRole == UserRoles.technicienIT ||
+        _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// Check if user can manage requisitions.
+  /// ✅ FIXED: Check if user can manage requisitions.
   static bool canManageRequisitions(String userRole) {
-    return _checkRole(userRole, _requisitionRoles);
+    return _checkRole(userRole, _fullAccessRoles);
   }
 
-  /// Check if user can manage livraisons.
+  /// ✅ FIXED: Check if user can manage livraisons.
   static bool canManageLivraisons(String userRole) {
-    return _checkRole(userRole, _livraisonEditorRoles);
+    return _checkRole(userRole, _fullAccessRoles);
   }
 }
