@@ -51,6 +51,30 @@ const notifyServiceTechnique = async (title: string, body: string) => {
   }
 };
 
+// ------------------------------------------------------------------
+// START: DAILY ACTIVITY FEED (JOURNAL DE BORD) HELPER
+// ------------------------------------------------------------------
+
+/**
+ * Creates a new log entry in the 'activity_log' collection.
+ */
+const createActivityLog = (data: { [key: string]: any }) => {
+  // We don't await this, let it run in the background
+  admin.firestore().collection("activity_log").add({
+    ...data,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  }).then(() => {
+    console.log(`✅ Activity log created: ${data.taskType} - ${data.details}`);
+  }).catch((err) => {
+    console.error("❌ Error creating activity log:", err);
+  });
+};
+
+// ------------------------------------------------------------------
+// END: DAILY ACTIVITY FEED (JOURNAL DE BORD) HELPER
+// ------------------------------------------------------------------
+
+
 export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interventionId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
@@ -62,9 +86,45 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   const title = `Nouvelle Intervention: ${data.interventionCode}`;
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
 
+  // --- ADDED: Activity Log ---
+  createActivityLog({
+    service: "technique",
+    taskType: "Intervention",
+    taskTitle: data.clientName || "Nouvelle Intervention",
+    details: `Créée par ${data.createdBy || "Inconnu"}`,
+    status: data.status || "Nouveau",
+    relatedDocId: snapshot.id,
+    relatedCollection: "interventions",
+  });
+  // --- End of Log ---
+
   await notifyManagers(title, body);
   await notifyServiceTechnique(title, body);
 });
+
+// --- NEWLY ADDED: Log Intervention Status Updates ---
+export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{interventionId}", async (event) => {
+  if (!event.data) return;
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+
+  if (before.status === after.status) return null; // No change
+
+  // --- ADDED: Activity Log ---
+  createActivityLog({
+    service: "technique",
+    taskType: "Intervention",
+    taskTitle: after.clientName || "Intervention",
+    details: `Statut changé: '${before.status}' -> '${after.status}'`,
+    status: after.status,
+    relatedDocId: event.data.after.id,
+    relatedCollection: "interventions",
+  });
+  // --- End of Log ---
+
+  return null;
+});
+
 
 export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}", async (event) => {
   const snapshot = event.data;
@@ -76,6 +136,18 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
   const data = snapshot.data();
   const title = `Nouveau Ticket SAV: ${data.savCode}`;
   const body = `Client: ${data.clientName} - Produit: ${data.productName}`;
+
+  // --- ADDED: Activity Log ---
+  createActivityLog({
+    service: "technique",
+    taskType: "SAV",
+    taskTitle: data.clientName || "Nouveau Ticket SAV",
+    details: `Créé par ${data.createdBy || "Inconnu"} | Produit: ${data.productName || "N/A"}`,
+    status: data.status || "Nouveau",
+    relatedDocId: snapshot.id,
+    relatedCollection: "sav_tickets",
+  });
+  // --- End of Log ---
 
   await notifyManagers(title, body);
   await notifyServiceTechnique(title, body);
@@ -233,6 +305,69 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated(
   }
 );
 
+// --- NEWLY ADDED: For "Installation" (Create) ---
+export const onInstallationCreated_v2 = onDocumentCreated(
+  "installations/{installationId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+    const data = snapshot.data();
+    const title = `Nouvelle Installation: ${data.installationCode || "N/A"}`;
+    const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
+
+    // --- ADDED: Activity Log ---
+    createActivityLog({
+      service: "technique",
+      taskType: "Installation",
+      taskTitle: data.clientName || "Nouvelle Installation",
+      details: `Créée par ${data.createdBy || "Inconnu"}`,
+      status: data.status || "Nouveau",
+      relatedDocId: snapshot.id,
+      relatedCollection: "installations",
+    });
+    // --- End of Log ---
+
+    await notifyManagers(title, body);
+    await notifyServiceTechnique(title, body);
+  }
+);
+
+// --- NEWLY ADDED: For "Installation" (Update) ---
+export const onInstallationStatusUpdate_v2 = onDocumentUpdated(
+  "installations/{installationId}",
+  async (event) => {
+    if (!event.data) return;
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    if (before.status === after.status) return null; // No change
+
+    // --- ADDED: Activity Log ---
+    createActivityLog({
+      service: "technique",
+      taskType: "Installation",
+      taskTitle: after.clientName || "Installation",
+      details: `Statut changé: '${before.status}' -> '${after.status}'`,
+      status: after.status,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "installations",
+    });
+    // --- End of Log ---
+
+    // Also send a notification for the status change
+    const title = `Mise à Jour Installation: ${after.installationCode || "N/A"}`;
+    const body = `Client: ${after.clientName} - Statut: ${after.status}`;
+    await notifyManagers(title, body);
+    await notifyServiceTechnique(title, body);
+
+    return null;
+  }
+);
+
+
 // ✅ NEW: Notification for new livraison creation
 export const onLivraisonCreated_v2 = onDocumentCreated(
   "livraisons/{livraisonId}",
@@ -251,6 +386,18 @@ export const onLivraisonCreated_v2 = onDocumentCreated(
 
     const title = `Nouvelle Livraison: ${bonLivraisonCode}`;
     const body = `Client: ${clientName} | Service: ${serviceType} | Méthode: ${deliveryMethod}`;
+
+    // --- ADDED: Activity Log ---
+    createActivityLog({
+      service: "technique", // Assuming tech service handles this
+      taskType: "Livraison",
+      taskTitle: data.clientName || "Nouvelle Livraison",
+      details: `Créée par ${data.createdBy || "Inconnu"} | BL: ${bonLivraisonCode}`,
+      status: data.status || "Nouveau",
+      relatedDocId: snapshot.id,
+      relatedCollection: "livraisons",
+    });
+    // --- End of Log ---
 
     // Send to all management roles + technicians
     const targetRoles = [
@@ -303,6 +450,18 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated(
     const title = `Mise à Jour Livraison: ${bonLivraisonCode}`;
     const body = `Client: ${clientName} - Statut: ${newStatus}`;
 
+    // --- ADDED: Activity Log ---
+    createActivityLog({
+      service: "technique",
+      taskType: "Livraison",
+      taskTitle: after.clientName || "Livraison",
+      details: `Statut changé: '${before.status}' -> '${after.status}'`,
+      status: after.status,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "livraisons",
+    });
+    // --- End of Log ---
+
     // Notify managers and relevant technicians
     await notifyManagers(title, body);
     await notifyServiceTechnique(title, body);
@@ -322,6 +481,18 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated(
     if (before.status !== after.status) {
       const title = `Mise à Jour SAV: ${after.savCode}`;
       const body = `Nouveau statut: ${after.status}`;
+
+      // --- ADDED: Activity Log ---
+      createActivityLog({
+        service: "technique",
+        taskType: "SAV",
+        taskTitle: after.clientName || "Ticket SAV",
+        details: `Statut changé: '${before.status}' -> '${after.status}'`,
+        status: after.status,
+        relatedDocId: event.data.after.id,
+        relatedCollection: "sav_tickets",
+      });
+      // --- End of Log ---
 
       await notifyManagers(title, body);
 
@@ -367,7 +538,7 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated(
 );
 
 // ✅
-// ✅ NEWLY ADDED FUNCTION
+// ✅ NEWLY ADDED FUNCTION (FROM YOUR FILE - UNTOUCHED)
 // ✅
 /**
  * Sends a notification to ALL users when a new message
@@ -435,7 +606,7 @@ export const onNewAnnouncementMessage = onDocumentCreated(
     }
   });
 // ✅
-// ✅ END OF NEW FUNCTION
+// ✅ END OF NEW FUNCTION (FROM YOUR FILE - UNTOUCHED)
 // ✅
 
 const collectionsToWatchForUpdates = [
@@ -444,6 +615,10 @@ const collectionsToWatchForUpdates = [
   "sav_tickets",
 ];
 
+// NOTE: This generic handler is still here, but our specific handlers
+// (like onInterventionStatusUpdate_v2) will run *in addition* to this.
+// This is fine, but you may want to remove "interventions", "installations",
+// and "sav_tickets" from this list to avoid duplicate manager notifications.
 collectionsToWatchForUpdates.forEach((collection) => {
   exports[`on${collection}Updated`] = onDocumentUpdated(
     `${collection}/{docId}`,

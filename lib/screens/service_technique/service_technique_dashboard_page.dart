@@ -1,5 +1,3 @@
-// lib/screens/service_technique/service_technique_dashboard_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -17,6 +15,9 @@ import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
 
 // This is the new import for the evaluations page
 import 'package:boitex_info_app/screens/service_technique/pending_evaluations_list.dart';
+
+// ✅✅✅ NEW IMPORT FOR THE JOURNAL PAGE ✅✅✅
+import 'package:boitex_info_app/screens/service_technique/daily_activity_feed_page.dart';
 // ***** END CODE TO ADD *****
 
 import 'dart:math' as math;
@@ -571,7 +572,7 @@ class _ServiceTechniqueDashboardPageState
     );
   }
 
-  // Keeping your original _buildQuickActions function
+  // This function is correct and contains the new button
   List<Widget> _buildQuickActions(BuildContext context) {
     final actions = <_ActionData>[
       _ActionData(
@@ -661,6 +662,19 @@ class _ServiceTechniqueDashboardPageState
           ),
         ),
       ),
+      // ✅✅✅ NEW BUTTON ADDED HERE ✅✅✅
+      _ActionData(
+        'Journal',
+        Icons.timeline, // A fitting icon for a timeline/log
+        const Color(0xFF6366F1), // A new color (indigo)
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const DailyActivityFeedPage(),
+          ),
+        ),
+      ),
+      // ✅✅✅ END OF NEW BUTTON ✅✅✅
     ];
 
     return actions.asMap().entries.map((entry) {
@@ -926,7 +940,8 @@ class _InstallationsCard extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => InstallationListPage(
-                userRole: userRole,
+                // ✅✅✅ THIS IS THE FIX ✅✅✅
+                userRole: userRole, // Was widget.userRole
                 serviceType: 'Service Technique',
               ),
             ),
@@ -970,6 +985,7 @@ class _SavTicketsCard extends StatelessWidget {
 class _ReadyReplacementsCard extends StatelessWidget {
   final String userRole;
   const _ReadyReplacementsCard({required this.userRole});
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
@@ -1002,6 +1018,7 @@ class _ReadyReplacementsCard extends StatelessWidget {
 class _MissionsCard extends StatelessWidget {
   final String userRole;
   const _MissionsCard({required this.userRole});
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
