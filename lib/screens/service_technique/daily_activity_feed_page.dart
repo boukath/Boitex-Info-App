@@ -114,24 +114,29 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
               final data = event.data() as Map<String, dynamic>;
 
               //
-              // ⭐️ ----- MODIFICATION 1 ----- ⭐️
+              // ⭐️ ----- MODIFICATION 1 (Title) ----- ⭐️
               //
-              // Use 'storeName' for the title.
-              // Fallback to 'taskTitle' if 'storeName' doesn't exist.
-              final String title = data['storeName'] ?? data['taskTitle'] ?? 'Événement';
+              // Use 'storeName' and 'storeLocation' for the title.
+              final String storeName = data['storeName'] ?? 'Magasin inconnu';
+              final String storeLocation = data['storeLocation'] ?? '';
+
+              // Combine them, but don't show a trailing " - " if location is missing
+              final String title = storeLocation.isNotEmpty
+                  ? '$storeName - $storeLocation'
+                  : storeName;
 
               //
-              // ⭐️ ----- MODIFICATION 2 ----- ⭐️
+              // ⭐️ ----- MODIFICATION 2 (Subtitle) ----- ⭐️
               //
               // Get the original details.
               String details = data['details'] ?? '...';
-              // Check if a 'displayName' field exists in the log.
-              final String? displayName = data['displayName'];
+              // Use the 'createdByName' field as requested.
+              final String? createdBy = data['createdByName'];
 
-              // If details start with "Créée par" and displayName exists,
+              // If details start with "Créée par" and createdByName exists,
               // replace the details string with the correct name.
-              if (details.startsWith('Créée par') && (displayName != null && displayName.isNotEmpty)) {
-                details = 'Créée par $displayName';
+              if (details.startsWith('Créée par') && (createdBy != null && createdBy.isNotEmpty)) {
+                details = 'Créée par $createdBy';
               }
               //
               // ⭐️ ----- FIN DES MODIFICATIONS ----- ⭐️
@@ -181,12 +186,12 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
                     margin: const EdgeInsets.all(0),
                     child: ListTile(
                       title: Text(
-                        title, // ✅ This will now show the storeName
+                        title, // ✅ This will now show "storeName - storeLocation"
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      subtitle: Text(details), // ✅ This will show the corrected name
+                      subtitle: Text(details), // ✅ This will show "Créée par [createdByName]"
                       trailing: Text(
                         taskType,
                         style: TextStyle(

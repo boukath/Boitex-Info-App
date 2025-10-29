@@ -90,18 +90,19 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
 
   // ✅ --- FIX: Determine service based on intervention data ---
-  // Assumes the intervention doc has a 'serviceType' field (e.g., "Service IT" or "Service Technique")
   const logService = data.serviceType === "Service IT" ? "it" : "technique";
   // ✅ --- END FIX ---
 
   // --- ADDED: Activity Log ---
   createActivityLog({
-    service: logService, // ✅ Use the dynamic service variable
+    service: logService,
     taskType: "Intervention",
     taskTitle: data.clientName || "Nouvelle Intervention",
     storeName: data.storeName || "", // ✅ ADDED
-    displayName: data.createdBy || "Inconnu", // ✅ ADDED
-    details: `Créée par ${data.createdBy || "Inconnu"}`,
+    storeLocation: data.storeLocation || "", // ✅ ADDED
+    displayName: data.createdByName || "Inconnu", // ✅ FIXED (using createdByName)
+    createdByName: data.createdByName || "Inconnu", // ✅ ADDED (for your request)
+    details: `Créée par ${data.createdByName || "Inconnu"}`, // ✅ FIXED
     status: data.status || "Nouveau",
     relatedDocId: snapshot.id,
     relatedCollection: "interventions",
@@ -136,11 +137,13 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
 
   // --- ADDED: Activity Log ---
   createActivityLog({
-    service: logService, // ✅ Use the dynamic service variable
+    service: logService,
     taskType: "Intervention",
     taskTitle: after.clientName || "Intervention",
     storeName: after.storeName || "", // ✅ ADDED
-    displayName: after.createdBy || "Inconnu", // ✅ ADDED
+    storeLocation: after.storeLocation || "", // ✅ ADDED
+    displayName: after.createdByName || "Inconnu", // ✅ FIXED
+    createdByName: after.createdByName || "Inconnu", // ✅ ADDED
     details: `Statut changé: '${before.status}' -> '${after.status}'`,
     status: after.status,
     relatedDocId: event.data.after.id,
@@ -172,8 +175,10 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
     taskType: "SAV",
     taskTitle: data.clientName || "Nouveau Ticket SAV",
     storeName: data.storeName || "", // ✅ ADDED
-    displayName: data.createdBy || "Inconnu", // ✅ ADDED
-    details: `Créée par ${data.createdBy || "Inconnu"} | Produit: ${data.productName || "N/A"}`,
+    storeLocation: data.storeLocation || "", // ✅ ADDED
+    displayName: data.createdByName || "Inconnu", // ✅ FIXED
+    createdByName: data.createdByName || "Inconnu", // ✅ ADDED
+    details: `Créée par ${data.createdByName || "Inconnu"} | Produit: ${data.productName || "N/A"}`, // ✅ FIXED
     status: data.status || "Nouveau",
     relatedDocId: snapshot.id,
     relatedCollection: "sav_tickets",
@@ -316,9 +321,6 @@ export const onProjectCreated_v2 = onDocumentCreated(
 //
 // ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
 //
-// ✅ Notification when project status changes
-// ✅ ADDED logic to log IT Evaluation
-//
 export const onProjectStatusUpdate_v2 = onDocumentUpdated(
   "projects/{projectId}",
   async (event) => {
@@ -328,15 +330,15 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated(
     const after = event.data.after.data();
 
     // ✅ --- NEW IT EVALUATION LOGIC ---
-    // Check if it_evaluation was just added, regardless of status change
-    // This logs the event when the evaluation is completed.
     if (!before.it_evaluation && after.it_evaluation) {
       createActivityLog({
         service: "it",
         taskType: "Evaluation IT", // ⭐️ This matches the app's query
         taskTitle: after.clientName || "Évaluation IT",
         storeName: after.storeName || "magasin", // ✅ ADDED
-        displayName: after.createdByName || "Inconnu", // ✅ ADDED
+        storeLocation: after.storeLocation || "", // ✅ ADDED
+        displayName: after.createdByName || "Inconnu", // ✅ FIXED
+        createdByName: after.createdByName || "Inconnu", // ✅ ADDED
         details: `Terminée pour ${after.storeName || "magasin"}`,
         status: after.status, // Current project status
         relatedDocId: event.data.after.id,
@@ -387,8 +389,10 @@ export const onInstallationCreated_v2 = onDocumentCreated(
       taskType: "Installation",
       taskTitle: data.clientName || "Nouvelle Installation",
       storeName: data.storeName || "", // ✅ ADDED
-      displayName: data.createdBy || "Inconnu", // ✅ ADDED
-      details: `Créée par ${data.createdBy || "Inconnu"}`,
+      storeLocation: data.storeLocation || "", // ✅ ADDED
+      displayName: data.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: data.createdByName || "Inconnu", // ✅ ADDED
+      details: `Créée par ${data.createdByName || "Inconnu"}`, // ✅ FIXED
       status: data.status || "Nouveau",
       relatedDocId: snapshot.id,
       relatedCollection: "installations",
@@ -418,7 +422,9 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated(
       taskType: "Installation",
       taskTitle: after.clientName || "Installation",
       storeName: after.storeName || "", // ✅ ADDED
-      displayName: after.createdBy || "Inconnu", // ✅ ADDED
+      storeLocation: after.storeLocation || "", // ✅ ADDED
+      displayName: after.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: after.createdByName || "Inconnu", // ✅ ADDED
       details: `Statut changé: '${before.status}' -> '${after.status}'`,
       status: after.status,
       relatedDocId: event.data.after.id,
@@ -464,8 +470,10 @@ export const onLivraisonCreated_v2 = onDocumentCreated(
       taskType: "Livraison",
       taskTitle: data.clientName || "Nouvelle Livraison",
       storeName: data.storeName || "", // ✅ ADDED
-      displayName: data.createdBy || "Inconnu", // ✅ ADDED
-      details: `Créée par ${data.createdBy || "Inconnu"} | BL: ${bonLivraisonCode}`,
+      storeLocation: data.storeLocation || "", // ✅ ADDED
+      displayName: data.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: data.createdByName || "Inconnu", // ✅ ADDED
+      details: `Créée par ${data.createdByName || "Inconnu"} | BL: ${bonLivraisonCode}`, // ✅ FIXED
       status: data.status || "Nouveau",
       relatedDocId: snapshot.id,
       relatedCollection: "livraisons",
@@ -531,7 +539,9 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated(
       taskType: "Livraison",
       taskTitle: after.clientName || "Livraison",
       storeName: after.storeName || "", // ✅ ADDED
-      displayName: after.createdBy || "Inconnu", // ✅ ADDED
+      storeLocation: after.storeLocation || "", // ✅ ADDED
+      displayName: after.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: after.createdByName || "Inconnu", // ✅ ADDED
       details: `Statut changé: '${before.status}' -> '${after.status}'`,
       status: after.status,
       relatedDocId: event.data.after.id,
@@ -568,7 +578,9 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated(
         taskType: "SAV",
         taskTitle: after.clientName || "Ticket SAV",
         storeName: after.storeName || "", // ✅ ADDED
-        displayName: after.createdBy || "Inconnu", // ✅ ADDED
+        storeLocation: after.storeLocation || "", // ✅ ADDED
+        displayName: after.createdByName || "Inconnu", // ✅ FIXED
+        createdByName: after.createdByName || "Inconnu", // ✅ ADDED
         details: `Statut changé: '${before.status}' -> '${after.status}'`,
         status: after.status,
         relatedDocId: event.data.after.id,
@@ -622,10 +634,6 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated(
 // ------------------------------------------------------------------
 // START: NEW IT ACTIVITY LOGS
 // ------------------------------------------------------------------
-// These functions are assumptions based on your app's needs.
-// They will log "Support IT" and "Maintenance IT" events
-// so they appear in your `it_activity_feed_page.dart`.
-// ------------------------------------------------------------------
 
 /**
  * Logs when a new IT support ticket is created.
@@ -646,8 +654,10 @@ export const onSupportTicketCreated_v2 = onDocumentCreated(
       taskType: "Support IT", // ⭐️ Matches app query
       taskTitle: data.clientName || "Support IT",
       storeName: data.storeName || "", // ✅ ADDED
-      displayName: data.createdBy || "Inconnu", // ✅ ADDED
-      details: `Nouveau ticket: ${data.subject || "N/A"}`,
+      storeLocation: data.storeLocation || "", // ✅ ADDED
+      displayName: data.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: data.createdByName || "Inconnu", // ✅ ADDED
+      details: `Nouveau ticket: ${data.subject || "N/A"}`, // ✅ FIXED
       status: data.status || "Nouveau",
       relatedDocId: snapshot.id,
       relatedCollection: "support_tickets",
@@ -676,7 +686,9 @@ export const onSupportTicketUpdated_v2 = onDocumentUpdated(
       taskType: "Support IT", // ⭐️ Matches app query
       taskTitle: after.clientName || "Support IT",
       storeName: after.storeName || "", // ✅ ADDED
-      displayName: after.createdBy || "Inconnu", // ✅ ADDED
+      storeLocation: after.storeLocation || "", // ✅ ADDED
+      displayName: after.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: after.createdByName || "Inconnu", // ✅ ADDED
       details: `Statut changé: '${before.status}' -> '${after.status}'`,
       status: after.status,
       relatedDocId: event.data.after.id,
@@ -704,8 +716,10 @@ export const onMaintenanceTaskCreated_v2 = onDocumentCreated(
       taskType: "Maintenance IT", // ⭐️ Matches app query
       taskTitle: data.taskName || "Maintenance IT",
       storeName: data.storeName || "", // ✅ ADDED
-      displayName: data.createdBy || "Inconnu", // ✅ ADDED
-      details: `Nouvelle tâche: ${data.description || "N/A"}`,
+      storeLocation: data.storeLocation || "", // ✅ ADDED
+      displayName: data.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: data.createdByName || "Inconnu", // ✅ ADDED
+      details: `Nouvelle tâche: ${data.description || "N/A"}`, // ✅ FIXED
       status: data.status || "Nouveau",
       relatedDocId: snapshot.id,
       relatedCollection: "maintenance_it",
@@ -734,7 +748,9 @@ export const onMaintenanceTaskUpdated_v2 = onDocumentUpdated(
       taskType: "Maintenance IT", // ⭐️ Matches app query
       taskTitle: after.taskName || "Maintenance IT",
       storeName: after.storeName || "", // ✅ ADDED
-      displayName: after.createdBy || "Inconnu", // ✅ ADDED
+      storeLocation: after.storeLocation || "", // ✅ ADDED
+      displayName: after.createdByName || "Inconnu", // ✅ FIXED
+      createdByName: after.createdByName || "Inconnu", // ✅ ADDED
       details: `Statut changé: '${before.status}' -> '${after.status}'`,
       status: after.status,
       relatedDocId: event.data.after.id,
