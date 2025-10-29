@@ -113,8 +113,30 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
               final event = events[index];
               final data = event.data() as Map<String, dynamic>;
 
-              final String title = data['taskTitle'] ?? 'Événement';
-              final String details = data['details'] ?? '...';
+              //
+              // ⭐️ ----- MODIFICATION 1 ----- ⭐️
+              //
+              // Use 'storeName' for the title.
+              // Fallback to 'taskTitle' if 'storeName' doesn't exist.
+              final String title = data['storeName'] ?? data['taskTitle'] ?? 'Événement';
+
+              //
+              // ⭐️ ----- MODIFICATION 2 ----- ⭐️
+              //
+              // Get the original details.
+              String details = data['details'] ?? '...';
+              // Check if a 'displayName' field exists in the log.
+              final String? displayName = data['displayName'];
+
+              // If details start with "Créée par" and displayName exists,
+              // replace the details string with the correct name.
+              if (details.startsWith('Créée par') && (displayName != null && displayName.isNotEmpty)) {
+                details = 'Créée par $displayName';
+              }
+              //
+              // ⭐️ ----- FIN DES MODIFICATIONS ----- ⭐️
+              //
+
               final String taskType = data['taskType'] ?? '';
 
               // Format the timestamp
@@ -159,12 +181,12 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
                     margin: const EdgeInsets.all(0),
                     child: ListTile(
                       title: Text(
-                        title,
+                        title, // ✅ This will now show the storeName
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      subtitle: Text(details),
+                      subtitle: Text(details), // ✅ This will show the corrected name
                       trailing: Text(
                         taskType,
                         style: TextStyle(

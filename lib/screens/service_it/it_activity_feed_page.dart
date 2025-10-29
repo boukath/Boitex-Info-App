@@ -58,6 +58,8 @@ class _ItActivityFeedPageState extends State<ItActivityFeedPage> {
         return Icons.support_agent_rounded;
       case 'Maintenance IT':
         return Icons.build_rounded;
+      case 'Intervention': // ✅ ADDED 'Intervention'
+        return Icons.settings_ethernet_rounded; // Or any icon you prefer
       default:
         return Icons.task_alt_rounded;
     }
@@ -76,21 +78,15 @@ class _ItActivityFeedPageState extends State<ItActivityFeedPage> {
         //
         // ⭐️ C'EST LA MODIFICATION PRINCIPALE ⭐️
         //
-        // Nous filtrons la collection 'activity_log' pour n'inclure que les
-        // types de tâches ('taskType') spécifiques au service IT.
-        //
-        // ❗️ Assurez-vous que ces chaînes ('Evaluation IT', 'Support IT', etc.)
-        // correspondent EXACTEMENT à ce que vous enregistrez dans Firestore.
+        // Nous filtrons maintenant par 'service' == 'it',
+        // ce qui inclura automatiquement 'Evaluation IT', 'Support IT',
+        // et les 'Intervention' que vous venez de corriger.
         //
         stream: FirebaseFirestore.instance
             .collection('activity_log')
             .where('timestamp', isGreaterThanOrEqualTo: _startOfToday)
             .where('timestamp', isLessThan: _endOfToday)
-            .where('taskType', whereIn: [
-          'Evaluation IT',
-          'Support IT',
-          'Maintenance IT'
-        ]) // <-- ✅ FILTRE IT SPÉCIFIQUE
+            .where('service', isEqualTo: 'it') // <-- ✅ THIS IS THE FIX
             .orderBy('timestamp', descending: true)
             .snapshots(),
         //

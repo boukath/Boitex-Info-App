@@ -75,6 +75,9 @@ const createActivityLog = (data: { [key: string]: any }) => {
 // ------------------------------------------------------------------
 
 
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interventionId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
@@ -86,11 +89,18 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   const title = `Nouvelle Intervention: ${data.interventionCode}`;
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
 
+  // ✅ --- FIX: Determine service based on intervention data ---
+  // Assumes the intervention doc has a 'serviceType' field (e.g., "Service IT" or "Service Technique")
+  const logService = data.serviceType === "Service IT" ? "it" : "technique";
+  // ✅ --- END FIX ---
+
   // --- ADDED: Activity Log ---
   createActivityLog({
-    service: "technique",
+    service: logService, // ✅ Use the dynamic service variable
     taskType: "Intervention",
     taskTitle: data.clientName || "Nouvelle Intervention",
+    storeName: data.storeName || "", // ✅ ADDED
+    displayName: data.createdBy || "Inconnu", // ✅ ADDED
     details: `Créée par ${data.createdBy || "Inconnu"}`,
     status: data.status || "Nouveau",
     relatedDocId: snapshot.id,
@@ -98,11 +108,21 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   });
   // --- End of Log ---
 
+  // Notify managers
   await notifyManagers(title, body);
-  await notifyServiceTechnique(title, body);
+
+  // ✅ --- FIX: Only notify the correct service ---
+  if (logService === "technique") {
+    await notifyServiceTechnique(title, body);
+  } else {
+    // You can add a new topic for IT notifications here if needed
+    // e.g., await notifyServiceIT(title, body);
+  }
 });
 
-// --- NEWLY ADDED: Log Intervention Status Updates ---
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{interventionId}", async (event) => {
   if (!event.data) return;
   const before = event.data.before.data();
@@ -110,11 +130,17 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
 
   if (before.status === after.status) return null; // No change
 
+  // ✅ --- FIX: Determine service based on intervention data ---
+  const logService = after.serviceType === "Service IT" ? "it" : "technique";
+  // ✅ --- END FIX ---
+
   // --- ADDED: Activity Log ---
   createActivityLog({
-    service: "technique",
+    service: logService, // ✅ Use the dynamic service variable
     taskType: "Intervention",
     taskTitle: after.clientName || "Intervention",
+    storeName: after.storeName || "", // ✅ ADDED
+    displayName: after.createdBy || "Inconnu", // ✅ ADDED
     details: `Statut changé: '${before.status}' -> '${after.status}'`,
     status: after.status,
     relatedDocId: event.data.after.id,
@@ -126,6 +152,9 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
 });
 
 
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
@@ -142,7 +171,9 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
     service: "technique",
     taskType: "SAV",
     taskTitle: data.clientName || "Nouveau Ticket SAV",
-    details: `Créé par ${data.createdBy || "Inconnu"} | Produit: ${data.productName || "N/A"}`,
+    storeName: data.storeName || "", // ✅ ADDED
+    displayName: data.createdBy || "Inconnu", // ✅ ADDED
+    details: `Créée par ${data.createdBy || "Inconnu"} | Produit: ${data.productName || "N/A"}`,
     status: data.status || "Nouveau",
     relatedDocId: snapshot.id,
     relatedCollection: "sav_tickets",
@@ -282,7 +313,12 @@ export const onProjectCreated_v2 = onDocumentCreated(
   }
 );
 
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 // ✅ Notification when project status changes
+// ✅ ADDED logic to log IT Evaluation
+//
 export const onProjectStatusUpdate_v2 = onDocumentUpdated(
   "projects/{projectId}",
   async (event) => {
@@ -291,7 +327,28 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated(
     const before = event.data.before.data();
     const after = event.data.after.data();
 
-    if (before.status === after.status) return;
+    // ✅ --- NEW IT EVALUATION LOGIC ---
+    // Check if it_evaluation was just added, regardless of status change
+    // This logs the event when the evaluation is completed.
+    if (!before.it_evaluation && after.it_evaluation) {
+      createActivityLog({
+        service: "it",
+        taskType: "Evaluation IT", // ⭐️ This matches the app's query
+        taskTitle: after.clientName || "Évaluation IT",
+        storeName: after.storeName || "magasin", // ✅ ADDED
+        displayName: after.createdByName || "Inconnu", // ✅ ADDED
+        details: `Terminée pour ${after.storeName || "magasin"}`,
+        status: after.status, // Current project status
+        relatedDocId: event.data.after.id,
+        relatedCollection: "projects",
+      });
+    }
+    // ✅ --- END NEW LOGIC ---
+
+    // --- Original Status Change Logic ---
+    if (before.status === after.status) {
+      return; // No status change, so no notification needed
+    }
 
     const projectName = after.projectName || "N/A";
     const clientName = after.clientName || "N/A";
@@ -304,8 +361,14 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated(
     console.log(`✅ Project status update notification sent for ${projectName}`);
   }
 );
+//
+// ⭐️ ----- END OF MODIFIED FUNCTION ----- ⭐️
+//
 
-// --- NEWLY ADDED: For "Installation" (Create) ---
+
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onInstallationCreated_v2 = onDocumentCreated(
   "installations/{installationId}",
   async (event) => {
@@ -323,6 +386,8 @@ export const onInstallationCreated_v2 = onDocumentCreated(
       service: "technique",
       taskType: "Installation",
       taskTitle: data.clientName || "Nouvelle Installation",
+      storeName: data.storeName || "", // ✅ ADDED
+      displayName: data.createdBy || "Inconnu", // ✅ ADDED
       details: `Créée par ${data.createdBy || "Inconnu"}`,
       status: data.status || "Nouveau",
       relatedDocId: snapshot.id,
@@ -335,7 +400,9 @@ export const onInstallationCreated_v2 = onDocumentCreated(
   }
 );
 
-// --- NEWLY ADDED: For "Installation" (Update) ---
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onInstallationStatusUpdate_v2 = onDocumentUpdated(
   "installations/{installationId}",
   async (event) => {
@@ -350,6 +417,8 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated(
       service: "technique",
       taskType: "Installation",
       taskTitle: after.clientName || "Installation",
+      storeName: after.storeName || "", // ✅ ADDED
+      displayName: after.createdBy || "Inconnu", // ✅ ADDED
       details: `Statut changé: '${before.status}' -> '${after.status}'`,
       status: after.status,
       relatedDocId: event.data.after.id,
@@ -368,7 +437,9 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated(
 );
 
 
-// ✅ NEW: Notification for new livraison creation
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onLivraisonCreated_v2 = onDocumentCreated(
   "livraisons/{livraisonId}",
   async (event) => {
@@ -392,6 +463,8 @@ export const onLivraisonCreated_v2 = onDocumentCreated(
       service: "technique", // Assuming tech service handles this
       taskType: "Livraison",
       taskTitle: data.clientName || "Nouvelle Livraison",
+      storeName: data.storeName || "", // ✅ ADDED
+      displayName: data.createdBy || "Inconnu", // ✅ ADDED
       details: `Créée par ${data.createdBy || "Inconnu"} | BL: ${bonLivraisonCode}`,
       status: data.status || "Nouveau",
       relatedDocId: snapshot.id,
@@ -431,7 +504,9 @@ export const onLivraisonCreated_v2 = onDocumentCreated(
   }
 );
 
-// ✅ NEW: Notification when livraison status changes
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onLivraisonStatusUpdate_v2 = onDocumentUpdated(
   "livraisons/{livraisonId}",
   async (event) => {
@@ -455,6 +530,8 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated(
       service: "technique",
       taskType: "Livraison",
       taskTitle: after.clientName || "Livraison",
+      storeName: after.storeName || "", // ✅ ADDED
+      displayName: after.createdBy || "Inconnu", // ✅ ADDED
       details: `Statut changé: '${before.status}' -> '${after.status}'`,
       status: after.status,
       relatedDocId: event.data.after.id,
@@ -470,6 +547,9 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated(
   }
 );
 
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
 export const onSavTicketUpdate_v2 = onDocumentUpdated(
   "sav_tickets/{ticketId}",
   async (event) => {
@@ -487,6 +567,8 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated(
         service: "technique",
         taskType: "SAV",
         taskTitle: after.clientName || "Ticket SAV",
+        storeName: after.storeName || "", // ✅ ADDED
+        displayName: after.createdBy || "Inconnu", // ✅ ADDED
         details: `Statut changé: '${before.status}' -> '${after.status}'`,
         status: after.status,
         relatedDocId: event.data.after.id,
@@ -536,6 +618,135 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated(
     }
   }
 );
+
+// ------------------------------------------------------------------
+// START: NEW IT ACTIVITY LOGS
+// ------------------------------------------------------------------
+// These functions are assumptions based on your app's needs.
+// They will log "Support IT" and "Maintenance IT" events
+// so they appear in your `it_activity_feed_page.dart`.
+// ------------------------------------------------------------------
+
+/**
+ * Logs when a new IT support ticket is created.
+ * Assumes a collection named 'support_tickets'.
+ */
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
+export const onSupportTicketCreated_v2 = onDocumentCreated(
+  "support_tickets/{ticketId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const data = snapshot.data();
+
+    createActivityLog({
+      service: "it",
+      taskType: "Support IT", // ⭐️ Matches app query
+      taskTitle: data.clientName || "Support IT",
+      storeName: data.storeName || "", // ✅ ADDED
+      displayName: data.createdBy || "Inconnu", // ✅ ADDED
+      details: `Nouveau ticket: ${data.subject || "N/A"}`,
+      status: data.status || "Nouveau",
+      relatedDocId: snapshot.id,
+      relatedCollection: "support_tickets",
+    });
+  }
+);
+
+/**
+ * Logs when an IT support ticket's status changes.
+ * Assumes a collection named 'support_tickets'.
+ */
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
+export const onSupportTicketUpdated_v2 = onDocumentUpdated(
+  "support_tickets/{ticketId}",
+  async (event) => {
+    if (!event.data) return;
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    if (before.status === after.status) return; // No change
+
+    createActivityLog({
+      service: "it",
+      taskType: "Support IT", // ⭐️ Matches app query
+      taskTitle: after.clientName || "Support IT",
+      storeName: after.storeName || "", // ✅ ADDED
+      displayName: after.createdBy || "Inconnu", // ✅ ADDED
+      details: `Statut changé: '${before.status}' -> '${after.status}'`,
+      status: after.status,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "support_tickets",
+    });
+  }
+);
+
+/**
+ * Logs when a new IT maintenance task is created.
+ * Assumes a collection named 'maintenance_it'.
+ */
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
+export const onMaintenanceTaskCreated_v2 = onDocumentCreated(
+  "maintenance_it/{taskId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const data = snapshot.data();
+
+    createActivityLog({
+      service: "it",
+      taskType: "Maintenance IT", // ⭐️ Matches app query
+      taskTitle: data.taskName || "Maintenance IT",
+      storeName: data.storeName || "", // ✅ ADDED
+      displayName: data.createdBy || "Inconnu", // ✅ ADDED
+      details: `Nouvelle tâche: ${data.description || "N/A"}`,
+      status: data.status || "Nouveau",
+      relatedDocId: snapshot.id,
+      relatedCollection: "maintenance_it",
+    });
+  }
+);
+
+/**
+ * Logs when an IT maintenance task's status changes.
+ * Assumes a collection named 'maintenance_it'.
+ */
+//
+// ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
+//
+export const onMaintenanceTaskUpdated_v2 = onDocumentUpdated(
+  "maintenance_it/{taskId}",
+  async (event) => {
+    if (!event.data) return;
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    if (before.status === after.status) return; // No change
+
+    createActivityLog({
+      service: "it",
+      taskType: "Maintenance IT", // ⭐️ Matches app query
+      taskTitle: after.taskName || "Maintenance IT",
+      storeName: after.storeName || "", // ✅ ADDED
+      displayName: after.createdBy || "Inconnu", // ✅ ADDED
+      details: `Statut changé: '${before.status}' -> '${after.status}'`,
+      status: after.status,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "maintenance_it",
+    });
+  }
+);
+
+// ------------------------------------------------------------------
+// END: NEW IT ACTIVITY LOGS
+// ------------------------------------------------------------------
+
 
 // ✅
 // ✅ NEWLY ADDED FUNCTION (FROM YOUR FILE - UNTOUCHED)
