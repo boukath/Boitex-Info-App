@@ -30,7 +30,6 @@ import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 // Import for path_provider
 import 'package:path_provider/path_provider.dart';
 
-
 class ProjectDetailsPage extends StatefulWidget {
   final String projectId;
   final String userRole;
@@ -51,7 +50,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   // B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
-
 
   // ✅ --- START: B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
@@ -104,33 +102,42 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
       if (resp.statusCode == 200) {
         final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        final encodedPath =
+        (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
         return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
       } else {
         // Provide filename in error log
-        debugPrint('Failed to upload file ($originalFileName) to B2: ${resp.body}');
+        debugPrint(
+            'Failed to upload file ($originalFileName) to B2: ${resp.body}');
         return null;
       }
     } catch (e) {
       // Provide filename in error log
-      debugPrint('Error uploading file (${path.basename(file.path)}) to B2: $e');
+      debugPrint(
+          'Error uploading file (${path.basename(file.path)}) to B2: $e');
       return null;
     }
   }
   // ✅ --- END: B2 HELPER FUNCTIONS ---
 
-
   // ✅ CHANGED: Upload Devis using Backblaze B2
   Future<void> _uploadDevis() async {
-    setState(() { _isActionInProgress = true; });
+    setState(() {
+      _isActionInProgress = true;
+    });
 
     final b2Credentials = await _getB2UploadCredentials();
     if (b2Credentials == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur: Impossible de contacter le service d\'upload.'), backgroundColor: Colors.red),
+          const SnackBar(
+              content: Text(
+                  'Erreur: Impossible de contacter le service d\'upload.'),
+              backgroundColor: Colors.red),
         );
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
       }
       return;
     }
@@ -143,7 +150,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       );
 
       if (result == null || result.files.single.path == null) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
         return;
       }
 
@@ -174,7 +183,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       } else {
         throw Exception('Échec de l\'upload du devis vers B2.');
       }
-
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -183,11 +191,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       }
     } finally {
       if (mounted) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
       }
     }
   }
-
 
   // --- Approval Dialogs ---
   void _showApprovalDialog() {
@@ -213,6 +222,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           ],
         ));
   }
+
   Future<void> _confirmApprovalByPhone() async {
     final noteController = TextEditingController();
     final note = await showDialog<String>(
@@ -235,7 +245,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         ));
 
     if (note != null && note.isNotEmpty) {
-      setState(() { _isActionInProgress = true; });
+      setState(() {
+        _isActionInProgress = true;
+      });
       try {
         await FirebaseFirestore.instance
             .collection('projects')
@@ -252,7 +264,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         }
       } finally {
         if (mounted) {
-          setState(() { _isActionInProgress = false; });
+          setState(() {
+            _isActionInProgress = false;
+          });
         }
       }
     }
@@ -260,15 +274,22 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
   // ✅ CHANGED: Upload Bon de Commande using Backblaze B2
   Future<void> _uploadBonDeCommande() async {
-    setState(() { _isActionInProgress = true; });
+    setState(() {
+      _isActionInProgress = true;
+    });
 
     final b2Credentials = await _getB2UploadCredentials();
     if (b2Credentials == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur: Impossible de contacter le service d\'upload.'), backgroundColor: Colors.red),
+          const SnackBar(
+              content: Text(
+                  'Erreur: Impossible de contacter le service d\'upload.'),
+              backgroundColor: Colors.red),
         );
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
       }
       return;
     }
@@ -280,7 +301,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         allowMultiple: false,
       );
       if (result == null || result.files.single.path == null) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
         return;
       }
 
@@ -294,7 +317,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         b2FileName: b2BonPath,
       );
 
-      if(downloadUrl != null) {
+      if (downloadUrl != null) {
         await FirebaseFirestore.instance
             .collection('projects')
             .doc(widget.projectId)
@@ -320,11 +343,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       }
     } finally {
       if (mounted) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
       }
     }
   }
-
 
   // --- Other existing functions ---
   void _showProductFinalizationDialog(List<dynamic> existingItems) {
@@ -346,7 +370,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
     try {
       // Define the document reference outside the transaction for later use
-      final newInstallationRef = FirebaseFirestore.instance.collection('installations').doc();
+      final newInstallationRef =
+      FirebaseFirestore.instance.collection('installations').doc();
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final currentYear = DateTime.now().year;
@@ -363,23 +388,28 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           'installationCode': installationCode,
           'projectId': widget.projectId,
           'clientId': projectData['clientId'] ?? 'ID Client Manquant', // Provide default
-          'clientName': projectData['clientName'] ?? 'Nom Client Manquant', // Provide default
+          'clientName':
+          projectData['clientName'] ?? 'Nom Client Manquant', // Provide default
           'clientPhone': projectData['clientPhone'] ?? '', // Default to empty string
           'storeId': projectData['storeId'], // Keep as null if missing
           'storeName': projectData['storeName'], // Keep as null if missing
           'initialRequest': projectData['initialRequest'] ?? 'N/A', // Default
-          'technicalEvaluation': projectData['technical_evaluation'] ?? [], // Default to empty list
+          'technicalEvaluation':
+          projectData['technical_evaluation'] ?? [], // Default to empty list
 
           // ✅ ADDED: Pass IT evaluation data to the installation task
-          'itEvaluation': projectData['it_evaluation'] ?? {}, // Default to empty map
+          'itEvaluation':
+          projectData['it_evaluation'] ?? {}, // Default to empty map
 
-          'orderedProducts': projectData['orderedProducts'] ?? [], // Default to empty list
+          'orderedProducts':
+          projectData['orderedProducts'] ?? [], // Default to empty list
           'serviceType': projectData['serviceType'] ?? 'Inconnu', // Default
           'status': 'À Planifier',
           'createdAt': Timestamp.now(),
           // Add createdBy info if available
           'createdByUid': FirebaseAuth.instance.currentUser?.uid,
-          'createdByName': FirebaseAuth.instance.currentUser?.displayName ?? 'Inconnu',
+          'createdByName':
+          FirebaseAuth.instance.currentUser?.displayName ?? 'Inconnu',
         });
 
         transaction.set(
@@ -389,7 +419,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
         transaction
             .update(projectRef, {'status': 'Transféré à l\'Installation'});
-
       }); // End of Transaction
 
       // Get the newly created document AFTER the transaction commits successfully
@@ -397,7 +426,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
       // Check if document exists before navigating (important safety check)
       if (!newInstallationDoc.exists) {
-        throw Exception("Le document d'installation n'a pas été créé correctement.");
+        throw Exception(
+            "Le document d'installation n'a pas été créé correctement.");
       }
 
       // Use the navigator captured before the async gap
@@ -407,12 +437,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           MaterialPageRoute(
             builder: (context) => InstallationDetailsPage(
                 installationDoc: newInstallationDoc, // Pass the DocumentSnapshot
-                userRole: widget.userRole
-            ),
+                userRole: widget.userRole),
           ),
         );
       }
-
     } catch (e) {
       // Log the error for debugging
       debugPrint("*******************************************");
@@ -423,26 +451,31 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       if (mounted) {
         scaffoldMessenger.showSnackBar(SnackBar(
             content: Text('Erreur création tâche: ${e.toString()}'), // Show error to user
-            backgroundColor: Colors.red
-        ));
+            backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _isActionInProgress = false);
     }
   }
 
-
   // UPLOAD PROJECT FILES TO B2
   Future<void> _uploadProjectFiles() async {
-    setState(() { _isActionInProgress = true; });
+    setState(() {
+      _isActionInProgress = true;
+    });
 
     final b2Credentials = await _getB2UploadCredentials();
     if (b2Credentials == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur: Impossible de contacter le service d\'upload.'), backgroundColor: Colors.red),
+          const SnackBar(
+              content: Text(
+                  'Erreur: Impossible de contacter le service d\'upload.'),
+              backgroundColor: Colors.red),
         );
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
       }
       return;
     }
@@ -455,7 +488,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       );
 
       if (result == null || result.files.isEmpty) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
         return;
       }
 
@@ -466,10 +501,13 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         if (fileData.path != null) {
           final file = File(fileData.path!);
           final originalFileName = fileData.name;
-          final String uniqueFileName = '${DateTime.now().millisecondsSinceEpoch}_$originalFileName';
-          final String b2ProjectFilePath = 'project_files/${widget.projectId}/$uniqueFileName';
+          final String uniqueFileName =
+              '${DateTime.now().millisecondsSinceEpoch}_$originalFileName';
+          final String b2ProjectFilePath =
+              'project_files/${widget.projectId}/$uniqueFileName';
 
-          final downloadUrl = await _uploadFileToB2( // Use generic helper
+          final downloadUrl = await _uploadFileToB2(
+            // Use generic helper
             file: file,
             b2Creds: b2Credentials,
             b2FileName: b2ProjectFilePath,
@@ -479,14 +517,18 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             uploadedFilesData.add({
               'fileName': originalFileName,
               'fileUrl': downloadUrl,
-              'uploadedAt': Timestamp.now().toDate().toIso8601String(), // Corrected typo: 8601 instead of 801
+              'uploadedAt': Timestamp.now()
+                  .toDate()
+                  .toIso8601String(), // Corrected typo: 8601 instead of 801
             });
             successCount++;
           } else {
             debugPrint('Failed to upload project file: $originalFileName');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Échec upload: $originalFileName'), backgroundColor: Colors.orange),
+                SnackBar(
+                    content: Text('Échec upload: $originalFileName'),
+                    backgroundColor: Colors.orange),
               );
             }
           }
@@ -503,15 +545,18 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('$successCount / ${result.files.length} fichier(s) ajouté(s).')),
+            SnackBar(
+                content: Text(
+                    '$successCount / ${result.files.length} fichier(s) ajouté(s).')),
           );
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun fichier n\'a pu être uploadé.'), backgroundColor: Colors.orange),
+          const SnackBar(
+              content: Text('Aucun fichier n\'a pu être uploadé.'),
+              backgroundColor: Colors.orange),
         );
       }
-
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -520,7 +565,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       }
     } finally {
       if (mounted) {
-        setState(() { _isActionInProgress = false; });
+        setState(() {
+          _isActionInProgress = false;
+        });
       }
     }
   }
@@ -533,6 +580,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       print('Could not launch $url');
     }
   }
+
   Future<void> _openPdfViewer(String pdfUrl, String title) async {
     setState(() => _isActionInProgress = true);
     ScaffoldMessengerState? scaffoldMessenger;
@@ -542,7 +590,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       final response = await http.get(Uri.parse(pdfUrl));
       if (response.statusCode == 200) {
         final pdfBytes = response.bodyBytes;
-        if(mounted) {
+        if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -554,12 +602,15 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           );
         }
       } else {
-        throw Exception('Impossible de télécharger le PDF (${response.statusCode})');
+        throw Exception(
+            'Impossible de télécharger le PDF (${response.statusCode})');
       }
     } catch (e) {
       debugPrint('Error opening PDF viewer: $e');
       scaffoldMessenger?.showSnackBar(
-        SnackBar(content: Text('Erreur ouverture PDF: $e'), backgroundColor: Colors.red),
+        SnackBar(
+            content: Text('Erreur ouverture PDF: $e'),
+            backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isActionInProgress = false);
@@ -572,11 +623,13 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     final extension = path.extension(uri.path).toLowerCase();
     return extension == '.jpg' || extension == '.jpeg' || extension == '.png';
   }
+
   bool _isVideo(String url) {
     final uri = Uri.parse(url);
     final extension = path.extension(uri.path).toLowerCase();
     return extension == '.mp4' || extension == '.mov' || extension == '.avi';
   }
+
   bool _isPdf(String url) {
     final uri = Uri.parse(url);
     final extension = path.extension(uri.path).toLowerCase();
@@ -584,8 +637,11 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   }
 
   // --- WIDGET BUILDERS ---
-  Widget _buildMediaThumbnail(BuildContext context, String mediaUrl, List<String> allMediaUrls, {String? fileName}) {
-    Widget buildIconPlaceholder(IconData iconData, Color iconColor, String label) {
+  Widget _buildMediaThumbnail(
+      BuildContext context, String mediaUrl, List<String> allMediaUrls,
+      {String? fileName}) {
+    Widget buildIconPlaceholder(
+        IconData iconData, Color iconColor, String label) {
       return Container(
         width: 80,
         height: 80,
@@ -624,10 +680,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         fit: BoxFit.cover,
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
-          return buildIconPlaceholder(Icons.image_outlined, primaryColor, 'Image');
+          return buildIconPlaceholder(
+              Icons.image_outlined, primaryColor, 'Image');
         },
         errorBuilder: (context, error, stackTrace) {
-          return buildIconPlaceholder(Icons.broken_image_outlined, Colors.red, 'Erreur');
+          return buildIconPlaceholder(
+              Icons.broken_image_outlined, Colors.red, 'Erreur');
         },
       );
       fileLabel = 'Image';
@@ -641,13 +699,15 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return buildIconPlaceholder(Icons.videocam_outlined, Colors.blue, 'Vidéo');
+            return buildIconPlaceholder(
+                Icons.videocam_outlined, Colors.blue, 'Vidéo');
           }
           if (snapshot.hasData && snapshot.data != null) {
             return Stack(
               alignment: Alignment.center,
               children: [
-                Image.memory(snapshot.data!, width: 80, height: 80, fit: BoxFit.cover),
+                Image.memory(snapshot.data!,
+                    width: 80, height: 80, fit: BoxFit.cover),
                 Container(
                   width: 30,
                   height: 30,
@@ -655,20 +715,24 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                     color: Colors.black.withOpacity(0.5),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
+                  child:
+                  const Icon(Icons.play_arrow, color: Colors.white, size: 20),
                 ),
               ],
             );
           }
-          return buildIconPlaceholder(Icons.videocam_off_outlined, Colors.red, 'Erreur Vidéo');
+          return buildIconPlaceholder(
+              Icons.videocam_off_outlined, Colors.red, 'Erreur Vidéo');
         },
       );
       fileLabel = 'Vidéo';
     } else if (_isPdf(mediaUrl)) {
-      content = buildIconPlaceholder(Icons.picture_as_pdf_outlined, Colors.red, 'PDF');
+      content =
+          buildIconPlaceholder(Icons.picture_as_pdf_outlined, Colors.red, 'PDF');
       fileLabel = 'PDF';
     } else {
-      content = buildIconPlaceholder(Icons.attach_file_outlined, Colors.grey, 'Fichier');
+      content = buildIconPlaceholder(
+          Icons.attach_file_outlined, Colors.grey, 'Fichier');
     }
 
     final String pdfTitle = fileName ?? path.basename(Uri.parse(mediaUrl).path);
@@ -712,9 +776,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             borderRadius: BorderRadius.circular(8.0),
             child: content,
           ),
-        )
-    );
+        ));
   }
+
   Widget _buildDetailItem(String label, dynamic value) {
     String displayValue;
     IconData? icon;
@@ -737,7 +801,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (icon != null) Icon(icon, size: 18, color: iconColor ?? Theme.of(context).textTheme.bodySmall?.color),
+          if (icon != null)
+            Icon(icon,
+                size: 18,
+                color: iconColor ?? Theme.of(context).textTheme.bodySmall?.color),
           if (icon != null) const SizedBox(width: 8),
           Expanded(
             flex: 2,
@@ -756,7 +823,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-
   // ✅ --- START: NEW HELPER WIDGETS FOR IT EVALUATION ---
 
   /// Builds the collapsible card for IT Evaluation photos
@@ -772,7 +838,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         const SizedBox(height: 16),
         const Text(
           'Photos d\'Évaluation IT',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor),
+          style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: itPrimaryColor),
         ),
         const Divider(),
         SizedBox(
@@ -799,19 +868,28 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     required IconData icon,
     required Map<String, dynamic> itData,
   }) {
-    final List<dynamic> devices = itData['clientDeviceList'] as List<dynamic>? ?? [];
+    final List<dynamic> devices =
+        itData['clientDeviceList'] as List<dynamic>? ?? [];
     if (devices.isEmpty) return const SizedBox.shrink(); // Don't show if empty
 
     return ExpansionTile(
       leading: Icon(icon, color: itPrimaryColor),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+      title: Text(title,
+          style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: itPrimaryColor)),
       children: [
         for (var device in devices)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Card( // Use a simple card for each item
+            padding:
+            const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Card(
+              // Use a simple card for each item
               elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: Colors.grey.shade200)),
               child: Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Column(
@@ -846,20 +924,26 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         children: [
           for (var item in items)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Card(
                 elevation: 1,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade200)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: Colors.grey.shade200)),
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text(item['name'] ?? 'Item',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
                       const Divider(),
-                      _buildDetailItem('Prise Électrique', item['hasPriseElectrique']),
+                      _buildDetailItem(
+                          'Prise Électrique', item['hasPriseElectrique']),
                       if (item['hasPriseElectrique'] == true)
-                        _buildDetailItem('Qté Électrique', item['quantityPriseElectrique']),
+                        _buildDetailItem(
+                            'Qté Électrique', item['quantityPriseElectrique']),
                       _buildDetailItem('Prise RJ45', item['hasPriseRJ45']),
                       if (item['hasPriseRJ45'] == true)
                         _buildDetailItem('Qté RJ45', item['quantityPriseRJ45']),
@@ -876,7 +960,11 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     // Main ExpansionTile for "Points d'Accès"
     return ExpansionTile(
       leading: Icon(icon, color: itPrimaryColor),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+      title: Text(title,
+          style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: itPrimaryColor)),
       children: [
         buildSubList('tpvList', 'TPV'),
         buildSubList('printerList', 'Imprimantes'),
@@ -887,7 +975,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   }
 
   // ✅ --- END: NEW HELPER WIDGETS FOR IT EVALUATION ---
-
 
   @override
   Widget build(BuildContext context) {
@@ -912,26 +999,34 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           projectData['technical_evaluation'] as List<dynamic>?;
 
           // ✅ ADDED: Extract the IT evaluation data
-          final itEvaluation = projectData['it_evaluation'] as Map<String, dynamic>?;
+          final itEvaluation =
+          projectData['it_evaluation'] as Map<String, dynamic>?;
 
           final status = projectData['status'] ?? 'Inconnu';
           final orderedProducts =
           projectData['orderedProducts'] as List<dynamic>?;
-          final projectFiles = projectData['projectFiles'] as List<dynamic>? ?? [];
-
+          final projectFiles =
+              projectData['projectFiles'] as List<dynamic>? ?? [];
 
           return ListView(
             padding: const EdgeInsets.all(16.0),
             children: [
               _buildStatusHeader(status),
               const SizedBox(height: 16),
-              _buildInfoCard( /* ... Client Info ... */
+              _buildInfoCard(
+                /* ... Client Info ... */
                 title: 'Informations Client',
                 icon: Icons.person_outline,
                 children: [
                   ListTile(
                       title: Text(projectData['clientName'] ?? 'N/A'),
                       subtitle: const Text('Nom du Client')),
+                  // ✅ MODIFIED: Added ListTile for Store and Location
+                  ListTile(
+                    title: Text(
+                        '${projectData['storeName'] ?? 'N/A'} - ${projectData['storeLocation'] ?? 'N/A'}'),
+                    subtitle: const Text('Magasin'),
+                  ),
                   ListTile(
                       title: Text(projectData['clientPhone'] ?? 'N/A'),
                       subtitle: const Text('Téléphone')),
@@ -944,7 +1039,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                       subtitle: const Text('Date de création')),
                 ],
               ),
-              _buildInfoCard( /* ... Initial Request ... */
+              _buildInfoCard(
+                /* ... Initial Request ... */
                 title: 'Demande Initiale',
                 icon: Icons.request_page_outlined,
                 children: [
@@ -955,7 +1051,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 ],
               ),
               if (technicalEvaluation != null && technicalEvaluation.isNotEmpty)
-                _buildInfoCard( /* ... Technical Evaluation with ExpansionTiles ... */
+                _buildInfoCard(
+                  /* ... Technical Evaluation with ExpansionTiles ... */
                   title: 'Évaluation Technique',
                   icon: Icons.square_foot_outlined,
                   children: [
@@ -971,51 +1068,94 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                         ),
                         children: [
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0, vertical: 8.0),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Divider(),
                                 const SizedBox(height: 12),
-                                _buildDetailItem('Type d\'entrée', technicalEvaluation[i]['entranceType']),
-                                _buildDetailItem('Type de porte', technicalEvaluation[i]['doorType']),
-                                _buildDetailItem('Largeur', '${technicalEvaluation[i]['entranceWidth'] ?? 'N/A'} m'),
+                                _buildDetailItem('Type d\'entrée',
+                                    technicalEvaluation[i]['entranceType']),
+                                _buildDetailItem('Type de porte',
+                                    technicalEvaluation[i]['doorType']),
+                                _buildDetailItem('Largeur',
+                                    '${technicalEvaluation[i]['entranceWidth'] ?? 'N/A'} m'),
                                 const SizedBox(height: 12),
-                                const Text("Alimentation Électrique", style: TextStyle(fontWeight: FontWeight.bold)),
-                                _buildDetailItem('Prise 220V disponible (< 2m)', technicalEvaluation[i]['isPowerAvailable']),
-                                if (technicalEvaluation[i]['powerNotes'] != null && technicalEvaluation[i]['powerNotes'].isNotEmpty)
-                                  _buildDetailItem('Notes Alim.', technicalEvaluation[i]['powerNotes']),
+                                const Text("Alimentation Électrique",
+                                    style:
+                                    TextStyle(fontWeight: FontWeight.bold)),
+                                _buildDetailItem(
+                                    'Prise 220V disponible (< 2m)',
+                                    technicalEvaluation[i]['isPowerAvailable']),
+                                if (technicalEvaluation[i]['powerNotes'] !=
+                                    null &&
+                                    technicalEvaluation[i]['powerNotes']
+                                        .isNotEmpty)
+                                  _buildDetailItem('Notes Alim.',
+                                      technicalEvaluation[i]['powerNotes']),
                                 const SizedBox(height: 12),
-                                const Text("Sol et Passage Câbles", style: TextStyle(fontWeight: FontWeight.bold)),
-                                _buildDetailItem('Sol finalisé', technicalEvaluation[i]['isFloorFinalized']),
-                                _buildDetailItem('Fourreau dispo.', technicalEvaluation[i]['isConduitAvailable']),
-                                _buildDetailItem('Saignée autorisée', technicalEvaluation[i]['canMakeTrench']),
+                                const Text("Sol et Passage Câbles",
+                                    style:
+                                    TextStyle(fontWeight: FontWeight.bold)),
+                                _buildDetailItem('Sol finalisé',
+                                    technicalEvaluation[i]['isFloorFinalized']),
+                                _buildDetailItem(
+                                    'Fourreau dispo.',
+                                    technicalEvaluation[i]
+                                    ['isConduitAvailable']),
+                                _buildDetailItem(
+                                    'Saignée autorisée',
+                                    technicalEvaluation[i]['canMakeTrench']),
                                 const SizedBox(height: 12),
-                                const Text("Zone d'Installation", style: TextStyle(fontWeight: FontWeight.bold)),
-                                _buildDetailItem('Obstacles présents', technicalEvaluation[i]['hasObstacles']),
-                                if (technicalEvaluation[i]['obstacleNotes'] != null && technicalEvaluation[i]['obstacleNotes'].isNotEmpty)
-                                  _buildDetailItem('Notes Obstacles', technicalEvaluation[i]['obstacleNotes']),
+                                const Text("Zone d'Installation",
+                                    style:
+                                    TextStyle(fontWeight: FontWeight.bold)),
+                                _buildDetailItem(
+                                    'Obstacles présents',
+                                    technicalEvaluation[i]['hasObstacles']),
+                                if (technicalEvaluation[i]['obstacleNotes'] !=
+                                    null &&
+                                    technicalEvaluation[i]['obstacleNotes']
+                                        .isNotEmpty)
+                                  _buildDetailItem(
+                                      'Notes Obstacles',
+                                      technicalEvaluation[i]['obstacleNotes']),
                                 const SizedBox(height: 12),
-                                const Text("Environnement", style: TextStyle(fontWeight: FontWeight.bold)),
-                                _buildDetailItem('Structures métalliques', technicalEvaluation[i]['hasMetalStructures']),
-                                _buildDetailItem('Autres systèmes', technicalEvaluation[i]['hasOtherSystems']),
+                                const Text("Environnement",
+                                    style:
+                                    TextStyle(fontWeight: FontWeight.bold)),
+                                _buildDetailItem(
+                                    'Structures métalliques',
+                                    technicalEvaluation[i]
+                                    ['hasMetalStructures']),
+                                _buildDetailItem(
+                                    'Autres systèmes',
+                                    technicalEvaluation[i]['hasOtherSystems']),
                                 if (technicalEvaluation[i]['media'] != null &&
-                                    (technicalEvaluation[i]['media'] as List).isNotEmpty) ...[
+                                    (technicalEvaluation[i]['media'] as List)
+                                        .isNotEmpty) ...[
                                   const SizedBox(height: 16),
                                   const Text(
                                     'Fichiers d\'Évaluation:',
-                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                    style:
+                                    TextStyle(fontWeight: FontWeight.bold),
                                   ),
                                   SizedBox(
                                     height: 100,
                                     child: ListView(
                                       scrollDirection: Axis.horizontal,
                                       children: [
-                                        for (var mediaUrl in (technicalEvaluation[i]['media'] as List<dynamic>))
+                                        for (var mediaUrl
+                                        in (technicalEvaluation[i]['media']
+                                        as List<dynamic>))
                                           _buildMediaThumbnail(
                                             context,
                                             mediaUrl as String,
-                                            (technicalEvaluation[i]['media'] as List<dynamic>).map((e) => e as String).toList(),
+                                            (technicalEvaluation[i]['media']
+                                            as List<dynamic>)
+                                                .map((e) => e as String)
+                                                .toList(),
                                             // Pass filename if available
                                             // fileName: ...
                                           ),
@@ -1043,44 +1183,80 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // --- Group 1: Réseau ---
-                          const Text("Réseau Existant", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Text("Réseau Existant",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: itPrimaryColor)),
                           const Divider(),
-                          _buildDetailItem('Réseau déjà installé', itEvaluation['networkExists']),
-                          _buildDetailItem('Multi-étages', itEvaluation['isMultiFloor']),
-                          _buildDetailItem('Notes Réseau', itEvaluation['networkNotes']),
+                          _buildDetailItem(
+                              'Réseau déjà installé', itEvaluation['networkExists']),
+                          _buildDetailItem(
+                              'Multi-étages', itEvaluation['isMultiFloor']),
+                          _buildDetailItem(
+                              'Notes Réseau', itEvaluation['networkNotes']),
                           const SizedBox(height: 16),
 
                           // --- Group 2: Environnement ---
-                          const Text("Environnement", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Text("Environnement",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: itPrimaryColor)),
                           const Divider(),
-                          _buildDetailItem('Haute tension à proximité', itEvaluation['hasHighVoltage']),
-                          _buildDetailItem('Notes Haute Tension', itEvaluation['highVoltageNotes']),
+                          _buildDetailItem('Haute tension à proximité',
+                              itEvaluation['hasHighVoltage']),
+                          _buildDetailItem('Notes Haute Tension',
+                              itEvaluation['highVoltageNotes']),
                           const SizedBox(height: 16),
 
                           // --- Group 3: Baie de Brassage ---
-                          const Text("Baie de Brassage", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Text("Baie de Brassage",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: itPrimaryColor)),
                           const Divider(),
-                          _buildDetailItem('Baie présente', itEvaluation['hasNetworkRack']),
-                          _buildDetailItem('Emplacement Baie', itEvaluation['rackLocation']),
-                          _buildDetailItem('Espace disponible', itEvaluation['hasRackSpace']),
-                          _buildDetailItem('Onduleur (UPS) présent', itEvaluation['hasUPS']),
+                          _buildDetailItem(
+                              'Baie présente', itEvaluation['hasNetworkRack']),
+                          _buildDetailItem(
+                              'Emplacement Baie', itEvaluation['rackLocation']),
+                          _buildDetailItem(
+                              'Espace disponible', itEvaluation['hasRackSpace']),
+                          _buildDetailItem('Onduleur (UPS) présent',
+                              itEvaluation['hasUPS']),
                           const SizedBox(height: 16),
 
                           // --- Group 4: Accès Internet ---
-                          const Text("Accès Internet", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Text("Accès Internet",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: itPrimaryColor)),
                           const Divider(),
-                          _buildDetailItem('Type de Connexion', itEvaluation['internetAccessType']),
-                          _buildDetailItem('Fournisseur (FAI)', itEvaluation['internetProvider']),
-                          _buildDetailItem('Emplacement Modem', itEvaluation['modemLocation']),
+                          _buildDetailItem('Type de Connexion',
+                              itEvaluation['internetAccessType']),
+                          _buildDetailItem('Fournisseur (FAI)',
+                              itEvaluation['internetProvider']),
+                          _buildDetailItem(
+                              'Emplacement Modem', itEvaluation['modemLocation']),
                           const SizedBox(height: 16),
 
                           // --- Group 5: Câblage ---
-                          const Text("Câblage", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: itPrimaryColor)),
+                          const Text("Câblage",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: itPrimaryColor)),
                           const Divider(),
-                          _buildDetailItem('Type de Blindage', itEvaluation['cableShieldType']),
-                          _buildDetailItem('Catégorie de Câble', itEvaluation['cableCategoryType']),
-                          _buildDetailItem('Chemins de câbles', itEvaluation['hasCablePaths']),
-                          _buildDetailItem('Distance max.', itEvaluation['cableDistance']),
+                          _buildDetailItem('Type de Blindage',
+                              itEvaluation['cableShieldType']),
+                          _buildDetailItem('Catégorie de Câble',
+                              itEvaluation['cableCategoryType']),
+                          _buildDetailItem(
+                              'Chemins de câbles', itEvaluation['hasCablePaths']),
+                          _buildDetailItem(
+                              'Distance max.', itEvaluation['cableDistance']),
                           const SizedBox(height: 16),
 
                           // --- Group 6: Points d'Accès (Collapsible) ---
@@ -1108,7 +1284,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
               // ✅ --- END: NEW IT EVALUATION CARD ---
 
               if (orderedProducts != null && orderedProducts.isNotEmpty)
-                _buildInfoCard( /* ... Ordered Products ... */
+                _buildInfoCard(
+                  /* ... Ordered Products ... */
                   title: 'Produits Commandés',
                   icon: Icons.shopping_cart_checkout,
                   children: orderedProducts.map<Widget>((item) {
@@ -1123,46 +1300,61 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   projectData['bonDeCommandeUrl'] != null ||
                   projectData['approvalNotes'] != null ||
                   projectFiles.isNotEmpty)
-                _buildInfoCard( /* ... Documents and Files ... */
+                _buildInfoCard(
+                  /* ... Documents and Files ... */
                   title: 'Documents et Fichiers',
                   icon: Icons.attach_file,
                   children: [
                     // Devis (Now uses B2 URL, PDF viewer)
                     if (projectData['devisUrl'] != null)
                       ListTile(
-                        leading: const Icon(Icons.request_quote_outlined, color: Colors.red),
+                        leading: const Icon(Icons.request_quote_outlined,
+                            color: Colors.red),
                         title: Text(projectData['devisFileName'] ?? 'Devis.pdf'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => _isPdf(projectData['devisUrl'])
-                            ? _openPdfViewer(projectData['devisUrl'], projectData['devisFileName'] ?? 'Devis')
+                            ? _openPdfViewer(projectData['devisUrl'],
+                            projectData['devisFileName'] ?? 'Devis')
                             : _openUrl(projectData['devisUrl']),
                       ),
                     // Bon de Commande (Now uses B2 URL, PDF viewer)
                     if (projectData['bonDeCommandeUrl'] != null)
                       ListTile(
-                        leading: const Icon(Icons.fact_check_outlined, color: Colors.green),
-                        title: Text(projectData['bonDeCommandeFileName'] ?? 'Bon de commande.pdf'),
+                        leading: const Icon(Icons.fact_check_outlined,
+                            color: Colors.green),
+                        title: Text(projectData['bonDeCommandeFileName'] ??
+                            'Bon de commande.pdf'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => _isPdf(projectData['bonDeCommandeUrl'])
-                            ? _openPdfViewer(projectData['bonDeCommandeUrl'], projectData['bonDeCommandeFileName'] ?? 'Bon de Commande')
+                            ? _openPdfViewer(
+                            projectData['bonDeCommandeUrl'],
+                            projectData['bonDeCommandeFileName'] ??
+                                'Bon de Commande')
                             : _openUrl(projectData['bonDeCommandeUrl']),
                       ),
                     // Approval Notes
                     if (projectData['approvalNotes'] != null)
                       ListTile(
-                        leading: const Icon(Icons.phone_in_talk_outlined, color: Colors.green),
+                        leading: const Icon(Icons.phone_in_talk_outlined,
+                            color: Colors.green),
                         title: const Text('Approbation par Téléphone'),
-                        subtitle: Text('Confirmé par: ${projectData['approvalNotes']}'),
+                        subtitle:
+                        Text('Confirmé par: ${projectData['approvalNotes']}'),
                       ),
                     // Project Files (B2 URLs, correct viewers)
-                    for (var fileInfo in projectFiles.map((e) => Map<String, dynamic>.from(e)))
+                    for (var fileInfo
+                    in projectFiles.map((e) => Map<String, dynamic>.from(e)))
                       ListTile(
                         leading: Icon(
-                          _isPdf(fileInfo['fileUrl']) ? Icons.picture_as_pdf_outlined
-                              : _isImage(fileInfo['fileUrl']) ? Icons.image_outlined
+                          _isPdf(fileInfo['fileUrl'])
+                              ? Icons.picture_as_pdf_outlined
+                              : _isImage(fileInfo['fileUrl'])
+                              ? Icons.image_outlined
                               : Icons.attach_file,
-                          color: _isPdf(fileInfo['fileUrl']) ? Colors.red
-                              : _isImage(fileInfo['fileUrl']) ? primaryColor
+                          color: _isPdf(fileInfo['fileUrl'])
+                              ? Colors.red
+                              : _isImage(fileInfo['fileUrl'])
+                              ? primaryColor
                               : Colors.grey,
                         ),
                         title: Text(fileInfo['fileName'] ?? 'Fichier'),
@@ -1173,7 +1365,11 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                           if (_isPdf(url)) {
                             _openPdfViewer(url, name); // Use PDF viewer
                           } else if (_isImage(url)) {
-                            Navigator.push(context, MaterialPageRoute(builder: (context)=> ImageGalleryPage(imageUrls: [url], initialIndex: 0)));
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (context) => ImageGalleryPage(
+                                        imageUrls: [url], initialIndex: 0)));
                           } else {
                             _openUrl(url); // Fallback
                           }
@@ -1182,7 +1378,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   ],
                 ),
 
-              _buildInfoCard( /* ... Actions ... */
+              _buildInfoCard(
+                /* ... Actions ... */
                 title: 'Actions',
                 icon: Icons.task_alt,
                 children: [
@@ -1298,7 +1495,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-
   Widget _buildActionButtons(
       String status, String userRole, Map<String, dynamic> projectData) {
     // ... (keep existing _buildActionButtons code) ...
@@ -1329,8 +1525,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (context) => ItEvaluationPage(
-                    projectId: widget.projectId))),
+                builder: (context) =>
+                    ItEvaluationPage(projectId: widget.projectId))),
             icon: const Icon(Icons.network_ping),
             label: const Text('Ajouter l\'Évaluation IT'),
             style: ElevatedButton.styleFrom(
@@ -1342,7 +1538,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     }
 
     // ✅ MODIFIED: Check for *both* evaluation statuses to allow devis upload
-    if ((status == 'Évaluation Technique Terminé' || status == 'Évaluation IT Terminé') &&
+    if ((status == 'Évaluation Technique Terminé' ||
+        status == 'Évaluation IT Terminé') &&
         RolePermissions.canUploadDevis(userRole)) {
       buttons.add(SizedBox(
           width: double.infinity,
@@ -1351,8 +1548,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             icon: const Icon(Icons.attach_file_outlined),
             label: const Text('Ajouter Fichiers Projet'),
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white),
+                backgroundColor: Colors.orange, foregroundColor: Colors.white),
           )));
       buttons.add(const SizedBox(height: 12));
 
@@ -1362,15 +1558,15 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           child: ElevatedButton.icon(
               onPressed: _uploadDevis, // Calls the modified B2 version
               icon: const Icon(Icons.upload_file_outlined),
-              label: const Text('Devis')
-          )));
+              label: const Text('Devis'))));
     }
 
     if (status == 'Devis Envoyé' && RolePermissions.canUploadDevis(userRole)) {
       buttons.add(SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-              onPressed: _showApprovalDialog, // _uploadBonDeCommande inside now uses B2
+              onPressed:
+              _showApprovalDialog, // _uploadBonDeCommande inside now uses B2
               icon: const Icon(Icons.check),
               label: const Text('Confirmer l\'Approbation Client'))));
     }

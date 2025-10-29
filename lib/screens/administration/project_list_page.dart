@@ -45,6 +45,10 @@ class ProjectListPage extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('projects')
             .where('serviceType', isEqualTo: serviceType)
+        // ✅ UPDATED: Filter out projects that are "done"
+            .where('status',
+            whereNotIn: ['Refusé', 'Installation Planifiée']).orderBy(
+            'status')
             .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -55,7 +59,7 @@ class ProjectListPage extends StatelessWidget {
             return const Center(child: Text('Une erreur est survenue.'));
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('Aucun projet trouvé.'));
+            return const Center(child: Text('Aucun projet actif trouvé.'));
           }
 
           final projectDocs = snapshot.data!.docs;
@@ -92,11 +96,30 @@ class ProjectListPage extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // ✅ MODIFIED: Wrapped in Column to add store/location
                             Expanded(
-                              child: Text(
-                                projectData['clientName'] ?? 'Nom inconnu',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 18),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    projectData['clientName'] ?? 'Nom inconnu',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  // ✅ ADDED: Store Name and Location
+                                  Text(
+                                    '${projectData['storeName'] ?? 'Magasin inconnu'} - ${projectData['storeLocation'] ?? 'Lieu inconnu'}',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey.shade800,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
                             ),
                             Chip(
