@@ -20,34 +20,20 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
     _calculateDateRange();
   }
 
-  // 🔽🔽🔽 FONCTION MISE À JOUR 🔽🔽🔽
+  // 🔽🔽🔽 VOS FONCTIONS (INCHANGÉES) 🔽🔽🔽
   void _calculateDateRange() {
     final DateTime now = DateTime.now();
-
-    // Vérifie s'il est avant 7h du matin
     if (now.hour < 7) {
-      // Nous sommes "le jour ouvrable" d'HIER
-      // Début = 7h00 HIER
       final DateTime yesterday = now.subtract(const Duration(days: 1));
       _startOfToday =
           DateTime(yesterday.year, yesterday.month, yesterday.day, 7, 0, 0);
-
-      // Fin = 7h00 AUJOURD'HUI
       _endOfToday = DateTime(now.year, now.month, now.day, 7, 0, 0);
-
     } else {
-      // Nous sommes "le jour ouvrable" AUJOURD'HUI (il est 7h00 ou plus tard)
-      // Début = 7h00 AUJOURD'HUI
       _startOfToday = DateTime(now.year, now.month, now.day, 7, 0, 0);
-
-      // Fin = 7h00 DEMAIN
       _endOfToday = _startOfToday.add(const Duration(days: 1));
     }
   }
-  // 🔼🔼🔼 FIN DE LA FONCTION MISE À JOUR 🔼🔼🔼
 
-
-  /// Helper to get an icon based on the task type
   IconData _getIconForTask(String? taskType) {
     switch (taskType) {
       case 'Intervention':
@@ -62,157 +48,207 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
         return Icons.circle_outlined;
     }
   }
+  // 🔼🔼🔼 FIN DE VOS FONCTIONS (INCHANGÉES) 🔼🔼🔼
+
+  // 🌟
+  // 🌟 NOUVEAU WIDGET BUILDER POUR LE CONTENU
+  // 🌟
+  Widget _buildEventCard(Map<String, dynamic> data) {
+    // --- Logique d'extraction de données (inchangée) ---
+    final String storeName = data['storeName'] ?? 'Magasin inconnu';
+    final String storeLocation = data['storeLocation'] ?? '';
+    final String title = storeLocation.isNotEmpty
+        ? '$storeName - $storeLocation'
+        : storeName;
+
+    String details = data['details'] ?? '...';
+    final String? createdBy = data['createdByName'];
+
+    if (details.startsWith('Créée par') &&
+        (createdBy != null && createdBy.isNotEmpty)) {
+      details = 'Créée par $createdBy';
+    }
+    final String taskType = data['taskType'] ?? '';
+    // --- Fin de la logique d'extraction ---
+
+    // Le nouveau design de la carte
+    return Container(
+      margin: const EdgeInsets.only(left: 16.0, bottom: 16.0),
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        // Utilise les couleurs du thème Material 3 pour un look moderne
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12.0),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // "Tag" pour le type de tâche
+          Text(
+            taskType.toUpperCase(),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              letterSpacing: 0.5,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8.0),
+          // Titre (Magasin)
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4.0),
+          // Sous-titre (Détails)
+          Text(
+            details,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🌟
+  // 🌟 NOUVEAU WIDGET BUILDER POUR L'HEURE
+  // 🌟
+  Widget _buildTime(String time) {
+    return Container(
+      padding: const EdgeInsets.only(right: 12.0),
+      alignment: Alignment.centerRight,
+      child: Text(
+        time,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  // 🌟
+  // 🌟 NOUVEAU WIDGET BUILDER POUR L'ICÔNE
+  // 🌟
+  Widget _buildIcon(String taskType) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        _getIconForTask(taskType),
+        color: Theme.of(context).colorScheme.onPrimaryContainer,
+        size: 20,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Le Scaffold utilise maintenant les couleurs du thème
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: Text('Journal du Service Technique'),
-        backgroundColor: Colors.transparent,
+        title: const Text('Journal du Service Technique'),
+        // AppBar propre et moderne
+        backgroundColor: Theme.of(context).colorScheme.surface,
         elevation: 0,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.blue.shade800, Colors.blue.shade600],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
+        centerTitle: true,
+        titleTextStyle: Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w600,
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        // This is our single, powerful query
-        stream: FirebaseFirestore.instance
-            .collection('activity_log')
-            .where('service', isEqualTo: 'technique')
-            .where('timestamp', isGreaterThanOrEqualTo: _startOfToday)
-            .where('timestamp', isLessThan: _endOfToday)
-            .orderBy('timestamp', descending: true) // Newest first
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Erreur: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
-              child: Text(
-                'Aucune activité pour aujourd\'hui (depuis 7h00).',
-                style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic),
-              ),
-            );
-          }
-
-          final events = snapshot.data!.docs;
-
-          return ListView.builder(
-            itemCount: events.length,
-            itemBuilder: (context, index) {
-              final event = events[index];
-              final data = event.data() as Map<String, dynamic>;
-
-              //
-              // ⭐️ ----- MODIFICATION 1 (Title) ----- ⭐️
-              //
-              // Use 'storeName' and 'storeLocation' for the title.
-              final String storeName = data['storeName'] ?? 'Magasin inconnu';
-              final String storeLocation = data['storeLocation'] ?? '';
-
-              // Combine them, but don't show a trailing " - " if location is missing
-              final String title = storeLocation.isNotEmpty
-                  ? '$storeName - $storeLocation'
-                  : storeName;
-
-              //
-              // ⭐️ ----- MODIFICATION 2 (Subtitle) ----- ⭐️
-              //
-              // Get the original details.
-              String details = data['details'] ?? '...';
-              // Use the 'createdByName' field as requested.
-              final String? createdBy = data['createdByName'];
-
-              // If details start with "Créée par" and createdByName exists,
-              // replace the details string with the correct name.
-              if (details.startsWith('Créée par') && (createdBy != null && createdBy.isNotEmpty)) {
-                details = 'Créée par $createdBy';
+      // Center + ConstrainedBox pour la responsivité Web
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800), // Largeur max sur le web
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('activity_log')
+                .where('service', isEqualTo: 'technique')
+                .where('timestamp', isGreaterThanOrEqualTo: _startOfToday)
+                .where('timestamp', isLessThan: _endOfToday)
+                .orderBy('timestamp', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
               }
-              //
-              // ⭐️ ----- FIN DES MODIFICATIONS ----- ⭐️
-              //
-
-              final String taskType = data['taskType'] ?? '';
-
-              // Format the timestamp
-              final Timestamp t = data['timestamp'] ?? Timestamp.now();
-              final String time = DateFormat('HH:mm').format(t.toDate());
-
-              return TimelineTile(
-                alignment: TimelineAlign.manual,
-                lineXY: 0.15, // Puts the line 15% from the left
-                isFirst: index == 0,
-                isLast: index == events.length - 1,
-                // --- The Time on the Left ---
-                startChild: Center(
+              if (snapshot.hasError) {
+                return Center(child: Text('Erreur: ${snapshot.error}'));
+              }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return Center(
                   child: Text(
-                    time,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                    'Aucune activité pour aujourd\'hui (depuis 7h00).',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
+                    textAlign: TextAlign.center,
                   ),
-                ),
-                // --- The Icon in the Middle ---
-                indicatorStyle: IndicatorStyle(
-                  width: 40,
-                  height: 40,
-                  indicator: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      shape: BoxShape.circle,
+                );
+              }
+
+              final events = snapshot.data!.docs;
+
+              return ListView.builder(
+                padding:
+                const EdgeInsets.symmetric(vertical: 24.0, horizontal: 8.0),
+                itemCount: events.length,
+                itemBuilder: (context, index) {
+                  final event = events[index];
+                  final data = event.data() as Map<String, dynamic>;
+
+                  final String taskType = data['taskType'] ?? '';
+
+                  // Formatage de l'heure (inchangé)
+                  final Timestamp t = data['timestamp'] ?? Timestamp.now();
+                  final String time = DateFormat('HH:mm').format(t.toDate());
+
+                  return TimelineTile(
+                    alignment: TimelineAlign.manual,
+                    lineXY: 0.15, // La ligne est à 15% de la gauche
+                    isFirst: index == 0,
+                    isLast: index == events.length - 1,
+                    // Style de ligne subtil
+                    beforeLineStyle: LineStyle(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                      thickness: 2,
                     ),
-                    child: Icon(
-                      _getIconForTask(taskType),
-                      color: Colors.blue.shade800,
+                    afterLineStyle: LineStyle(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                      thickness: 2,
                     ),
-                  ),
-                ),
-                // --- The Content on the Right ---
-                endChild: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Card(
-                    elevation: 3,
-                    margin: const EdgeInsets.all(0),
-                    child: ListTile(
-                      title: Text(
-                        title, // ✅ This will now show "storeName - storeLocation"
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      subtitle: Text(details), // ✅ This will show "Créée par [createdByName]"
-                      trailing: Text(
-                        taskType,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
+                    // --- L'Heure à Gauche ---
+                    startChild: _buildTime(time),
+                    // --- L'Icône au Milieu ---
+                    indicatorStyle: IndicatorStyle(
+                      width: 40,
+                      height: 40,
+                      indicator: _buildIcon(taskType),
+                    ),
+                    // --- Le Contenu (Carte) à Droite ---
+                    endChild: InkWell(
+                      // Ajout d'un InkWell pour la navigation
                       onTap: () {
-                        // TODO: You can add navigation logic here
+                        // TODO: Vous pouvez ajouter la logique de navigation ici
                         // final String docId = data['relatedDocId'];
                         // final String collection = data['relatedCollection'];
-                        // A- non, naviguez vers la page de détails
+                        // Naviguer vers la page de détails...
                       },
+                      borderRadius: BorderRadius.circular(12.0),
+                      child: _buildEventCard(data),
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             },
-          );
-        },
+          ),
+        ),
       ),
     );
   }
