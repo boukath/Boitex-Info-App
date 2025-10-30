@@ -70,7 +70,8 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('projects')
-          .where('status', isEqualTo: 'Nouvelle Demande') // Query for pending projects
+          .where('status', isEqualTo: 'Nouvelle Demande')
+          .where('serviceType', isEqualTo: 'Service IT')// Query for pending projects
           .snapshots(),
       builder: (context, projectSnapshot) {
         // Calculate the count (0 if loading or no data)

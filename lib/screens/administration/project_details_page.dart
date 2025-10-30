@@ -82,9 +82,13 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       // Determine mime type
       String? mimeType;
       final String extension = path.extension(originalFileName).toLowerCase();
-      if (extension == '.jpg' || extension == '.jpeg') mimeType = 'image/jpeg';
-      else if (extension == '.png') mimeType = 'image/png';
-      else if (extension == '.pdf') mimeType = 'application/pdf';
+      if (extension == '.jpg' || extension == '.jpeg') {
+        mimeType = 'image/jpeg';
+      } else if (extension == '.png') {
+        mimeType = 'image/png';
+      } else if (extension == '.pdf') {
+        mimeType = 'application/pdf';
+      }
       // Add more mime types if needed
 
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
@@ -1464,6 +1468,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
+  // ***** START: THIS METHOD WAS MISSING *****
   Widget _buildInfoCard(
       {required String title,
         required IconData icon,
@@ -1494,20 +1499,23 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       ),
     );
   }
+  // ***** END: THIS METHOD WAS MISSING *****
 
   Widget _buildActionButtons(
       String status, String userRole, Map<String, dynamic> projectData) {
-    // ... (keep existing _buildActionButtons code) ...
     if (_isActionInProgress) {
       return const Center(child: CircularProgressIndicator());
     }
 
     List<Widget> buttons = [];
 
-    // ✅ MODIFIED: Added check for 'Évaluation IT Terminé'
-    // Now, if *either* evaluation is done, the other button won't show
-    // (This assumes they are mutually exclusive, if not, remove the status check)
+    // ***** START FIXED CODE *****
+    // Get the service type from the project data
+    final String serviceType = projectData['serviceType'] ?? 'Inconnu';
+
+    // Show Technical Evaluation button ONLY for Technical projects
     if (status == 'Nouvelle Demande' &&
+        serviceType == 'Service Technique' && // <-- ADDED THIS CHECK
         RolePermissions.canPerformTechnicalEvaluation(userRole)) {
       buttons.add(SizedBox(
           width: double.infinity,
@@ -1517,9 +1525,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                       TechnicalEvaluationPage(projectId: widget.projectId))),
               icon: const Icon(Icons.rule),
               label: const Text('Ajouter l\'Évaluation Technique'))));
+      buttons.add(const SizedBox(height: 12)); // Add padding for consistency
     }
-    // ✅ MODIFIED: Added check for 'Évaluation Technique Terminé'
+
+    // Show IT Evaluation button ONLY for IT projects
     if (status == 'Nouvelle Demande' &&
+        serviceType == 'Service IT' && // <-- ADDED THIS CHECK
         RolePermissions.canPerformItEvaluation(userRole)) {
       buttons.add(SizedBox(
           width: double.infinity,
@@ -1528,6 +1539,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 builder: (context) =>
                     ItEvaluationPage(projectId: widget.projectId))),
             icon: const Icon(Icons.network_ping),
+            // ✅ SYNTAX FIX: Escaped the apostrophe in l\'Évaluation
             label: const Text('Ajouter l\'Évaluation IT'),
             style: ElevatedButton.styleFrom(
               backgroundColor: itPrimaryColor, // Use IT color
@@ -1536,8 +1548,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           )));
       buttons.add(const SizedBox(height: 12));
     }
+    // ***** END FIXED CODE *****
 
-    // ✅ MODIFIED: Check for *both* evaluation statuses to allow devis upload
+    // Check for *both* evaluation statuses to allow devis upload
     if ((status == 'Évaluation Technique Terminé' ||
         status == 'Évaluation IT Terminé') &&
         RolePermissions.canUploadDevis(userRole)) {
@@ -1552,7 +1565,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           )));
       buttons.add(const SizedBox(height: 12));
 
-      // ✅ Button now calls the B2 version of _uploadDevis
+      // Button now calls the B2 version of _uploadDevis
       buttons.add(SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(

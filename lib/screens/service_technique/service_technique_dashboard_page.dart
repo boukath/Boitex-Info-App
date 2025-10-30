@@ -72,6 +72,7 @@ class _ServiceTechniqueDashboardPageState
       stream: FirebaseFirestore.instance
           .collection('projects')
           .where('status', isEqualTo: 'Nouvelle Demande')
+          .where('serviceType', isEqualTo: 'Service Technique')
           .snapshots(),
       builder: (context, projectSnapshot) {
         // Get the count, or 0 if still loading
