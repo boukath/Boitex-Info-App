@@ -1,3 +1,4 @@
+// lib/models/message_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MessageModel {
@@ -15,7 +16,11 @@ class MessageModel {
   // Field for reactions
   final Map<String, List<String>> reactions;
 
-  // Constructor without thread fields
+  // ✅ --- ADDED ---
+  // Stores a list of UIDs for all users mentioned in the message
+  final List<String> mentionedUserIds;
+  // ✅ --- END ADDED ---
+
   MessageModel({
     required this.id,
     required this.senderId,
@@ -26,13 +31,12 @@ class MessageModel {
     this.fileUrl,
     this.fileName,
     required this.reactions,
+    required this.mentionedUserIds, // ✅ ADDED
   });
 
-  // Updated factory constructor without thread fields
   factory MessageModel.fromFirestore(DocumentSnapshot doc) {
     Map data = doc.data() as Map<String, dynamic>;
 
-    // Helper to parse reactions (remains the same)
     Map<String, List<String>> parsedReactions = {};
     if (data['reactions'] != null) {
       (data['reactions'] as Map<String, dynamic>).forEach((emoji, userList) {
@@ -52,6 +56,10 @@ class MessageModel {
       fileUrl: data['fileUrl'],
       fileName: data['fileName'],
       reactions: parsedReactions,
+      // ✅ --- ADDED ---
+      // Read the list from Firestore, defaulting to an empty list
+      mentionedUserIds: List<String>.from(data['mentionedUserIds'] ?? []),
+      // ✅ --- END ADDED ---
     );
   }
 }

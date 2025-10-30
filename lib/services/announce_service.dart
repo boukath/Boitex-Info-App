@@ -1,9 +1,10 @@
+// lib/services/announce_service.dart
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:boitex_info_app/models/channel_model.dart';
-import 'package:boitex_info_app/models/message_model.dart'; // Uses simplified model
+import 'package:boitex_info_app/models/message_model.dart';
 import 'package:file_picker/file_picker.dart';
 
 class AnnounceService {
@@ -13,14 +14,11 @@ class AnnounceService {
 
   final CollectionReference _channelsCollection =
   FirebaseFirestore.instance.collection('channels');
-  // *** NEW: Reference to users collection ***
   final CollectionReference _usersCollection =
   FirebaseFirestore.instance.collection('users');
 
   // --- Channel Methods (Unchanged) ---
-
   Stream<List<ChannelModel>> getChannels() {
-    // ... same as before ...
     return _channelsCollection.snapshots().map((snapshot) {
       return snapshot.docs
           .map((doc) => ChannelModel.fromFirestore(doc))
@@ -29,7 +27,6 @@ class AnnounceService {
   }
 
   Future<void> createChannel(String name, String description) async {
-    // ... same as before ...
     if (name.trim().isEmpty) {
       throw Exception('Channel name cannot be empty');
     }
@@ -47,63 +44,138 @@ class AnnounceService {
 
   // --- Message Methods ---
 
-  /// Gets ALL messages for a specific channel, ordered chronologically (oldest first)
   Stream<List<MessageModel>> getMessages(String channelId) {
-    // ... same as before ...
     return _channelsCollection
         .doc(channelId)
         .collection('messages')
-        .orderBy('timestamp', descending: false) // Standard chat order
+        .orderBy('timestamp', descending: false)
         .snapshots()
         .map((snapshot) {
-      print('[AnnounceService] getMessages Snapshot: ${snapshot.docs.length} docs for channel $channelId');
+      print(
+          '[AnnounceService] getMessages Snapshot: ${snapshot.docs.length} docs for channel $channelId');
       return snapshot.docs
           .map((doc) => MessageModel.fromFirestore(doc))
           .toList();
     });
   }
 
-
-  // *** UPDATED: Now async and fetches from Firestore ***
   Future<String> _getSenderName() async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return 'Unknown User';
 
     try {
-      // Fetch the user document from Firestore
       final userDoc = await _usersCollection.doc(currentUser.uid).get();
       if (userDoc.exists && userDoc.data() != null) {
-        // Use the displayName field from Firestore
         final userData = userDoc.data() as Map<String, dynamic>;
+        // Use the displayName field from Firestore
         return userData['displayName'] ?? currentUser.email ?? 'Unknown User';
       } else {
-        // Fallback if user document doesn't exist
         return currentUser.email ?? 'Unknown User';
       }
     } catch (e) {
       print("Error fetching user displayName: $e");
-      // Fallback on error
       return currentUser.email ?? 'Unknown User';
     }
   }
 
-  /// Sends a text message (no thread parameters)
+  // ✅ --- REVISED FUNCTION ---
+  /// Searches for users by their displayName.
+  /// This uses a standard Firestore "prefix" query.
+  Future<List<String>> searchUserDisplayNames(String query) async {
+    try {
+      Query queryBuilder; // Use Query type
+
+      if (query.isEmpty) {
+        // ✅ NEW: If query is empty, just get a default list of users
+        // We order by displayName to get a predictable list
+        queryBuilder = _usersCollection
+            .orderBy('displayName') //
+            .limit(10);
+      } else {
+        // ✅ EXISTING LOGIC:
+        // Query for displayNames that start with the query text.
+        queryBuilder = _usersCollection
+            .where('displayName', isGreaterThanOrEqualTo: query) //
+            .where('displayName', isLessThanOrEqualTo: '$query\uf8ff')
+            .limit(10);
+      }
+
+      // Now, execute the query
+      final querySnapshot = await queryBuilder.get();
+
+      // Extract the displayNames from the documents
+      final suggestions = querySnapshot.docs
+          .map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return data['displayName'] as String? ?? ''; //
+      })
+          .where((name) => name.isNotEmpty)
+          .toList();
+
+      return suggestions;
+
+    } catch (e) {
+      print("Error searching user display names: $e");
+      return []; // Return empty list on error
+    }
+  }
+  // ✅ --- END REVISED FUNCTION ---
+
+
+  // ✅ --- Helper for parsing mentions on send ---
+  /// Parses message text to find @mentions and returns a list of their UIDs.
+  Future<List<String>> _parseMentionsForUids(String text) async {
+    // This regex finds patterns like "@Username"
+    final RegExp mentionRegex = RegExp(r'@(\w+)');
+    final Set<String> mentionedNames = mentionRegex
+        .allMatches(text)
+        .map((match) => match.group(1)!) // Get the name without the "@"
+        .toSet(); // Use a Set to avoid duplicate queries
+
+    if (mentionedNames.isEmpty) {
+      return [];
+    }
+
+    final Set<String> mentionedUids = {};
+
+    try {
+      // Find all users whose displayName is in our mentioned set
+      final querySnapshot = await _usersCollection
+          .where('displayName', whereIn: mentionedNames.toList())
+          .get();
+
+      for (final doc in querySnapshot.docs) {
+        mentionedUids.add(doc.id); // Add the user's UID
+      }
+    } catch (e) {
+      print("Error looking up mentioned users: $e");
+      // Don't block the message from sending; just log the error.
+    }
+
+    return mentionedUids.toList();
+  }
+
+  /// Sends a text message
   Future<void> sendTextMessage(String channelId, String text) async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    // *** Await the Firestore fetch ***
-    final String senderName = await _getSenderName();
+    // Await both the sender's name AND the list of mentioned UIDs
+    final (String senderName, List<String> mentionedUids) = (
+    await _getSenderName(),
+    await _parseMentionsForUids(text)
+    );
 
     final newMessageData = {
       'senderId': currentUser.uid,
-      'senderName': senderName, // Use name fetched from Firestore
+      'senderName': senderName,
       'timestamp': FieldValue.serverTimestamp(),
       'messageType': 'text',
       'text': text,
       'fileUrl': null,
       'fileName': null,
       'reactions': {},
+      'mentionedUserIds': mentionedUids, // ✅ ADDED
     };
 
     await _channelsCollection
@@ -112,14 +184,13 @@ class AnnounceService {
         .add(newMessageData);
   }
 
-  /// Sends a file message (no thread parameters)
+  /// Sends a file message
   Future<void> sendFileMessage(String channelId, PlatformFile file) async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
     // Determine Message Type
     String messageType = 'file';
-    // ... (rest of type determination code unchanged) ...
     final String extension = file.extension?.toLowerCase() ?? '';
     if (['jpg', 'jpeg', 'png', 'gif'].contains(extension)) {
       messageType = 'image';
@@ -131,7 +202,8 @@ class AnnounceService {
 
 
     // Upload file to Firebase Storage
-    final String uniqueFileName = '${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+    final String uniqueFileName =
+        '${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}_${file.name}';
     final String path = 'announcements/$channelId/$uniqueFileName';
     if (file.path == null) {
       print("Error: File path is null for ${file.name}");
@@ -140,23 +212,24 @@ class AnnounceService {
     final File localFile = File(file.path!);
 
     try {
-      final UploadTask uploadTask = _storage.ref().child(path).putFile(localFile);
+      final UploadTask uploadTask =
+      _storage.ref().child(path).putFile(localFile);
       final TaskSnapshot snapshot = await uploadTask;
       final String downloadUrl = await snapshot.ref.getDownloadURL();
 
-      // *** Await the Firestore fetch ***
       final String senderName = await _getSenderName();
 
       // Prepare message data
       final newMessageData = {
         'senderId': currentUser.uid,
-        'senderName': senderName, // Use name fetched from Firestore
+        'senderName': senderName,
         'timestamp': FieldValue.serverTimestamp(),
         'messageType': messageType,
         'text': null,
         'fileUrl': downloadUrl,
         'fileName': file.name,
         'reactions': {},
+        'mentionedUserIds': [], // ✅ ADDED (empty list for files)
       };
 
       await _channelsCollection
@@ -170,10 +243,9 @@ class AnnounceService {
     }
   }
 
-  /// Toggles an emoji reaction (Unchanged)
+  /// Toggles an emoji reaction
   Future<void> toggleReaction(
       String channelId, String messageId, String emoji) async {
-    // ... same as before ...
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
     final String userId = currentUser.uid;
@@ -190,7 +262,8 @@ class AnnounceService {
           throw Exception("Message does not exist!");
         }
         final messageData = messageSnap.data() as Map<String, dynamic>?;
-        Map<String, dynamic> reactions = messageData?['reactions'] as Map<String, dynamic>? ?? {};
+        Map<String, dynamic> reactions =
+            messageData?['reactions'] as Map<String, dynamic>? ?? {};
         List<dynamic> userList = reactions[emoji] as List<dynamic>? ?? [];
         Set<String> userSet = userList.map((id) => id.toString()).toSet();
 

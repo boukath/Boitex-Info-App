@@ -1,3 +1,4 @@
+// lib/screens/announce/channel_chat_page.dart
 import 'dart:ui';
 import 'dart:io';
 
@@ -6,6 +7,7 @@ import 'package:boitex_info_app/models/message_model.dart';
 import 'package:boitex_info_app/services/announce_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -31,6 +33,113 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
   bool _isUploading = false;
 
+  // ✅ --- State for mention suggestions ---
+  bool _showMentionSuggestions = false;
+  List<String> _mentionSuggestions = [];
+  int _mentionTriggerIndex = -1; // Stores the text index where '@' was typed
+  // ✅ --- END ---
+
+  // ✅ --- initState and dispose ---
+  @override
+  void initState() {
+    super.initState();
+    // Add a listener to the text controller to check for mentions
+    _messageController.addListener(_onTextChanged);
+  }
+
+  @override
+  void dispose() {
+    _messageController.removeListener(_onTextChanged);
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+  // ✅ --- END ---
+
+  // ✅ --- REVISED MENTION LOGIC (FIXED) ---
+  void _onTextChanged() {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+
+    // If selection is invalid, hide suggestions
+    if (selection.start == -1) {
+      if (_showMentionSuggestions) {
+        setState(() => _showMentionSuggestions = false);
+      }
+      return;
+    }
+
+    // Get the text before the cursor to find the last '@'
+    final textBeforeCursor = text.substring(0, selection.start);
+    final atIndex = textBeforeCursor.lastIndexOf('@');
+
+    // No '@' found, hide suggestions
+    if (atIndex == -1) {
+      if (_showMentionSuggestions) {
+        setState(() => _showMentionSuggestions = false);
+      }
+      return;
+    }
+
+    // Get the query string (the text after the '@')
+    final query = textBeforeCursor.substring(atIndex + 1);
+
+    // ✅ --- MODIFIED LOGIC ---
+    // Check if the query contains a space. An empty query is now ALLOWED.
+    if (query.contains(' ')) {
+      if (_showMentionSuggestions) {
+        setState(() => _showMentionSuggestions = false);
+      }
+      return;
+    }
+    // ✅ --- END MODIFIED LOGIC ---
+
+    // Valid query! Store the trigger index and fetch suggestions
+    setState(() {
+      _mentionTriggerIndex = atIndex;
+    });
+    // This will now call the service with an empty string ("")
+    // which our new service logic can handle.
+    _fetchMentionSuggestions(query);
+  }
+  // ✅ --- END REVISED MENTION LOGIC ---
+
+
+  Future<void> _fetchMentionSuggestions(String query) async {
+    final suggestions = await _announceService.searchUserDisplayNames(query);
+    if (!mounted) return;
+    setState(() {
+      _mentionSuggestions = suggestions;
+      _showMentionSuggestions = suggestions.isNotEmpty;
+    });
+  }
+
+  void _onMentionSuggestionTapped(String displayName) {
+    final text = _messageController.text;
+    final cursorPosition = _messageController.selection.start;
+
+    // Get the text before the '@'
+    final textBefore = text.substring(0, _mentionTriggerIndex);
+    // Get the text after the query (which ends at the cursor)
+    final textAfter = text.substring(cursorPosition);
+
+    // Construct the new text, adding a space after the mention
+    final newText = '$textBefore@$displayName $textAfter';
+
+    _messageController.text = newText;
+    // Move the cursor to the end of the inserted mention
+    _messageController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _mentionTriggerIndex + displayName.length + 2), // +2 for '@' and space
+    );
+
+    // Hide the suggestion list
+    setState(() {
+      _showMentionSuggestions = false;
+      _mentionSuggestions.clear();
+    });
+  }
+
+
   void _sendTextMessage() {
     if (_messageController.text.trim().isNotEmpty) {
       _announceService.sendTextMessage(
@@ -38,6 +147,11 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         _messageController.text.trim(),
       );
       _messageController.clear();
+      // ✅ --- ADDED: Hide suggestions on send ---
+      setState(() {
+        _showMentionSuggestions = false;
+      });
+      // ✅ --- END ADDED ---
     }
   }
 
@@ -179,6 +293,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
             end: Alignment.bottomCenter,
           ),
         ),
+        // ✅ --- MODIFIED: The layout is now a Column ---
         child: Column(
           children: [
             Expanded(
@@ -217,19 +332,63 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
             if (_isUploading)
               const Padding(
                   padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()),
+            // ✅ --- ADDED: The suggestion list ---
+            _buildSuggestionList(),
+            // ✅ --- END ADDED ---
             _buildMessageInput(),
           ],
         ),
+        // ✅ --- END MODIFIED ---
       ),
     );
   }
+
+  // ✅ --- ADDED: New widget for the suggestion list ---
+  Widget _buildSuggestionList() {
+    if (!_showMentionSuggestions) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      height: 150, // Max height for the suggestion list
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: ListView.builder(
+        itemCount: _mentionSuggestions.length,
+        itemBuilder: (context, index) {
+          final suggestion = _mentionSuggestions[index];
+          return ListTile(
+            leading: const Icon(Icons.person_outline, color: Colors.blueAccent),
+            title: Text(suggestion, style: const TextStyle(fontWeight: FontWeight.bold)),
+            dense: true,
+            onTap: () {
+              _onMentionSuggestionTapped(suggestion);
+            },
+          );
+        },
+      ),
+    );
+  }
+  // ✅ --- END ADDED ---
 
   Widget _buildMessageInput() {
     return Container(
       padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.90),
-        borderRadius: BorderRadius.vertical(top: const Radius.circular(18)),
+        // ✅ MODIFIED: No border radius if suggestions are shown
+        borderRadius: _showMentionSuggestions
+            ? BorderRadius.zero
+            : const BorderRadius.vertical(top: Radius.circular(18)),
+        // ✅ END MODIFIED
         boxShadow: [
           BoxShadow(
             color: Colors.blueAccent.withOpacity(0.10),
@@ -246,9 +405,9 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
           ),
           Expanded(
             child: TextField(
-              controller: _messageController,
+              controller: _messageController, // Listener is attached in initState
               decoration: const InputDecoration(
-                hintText: 'Type a message...',
+                hintText: 'Type a message... (try @Username)', // ✅ Modified hint
                 hintStyle: TextStyle(color: Color(0xFFB4C7DF)),
                 border: InputBorder.none,
                 filled: true,
@@ -303,6 +462,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
+
                   borderRadius: BorderRadius.circular(17),
                   boxShadow: [
                     BoxShadow(
@@ -351,7 +511,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                         ? CrossAxisAlignment.end
                         : CrossAxisAlignment.start,
                     children: [
-                      _buildMessageContent(
+                      _buildMessageContent( // This now calls our new mention logic
                           message, textColor),
                       SizedBox(
                           height: message.reactions.isNotEmpty ? 8 : 2),
@@ -430,7 +590,11 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
+  // ✅ --- WIDGET MODIFIED (from our previous step) ---
   Widget _buildMessageContent(MessageModel message, Color textColor) {
+    // Check if the current user was mentioned in this message
+    final bool amIMentioned = message.mentionedUserIds.contains(_currentUserId);
+
     if (message.fileUrl == null && message.messageType != 'text') {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
@@ -440,17 +604,8 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     }
     switch (message.messageType) {
       case 'text':
-        return Text(
-          message.text ?? '',
-          style: TextStyle(
-            color: textColor,
-            fontSize: 15,
-            fontFamily: "Inter",
-            fontWeight: FontWeight.w500,
-            letterSpacing: 0.02,
-            height: 1.33,
-          ),
-        );
+      // Use RichText to handle mentions
+        return _buildTextWithMentions(message.text ?? '', textColor, amIMentioned);
       case 'image':
         return GestureDetector(
           onTap: () {
@@ -537,6 +692,8 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         );
     }
   }
+  // ✅ --- END MODIFIED WIDGET ---
+
 
   Widget _buildFileBubble(String fileName, IconData icon, Color iconColor) {
     return Container(
@@ -568,4 +725,75 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       ),
     );
   }
+
+  // ✅ --- HELPER WIDGET (from our previous step) ---
+  /// Builds a RichText widget that highlights @mentions
+  Widget _buildTextWithMentions(String text, Color defaultColor, bool amIMentioned) {
+    final RegExp mentionRegex = RegExp(r'@(\w+)');
+    final List<TextSpan> textSpans = [];
+
+    final TextStyle defaultStyle = TextStyle(
+      color: defaultColor,
+      fontSize: 15,
+      fontFamily: "Inter",
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.02,
+      height: 1.33,
+    );
+
+    // Style for @mentions
+    final TextStyle mentionStyle = defaultStyle.copyWith(
+      color: Colors.blue.shade700,
+      fontWeight: FontWeight.bold,
+    );
+
+    // Special style if the mention is for the current user
+    final TextStyle selfMentionStyle = mentionStyle.copyWith(
+      backgroundColor: Colors.blue.withOpacity(0.15),
+    );
+
+    int lastMatchEnd = 0;
+    for (final Match match in mentionRegex.allMatches(text)) {
+      // Add text before the mention
+      if (match.start > lastMatchEnd) {
+        textSpans.add(
+          TextSpan(
+            text: text.substring(lastMatchEnd, match.start),
+            style: defaultStyle,
+          ),
+        );
+      }
+
+      // Add the mention itself
+      final String mentionText = match.group(0)!; // Full "@Username"
+
+      textSpans.add(
+        TextSpan(
+          text: mentionText,
+          style: amIMentioned ? selfMentionStyle : mentionStyle,
+          // You could add a gesture recognizer here to
+          // navigate to the user's profile page in the future
+          // recognizer: TapGestureRecognizer()..onTap = () {
+          //   print('Tapped on mention: $mentionText');
+          // },
+        ),
+      );
+      lastMatchEnd = match.end;
+    }
+
+    // Add any remaining text after the last mention
+    if (lastMatchEnd < text.length) {
+      textSpans.add(
+        TextSpan(
+          text: text.substring(lastMatchEnd),
+          style: defaultStyle,
+        ),
+      );
+    }
+
+    return RichText(
+      text: TextSpan(children: textSpans),
+    );
+  }
+// ✅ --- END HELPER WIDGET ---
 }
