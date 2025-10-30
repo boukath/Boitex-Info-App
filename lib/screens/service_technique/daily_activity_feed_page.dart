@@ -48,26 +48,26 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
         return Icons.circle_outlined;
     }
   }
+
   // 🔼🔼🔼 FIN DE VOS FONCTIONS (INCHANGÉES) 🔼🔼🔼
 
   // 🌟
   // 🌟 NOUVEAU WIDGET BUILDER POUR LE CONTENU
   // 🌟
-  Widget _buildEventCard(Map<String, dynamic> data) {
+  Widget _buildEventCard(Map data) {
     // --- Logique d'extraction de données (inchangée) ---
     final String storeName = data['storeName'] ?? 'Magasin inconnu';
     final String storeLocation = data['storeLocation'] ?? '';
     final String title = storeLocation.isNotEmpty
         ? '$storeName - $storeLocation'
         : storeName;
-
     String details = data['details'] ?? '...';
     final String? createdBy = data['createdByName'];
-
     if (details.startsWith('Créée par') &&
         (createdBy != null && createdBy.isNotEmpty)) {
       details = 'Créée par $createdBy';
     }
+
     final String taskType = data['taskType'] ?? '';
     // --- Fin de la logique d'extraction ---
 
@@ -114,17 +114,25 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
   }
 
   // 🌟
-  // 🌟 NOUVEAU WIDGET BUILDER POUR L'HEURE
+  // 🌟 MODIFIÉ WIDGET BUILDER POUR L'HEURE (LARGÉ ET HORIZONTAL)
   // 🌟
   Widget _buildTime(String time) {
     return Container(
-      padding: const EdgeInsets.only(right: 12.0),
-      alignment: Alignment.centerRight,
+      width: double.infinity, // Full width for horizontal centering
+      padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 12.0),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        // Subtle background for prominence
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8.0),
+      ),
       child: Text(
         time,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          fontWeight: FontWeight.w600,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith( // Upgraded for size
+          color: Theme.of(context).colorScheme.onSurface,
+          fontWeight: FontWeight.w700, // Bolder
+          fontSize: 20, // Larger for better visibility
+          letterSpacing: 0.5,
         ),
       ),
     );
@@ -166,7 +174,7 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 800), // Largeur max sur le web
-          child: StreamBuilder<QuerySnapshot>(
+          child: StreamBuilder(
             stream: FirebaseFirestore.instance
                 .collection('activity_log')
                 .where('service', isEqualTo: 'technique')
@@ -178,9 +186,11 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
+
               if (snapshot.hasError) {
                 return Center(child: Text('Erreur: ${snapshot.error}'));
               }
+
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                 return Center(
                   child: Text(
@@ -194,17 +204,14 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
               }
 
               final events = snapshot.data!.docs;
-
               return ListView.builder(
                 padding:
                 const EdgeInsets.symmetric(vertical: 24.0, horizontal: 8.0),
                 itemCount: events.length,
                 itemBuilder: (context, index) {
                   final event = events[index];
-                  final data = event.data() as Map<String, dynamic>;
-
+                  final data = event.data() as Map;
                   final String taskType = data['taskType'] ?? '';
-
                   // Formatage de l'heure (inchangé)
                   final Timestamp t = data['timestamp'] ?? Timestamp.now();
                   final String time = DateFormat('HH:mm').format(t.toDate());
@@ -223,15 +230,15 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
                       color: Theme.of(context).colorScheme.outlineVariant,
                       thickness: 2,
                     ),
-                    // --- L'Heure à Gauche ---
-                    startChild: _buildTime(time),
+                    // --- L'Heure DÉPLACÉE AU-DESSUS DE LA CARTE (HORIZONTAL) ---
+                    startChild: const SizedBox(), // Empty left side
                     // --- L'Icône au Milieu ---
                     indicatorStyle: IndicatorStyle(
                       width: 40,
                       height: 40,
                       indicator: _buildIcon(taskType),
                     ),
-                    // --- Le Contenu (Carte) à Droite ---
+                    // --- Le Contenu (Temps + Carte) à Droite ---
                     endChild: InkWell(
                       // Ajout d'un InkWell pour la navigation
                       onTap: () {
@@ -241,7 +248,15 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
                         // Naviguer vers la page de détails...
                       },
                       borderRadius: BorderRadius.circular(12.0),
-                      child: _buildEventCard(data),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Time now horizontal above the card
+                          _buildTime(time),
+                          const SizedBox(height: 8.0),
+                          _buildEventCard(data),
+                        ],
+                      ),
                     ),
                   );
                 },

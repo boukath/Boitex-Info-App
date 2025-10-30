@@ -44,6 +44,7 @@ dependencies:
   home_widget: ^0.5.0
   emoji_picker_flutter: ^2.2.0
   video_thumbnail: ^0.5.3
+  animations: ^2.1.0
 
   # For iOS style icons
   cupertino_icons: ^1.0.2
