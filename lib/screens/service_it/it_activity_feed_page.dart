@@ -201,7 +201,7 @@ class _ItActivityFeedPageState extends State<ItActivityFeedPage> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text("Journal d'activité IT"),
+        title: const Text("Journal IT"),
         // Material 3 AppBar
         backgroundColor: Theme.of(context).colorScheme.surface,
         foregroundColor: Theme.of(context).colorScheme.onSurface,

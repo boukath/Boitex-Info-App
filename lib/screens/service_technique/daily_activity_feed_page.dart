@@ -161,7 +161,7 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Journal du Service Technique'),
+        title: const Text('Journal Technique'),
         // AppBar propre et moderne
         backgroundColor: Theme.of(context).colorScheme.surface,
         elevation: 0,
@@ -194,7 +194,7 @@ class _DailyActivityFeedPageState extends State<DailyActivityFeedPage> {
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                 return Center(
                   child: Text(
-                    'Aucune activité pour aujourd\'hui (depuis 7h00).',
+                    'Aucune activité Technique aujourd\'hui).',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
