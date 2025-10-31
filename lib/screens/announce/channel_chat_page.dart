@@ -36,6 +36,12 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
   bool _isUploading = false;
 
+  // ✅ --- NEW: State for editing ---
+  final FocusNode _messageInputFocusNode = FocusNode();
+  MessageModel? _editingMessage; // Holds the message being edited
+  // ✅ --- END NEW ---
+
+
   // --- State for mention suggestions ---
   bool _showMentionSuggestions = false;
   List<String> _mentionSuggestions = [];
@@ -137,10 +143,19 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
+    _messageInputFocusNode.dispose(); // ✅ NEW
     super.dispose();
   }
 
   void _onTextChanged() {
+    // ✅ --- MODIFIED ---
+    // Don't show suggestions if we are editing a message
+    if (_editingMessage != null) {
+      setState(() => _showMentionSuggestions = false);
+      return;
+    }
+    // ✅ --- END MODIFIED ---
+
     final text = _messageController.text;
     final selection = _messageController.selection;
 
@@ -199,7 +214,8 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     });
   }
 
-  void _sendTextMessage() {
+  // ✅ --- MODIFIED: Renamed to _sendNewTextMessage ---
+  void _sendNewTextMessage() {
     if (_messageController.text.trim().isNotEmpty) {
       _announceService.sendTextMessage(
         widget.channel.id,
@@ -211,8 +227,112 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       });
     }
   }
+  // ✅ --- END MODIFIED ---
 
-  // ✅ --- THIS FUNCTION IS FULLY REPLACED ---
+
+  // ✅ --- START: NEW FUNCTIONS FOR EDIT/DELETE ---
+
+  /// Handles sending the edited message
+  void _sendEditMessage() {
+    if (_editingMessage == null) return;
+
+    final newText = _messageController.text.trim();
+    if (newText.isNotEmpty && newText != _editingMessage!.text) {
+      _announceService.updateMessage(
+        widget.channel.id,
+        _editingMessage!.id,
+        newText,
+      );
+    }
+    _cancelEditing();
+  }
+
+  /// Puts the app into "edit mode" for a specific message
+  void _startEditing(MessageModel message) {
+    setState(() {
+      _editingMessage = message;
+      _messageController.text = message.text ?? '';
+      _messageController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _messageController.text.length),
+      );
+      _showMentionSuggestions = false;
+    });
+    _messageInputFocusNode.requestFocus();
+  }
+
+  /// Cancels "edit mode" and clears the text field
+  void _cancelEditing() {
+    setState(() {
+      _editingMessage = null;
+    });
+    _messageController.clear();
+    _messageInputFocusNode.unfocus();
+  }
+
+  /// Shows the confirmation dialog before deleting a message
+  void _deleteMessage(MessageModel message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer le message?'),
+        content: const Text('Êtes-vous sûr de vouloir supprimer ce message? Cette action est irréversible.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () {
+              _announceService.deleteMessage(widget.channel.id, message.id);
+              Navigator.pop(context); // Close the confirmation dialog
+            },
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shows the bottom sheet with "Edit" and "Delete" options
+  void _showMessageOptions(MessageModel message) {
+    // Only show options if the user is the sender
+    if (message.senderId != _currentUserId) return;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              // Only show "Edit" for text messages
+              if (message.messageType == 'text')
+                ListTile(
+                  leading: const Icon(Icons.edit_rounded),
+                  title: const Text('Modifier le message'),
+                  onTap: () {
+                    Navigator.pop(context); // Close the bottom sheet
+                    _startEditing(message);
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.delete_rounded, color: Colors.red),
+                title: const Text('Supprimer le message', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context); // Close the bottom sheet
+                  _deleteMessage(message);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+  // ✅ --- END: NEW FUNCTIONS ---
+
+
+  // ✅ --- THIS FUNCTION IS UNCHANGED (but I left it here for context) ---
   void _pickAndUploadFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -269,7 +389,6 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         }
 
         // 4. Call the (new) service method to save the URL and metadata
-        //    !! YOU MUST CREATE THIS METHOD IN AnnounceService !!
         await _announceService.saveFileMessageWithUrl(
           channelId: widget.channel.id,
           fileUrl: downloadUrl,
@@ -286,7 +405,6 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       });
     }
   }
-  // ✅ --- END OF REPLACED FUNCTION ---
 
   void _scrollToBottom() {
     if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0) {
@@ -386,8 +504,23 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ --- NEW ---
+    final bool isEditing = _editingMessage != null;
+    // ✅ --- END NEW ---
+
     return Scaffold(
-      appBar: AppBar(title: Text(widget.channel.name)),
+      // ✅ --- MODIFIED: Show "Editing..." in app bar ---
+      appBar: AppBar(
+        title: Text(isEditing ? 'Modification...' : widget.channel.name),
+        // Add a cancel button to the app bar when editing
+        leading: isEditing
+            ? IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: _cancelEditing,
+        )
+            : null, // Will show default back button
+      ),
+      // ✅ --- END MODIFIED ---
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -430,7 +563,12 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                     itemBuilder: (context, index) {
                       final message = messages[index];
                       final isMe = message.senderId == _currentUserId;
-                      return _buildMessageBubble(message, isMe);
+                      // ✅ --- MODIFIED: Pass 'isEditingThisMessage' ---
+                      final bool isEditingThisMessage =
+                          _editingMessage?.id == message.id;
+                      return _buildMessageBubble(
+                          message, isMe, isEditingThisMessage);
+                      // ✅ --- END MODIFIED ---
                     },
                   );
                 },
@@ -440,7 +578,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
               const Padding(
                   padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()),
             _buildSuggestionList(),
-            _buildMessageInput(),
+            _buildMessageInput(isEditing), // ✅ MODIFIED: Pass isEditing
           ],
         ),
       ),
@@ -481,11 +619,13 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
-  Widget _buildMessageInput() {
+  // ✅ --- MODIFIED: Accept 'isEditing' parameter ---
+  Widget _buildMessageInput(bool isEditing) {
     return Container(
       padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.90),
+        // ✅ Show a different color when editing
+        color: isEditing ? Colors.blue[50] : Colors.white.withOpacity(0.90),
         borderRadius: _showMentionSuggestions
             ? BorderRadius.zero
             : const BorderRadius.vertical(top: Radius.circular(18)),
@@ -499,30 +639,56 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       ),
       child: Row(
         children: [
-          IconButton(
-            icon: Icon(Icons.attach_file, color: const Color(0xFF6AA3FF)),
-            onPressed: _isUploading ? null : _pickAndUploadFile,
-          ),
+          // ✅ --- MODIFIED: Show cancel button when editing, attach button when not ---
+          if (isEditing)
+            IconButton(
+              icon: Icon(Icons.close, color: Colors.redAccent),
+              onPressed: _cancelEditing,
+              tooltip: 'Annuler la modification',
+            )
+          else
+            IconButton(
+              icon: Icon(Icons.attach_file, color: const Color(0xFF6AA3FF)),
+              onPressed: _isUploading ? null : _pickAndUploadFile,
+            ),
+          // ✅ --- END MODIFIED ---
+
           Expanded(
             child: TextField(
               controller: _messageController,
-              decoration: const InputDecoration(
-                hintText: 'Type a message... (try @Username)',
+              focusNode: _messageInputFocusNode, // ✅ ADDED
+              decoration: InputDecoration(
+                // ✅ MODIFIED: Change hint text based on mode
+                hintText: isEditing
+                    ? 'Modification...'
+                    : 'Type a message... (try @Username)',
+                // ✅ END MODIFIED
                 hintStyle: TextStyle(color: Color(0xFFB4C7DF)),
                 border: InputBorder.none,
                 filled: true,
                 fillColor: Colors.transparent,
               ),
               style: const TextStyle(color: Colors.black87),
-              onSubmitted: (_) => _sendTextMessage(),
+              // ✅ MODIFIED: Change submit logic based on mode
+              onSubmitted: (_) =>
+              isEditing ? _sendEditMessage() : _sendNewTextMessage(),
+              // ✅ END MODIFIED
               textCapitalization: TextCapitalization.sentences,
               minLines: 1,
               maxLines: 5,
             ),
           ),
           IconButton(
-            icon: Icon(Icons.send, color: const Color(0xFF3380FF)),
-            onPressed: _isUploading ? null : _sendTextMessage,
+            // ✅ MODIFIED: Change icon and logic based on mode
+            icon: Icon(
+              isEditing ? Icons.check_rounded : Icons.send,
+              color: const Color(0xFF3380FF),
+            ),
+            onPressed: _isUploading
+                ? null
+                : (isEditing ? _sendEditMessage : _sendNewTextMessage),
+            tooltip: isEditing ? 'Sauvegarder' : 'Envoyer',
+            // ✅ END MODIFIED
           ),
         ],
       ),
@@ -530,11 +696,17 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   }
 
   // -------- Bubble UI ---------
-  Widget _buildMessageBubble(MessageModel message, bool isMe) {
+  // ✅ --- MODIFIED: Accept 'isEditingThisMessage' ---
+  Widget _buildMessageBubble(
+      MessageModel message, bool isMe, bool isEditingThisMessage) {
+    // ✅ --- END MODIFIED ---
+
     final borderRadius = BorderRadius.circular(24.0);
-    final bubbleColor = isMe
-        ? const Color(0xFFEDF4FF)
-        : const Color(0xFFF8FBFF);
+    // ✅ --- MODIFIED: Highlight the bubble being edited ---
+    final bubbleColor = isEditingThisMessage
+        ? Colors.blue[100]
+        : (isMe ? const Color(0xFFEDF4FF) : const Color(0xFFF8FBFF));
+    // ✅ --- END MODIFIED ---
     final bubbleBorder = Border.all(
       color: isMe
           ? const Color(0xFFB4D0FF).withOpacity(0.43)
@@ -543,101 +715,128 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
     final textColor = isMe ? const Color(0xFF174485) : const Color(0xFF335075);
 
-    return Container(
-      margin: EdgeInsets.symmetric(
-          vertical: 8, horizontal: isMe ? 20 : 8),
-      child: Column(
-        crossAxisAlignment: isMe
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          if (!isMe)
-            Padding(
-              padding: const EdgeInsets.only(left: 6, bottom: 4),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 12),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF6AA3FF), Color(0xFFB9DFFD)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+    // ✅ --- MODIFIED: Wrap bubble in GestureDetector for long press ---
+    return GestureDetector(
+      onLongPress: () {
+        // Only allow actions on your own messages
+        if (isMe) {
+          _showMessageOptions(message);
+        }
+      },
+      // ✅ --- END MODIFIED ---
+      child: Container(
+        margin: EdgeInsets.symmetric(
+            vertical: 8, horizontal: isMe ? 20 : 8),
+        child: Column(
+          crossAxisAlignment: isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            if (!isMe)
+              Padding(
+                padding: const EdgeInsets.only(left: 6, bottom: 4),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6AA3FF), Color(0xFFB9DFFD)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
 
-                  borderRadius: BorderRadius.circular(17),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.lightBlueAccent.withOpacity(0.22),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-                child: Text(
-                  message.senderName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13.5,
-                    color: Colors.white,
-                    letterSpacing: 0.18,
-                  ),
-                ),
-              ),
-            ),
-          Stack(
-            children: [
-              Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width *
-                      (kIsWeb ? 0.54 : 0.80),
-                ),
-                decoration: BoxDecoration(
-                  color: bubbleColor,
-                  borderRadius: borderRadius,
-                  border: bubbleBorder,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(isMe ? 0.09 : 0.08),
-                      blurRadius: 22,
-                      spreadRadius: 2,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 14),
-                  child: Column(
-                    crossAxisAlignment: isMe
-                        ? CrossAxisAlignment.end
-                        : CrossAxisAlignment.start,
-                    children: [
-                      _buildMessageContent(
-                          message, textColor),
-                      SizedBox(
-                          height: message.reactions.isNotEmpty ? 8 : 2),
-                      _buildReactionsDisplay(message, isMe),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text(
-                          message.timestamp != null
-                              ? DateFormat('HH:mm').format(
-                              message.timestamp!.toDate())
-                              : '--:--',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF8BA2BA),
-                            fontFamily: "FiraCode",
-                            letterSpacing: 2,
-                          ),
-                        ),
+                    borderRadius: BorderRadius.circular(17),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.lightBlueAccent.withOpacity(0.22),
+                        blurRadius: 8,
+                        spreadRadius: 1,
                       ),
                     ],
                   ),
+                  child: Text(
+                    message.senderName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13.5,
+                      color: Colors.white,
+                      letterSpacing: 0.18,
+                    ),
+                  ),
                 ),
               ),
-            ],
-          ),
-        ],
+            Stack(
+              children: [
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width *
+                        (kIsWeb ? 0.54 : 0.80),
+                  ),
+                  decoration: BoxDecoration(
+                    color: bubbleColor,
+                    borderRadius: borderRadius,
+                    border: bubbleBorder,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blue.withOpacity(isMe ? 0.09 : 0.08),
+                        blurRadius: 22,
+                        spreadRadius: 2,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 14),
+                    child: Column(
+                      crossAxisAlignment: isMe
+                          ? CrossAxisAlignment.end
+                          : CrossAxisAlignment.start,
+                      children: [
+                        _buildMessageContent(
+                            message, textColor),
+                        SizedBox(
+                            height: message.reactions.isNotEmpty ? 8 : 2),
+                        _buildReactionsDisplay(message, isMe),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          // ✅ --- MODIFIED: Show '(modifié)' text ---
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (message.isEdited)
+                                Text(
+                                  '(modifié)  ',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF8BA2BA).withOpacity(0.8),
+                                    fontFamily: "FiraCode",
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              Text(
+                                message.timestamp != null
+                                    ? DateFormat('HH:mm').format(
+                                    message.timestamp!.toDate())
+                                    : '--:--',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF8BA2BA),
+                                  fontFamily: "FiraCode",
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                            ],
+                          ),
+                          // ✅ --- END MODIFIED ---
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

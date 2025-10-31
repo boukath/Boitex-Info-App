@@ -16,10 +16,13 @@ class MessageModel {
   // Field for reactions
   final Map<String, List<String>> reactions;
 
-  // ✅ --- ADDED ---
   // Stores a list of UIDs for all users mentioned in the message
   final List<String> mentionedUserIds;
-  // ✅ --- END ADDED ---
+
+  // ✅ --- NEW ---
+  // Tracks if a message has been edited
+  final bool isEdited;
+  // ✅ --- END NEW ---
 
   MessageModel({
     required this.id,
@@ -31,7 +34,8 @@ class MessageModel {
     this.fileUrl,
     this.fileName,
     required this.reactions,
-    required this.mentionedUserIds, // ✅ ADDED
+    required this.mentionedUserIds,
+    required this.isEdited, // ✅ ADDED
   });
 
   factory MessageModel.fromFirestore(DocumentSnapshot doc) {
@@ -56,10 +60,11 @@ class MessageModel {
       fileUrl: data['fileUrl'],
       fileName: data['fileName'],
       reactions: parsedReactions,
-      // ✅ --- ADDED ---
-      // Read the list from Firestore, defaulting to an empty list
       mentionedUserIds: List<String>.from(data['mentionedUserIds'] ?? []),
-      // ✅ --- END ADDED ---
+      // ✅ --- MODIFIED ---
+      // Read the 'isEdited' field, defaulting to false if it doesn't exist
+      isEdited: data['isEdited'] ?? false,
+      // ✅ --- END MODIFIED ---
     );
   }
 }

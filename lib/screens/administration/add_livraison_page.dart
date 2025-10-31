@@ -48,9 +48,14 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   bool _isLoadingPage = false;
   String? _clientError;
 
-  FilePickerResult? _pickedFile;
-  String? _existingFileUrl;
-  String? _existingFileName;
+  // ✅ --- START: MODIFIED FOR MULTI-FILE ---
+  /// Stores newly selected files from the picker
+  List<PlatformFile> _pickedFiles = [];
+  /// Stores file metadata loaded from Firestore (for edit mode)
+  /// Each map is {'url': '...', 'name': '...'}
+  List<Map<String, String>> _existingFiles = [];
+  // ✅ --- END: MODIFIED FOR MULTI-FILE ---
+
   bool _isUploading = false;
 
   bool get _isEditMode => widget.livraisonId != null;
@@ -129,8 +134,23 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
             .toList();
       }
 
-      _existingFileUrl = data['externalBonUrl'];
-      _existingFileName = data['externalBonFileName'];
+      // ✅ --- START: MODIFIED FOR MULTI-FILE ---
+      // We now assume files are stored in a List<Map> field named 'externalBons'
+      if (data['externalBons'] is List) {
+        _existingFiles = (data['externalBons'] as List)
+            .map((fileData) {
+          // Ensure the map is correctly typed
+          if (fileData is Map) {
+            return Map<String, String>.from(fileData.map(
+                    (k, v) => MapEntry(k.toString(), v.toString())
+            ));
+          }
+          return null; // or handle error
+        })
+            .whereType<Map<String, String>>() // Filter out any nulls
+            .toList();
+      }
+      // ✅ --- END: MODIFIED FOR MULTI-FILE ---
 
       setState(() {});
     } catch (e) {
@@ -146,6 +166,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Future<void> _fetchClients() async {
+    // ... (Your existing code, no changes needed)
     if (FirebaseAuth.instance.currentUser == null) {
       if (mounted) {
         setState(() => _clientError = "Erreur: Utilisateur non connecté.");
@@ -170,6 +191,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Future<void> _fetchStores(String clientId) async {
+    // ... (Your existing code, no changes needed)
     setState(() {
       _isLoadingStores = true;
       _selectedStore = null;
@@ -199,6 +221,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Future<void> _fetchTechnicians() async {
+    // ... (Your existing code, no changes needed)
     setState(() => _isLoadingTechnicians = true);
     try {
       final snapshot =
@@ -217,6 +240,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
   // ✅ --- START: ADDED B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    // ... (Your existing code, no changes needed)
     try {
       final response =
       await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
@@ -234,6 +258,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
   Future<Map<String, String>?> _uploadFileToB2(
       PlatformFile file, Map<String, dynamic> b2Creds) async {
+    // ... (Your existing code, no changes needed)
     try {
       final fileBytes = file.bytes;
       if (fileBytes == null) {
@@ -289,6 +314,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   // ✅ --- END: ADDED B2 HELPER FUNCTIONS ---
 
   Future<String> _getNextBonLivraisonCode() async {
+    // ... (Your existing code, no changes needed)
     final year = DateTime.now().year;
     final counterRef = FirebaseFirestore.instance
         .collection('counters')
@@ -314,6 +340,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   void _showProductSelectorDialog() async {
+    // ... (Your existing code, no changes needed)
     final List<ProductSelection>? result = await showDialog(
         context: context,
         builder: (context) =>
@@ -323,42 +350,29 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     }
   }
 
+  // ✅ --- START: MODIFIED FOR MULTI-FILE ---
   Future<void> _pickFile() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
       withData: true, // ✅ IMPORTANT: Need bytes in memory for B2
+      allowMultiple: true, // ✅ THIS IS THE FIX
     );
 
     if (result != null) {
       setState(() {
-        _pickedFile = result;
-        _existingFileUrl = null;
-        _existingFileName = null;
+        // Add new files to the list
+        _pickedFiles.addAll(result.files);
+        // We no longer clear existing files, allowing users to add more.
+        // If you want to replace, you would do:
+        // _pickedFiles = result.files;
+        // _existingFiles.clear();
       });
     }
   }
+  // ✅ --- END: MODIFIED FOR MULTI-FILE ---
 
-  // ❌ REMOVED Firebase Storage upload function
-  /*
-  Future<Map<String, String>?> _uploadFile(String livraisonId) async {
-    if (_pickedFile == null) return null;
-
-    final fileBytes = _pickedFile!.files.first.bytes;
-    final fileName = _pickedFile!.files.first.name;
-    if (fileBytes == null) return null;
-
-    final storageRef = FirebaseStorage.instance
-        .ref()
-        .child('bons_de_livraison/$livraisonId/$fileName');
-
-    final uploadTask = storageRef.putData(fileBytes);
-    final snapshot = await uploadTask.whenComplete(() => {});
-    final downloadUrl = await snapshot.ref.getDownloadURL();
-
-    return {'url': downloadUrl, 'name': fileName};
-  }
-  */
+  // ❌ REMOVED Firebase Storage upload function (already commented out in your file)
 
   Future<void> _saveLivraison() async {
     if (!_formKey.currentState!.validate()) return;
@@ -383,22 +397,31 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           ? livraisonsCollection.doc(widget.livraisonId!)
           : livraisonsCollection.doc();
 
-      // ✅ --- START: MODIFIED B2 UPLOAD LOGIC ---
-      Map<String, String>? uploadedFileInfo;
-      if (_pickedFile != null) {
-        // 1. Get B2 credentials
+      // ✅ --- START: MODIFIED FOR MULTI-FILE ---
+      List<Map<String, String>> uploadedFilesInfo = [];
+      if (_pickedFiles.isNotEmpty) {
+        // 1. Get B2 credentials (only once)
         final b2Credentials = await _getB2UploadCredentials();
         if (b2Credentials == null) {
           throw Exception('Impossible de récupérer les accès B2.');
         }
-        // 2. Upload to B2
-        uploadedFileInfo =
-        await _uploadFileToB2(_pickedFile!.files.first, b2Credentials);
-        if (uploadedFileInfo == null) {
-          throw Exception('Échec de l\'upload du fichier sur B2.');
+
+        // 2. Upload all files in parallel
+        final uploadFutures = _pickedFiles.map((file) {
+          return _uploadFileToB2(file, b2Credentials);
+        }).toList();
+
+        final results = await Future.wait(uploadFutures);
+
+        // Check for nulls (failed uploads)
+        if (results.any((result) => result == null)) {
+          throw Exception('Échec de l\'upload d\'un ou plusieurs fichiers.');
         }
+
+        // All succeeded, cast and add to our list
+        uploadedFilesInfo = results.cast<Map<String, String>>().toList();
       }
-      // ✅ --- END: MODIFIED B2 UPLOAD LOGIC ---
+      // ✅ --- END: MODIFIED FOR MULTI-FILE ---
 
       final deliveryData = <String, dynamic>{
         'clientId': _selectedClient!.id,
@@ -425,9 +448,17 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         'serviceType': _selectedServiceType,
         'lastModifiedBy': user.displayName ?? user.email,
         'lastModifiedAt': FieldValue.serverTimestamp(),
-        // ✅ Use new B2 upload info or existing info
-        'externalBonUrl': uploadedFileInfo?['url'] ?? _existingFileUrl,
-        'externalBonFileName': uploadedFileInfo?['name'] ?? _existingFileName,
+
+        // ✅ --- START: MODIFIED FOR MULTI-FILE ---
+        // Save the combined list of existing and newly uploaded files
+        'externalBons': [
+          ..._existingFiles,
+          ...uploadedFilesInfo,
+        ],
+        // ❌ Remove old singular fields
+        // 'externalBonUrl': ...,
+        // 'externalBonFileName': ...,
+        // ✅ --- END: MODIFIED FOR MULTI-FILE ---
       };
 
       if (_isEditMode) {
@@ -457,7 +488,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     }
   }
 
-  // --- WIDGETS (No Changes) ---
+  // --- WIDGETS ---
 
   @override
   Widget build(BuildContext context) {
@@ -466,6 +497,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA), // Light grey background
       appBar: AppBar(
+        // ... (Your existing code, no changes needed)
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -496,6 +528,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   title: 'Informations Livraison',
                   icon: Icons.info_outline,
                   children: [
+                    // ... (Your existing code, no changes needed)
                     if (widget.serviceType == null) ...[
                       _buildDropdownField(
                         label: 'Choisir le Service',
@@ -572,6 +605,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   title: 'Destination',
                   icon: Icons.location_on_outlined,
                   children: [
+                    // ... (Your existing code, no changes needed)
                     _buildSelectableDropdown(
                       label: 'Client',
                       value: _selectedClient,
@@ -619,6 +653,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   title: 'Produits à Livrer',
                   icon: Icons.inventory_2_outlined,
                   children: [
+                    // ... (Your existing code, no changes needed)
                     if (_selectedProducts.isEmpty)
                       const Center(
                         child: Padding(
@@ -663,31 +698,48 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   title: 'Bon de Livraison',
                   icon: Icons.attach_file,
                   children: [
-                    if (_pickedFile == null && _existingFileUrl == null)
+                    // ✅ --- START: MODIFIED FOR MULTI-FILE ---
+                    // Show the upload box ONLY if both lists are empty
+                    if (_pickedFiles.isEmpty && _existingFiles.isEmpty)
                       _buildFileUploadBox(),
-                    if (_pickedFile != null)
-                      _buildFileInfo(
-                        fileName: _pickedFile!.files.first.name,
-                        icon: Icons.file_present_rounded,
-                        iconColor: const Color(0xFF20C997),
-                        onClear: () => setState(() => _pickedFile = null),
-                      ),
-                    if (_existingFileUrl != null)
-                      _buildFileInfo(
-                        fileName: _existingFileName ?? 'Fichier existant',
-                        icon: Icons.description,
-                        iconColor: const Color(0xFF1976D2),
-                        onTap: () async {
-                          final url = Uri.parse(_existingFileUrl!);
+
+                    // Show a list of existing files
+                    ..._existingFiles.map((file) => _buildFileInfo(
+                      fileName: file['name'] ?? 'Fichier existant',
+                      icon: Icons.description,
+                      iconColor: const Color(0xFF1976D2),
+                      onTap: () async {
+                        if (file['url'] != null) {
+                          final url = Uri.parse(file['url']!);
                           if (await canLaunchUrl(url)) {
                             await launchUrl(url);
                           }
-                        },
-                        onClear: () => setState(() {
-                          _existingFileUrl = null;
-                          _existingFileName = null;
-                        }),
+                        }
+                      },
+                      onClear: () => setState(() => _existingFiles.remove(file)),
+                    )),
+
+                    // Show a list of newly picked files
+                    ..._pickedFiles.map((file) => _buildFileInfo(
+                      fileName: file.name,
+                      icon: Icons.file_present_rounded,
+                      iconColor: const Color(0xFF20C997),
+                      onClear: () => setState(() => _pickedFiles.remove(file)),
+                    )),
+
+                    // Show "Add another file" button if there are already files
+                    if (_pickedFiles.isNotEmpty || _existingFiles.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16.0),
+                        child: Center(
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.add_circle_outline, size: 18),
+                            label: const Text('Ajouter un autre fichier'),
+                            onPressed: _pickFile,
+                          ),
+                        ),
                       ),
+                    // ✅ --- END: MODIFIED FOR MULTI-FILE ---
                   ]),
               const SizedBox(height: 40),
               if (_isUploading)
@@ -705,6 +757,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       {required String title,
         required IconData icon,
         required List<Widget> children}) {
+    // ... (Your existing code, no changes needed)
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -741,6 +794,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     required IconData icon,
     String? Function(String?)? validator,
   }) {
+    // ... (Your existing code, no changes needed)
     return TextFormField(
       controller: controller,
       validator: validator,
@@ -766,6 +820,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     required IconData icon,
     String? Function(T?)? validator,
   }) {
+    // ... (Your existing code, no changes needed)
     return DropdownButtonFormField<T>(
       value: value,
       items: items
@@ -800,6 +855,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     Widget Function(SelectableItem)? itemBuilder,
     String? Function(SelectableItem?)? validator,
   }) {
+    // ... (Your existing code, no changes needed)
     return DropdownButtonFormField<SelectableItem>(
       value: value,
       items: items
@@ -832,6 +888,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Widget _buildFileUploadBox() {
+    // ... (Your existing code, no changes needed)
     return InkWell(
       onTap: _pickFile,
       borderRadius: BorderRadius.circular(12),
@@ -876,6 +933,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     VoidCallback? onClear,
     VoidCallback? onTap,
   }) {
+    // ... (Your existing code, no changes needed)
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -898,6 +956,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Widget _buildSubmitButton() {
+    // ... (Your existing code, no changes needed)
     return Container(
       decoration: BoxDecoration(
           gradient: const LinearGradient(

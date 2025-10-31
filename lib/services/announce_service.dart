@@ -78,32 +78,23 @@ class AnnounceService {
     }
   }
 
-  // ✅ --- REVISED FUNCTION ---
-  /// Searches for users by their displayName.
-  /// This uses a standard Firestore "prefix" query.
   Future<List<String>> searchUserDisplayNames(String query) async {
     try {
       Query queryBuilder; // Use Query type
 
       if (query.isEmpty) {
-        // ✅ NEW: If query is empty, just get a default list of users
-        // We order by displayName to get a predictable list
         queryBuilder = _usersCollection
             .orderBy('displayName') //
             .limit(10);
       } else {
-        // ✅ EXISTING LOGIC:
-        // Query for displayNames that start with the query text.
         queryBuilder = _usersCollection
             .where('displayName', isGreaterThanOrEqualTo: query) //
             .where('displayName', isLessThanOrEqualTo: '$query\uf8ff')
             .limit(10);
       }
 
-      // Now, execute the query
       final querySnapshot = await queryBuilder.get();
 
-      // Extract the displayNames from the documents
       final suggestions = querySnapshot.docs
           .map((doc) {
         final data = doc.data() as Map<String, dynamic>;
@@ -119,13 +110,9 @@ class AnnounceService {
       return []; // Return empty list on error
     }
   }
-  // ✅ --- END REVISED FUNCTION ---
 
 
-  // ✅ --- Helper for parsing mentions on send ---
-  /// Parses message text to find @mentions and returns a list of their UIDs.
   Future<List<String>> _parseMentionsForUids(String text) async {
-    // This regex finds patterns like "@Username"
     final RegExp mentionRegex = RegExp(r'@(\w+)');
     final Set<String> mentionedNames = mentionRegex
         .allMatches(text)
@@ -139,7 +126,6 @@ class AnnounceService {
     final Set<String> mentionedUids = {};
 
     try {
-      // Find all users whose displayName is in our mentioned set
       final querySnapshot = await _usersCollection
           .where('displayName', whereIn: mentionedNames.toList())
           .get();
@@ -149,7 +135,6 @@ class AnnounceService {
       }
     } catch (e) {
       print("Error looking up mentioned users: $e");
-      // Don't block the message from sending; just log the error.
     }
 
     return mentionedUids.toList();
@@ -160,7 +145,6 @@ class AnnounceService {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    // Await both the sender's name AND the list of mentioned UIDs
     final (String senderName, List<String> mentionedUids) = (
     await _getSenderName(),
     await _parseMentionsForUids(text)
@@ -175,7 +159,8 @@ class AnnounceService {
       'fileUrl': null,
       'fileName': null,
       'reactions': {},
-      'mentionedUserIds': mentionedUids, // ✅ ADDED
+      'mentionedUserIds': mentionedUids,
+      'isEdited': false, // ✅ ADDED
     };
 
     await _channelsCollection
@@ -184,9 +169,47 @@ class AnnounceService {
         .add(newMessageData);
   }
 
-  // ✅ --- START: THIS IS THE NEW FUNCTION YOU NEEDED ---
+  // ✅ --- START: NEW FUNCTIONS ---
+
+  /// Updates an existing text message
+  Future<void> updateMessage(String channelId, String messageId, String newText) async {
+    try {
+      // Re-parse mentions, just like when sending a new message
+      final List<String> mentionedUids = await _parseMentionsForUids(newText);
+
+      await _channelsCollection
+          .doc(channelId)
+          .collection('messages')
+          .doc(messageId)
+          .update({
+        'text': newText,
+        'isEdited': true,
+        'mentionedUserIds': mentionedUids, // Update mentions as well
+        'lastUpdatedAt': FieldValue.serverTimestamp(), // Good to track
+      });
+    } catch (e) {
+      print("Error updating message: $e");
+      rethrow;
+    }
+  }
+
+  /// Deletes a message (works for any type)
+  Future<void> deleteMessage(String channelId, String messageId) async {
+    try {
+      await _channelsCollection
+          .doc(channelId)
+          .collection('messages')
+          .doc(messageId)
+          .delete();
+    } catch (e) {
+      print("Error deleting message: $e");
+      rethrow;
+    }
+  }
+  // ✅ --- END: NEW FUNCTIONS ---
+
+
   /// Saves file metadata to Firestore after it has been uploaded to B2.
-  /// This is called by channel_chat_page.dart to fix the error.
   Future<void> saveFileMessageWithUrl({
     required String channelId,
     required String fileUrl,
@@ -199,7 +222,6 @@ class AnnounceService {
     try {
       final String senderName = await _getSenderName();
 
-      // Prepare message data
       final newMessageData = {
         'senderId': currentUser.uid,
         'senderName': senderName,
@@ -210,6 +232,7 @@ class AnnounceService {
         'fileName': fileName,
         'reactions': {},
         'mentionedUserIds': [], // Files don't have mentions
+        'isEdited': false, // ✅ ADDED
       };
 
       await _channelsCollection
@@ -222,14 +245,12 @@ class AnnounceService {
       rethrow;
     }
   }
-  // ✅ --- END: NEW FUNCTION ---
 
   /// Sends a file message (This is your original function, left unchanged)
   Future<void> sendFileMessage(String channelId, PlatformFile file) async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    // Determine Message Type
     String messageType = 'file';
     final String extension = file.extension?.toLowerCase() ?? '';
     if (['jpg', 'jpeg', 'png', 'gif'].contains(extension)) {
@@ -240,8 +261,6 @@ class AnnounceService {
       messageType = 'pdf';
     }
 
-
-    // Upload file to Firebase Storage
     final String uniqueFileName =
         '${currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}_${file.name}';
     final String path = 'announcements/$channelId/$uniqueFileName';
@@ -259,7 +278,6 @@ class AnnounceService {
 
       final String senderName = await _getSenderName();
 
-      // Prepare message data
       final newMessageData = {
         'senderId': currentUser.uid,
         'senderName': senderName,
@@ -269,7 +287,8 @@ class AnnounceService {
         'fileUrl': downloadUrl,
         'fileName': file.name,
         'reactions': {},
-        'mentionedUserIds': [], // ✅ ADDED (empty list for files)
+        'mentionedUserIds': [],
+        'isEdited': false, // ✅ ADDED
       };
 
       await _channelsCollection
