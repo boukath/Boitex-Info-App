@@ -17,7 +17,7 @@ class AnnounceService {
   final CollectionReference _usersCollection =
   FirebaseFirestore.instance.collection('users');
 
-  // --- Channel Methods (Unchanged) ---
+  // --- Channel Methods ---
   Stream<List<ChannelModel>> getChannels() {
     return _channelsCollection.snapshots().map((snapshot) {
       return snapshot.docs
@@ -41,6 +41,53 @@ class AnnounceService {
       rethrow;
     }
   }
+
+  // ✅ --- START: NEW CHANNEL METHODS ---
+
+  /// Updates an existing channel's details
+  Future<void> updateChannel(
+      String channelId, String name, String description) async {
+    if (name.trim().isEmpty) {
+      throw Exception('Channel name cannot be empty');
+    }
+    try {
+      await _channelsCollection.doc(channelId).update({
+        'name': name.trim(),
+        'description': description.trim().isNotEmpty ? description.trim() : null,
+      });
+    } on FirebaseException catch (e) {
+      print('Error updating channel: $e');
+      rethrow;
+    }
+  }
+
+  /// Deletes a channel and all messages within it
+  Future<void> deleteChannel(String channelId) async {
+    try {
+      // 1. Get the 'messages' subcollection
+      final messagesCollection =
+      _channelsCollection.doc(channelId).collection('messages');
+
+      // 2. Get all message documents
+      final messagesSnapshot = await messagesCollection.get();
+
+      // 3. Create a batch write to delete all messages
+      final WriteBatch batch = _firestore.batch();
+      for (final DocumentSnapshot doc in messagesSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      // 4. Commit the batch deletion
+      await batch.commit();
+
+      // 5. After all messages are deleted, delete the channel itself
+      await _channelsCollection.doc(channelId).delete();
+    } on FirebaseException catch (e) {
+      print('Error deleting channel: $e');
+      rethrow;
+    }
+  }
+  // ✅ --- END: NEW CHANNEL METHODS ---
 
   // --- Message Methods ---
 
@@ -104,13 +151,11 @@ class AnnounceService {
           .toList();
 
       return suggestions;
-
     } catch (e) {
       print("Error searching user display names: $e");
       return []; // Return empty list on error
     }
   }
-
 
   Future<List<String>> _parseMentionsForUids(String text) async {
     final RegExp mentionRegex = RegExp(r'@(\w+)');
@@ -172,7 +217,8 @@ class AnnounceService {
   // ✅ --- START: NEW FUNCTIONS ---
 
   /// Updates an existing text message
-  Future<void> updateMessage(String channelId, String messageId, String newText) async {
+  Future<void> updateMessage(
+      String channelId, String messageId, String newText) async {
     try {
       // Re-parse mentions, just like when sending a new message
       final List<String> mentionedUids = await _parseMentionsForUids(newText);
@@ -208,7 +254,6 @@ class AnnounceService {
   }
   // ✅ --- END: NEW FUNCTIONS ---
 
-
   /// Saves file metadata to Firestore after it has been uploaded to B2.
   Future<void> saveFileMessageWithUrl({
     required String channelId,
@@ -239,7 +284,6 @@ class AnnounceService {
           .doc(channelId)
           .collection('messages')
           .add(newMessageData);
-
     } on FirebaseException catch (e) {
       print("Error saving file message to Firestore: $e");
       rethrow;
@@ -295,7 +339,6 @@ class AnnounceService {
           .doc(channelId)
           .collection('messages')
           .add(newMessageData);
-
     } on FirebaseException catch (e) {
       print("Error uploading file to storage or saving message: $e");
       rethrow;
