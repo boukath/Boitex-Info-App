@@ -1,15 +1,15 @@
 // lib/screens/administration/manage_projects_page.dart
 
 import 'package:flutter/material.dart';
-// ✅ ADDED: Import for the new list page
 import 'package:boitex_info_app/screens/administration/project_list_page.dart';
+// ✅ ADDED: Import for the new history page
+import 'package:boitex_info_app/screens/administration/project_history_page.dart';
 
 class ManageProjectsPage extends StatelessWidget {
   final String userRole;
 
   const ManageProjectsPage({super.key, required this.userRole});
 
-  // ✅ NEW: Helper widget to create a consistent navigation card
   Widget _buildServiceCard({
     required BuildContext context,
     required String title,
@@ -47,45 +47,94 @@ class ManageProjectsPage extends StatelessWidget {
     );
   }
 
+  // ✅ NEW: Helper to show the Service Type choice (Technique or IT)
+  void _showServiceChoice(BuildContext context,
+      {required String pageTitle,
+        required Widget Function(String serviceType) targetPageBuilder}) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: <Widget>[
+              ListTile(
+                leading: Icon(Icons.engineering, color: Colors.blue.shade700),
+                title: const Text('Service Technique'),
+                onTap: () {
+                  Navigator.pop(context); // Dismiss bottom sheet
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          targetPageBuilder('Service Technique'),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.computer, color: Colors.green.shade700),
+                title: const Text('Service IT'),
+                onTap: () {
+                  Navigator.pop(context); // Dismiss bottom sheet
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => targetPageBuilder('Service IT'),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gérer les Projets'),
       ),
-      // ✅ MODIFIED: The body is now a simple column with two buttons
+      // ✅ MODIFIED: Body now has two clear options
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // --- Card 1: Projets Actifs (The Pipeline) ---
             _buildServiceCard(
               context: context,
-              title: 'Service Technique',
-              icon: Icons.engineering,
+              title: 'Projets Actifs (Pipeline)',
+              icon: Icons.folder_open_outlined,
               color: Colors.blue.shade700,
               onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => ProjectListPage(
-                      userRole: userRole,
-                      serviceType: 'Service Technique',
-                    ),
+                // Shows the service choice popup first
+                _showServiceChoice(
+                  context,
+                  pageTitle: 'Projets Actifs',
+                  // This now points to our new 5-tab pipeline page
+                  targetPageBuilder: (serviceType) => ProjectListPage(
+                    userRole: userRole,
+                    serviceType: serviceType,
                   ),
                 );
               },
             ),
+
+            // --- Card 2: Historique des Projets (The Archive) ---
             _buildServiceCard(
               context: context,
-              title: 'Service IT',
-              icon: Icons.computer,
-              color: Colors.green.shade700,
+              title: 'Historique des Projets',
+              icon: Icons.history_outlined,
+              color: Colors.grey.shade700,
               onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => ProjectListPage(
-                      userRole: userRole,
-                      serviceType: 'Service IT',
-                    ),
+                // Also shows the service choice popup
+                _showServiceChoice(
+                  context,
+                  pageTitle: 'Historique des Projets',
+                  // This points to our new archive page
+                  targetPageBuilder: (serviceType) => ProjectHistoryPage(
+                    userRole: userRole,
+                    serviceType: serviceType,
                   ),
                 );
               },
