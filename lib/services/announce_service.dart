@@ -184,7 +184,47 @@ class AnnounceService {
         .add(newMessageData);
   }
 
-  /// Sends a file message
+  // ✅ --- START: THIS IS THE NEW FUNCTION YOU NEEDED ---
+  /// Saves file metadata to Firestore after it has been uploaded to B2.
+  /// This is called by channel_chat_page.dart to fix the error.
+  Future<void> saveFileMessageWithUrl({
+    required String channelId,
+    required String fileUrl,
+    required String fileName,
+    required String messageType,
+  }) async {
+    final User? currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+
+    try {
+      final String senderName = await _getSenderName();
+
+      // Prepare message data
+      final newMessageData = {
+        'senderId': currentUser.uid,
+        'senderName': senderName,
+        'timestamp': FieldValue.serverTimestamp(),
+        'messageType': messageType,
+        'text': null,
+        'fileUrl': fileUrl, // The B2 URL
+        'fileName': fileName,
+        'reactions': {},
+        'mentionedUserIds': [], // Files don't have mentions
+      };
+
+      await _channelsCollection
+          .doc(channelId)
+          .collection('messages')
+          .add(newMessageData);
+
+    } on FirebaseException catch (e) {
+      print("Error saving file message to Firestore: $e");
+      rethrow;
+    }
+  }
+  // ✅ --- END: NEW FUNCTION ---
+
+  /// Sends a file message (This is your original function, left unchanged)
   Future<void> sendFileMessage(String channelId, PlatformFile file) async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
@@ -243,7 +283,7 @@ class AnnounceService {
     }
   }
 
-  /// Toggles an emoji reaction
+  /// Toggles an emoji reaction (This is your original function, left unchanged)
   Future<void> toggleReaction(
       String channelId, String messageId, String emoji) async {
     final User? currentUser = _auth.currentUser;

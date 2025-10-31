@@ -1,6 +1,9 @@
 // lib/screens/announce/channel_chat_page.dart
 import 'dart:ui';
 import 'dart:io';
+import 'dart:convert'; // ✅ ADDED FOR B2
+import 'package:crypto/crypto.dart'; // ✅ ADDED FOR B2
+import 'package:path/path.dart' as path; // ✅ ADDED FOR B2
 
 import 'package:boitex_info_app/models/channel_model.dart';
 import 'package:boitex_info_app/models/message_model.dart';
@@ -33,17 +36,99 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   final String _currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
   bool _isUploading = false;
 
-  // ✅ --- State for mention suggestions ---
+  // --- State for mention suggestions ---
   bool _showMentionSuggestions = false;
   List<String> _mentionSuggestions = [];
-  int _mentionTriggerIndex = -1; // Stores the text index where '@' was typed
-  // ✅ --- END ---
+  int _mentionTriggerIndex = -1;
+  // --- END ---
 
-  // ✅ --- initState and dispose ---
+  // ✅ --- START: ADDED B2 UPLOAD LOGIC ---
+
+  // Copied from add_sav_ticket_page.dart
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+
+  /// Fetches B2 upload credentials from your Cloud Function.
+  /// Copied from add_sav_ticket_page.dart.
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+  /// Uploads file bytes to B2.
+  /// This is a web/mobile compatible version of the logic
+  /// from add_sav_ticket_page.dart.
+  Future<String?> _uploadBytesToB2(
+      Uint8List fileBytes, String fileName, Map<String, dynamic> b2Creds) async {
+    try {
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+
+      // Determine mime type (optional but helpful)
+      String? mimeType;
+      final fNameLower = fileName.toLowerCase();
+      if (fNameLower.endsWith('.jpg') || fNameLower.endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (fNameLower.endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (fNameLower.endsWith('.gif')) {
+        mimeType = 'image/gif';
+      } else if (fNameLower.endsWith('.pdf')) {
+        mimeType = 'application/pdf';
+      } else if (fNameLower.endsWith('.mp4')) {
+        mimeType = 'video/mp4';
+      } else if (fNameLower.endsWith('.mov')) {
+        mimeType = 'video/quicktime';
+      } else {
+        mimeType = 'b2/x-auto'; // Backblaze default
+      }
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(fileName), // Use Uri.encodeComponent for safety
+          'Content-Type': mimeType,
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        // Correctly encode each part of the path
+        final encodedPath = (body['fileName'] as String)
+            .split('/')
+            .map(Uri.encodeComponent)
+            .join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+  // ✅ --- END: ADDED B2 UPLOAD LOGIC ---
+
+
   @override
   void initState() {
     super.initState();
-    // Add a listener to the text controller to check for mentions
     _messageController.addListener(_onTextChanged);
   }
 
@@ -54,56 +139,40 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     _scrollController.dispose();
     super.dispose();
   }
-  // ✅ --- END ---
 
-  // ✅ --- REVISED MENTION LOGIC (FIXED) ---
   void _onTextChanged() {
     final text = _messageController.text;
     final selection = _messageController.selection;
 
-    // If selection is invalid, hide suggestions
     if (selection.start == -1) {
       if (_showMentionSuggestions) {
         setState(() => _showMentionSuggestions = false);
       }
       return;
     }
-
-    // Get the text before the cursor to find the last '@'
     final textBeforeCursor = text.substring(0, selection.start);
     final atIndex = textBeforeCursor.lastIndexOf('@');
 
-    // No '@' found, hide suggestions
     if (atIndex == -1) {
       if (_showMentionSuggestions) {
         setState(() => _showMentionSuggestions = false);
       }
       return;
     }
-
-    // Get the query string (the text after the '@')
     final query = textBeforeCursor.substring(atIndex + 1);
 
-    // ✅ --- MODIFIED LOGIC ---
-    // Check if the query contains a space. An empty query is now ALLOWED.
     if (query.contains(' ')) {
       if (_showMentionSuggestions) {
         setState(() => _showMentionSuggestions = false);
       }
       return;
     }
-    // ✅ --- END MODIFIED LOGIC ---
 
-    // Valid query! Store the trigger index and fetch suggestions
     setState(() {
       _mentionTriggerIndex = atIndex;
     });
-    // This will now call the service with an empty string ("")
-    // which our new service logic can handle.
     _fetchMentionSuggestions(query);
   }
-  // ✅ --- END REVISED MENTION LOGIC ---
-
 
   Future<void> _fetchMentionSuggestions(String query) async {
     final suggestions = await _announceService.searchUserDisplayNames(query);
@@ -117,28 +186,18 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   void _onMentionSuggestionTapped(String displayName) {
     final text = _messageController.text;
     final cursorPosition = _messageController.selection.start;
-
-    // Get the text before the '@'
     final textBefore = text.substring(0, _mentionTriggerIndex);
-    // Get the text after the query (which ends at the cursor)
     final textAfter = text.substring(cursorPosition);
-
-    // Construct the new text, adding a space after the mention
     final newText = '$textBefore@$displayName $textAfter';
-
     _messageController.text = newText;
-    // Move the cursor to the end of the inserted mention
     _messageController.selection = TextSelection.fromPosition(
-      TextPosition(offset: _mentionTriggerIndex + displayName.length + 2), // +2 for '@' and space
+      TextPosition(offset: _mentionTriggerIndex + displayName.length + 2),
     );
-
-    // Hide the suggestion list
     setState(() {
       _showMentionSuggestions = false;
       _mentionSuggestions.clear();
     });
   }
-
 
   void _sendTextMessage() {
     if (_messageController.text.trim().isNotEmpty) {
@@ -147,14 +206,13 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         _messageController.text.trim(),
       );
       _messageController.clear();
-      // ✅ --- ADDED: Hide suggestions on send ---
       setState(() {
         _showMentionSuggestions = false;
       });
-      // ✅ --- END ADDED ---
     }
   }
 
+  // ✅ --- THIS FUNCTION IS FULLY REPLACED ---
   void _pickAndUploadFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -163,22 +221,72 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
           'jpg', 'jpeg', 'png', 'gif', 'pdf', 'mp4', 'mov', 'avi', 'mkv',
           'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'
         ],
+        withData: true, // Ensure bytes are loaded for web compatibility
       );
-      if (result != null && result.files.single.path != null) {
+
+      if (result != null && result.files.single != null) {
         setState(() {
           _isUploading = true;
         });
-        final PlatformFile file = result.files.first;
-        await _announceService.sendFileMessage(widget.channel.id, file);
+
+        final PlatformFile platformFile = result.files.first;
+
+        // Get file bytes (cross-platform way)
+        Uint8List? fileBytes;
+        if (kIsWeb) {
+          fileBytes = platformFile.bytes;
+        } else if (platformFile.path != null) {
+          fileBytes = await File(platformFile.path!).readAsBytes();
+        }
+
+        if (fileBytes == null) {
+          throw Exception("Impossible de lire les octets du fichier.");
+        }
+
+        // 1. Get B2 credentials
+        final b2Credentials = await _getB2UploadCredentials();
+        if (b2Credentials == null) {
+          throw Exception('Impossible de récupérer les accès B2.');
+        }
+
+        // 2. Upload to B2 using the new bytes-based function
+        final String? downloadUrl =
+        await _uploadBytesToB2(fileBytes, platformFile.name, b2Credentials);
+
+        if (downloadUrl == null) {
+          throw Exception('Échec de l\'upload du fichier sur B2.');
+        }
+
+        // 3. Determine file type for the message
+        String messageType = 'file'; // Default
+        final extension = platformFile.extension?.toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'gif'].contains(extension)) {
+          messageType = 'image';
+        } else if (extension == 'pdf') {
+          messageType = 'pdf';
+        } else if (['mp4', 'mov', 'avi', 'mkv'].contains(extension)) {
+          messageType = 'video';
+        }
+
+        // 4. Call the (new) service method to save the URL and metadata
+        //    !! YOU MUST CREATE THIS METHOD IN AnnounceService !!
+        await _announceService.saveFileMessageWithUrl(
+          channelId: widget.channel.id,
+          fileUrl: downloadUrl,
+          fileName: platformFile.name,
+          messageType: messageType,
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error uploading file: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erreur upload fichier: $e')));
     } finally {
       setState(() {
         _isUploading = false;
       });
     }
   }
+  // ✅ --- END OF REPLACED FUNCTION ---
 
   void _scrollToBottom() {
     if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0) {
@@ -293,7 +401,6 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
             end: Alignment.bottomCenter,
           ),
         ),
-        // ✅ --- MODIFIED: The layout is now a Column ---
         child: Column(
           children: [
             Expanded(
@@ -332,18 +439,14 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
             if (_isUploading)
               const Padding(
                   padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()),
-            // ✅ --- ADDED: The suggestion list ---
             _buildSuggestionList(),
-            // ✅ --- END ADDED ---
             _buildMessageInput(),
           ],
         ),
-        // ✅ --- END MODIFIED ---
       ),
     );
   }
 
-  // ✅ --- ADDED: New widget for the suggestion list ---
   Widget _buildSuggestionList() {
     if (!_showMentionSuggestions) {
       return const SizedBox.shrink();
@@ -377,18 +480,15 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       ),
     );
   }
-  // ✅ --- END ADDED ---
 
   Widget _buildMessageInput() {
     return Container(
       padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.90),
-        // ✅ MODIFIED: No border radius if suggestions are shown
         borderRadius: _showMentionSuggestions
             ? BorderRadius.zero
             : const BorderRadius.vertical(top: Radius.circular(18)),
-        // ✅ END MODIFIED
         boxShadow: [
           BoxShadow(
             color: Colors.blueAccent.withOpacity(0.10),
@@ -405,9 +505,9 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
           ),
           Expanded(
             child: TextField(
-              controller: _messageController, // Listener is attached in initState
+              controller: _messageController,
               decoration: const InputDecoration(
-                hintText: 'Type a message... (try @Username)', // ✅ Modified hint
+                hintText: 'Type a message... (try @Username)',
                 hintStyle: TextStyle(color: Color(0xFFB4C7DF)),
                 border: InputBorder.none,
                 filled: true,
@@ -511,7 +611,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                         ? CrossAxisAlignment.end
                         : CrossAxisAlignment.start,
                     children: [
-                      _buildMessageContent( // This now calls our new mention logic
+                      _buildMessageContent(
                           message, textColor),
                       SizedBox(
                           height: message.reactions.isNotEmpty ? 8 : 2),
@@ -521,7 +621,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                         child: Text(
                           message.timestamp != null
                               ? DateFormat('HH:mm').format(
-                              message.timestamp.toDate())
+                              message.timestamp!.toDate())
                               : '--:--',
                           style: const TextStyle(
                             fontSize: 11,
@@ -590,9 +690,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
-  // ✅ --- WIDGET MODIFIED (from our previous step) ---
   Widget _buildMessageContent(MessageModel message, Color textColor) {
-    // Check if the current user was mentioned in this message
     final bool amIMentioned = message.mentionedUserIds.contains(_currentUserId);
 
     if (message.fileUrl == null && message.messageType != 'text') {
@@ -604,7 +702,6 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     }
     switch (message.messageType) {
       case 'text':
-      // Use RichText to handle mentions
         return _buildTextWithMentions(message.text ?? '', textColor, amIMentioned);
       case 'image':
         return GestureDetector(
@@ -692,7 +789,6 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         );
     }
   }
-  // ✅ --- END MODIFIED WIDGET ---
 
 
   Widget _buildFileBubble(String fileName, IconData icon, Color iconColor) {
@@ -726,8 +822,6 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
-  // ✅ --- HELPER WIDGET (from our previous step) ---
-  /// Builds a RichText widget that highlights @mentions
   Widget _buildTextWithMentions(String text, Color defaultColor, bool amIMentioned) {
     final RegExp mentionRegex = RegExp(r'@(\w+)');
     final List<TextSpan> textSpans = [];
@@ -741,20 +835,17 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       height: 1.33,
     );
 
-    // Style for @mentions
     final TextStyle mentionStyle = defaultStyle.copyWith(
       color: Colors.blue.shade700,
       fontWeight: FontWeight.bold,
     );
 
-    // Special style if the mention is for the current user
     final TextStyle selfMentionStyle = mentionStyle.copyWith(
       backgroundColor: Colors.blue.withOpacity(0.15),
     );
 
     int lastMatchEnd = 0;
     for (final Match match in mentionRegex.allMatches(text)) {
-      // Add text before the mention
       if (match.start > lastMatchEnd) {
         textSpans.add(
           TextSpan(
@@ -763,25 +854,16 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
           ),
         );
       }
-
-      // Add the mention itself
-      final String mentionText = match.group(0)!; // Full "@Username"
-
+      final String mentionText = match.group(0)!;
       textSpans.add(
         TextSpan(
           text: mentionText,
           style: amIMentioned ? selfMentionStyle : mentionStyle,
-          // You could add a gesture recognizer here to
-          // navigate to the user's profile page in the future
-          // recognizer: TapGestureRecognizer()..onTap = () {
-          //   print('Tapped on mention: $mentionText');
-          // },
         ),
       );
       lastMatchEnd = match.end;
     }
 
-    // Add any remaining text after the last mention
     if (lastMatchEnd < text.length) {
       textSpans.add(
         TextSpan(
@@ -795,5 +877,4 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       text: TextSpan(children: textSpans),
     );
   }
-// ✅ --- END HELPER WIDGET ---
 }
