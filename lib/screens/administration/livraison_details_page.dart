@@ -22,6 +22,9 @@ import 'package:crypto/crypto.dart';
 import 'dart:developer'; // for debugPrint
 import 'package:video_thumbnail/video_thumbnail.dart'; // For video thumbs
 
+// ✅ ADDED: Import for Firebase Auth to get current user
+import 'package:firebase_auth/firebase_auth.dart';
+
 class LivraisonDetailsPage extends StatefulWidget {
   final String livraisonId;
   const LivraisonDetailsPage({super.key, required this.livraisonId});
@@ -120,6 +123,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           // ✅ If completed, assume items were delivered/scanned correctly
           final bool wasDelivered = isCompleted;
 
+          // ✅ ADDED: Get the productId from the product map
+          final String? productId = product['productId'] as String?;
+
           if (quantity > 0 && serials.isEmpty && serialsFound.isEmpty && quantity > 5) { // Treat as bulk only if no serials expected or found
             bulk.add({
               'productName': productName,
@@ -127,6 +133,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               'quantity': quantity,
               'delivered': wasDelivered, // ✅ Use loaded status
               'type': 'bulk',
+              'productId': productId, // ✅ ADDED
             });
           } else { // Treat as serialized if serials expected OR if serials were found (even if not expected)
             int itemsToAdd = quantity > 0 ? quantity : serialsFound.length; // Use quantity or found serials length
@@ -142,6 +149,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                 'originalSerialNumber': (i < serials.length) ? serials[i] : null,
                 'scanned': wasDelivered, // ✅ Use loaded status (true if 'Livré')
                 'type': 'serialized',
+                'productId': productId, // ✅ ADDED
               });
             }
           }
@@ -280,7 +288,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     }
   }
 
-  // --- Completion Logic ---
+  // --- ✅ CHANGED: Completion Logic (Switched to Transaction) ---
   Future<void> _completeLivraison() async {
     // ✅ Prevent completion if already completed
     if (_isLivraisonCompleted) return;
@@ -306,136 +314,204 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     if (_livraisonDoc == null) return;
     setState(() => _isCompleting = true);
 
+    // Get current user for the audit log
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur: Utilisateur non connecté.')),
+      );
+      setState(() => _isCompleting = false);
+      return;
+    }
+
+    String? signatureUrl;
     try {
-      final signatureUrl = await _uploadSignature();
+      // --- 1. Upload Signature FIRST ---
+      signatureUrl = await _uploadSignature();
       // Ensure signature uploaded successfully
-      if (signatureUrl == null) { // Check specifically if upload failed
+      if (signatureUrl == null) {
         throw Exception('Échec de l\'upload de la signature.');
       }
 
       final livraisonData = _livraisonDoc!.data() as Map<String, dynamic>;
       final clientId = livraisonData['clientId'];
       final storeId = livraisonData['storeId'];
+      final bonLivraisonCode = livraisonData['bonLivraisonCode'] ?? 'N/A';
       if (storeId == null || storeId.isEmpty) {
         throw Exception(
             'Impossible de sauvegarder l\'historique: Magasin non spécifié.');
       }
 
-      // Prepare product list with found serial numbers
-      final Map<String, Map<String, dynamic>> groupedProducts = {};
       // Get original products list to preserve original serial numbers
       final List originalProducts = livraisonData['products'] as List? ?? [];
 
-      for (final item in _serializedItems) {
-        final key = item['partNumber'] ?? item['productName'];
-        if (!groupedProducts.containsKey(key)) {
-          // Find the original product entry
+      // --- 2. Run Firestore Transaction ---
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final livraisonRef = FirebaseFirestore.instance
+            .collection('livraisons')
+            .doc(widget.livraisonId);
+
+        // --- 2a. Group all delivered products by their ID ---
+        final Map<String, int> productQuantityChanges = {};
+        final Map<String, Map<String, dynamic>> productDetails = {};
+
+        // Group serialized items
+        for (final item in _serializedItems) {
+          final productId = item['productId'] as String?;
+          if (item['scanned'] == true && productId != null) {
+            productQuantityChanges[productId] = (productQuantityChanges[productId] ?? 0) + 1;
+            productDetails.putIfAbsent(productId, () => {
+              'name': item['productName'],
+              'ref': item['partNumber'], // 'partNumber' holds the reference
+            });
+          }
+        }
+
+        // Group bulk items
+        for (final item in _bulkItems) {
+          final productId = item['productId'] as String?;
+          if (item['delivered'] == true && productId != null) {
+            productQuantityChanges[productId] = (productQuantityChanges[productId] ?? 0) + (item['quantity'] as int);
+            productDetails.putIfAbsent(productId, () => {
+              'name': item['productName'],
+              'ref': item['partNumber'], // 'partNumber' holds the reference
+            });
+          }
+        }
+
+        // --- 2b. Read, Log, and Update Stock for EACH product ---
+        for (final productId in productQuantityChanges.keys) {
+          final int quantityChange = productQuantityChanges[productId]!; // e.g., 5
+          final details = productDetails[productId]!;
+
+          // Define references
+          final productDocRef = FirebaseFirestore.instance.collection('produits').doc(productId);
+          final ledgerDocRef = FirebaseFirestore.instance.collection('stock_movements').doc();
+
+          // **READ (This is why we need a transaction)**
+          final productSnapshot = await transaction.get(productDocRef);
+          if (!productSnapshot.exists) {
+            throw Exception('Produit ${details['name']} (ID: $productId) non trouvé.');
+          }
+          final int oldQuantity = (productSnapshot.data()?['quantiteEnStock'] ?? 0) as int;
+          final int newQuantity = oldQuantity - quantityChange;
+
+          // **WRITE 1: Update Product Stock (Atomic)**
+          transaction.update(productDocRef, {
+            // Use FieldValue.increment for atomic subtraction
+            'quantiteEnStock': FieldValue.increment(-quantityChange)
+          });
+
+          // **WRITE 2: Create Stock Movement Ledger**
+          transaction.set(ledgerDocRef, {
+            'productId': productId,
+            'productRef': details['ref'] ?? 'N/A',
+            'productName': details['name'] ?? 'Nom inconnu',
+            'quantityChange': -quantityChange, // Save as negative
+            'oldQuantity': oldQuantity,
+            'newQuantity': newQuantity,
+            'type': 'LIVRAISON', // New type
+            'notes': 'Sortie pour Bon de Livraison: $bonLivraisonCode',
+            'userId': currentUser.uid,
+            'userDisplayName': currentUser.displayName ?? currentUser.email,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        }
+
+        // --- 2c. Prepare final product list for livraison doc ---
+        // (This logic is from your original function, now inside the transaction)
+        final Map<String, Map<String, dynamic>> groupedProducts = {};
+        for (final item in _serializedItems) {
+          final key = item['partNumber'] ?? item['productName'];
+          if (!groupedProducts.containsKey(key)) {
+            final originalProduct = originalProducts.firstWhere(
+                    (p) => (p['partNumber'] ?? p['productName']) == key,
+                orElse: () => null);
+            groupedProducts[key] = {
+              'productName': item['productName'],
+              'partNumber': item['partNumber'],
+              'quantity': 0,
+              'productId': item['productId'], // ✅ Pass productId
+              'serialNumbers': originalProduct?['serialNumbers'] as List? ?? [],
+              'serialNumbersFound': [],
+            };
+          }
+          groupedProducts[key]!['quantity'] =
+              (groupedProducts[key]!['quantity'] as int) + 1;
+          if (item['serialNumber'] != null) {
+            (groupedProducts[key]!['serialNumbersFound'] as List)
+                .add(item['serialNumber']);
+          }
+        }
+        for (final item in _bulkItems) {
+          final key = item['partNumber'] ?? item['productName'];
           final originalProduct = originalProducts.firstWhere(
                   (p) => (p['partNumber'] ?? p['productName']) == key,
               orElse: () => null);
-          groupedProducts[key] = {
-            'productName': item['productName'],
-            'partNumber': item['partNumber'],
-            'quantity': 0,
-            // Keep original serials if they existed
-            'serialNumbers': originalProduct?['serialNumbers'] as List? ?? [],
-            'serialNumbersFound': [], // Serials actually scanned/found
-          };
+          if (!groupedProducts.containsKey(key)) {
+            groupedProducts[key] = {
+              'productName': item['productName'],
+              'partNumber': item['partNumber'],
+              'quantity': item['quantity'],
+              'productId': item['productId'], // ✅ Pass productId
+              'serialNumbers': originalProduct?['serialNumbers'] as List? ?? [],
+              'serialNumbersFound': [],
+            };
+          } else {
+            groupedProducts[key]!['quantity'] = (groupedProducts[key]!['quantity'] as int) + (item['quantity'] as int);
+          }
         }
-        groupedProducts[key]!['quantity'] =
-            (groupedProducts[key]!['quantity'] as int) + 1;
-        if (item['serialNumber'] != null) {
-          // Add scanned/entered serial to found list
-          (groupedProducts[key]!['serialNumbersFound'] as List)
-              .add(item['serialNumber']);
-        }
-      }
-      for (final item in _bulkItems) {
-        final key = item['partNumber'] ?? item['productName'];
-        final originalProduct = originalProducts.firstWhere(
-                (p) => (p['partNumber'] ?? p['productName']) == key,
-            orElse: () => null);
-        if (!groupedProducts.containsKey(key)) {
-          groupedProducts[key] = {
-            'productName': item['productName'],
-            'partNumber': item['partNumber'],
-            'quantity': item['quantity'],
-            // Keep original serials if they existed (unlikely for bulk but safe)
-            'serialNumbers': originalProduct?['serialNumbers'] as List? ?? [],
-            'serialNumbersFound': [],
-          };
-        } else {
-          // Add quantity for bulk items
-          groupedProducts[key]!['quantity'] = (groupedProducts[key]!['quantity'] as int) + (item['quantity'] as int);
-        }
-      }
+        groupedProducts.values.forEach((productData) {
+          if (productData['serialNumbersFound'] is List) {
+            productData['serialNumbersFound'] = (productData['serialNumbersFound'] as List)
+                .where((sn) => sn != null)
+                .toSet()
+                .toList();
+          }
+        });
+        final List<Map<String, dynamic>> updatedProductsList =
+        List<Map<String, dynamic>>.from(groupedProducts.values);
 
-      // Ensure 'serialNumbersFound' list only contains unique non-null values
-      groupedProducts.values.forEach((productData) {
-        if (productData['serialNumbersFound'] is List) {
-          productData['serialNumbersFound'] = (productData['serialNumbersFound'] as List)
-              .where((sn) => sn != null) // Filter out nulls
-              .toSet() // Get unique values
-              .toList(); // Convert back to list
-        }
-      });
+        // --- 2d. Update Livraison Document ---
+        transaction.update(livraisonRef, {
+          'status': 'Livré',
+          'completedAt': FieldValue.serverTimestamp(),
+          'signatureUrl': signatureUrl,
+          'products': updatedProductsList, // Save products with found serials
+          'recipientName': _recipientNameController.text.trim(),
+          'recipientPhone': _recipientPhoneController.text.trim(),
+          'recipientEmail': _recipientEmailController.text.trim(),
+        });
 
+        // --- 2e. Update materiel_installe ---
+        final materielCollectionRef = FirebaseFirestore.instance
+            .collection('clients')
+            .doc(clientId)
+            .collection('stores')
+            .doc(storeId)
+            .collection('materiel_installe');
 
-      final List<Map<String, dynamic>> updatedProductsList =
-      List<Map<String, dynamic>>.from(groupedProducts.values);
-
-      final batch = FirebaseFirestore.instance.batch();
-      final livraisonRef = FirebaseFirestore.instance
-          .collection('livraisons')
-          .doc(widget.livraisonId);
-
-      batch.update(livraisonRef, {
-        'status': 'Livré',
-        'completedAt': FieldValue.serverTimestamp(),
-        'signatureUrl': signatureUrl,
-        'products': updatedProductsList, // Save products with potentially found serials
-        'recipientName': _recipientNameController.text.trim(),
-        'recipientPhone': _recipientPhoneController.text.trim(),
-        'recipientEmail': _recipientEmailController.text.trim(),
-      });
-
-      // --- Update materiel_installe using ONLY the found/scanned serial numbers ---
-      final materielCollectionRef = FirebaseFirestore.instance
-          .collection('clients')
-          .doc(clientId)
-          .collection('stores')
-          .doc(storeId)
-          .collection('materiel_installe');
-
-      for (final productGroup in updatedProductsList) {
-        final serialsFound = productGroup['serialNumbersFound'] as List? ?? [];
-        if (serialsFound.isNotEmpty) {
-          for (final sn in serialsFound) {
-            // Check if this exact serial number already exists for this store
-            final existingQuery = await materielCollectionRef
-                .where('serialNumber', isEqualTo: sn)
-                .limit(1)
-                .get();
-
-            if (existingQuery.docs.isEmpty) { // Only add if it doesn't exist
-              final newMaterielDoc = materielCollectionRef.doc();
-              batch.set(newMaterielDoc, {
+        for (final productGroup in updatedProductsList) {
+          final serialsFound = productGroup['serialNumbersFound'] as List? ?? [];
+          if (serialsFound.isNotEmpty) {
+            for (final sn in serialsFound) {
+              // Note: We cannot query inside a transaction.
+              // We will just set the doc using the SN as the ID.
+              // This is "upsert" behavior (create or overwrite).
+              final newMaterielDoc = materielCollectionRef.doc(sn); // Use SN as doc ID
+              transaction.set(newMaterielDoc, {
                 'productName': productGroup['productName'],
                 'partNumber': productGroup['partNumber'],
                 'serialNumber': sn,
-                'installationDate': FieldValue.serverTimestamp(), // Date of delivery completion
-                'livraisonId': widget.livraisonId, // Link back to the delivery
+                'installationDate': FieldValue.serverTimestamp(),
+                'livraisonId': widget.livraisonId,
               });
-            } else {
-              debugPrint("Serial number $sn already exists in materiel_installe for store $storeId. Skipping.");
             }
           }
         }
-      }
-      // --- End materiel_installe update ---
+      }); // --- End of Transaction ---
 
-
-      await batch.commit();
+      // --- 3. Log Activity and Pop Screen (AFTER transaction) ---
       await ActivityLogger.logActivity(
         message:
         'a confirmé la livraison pour le client ${livraisonData['clientName'] ?? ''}.',
@@ -726,8 +802,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     final int totalBulkDelivered =
         _bulkItems.where((item) => item['delivered'] == true).length;
 
-    final String? fileUrl = data['externalBonUrl'] as String?;
-    final String? fileName = data['externalBonFileName'] as String?;
+    // ✅ CHANGED: This logic now points to the new 'externalBons' list
+    final List bonFiles = data['externalBons'] as List? ?? [];
+    final String? fileUrl = bonFiles.isNotEmpty ? bonFiles.first['url'] as String? : null;
+    final String? fileName = bonFiles.isNotEmpty ? bonFiles.first['name'] as String? : null;
     final String? signatureImageUrl = data['signatureUrl'] as String?; // ✅ Get signature URL
 
 
@@ -763,6 +841,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               ),
             ),
 
+            // ✅ CHANGED: This section now shows the *first* bon file, if any
             if (fileUrl != null && fileUrl.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
