@@ -5,6 +5,8 @@ import 'package:flutter/services.dart'; // for HapticFeedback
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:intl/intl.dart';
+import 'dart:typed_data'; // ✅ ADDED FOR WEB EXPORT
+import 'dart:convert'; // ✅ ADDED TO FIX 'utf8' ERROR
 // We can re-use the MainCategory from stock_page.dart
 import 'package:boitex_info_app/screens/administration/stock_page.dart';
 // ✅ --- ADD THESE IMPORTS ---
@@ -14,7 +16,23 @@ import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ ADDED FOR WEB CHECK
+import 'package:file_saver/file_saver.dart'; // ✅ ADDED FOR WEB DOWNLOAD
 // ✅ --- END OF IMPORTS ---
+
+// --- ✨ NEW BRIGHT THEME COLORS ✨ ---
+class ReportTheme {
+  static const Color background = Color(0xFFF8FAFC); // Light Gray
+  static const Color card = Colors.white;
+  static const Color surface = Color(0xFFF1F5F9); // Light Gray for inputs
+  static const Color primary = Color(0xFF0EA5E9); // Default Blue
+  static const Color accentGreen = Color(0xFF16A34A);
+  static const Color accentRed = Color(0xFFDC2626);
+  static const Color accentOrange = Color(0xFFEA580C);
+  static const Color text = Color(0xFF0F172A); // Deep Navy Blue
+  static const Color textSecondary = Color(0xFF64748B); // Medium Gray
+}
+// --- ✨ END OF THEME ✨ ---
 
 class InventoryReportPage extends StatefulWidget {
   const InventoryReportPage({super.key});
@@ -43,12 +61,19 @@ class _InventoryReportPageState extends State<InventoryReportPage>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  // ✅ --- THIS IS THE CORRECTED LIST ---
-  // This list now matches your stock_page.dart and product_catalog_page.dart
   final List<MainCategory> _mainCategories = [
-    MainCategory(name: 'Antivol', icon: Icons.shield_rounded, color: const Color(0xFF667EEA)),
-    MainCategory(name: 'TPV', icon: Icons.point_of_sale_rounded, color: const Color(0xFFEC4899)),
-    MainCategory(name: 'Compteur Client', icon: Icons.people_alt_rounded, color: const Color(0xFF10B981)),
+    MainCategory(
+        name: 'Antivol',
+        icon: Icons.shield_rounded,
+        color: const Color(0xFF667EEA)),
+    MainCategory(
+        name: 'TPV',
+        icon: Icons.point_of_sale_rounded,
+        color: const Color(0xFFEC4899)),
+    MainCategory(
+        name: 'Compteur Client',
+        icon: Icons.people_alt_rounded,
+        color: const Color(0xFF10B981)),
   ];
 
   @override
@@ -80,6 +105,17 @@ class _InventoryReportPageState extends State<InventoryReportPage>
     _fadeController.dispose();
     _scaleController.dispose();
     super.dispose();
+  }
+
+  /// ✅ NEW: Helper to abbreviate large stock quantities for display (keeps full ints for exports/filters)
+  String _formatStockDisplay(int quantity) {
+    if (quantity >= 1000000) {
+      return NumberFormat('#,##0.0', 'fr_FR').format(quantity / 1000000) + 'M';
+    } else if (quantity >= 1000) {
+      return NumberFormat('#,##0', 'fr_FR').format(quantity / 1000) + 'K';
+    } else {
+      return quantity.toString();
+    }
   }
 
   /// Fetches the unique list of sub-categories for the selected main category
@@ -126,9 +162,11 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       setState(() {
         _isFetchingSubCategories = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors du chargement des sous-catégories: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors du chargement des sous-catégories: $e')),
+        );
+      }
     }
   }
 
@@ -149,9 +187,11 @@ class _InventoryReportPageState extends State<InventoryReportPage>
             query.where('mainCategory', isEqualTo: _selectedMainCategory!.name);
       } else {
         // We require a main category to be selected
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez sélectionner une catégorie principale.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Veuillez sélectionner une catégorie principale.')),
+          );
+        }
         setState(() {
           _isLoadingReport = false;
         });
@@ -189,9 +229,11 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       });
 
       if (_products.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun produit trouvé pour ces filtres.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Aucun produit trouvé pour ces filtres.')),
+          );
+        }
       } else {
         _scaleController
           ..reset()
@@ -200,15 +242,18 @@ class _InventoryReportPageState extends State<InventoryReportPage>
     } catch (e) {
       // ignore: avoid_print
       print("Error running report: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la génération: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la génération: $e')),
+        );
+      }
       setState(() {
         _isLoadingReport = false;
       });
     }
   }
 
+  // ✅ --- START: UPDATED PDF Export Function ---
   void _generatePdf() async {
     if (_isExporting || _products.isEmpty) return;
 
@@ -230,7 +275,23 @@ class _InventoryReportPageState extends State<InventoryReportPage>
         filters,
       );
 
-      await Printing.layoutPdf(onLayout: (format) => pdfData);
+      final String fileName =
+          'Rapport_Inventaire_${_selectedMainCategory!.name.replaceAll(' ', '_')}_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.pdf';
+
+      if (kIsWeb) {
+        // --- WEB LOGIC (Direct Download) ---
+        await FileSaver.instance.saveFile(
+          name: fileName,
+          bytes: pdfData,
+          mimeType: MimeType.pdf,
+        );
+      } else {
+        // --- ANDROID LOGIC (Open Print/Preview Dialog) ---
+        await Printing.layoutPdf(
+          onLayout: (format) => pdfData,
+          name: fileName,
+        );
+      }
     } catch (e) {
       // ignore: avoid_print
       print("Error generating PDF: $e");
@@ -238,10 +299,14 @@ class _InventoryReportPageState extends State<InventoryReportPage>
         SnackBar(content: Text('Erreur lors de la création du PDF: $e')),
       );
     } finally {
-      setState(() => _isExporting = false);
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
     }
   }
+  // ✅ --- END: UPDATED PDF Export Function ---
 
+  // ✅ --- START: UPDATED CSV Export Function ---
   void _generateCsv() async {
     if (_isExporting || _products.isEmpty) return;
 
@@ -255,18 +320,31 @@ class _InventoryReportPageState extends State<InventoryReportPage>
 
       final csvData = InventoryCsvService.generateInventoryCsv(exportDocs);
 
-      final tempDir = await getTemporaryDirectory();
       final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final categoryName = _selectedMainCategory!.name.replaceAll(' ', '_');
-      final path = '${tempDir.path}/Inventaire_${categoryName}_$date.csv';
+      final fileName = 'Inventaire_${categoryName}_$date.csv';
 
-      final file = File(path);
-      await file.writeAsString(csvData, encoding: const SystemEncoding());
+      if (kIsWeb) {
+        // --- WEB LOGIC (Direct Download) ---
+        final Uint8List bytes = utf8.encode(csvData); // 'utf8' is from dart:convert
+        await FileSaver.instance.saveFile(
+          name: fileName,
+          bytes: bytes,
+          mimeType: MimeType.csv,
+        );
+      } else {
+        // --- ANDROID LOGIC (Open With / Share) ---
+        final tempDir = await getTemporaryDirectory();
+        final path = '${tempDir.path}/$fileName';
 
-      await Share.shareXFiles(
-        [XFile(path, mimeType: 'text/csv')],
-        subject: 'Rapport d\'Inventaire - ${_selectedMainCategory!.name}',
-      );
+        final file = File(path);
+        await file.writeAsString(csvData, encoding: const SystemEncoding());
+
+        await Share.shareXFiles(
+          [XFile(path, mimeType: 'text/csv')],
+          subject: 'Rapport d\'Inventaire - ${_selectedMainCategory!.name}',
+        );
+      }
     } catch (e) {
       // ignore: avoid_print
       print("Error generating CSV: $e");
@@ -274,203 +352,234 @@ class _InventoryReportPageState extends State<InventoryReportPage>
         SnackBar(content: Text('Erreur lors de la création du CSV: $e')),
       );
     } finally {
-      setState(() => _isExporting = false);
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
     }
   }
+  // ✅ --- END: UPDATED CSV Export Function ---
 
   @override
   Widget build(BuildContext context) {
     // Responsive design for phone and web
     final screenWidth = MediaQuery.of(context).size.width;
     final isWebOrTablet = screenWidth > 600;
+    final isWideWeb = screenWidth > 1200; // ✅ NEW: For extra-wide web layouts
     final paddingHorizontal = isWebOrTablet ? 32.0 : 16.0;
+
+    // --- ✨ NEW BRIGHT THEME LOGIC ✨ ---
+    final Color accentColor = _selectedMainCategory?.color ?? ReportTheme.primary;
 
     return Theme(
       data: ThemeData(
         useMaterial3: true,
+        brightness: Brightness.light, // Set theme to light
+        scaffoldBackgroundColor: ReportTheme.background,
+        primaryColor: accentColor,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: _selectedMainCategory?.color ?? Colors.blue,
+          seedColor: accentColor,
           brightness: Brightness.light,
+          background: ReportTheme.background,
+          surface: ReportTheme.card,
+          primary: accentColor,
         ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          systemOverlayStyle: SystemUiOverlayStyle.dark, // Dark icons for light bg
+          iconTheme: IconThemeData(color: ReportTheme.text),
+          titleTextStyle: TextStyle(
+            color: ReportTheme.text,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
           ),
         ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          color: ReportTheme.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: ReportTheme.surface,
+          contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: accentColor, width: 2),
+          ),
+          labelStyle: const TextStyle(color: ReportTheme.textSecondary),
+          hintStyle: const TextStyle(color: ReportTheme.textSecondary),
+        ),
+        textTheme: Theme.of(context).textTheme.apply(
+          bodyColor: ReportTheme.text,
+          displayColor: ReportTheme.text,
+        ),
+        iconTheme: const IconThemeData(color: ReportTheme.textSecondary),
+        dividerTheme:
+        DividerThemeData(color: ReportTheme.surface, thickness: 1),
       ),
       child: Scaffold(
         extendBodyBehindAppBar: true,
         appBar: AppBar(
-          title: const Text(
-            "Rapport d'Inventaire",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          elevation: 0,
+          title: const Text("Rapport d'Inventaire"),
           flexibleSpace: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  _selectedMainCategory?.color ?? Colors.blue,
-                  (_selectedMainCategory?.color ?? Colors.blue).withOpacity(0.8),
+                  Colors.white.withOpacity(0.8),
+                  Colors.white.withOpacity(0.1),
                 ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
               ),
             ),
           ),
         ),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Colors.grey.shade50,
-                Colors.white,
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-          ),
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(
-                      paddingHorizontal, 100, paddingHorizontal, 16),
-                  sliver: SliverToBoxAdapter(
-                    child: _buildFilterSection(isWebOrTablet),
-                  ),
+        body: FadeTransition(
+          opacity: _fadeAnimation,
+          child: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                    paddingHorizontal,
+                    kToolbarHeight +
+                        MediaQuery.of(context).padding.top +
+                        20, // Padded below app bar
+                    paddingHorizontal,
+                    16),
+                sliver: SliverToBoxAdapter(
+                  child: _buildFilterSection(isWebOrTablet, isWideWeb, accentColor),
                 ),
-                // --- LOADING INDICATOR ---
-                if (_isLoadingReport)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.all(32.0),
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          valueColor:
-                          AlwaysStoppedAnimation<Color>(Colors.blue),
-                        ),
+              ),
+              // --- LOADING INDICATOR ---
+              if (_isLoadingReport)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(accentColor),
                       ),
                     ),
                   ),
-                // --- RESULTS LIST ---
-                SliverFillRemaining(
-                  child: _buildResultsList(),
                 ),
-              ],
-            ),
-          ),
-        ),
-        // --- ACTION BUTTONS ---
-        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-        floatingActionButton: _products.isNotEmpty
-            ? AnimatedBuilder(
-          animation: _scaleController,
-          builder: (context, child) {
-            return Transform.scale(
-              scale: _scaleController.value,
-              child: FloatingActionButton.extended(
-                heroTag: "pdf",
-                backgroundColor: Colors.red.shade600,
-                foregroundColor: Colors.white,
-                icon: _isExporting
-                    ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                )
-                    : const Icon(Icons.picture_as_pdf),
-                label: const Text('PDF'),
-                onPressed: _isExporting ? null : _generatePdf,
-                elevation: 8,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+              // --- RESULTS LIST ---
+              // Add padding for the floating buttons
+              SliverPadding(
+                padding: EdgeInsets.only(
+                  bottom: 120, // Space for the bottom bar
+                  left: paddingHorizontal,
+                  right: paddingHorizontal,
                 ),
-              ),
-            );
-          },
-        )
-            : null,
-        bottomNavigationBar: _products.isNotEmpty
-            ? Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
+                sliver: _buildResultsList(),
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: AnimatedBuilder(
-                    animation: _scaleController,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: _scaleController.value,
-                        child: ElevatedButton.icon(
-                          icon: _isExporting
-                              ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white),
-                          )
-                              : const Icon(Icons.table_rows_outlined),
-                          label: const Text('CSV'),
-                          onPressed: _isExporting ? null : _generateCsv,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.shade600,
-                            foregroundColor: Colors.white,
-                            padding:
-                            const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        )
+        ),
+        // --- ✨ NEW 2026 BOTTOM EXPORT BAR (SYMMETRICAL) ✨ ---
+        bottomNavigationBar: _products.isNotEmpty
+            ? _buildBottomExportBar(accentColor)
             : null,
       ),
     );
   }
 
-  Widget _buildFilterSection(bool isWideScreen) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      padding: EdgeInsets.all(isWideScreen ? 24 : 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+  // --- ✨ NEW 2026 SYMMETRICAL BOTTOM BAR ✨ ---
+  Widget _buildBottomExportBar(Color accentColor) {
+    return ScaleTransition(
+      scale: _scaleController,
+      child: Container(
+        padding:
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 12).copyWith(
+          bottom: MediaQuery.of(context).padding.bottom + 12,
+        ),
+        decoration: BoxDecoration(
+          color: ReportTheme.card,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            )
+          ],
+          border: Border(
+            top: BorderSide(color: ReportTheme.surface, width: 1),
           ),
-        ],
+        ),
+        child: Row(
+          children: [
+            // --- CSV BUTTON ---
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isExporting ? null : _generateCsv,
+                icon: _isExporting
+                    ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : const Icon(Icons.table_rows_outlined),
+                label: const Text('Export CSV'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ReportTheme.accentGreen,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // --- PDF BUTTON ---
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isExporting ? null : _generatePdf,
+                icon: _isExporting
+                    ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('Export PDF'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ReportTheme.accentRed,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  // --- ✨ NEW 2026 BRIGHT FILTER SECTION (FULL OVERFLOW FIXED) ✨ ---
+  Widget _buildFilterSection(bool isWebOrTablet, bool isWideWeb, Color accentColor) {
+    // ✅ FIXED: Local screenWidth declaration to avoid getter error
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    // ✅ IMPROVED: Horizontal scroll only for web, with constrained width
+    final Widget filterContent = SizedBox(
+      width: screenWidth, // Full available width
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -481,14 +590,20 @@ class _InventoryReportPageState extends State<InventoryReportPage>
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  _selectedMainCategory?.color ?? Colors.grey.shade300,
-                  (_selectedMainCategory?.color ?? Colors.grey.shade300)
-                      .withOpacity(0.5),
+                  accentColor,
+                  accentColor.withOpacity(0.6),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: accentColor.withOpacity(0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                )
+              ],
             ),
             child: const Text(
               'Filtres de Rapport',
@@ -500,20 +615,83 @@ class _InventoryReportPageState extends State<InventoryReportPage>
               textAlign: TextAlign.center,
             ),
           ),
-          const SizedBox(height: 20),
-          // Main Category Selection - Use Chips for colorful, elegant selection
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          const SizedBox(height: 24),
+          // Main Category Selection (Ultra-Responsive)
+          isWideWeb
+              ? Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: _mainCategories.map((category) {
+              final isSelected = _selectedMainCategory?.name == category.name;
+              return Flexible(
+                flex: 1, // ✅ EQUAL FLEX FOR EVEN SPACING
+                child: ChoiceChip(
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(category.icon,
+                          color: isSelected ? Colors.white : category.color,
+                          size: 16), // ✅ FURTHER REDUCED
+                      const SizedBox(width: 4), // ✅ TIGHTER
+                      Flexible(
+                        child: Text(
+                          category.name,
+                          style: TextStyle(fontSize: 11), // ✅ SMALLER FONT
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _selectedMainCategory = category;
+                        _selectedSubCategory = null;
+                        _subCategories = [];
+                      });
+                      _fetchSubCategories(category.name);
+                    }
+                  },
+                  selectedColor: category.color,
+                  backgroundColor: ReportTheme.surface,
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.white : ReportTheme.text,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11, // ✅ SMALLER FONT
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: isSelected ? category.color : Colors.transparent,
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4), // ✅ EVEN TIGHTER
+                ),
+              );
+            }).toList(),
+          )
+              : Wrap(
+            spacing: 4.0, // ✅ TIGHTER FROM 6
+            runSpacing: 4.0, // ✅ TIGHTER FROM 6
+            alignment: WrapAlignment.center,
             children: _mainCategories.map((category) {
               final isSelected = _selectedMainCategory?.name == category.name;
               return ChoiceChip(
                 label: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(category.icon, color: Colors.white, size: 20),
-                    const SizedBox(width: 8),
-                    Text(category.name),
+                    Icon(category.icon,
+                        color: isSelected ? Colors.white : category.color,
+                        size: 16), // ✅ FURTHER REDUCED
+                    const SizedBox(width: 4), // ✅ TIGHTER
+                    Flexible(
+                      child: Text(
+                        category.name,
+                        style: TextStyle(fontSize: 11), // ✅ SMALLER FONT
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                 ),
                 selected: isSelected,
@@ -528,47 +706,36 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                   }
                 },
                 selectedColor: category.color,
-                backgroundColor: category.color.withOpacity(0.2),
+                backgroundColor: ReportTheme.surface,
                 labelStyle: TextStyle(
-                  color: isSelected ? Colors.white : Colors.black87,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? Colors.white : ReportTheme.text,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11, // ✅ SMALLER FONT
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(12),
                   side: BorderSide(
-                    color: isSelected ? category.color : Colors.grey.shade300,
+                    color: isSelected ? category.color : Colors.transparent,
                   ),
                 ),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 4), // ✅ EVEN TIGHTER
               );
             }).toList(),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           // Sub Category Dropdown
           if (_selectedMainCategory != null)
             DropdownButtonFormField<String>(
               value: _selectedSubCategory,
               hint: const Text('Sélectionner Sous-Catégorie (Optionnel)'),
               isExpanded: true,
+              dropdownColor: ReportTheme.card,
               decoration: InputDecoration(
                 labelText: 'Sous-Catégorie',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                      color: _selectedMainCategory!.color.withOpacity(0.3)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                      color: _selectedMainCategory!.color.withOpacity(0.3)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                  BorderSide(color: _selectedMainCategory!.color, width: 2),
-                ),
                 prefixIcon: Icon(
                   Icons.subdirectory_arrow_right,
-                  color: _selectedMainCategory!.color,
+                  color: accentColor,
                 ),
                 suffixIcon: _isFetchingSubCategories
                     ? const Padding(
@@ -594,36 +761,51 @@ class _InventoryReportPageState extends State<InventoryReportPage>
               },
             ),
           const SizedBox(height: 16),
-          // Stock Filter - Use Segmented Button for modern look
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment<String>(value: 'Tous', label: Text('Tous')),
-              ButtonSegment<String>(value: 'En Stock', label: Text('En Stock')),
-              ButtonSegment<String>(
-                  value: 'En Rupture', label: Text('En Rupture')),
+
+          // ✅ --- STOCK FILTER: ULTRA-RESPONSIVE ---
+          isWideWeb
+              ? Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildStockFilterChip('Tous', accentColor),
+              const SizedBox(width: 4), // ✅ TIGHTER
+              _buildStockFilterChip('En Stock', accentColor),
+              const SizedBox(width: 4), // ✅ TIGHTER
+              _buildStockFilterChip('En Rupture', accentColor),
             ],
-            selected: {_stockFilter},
-            onSelectionChanged: (Set<String> newSelection) {
-              setState(() {
-                _stockFilter = newSelection.first;
-              });
-            },
-            style: SegmentedButton.styleFrom(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
+          )
+              : Wrap(
+            spacing: 4.0, // ✅ TIGHTER
+            runSpacing: 4.0, // ✅ TIGHTER
+            alignment: WrapAlignment.center,
+            children: [
+              _buildStockFilterChip('Tous', accentColor),
+              _buildStockFilterChip('En Stock', accentColor),
+              _buildStockFilterChip('En Rupture', accentColor),
+            ],
           ),
-          const SizedBox(height: 20),
+
+          const SizedBox(height: 24),
           // Generate Button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              icon: const Icon(Icons.query_stats),
+              icon: _isLoadingReport
+                  ? Container(
+                width: 20,
+                height: 20,
+                child: const CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(Icons.query_stats_rounded),
               label: const Text('Générer le Rapport'),
-              onPressed: _isLoadingReport ? null : _runReport,
+              onPressed: _isLoadingReport || _selectedMainCategory == null
+                  ? null
+                  : _runReport,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _selectedMainCategory?.color ?? Colors.blue,
+                backgroundColor: accentColor,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 textStyle:
@@ -638,32 +820,90 @@ class _InventoryReportPageState extends State<InventoryReportPage>
         ],
       ),
     );
+
+    // ✅ FIXED: Conditional horizontal scroll only for web, wrapped in Padding
+    return Container(
+      padding: EdgeInsets.all(isWebOrTablet ? 24 : 16),
+      decoration: BoxDecoration(
+        color: ReportTheme.card,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          )
+        ],
+        border: Border.all(color: ReportTheme.surface),
+      ),
+      child: isWebOrTablet
+          ? SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16.0), // ✅ MINIMAL HORIZONTAL PAD
+        child: filterContent,
+      )
+          : filterContent,
+    );
   }
 
+  // ✅ HELPER: Stock Filter Chip (Reusable, Overflow-Proof)
+  Widget _buildStockFilterChip(String label, Color accentColor) {
+    final isSelected = _stockFilter == label;
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(fontSize: 11), // ✅ SMALLER FONT
+        overflow: TextOverflow.ellipsis,
+      ),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => _stockFilter = label);
+        }
+      },
+      selectedColor: accentColor,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : ReportTheme.text,
+        fontWeight: FontWeight.bold,
+        fontSize: 11, // ✅ SMALLER FONT
+      ),
+      backgroundColor: ReportTheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected ? accentColor : Colors.transparent,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), // ✅ TIGHTER
+    );
+  }
+
+  // --- ✨ NEW 2026 BRIGHT RESULTS LIST (OVERFLOW FULLY RESOLVED) ✨ ---
   Widget _buildResultsList() {
     if (_products.isEmpty && !_isLoadingReport) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.inventory_2_outlined,
-              size: 80,
-              color: Colors.grey.shade400,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Veuillez sélectionner vos filtres et générer le rapport.',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-          ],
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.inventory_2_outlined,
+                size: 80,
+                color: ReportTheme.surface,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Les résultats du rapport apparaîtront ici.',
+                style: TextStyle(fontSize: 16, color: ReportTheme.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+    return SliverList.separated(
       itemCount: _products.length,
       separatorBuilder: (context, index) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
@@ -674,79 +914,115 @@ class _InventoryReportPageState extends State<InventoryReportPage>
         // Determine stock color and icon
         Color stockColor;
         IconData stockIcon;
+        String stockLabel;
+
         if (stockQuantity > 5) {
-          stockColor = Colors.green.shade600;
-          stockIcon = Icons.check_circle;
+          stockColor = ReportTheme.accentGreen;
+          stockIcon = Icons.check_circle_rounded;
+          stockLabel = 'En Stock';
         } else if (stockQuantity > 0) {
-          stockColor = Colors.orange.shade600;
-          stockIcon = Icons.warning_amber;
+          stockColor = ReportTheme.accentOrange;
+          stockIcon = Icons.warning_rounded;
+          stockLabel = 'Stock Faible';
         } else {
-          stockColor = Colors.red.shade600;
-          stockIcon = Icons.error;
+          stockColor = ReportTheme.accentRed;
+          stockIcon = Icons.error_rounded;
+          stockLabel = 'En Rupture';
         }
 
         return SlideTransition(
           position: _slideAnimation,
-          child: Card(
-            elevation: 4,
-            shadowColor: stockColor.withOpacity(0.3),
-            shape: RoundedRectangleBorder(
+          child: Container(
+            decoration: BoxDecoration(
+              color: ReportTheme.card,
               borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: ReportTheme.surface),
             ),
-            color: Colors.white,
             child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: CircleAvatar(
-                backgroundColor: stockColor.withOpacity(0.1),
-                child: Icon(
-                  stockIcon,
-                  color: stockColor,
-                  size: 24,
-                ),
-              ),
-              title: Text(
-                productData['nom'] ?? 'Nom inconnu',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 4),
-                  Text(
-                    'Référence: ${productData['reference'] ?? 'N/A'}',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                  if (productData['categorie'] != null)
+              contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // ✅ REDUCED VERTICAL
+              leading: ConstrainedBox( // ✅ NEW: CONSTRAIN LEADING WIDTH
+                constraints: const BoxConstraints(maxWidth: 50), // ✅ TIGHT BOUND
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
                     Text(
-                      'Catégorie: ${productData['categorie']}',
-                      style: TextStyle(color: Colors.grey.shade600),
+                      _formatStockDisplay(stockQuantity), // ✅ ABBREVIATED FOR LONG NUMBERS
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: stockColor,
+                        fontSize: 20, // ✅ REDUCED FROM 24
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                ],
+                    const Text(
+                      'Stock',
+                      style: TextStyle(
+                        color: ReportTheme.textSecondary,
+                        fontSize: 10, // ✅ REDUCED FROM 12
+                      ),
+                      textAlign: TextAlign.center,
+                    )
+                  ],
+                ),
               ),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.inventory,
-                    color: stockColor,
-                    size: 20,
+              title: Flexible( // ✅ WRAP FOR RESPONSIVE
+                child: Text(
+                  productData['nom'] ?? 'Nom inconnu',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: ReportTheme.text,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    stockQuantity.toString(),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2, // ✅ ALLOW SLIGHT MULTI-LINE FOR LONG NAMES
+                ),
+              ),
+              subtitle: Flexible( // ✅ WRAP FOR RESPONSIVE (NOW ONLY REFERENCE)
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2.0), // ✅ TIGHTER SPACING
+                  child: Text(
+                    'Réf: ${productData['reference'] ?? 'N/A'}',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: stockColor,
-                      fontSize: 18,
+                      color: ReportTheme.textSecondary,
+                      fontSize: 11, // ✅ REDUCED FONT
                     ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
-                ],
+                ),
+              ),
+              trailing: ConstrainedBox( // ✅ CONSTRAIN WIDTH TO PREVENT EXPANSION
+                constraints: const BoxConstraints(maxWidth: 120), // ✅ FIXED MAX WIDTH
+                child: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: stockColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(stockIcon, color: stockColor, size: 16),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          stockLabel,
+                          style: TextStyle(
+                            color: stockColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11, // ✅ REDUCED FONT
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               onTap: () {
-                // Add ripple effect or navigation if needed
                 HapticFeedback.lightImpact();
               },
             ),

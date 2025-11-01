@@ -14,6 +14,8 @@ import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ FOR WEB CHECK
+import 'package:file_saver/file_saver.dart'; // ✅ ADDED FOR WEB DOWNLOAD
 
 class StockAuditPage extends StatefulWidget {
   const StockAuditPage({super.key});
@@ -235,6 +237,7 @@ class _StockAuditPageState extends State<StockAuditPage>
     }
   }
 
+  // ✅ --- START: UPDATED PDF Export Function ---
   /// PDF Export Function
   Future<void> _exportToPdf() async {
     if (_isExportingPdf || _isExportingCsv || _filteredMovements.isEmpty) return;
@@ -244,19 +247,32 @@ class _StockAuditPageState extends State<StockAuditPage>
     });
 
     try {
+      // 1. Generate the PDF data (same for both platforms)
       final pdfService = StockAuditPdfService();
-      // ✅ --- UPDATED: Pass the name map ---
       final Uint8List pdfData = await pdfService.generateAuditPdf(
         _filteredMovements,
         _startDate,
         _endDate,
         _userNamesMap, // Pass the map
       );
-      // ✅ --- END UPDATED ---
 
-      await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) async => pdfData,
-      );
+      final String fileName =
+          'audit_rapport_${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+      if (kIsWeb) {
+        // --- WEB LOGIC (Direct Download) ---
+        await FileSaver.instance.saveFile(
+          name: fileName,
+          bytes: pdfData,
+          mimeType: MimeType.pdf,
+        );
+      } else {
+        // --- ANDROID LOGIC (Open Print/Preview Dialog) ---
+        await Printing.layoutPdf(
+          onLayout: (PdfPageFormat format) async => pdfData,
+          name: fileName, // Pass the file name
+        );
+      }
     } catch (e) {
       print("Error exporting PDF: $e");
       if (mounted) {
@@ -272,7 +288,9 @@ class _StockAuditPageState extends State<StockAuditPage>
       }
     }
   }
+  // ✅ --- END: UPDATED PDF Export Function ---
 
+  // ✅ --- START: UPDATED CSV Export Function ---
   /// CSV Export Function
   Future<void> _exportToCsv() async {
     if (_isExportingPdf || _isExportingCsv || _filteredMovements.isEmpty) return;
@@ -282,36 +300,51 @@ class _StockAuditPageState extends State<StockAuditPage>
     });
 
     try {
-      // 1. Generate CSV String
+      // 1. Generate CSV String (same for both platforms)
       final csvService = StockAuditCsvService();
-      // ✅ --- UPDATED: Pass the name map ---
       final String csvData = await csvService.generateAuditCsv(
         _filteredMovements,
         _userNamesMap, // Pass the map
       );
-      // ✅ --- END UPDATED ---
 
-      // 2. Get temp directory
-      final Directory tempDir = await getTemporaryDirectory();
       final String fileName =
           'audit_mouvements_${DateTime.now().millisecondsSinceEpoch}.csv';
-      final String filePath = '${tempDir.path}/$fileName';
 
-      // 3. Write file
-      final File file = File(filePath);
-      await file.writeAsString(csvData, encoding: utf8);
+      if (kIsWeb) {
+        // --- WEB LOGIC (Direct Download) ---
 
-      // 4. Share file
-      final xFile = XFile(
-        filePath,
-        mimeType: 'text/csv',
-        name: fileName,
-      );
+        // 2. (Web) Convert the String to bytes (Uint8List)
+        final bytes = utf8.encode(csvData);
 
-      await Share.shareXFiles(
-        [xFile],
-        subject: 'Export Audit Mouvements de Stock',
-      );
+        // 3. (Web) Use file_saver to trigger a direct browser download
+        await FileSaver.instance.saveFile(
+          name: fileName,
+          bytes: bytes,
+          mimeType: MimeType.csv,
+        );
+      } else {
+        // --- ANDROID LOGIC (Open With / Share) ---
+
+        // 2. (Mobile) Get temp directory
+        final Directory tempDir = await getTemporaryDirectory();
+        final String filePath = '${tempDir.path}/$fileName';
+
+        // 3. (Mobile) Write file
+        final File file = File(filePath);
+        await file.writeAsString(csvData, encoding: utf8);
+
+        // 4. (Mobile) Share file
+        final xFile = XFile(
+          filePath,
+          mimeType: 'text/csv',
+          name: fileName,
+        );
+
+        await Share.shareXFiles(
+          [xFile],
+          subject: 'Export Audit Mouvements de Stock',
+        );
+      }
     } catch (e) {
       print("Error exporting CSV: $e");
       if (mounted) {
@@ -327,6 +360,7 @@ class _StockAuditPageState extends State<StockAuditPage>
       }
     }
   }
+  // ✅ --- END: UPDATED CSV Export Function ---
 
   @override
   Widget build(BuildContext context) {
