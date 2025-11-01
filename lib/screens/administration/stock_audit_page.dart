@@ -11,11 +11,15 @@ import 'dart:convert';
 import 'package:boitex_info_app/services/stock_audit_pdf_service.dart';
 import 'package:boitex_info_app/services/stock_audit_csv_service.dart';
 import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
+// ⛔️ REMOVED: printing.dart (no longer needed for this page)
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb; // ✅ FOR WEB CHECK
 import 'package:file_saver/file_saver.dart'; // ✅ ADDED FOR WEB DOWNLOAD
+
+// ✅ --- ADDED: Import for the in-app PDF viewer ---
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
+// ✅ --- END OF IMPORTS ---
 
 class StockAuditPage extends StatefulWidget {
   const StockAuditPage({super.key});
@@ -92,7 +96,8 @@ class _StockAuditPageState extends State<StockAuditPage>
 
     if (_startDate == null && _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez sélectionner au moins une date.')),
+        const SnackBar(
+            content: Text('Veuillez sélectionner au moins une date.')),
       );
       return;
     }
@@ -119,7 +124,8 @@ class _StockAuditPageState extends State<StockAuditPage>
       }
 
       final snapshot = await query.get();
-      final List<QueryDocumentSnapshot<Map<String, dynamic>>> movements = snapshot.docs;
+      final List<QueryDocumentSnapshot<Map<String, dynamic>>> movements =
+          snapshot.docs;
 
       // ✅ --- NEW: Fetch User Names ---
       Map<String, String> fetchedNames = {};
@@ -160,7 +166,8 @@ class _StockAuditPageState extends State<StockAuditPage>
 
       if (_movements.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun mouvement trouvé pour cette période.')),
+          const SnackBar(
+              content: Text('Aucun mouvement trouvé pour cette période.')),
         );
       } else {
         _scaleController
@@ -184,7 +191,8 @@ class _StockAuditPageState extends State<StockAuditPage>
     final productQuery = _productSearchController.text.toLowerCase().trim();
     final userQuery = _userSearchController.text.toLowerCase().trim();
 
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> results = List.from(_movements);
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> results =
+    List.from(_movements);
 
     if (productQuery.isNotEmpty) {
       results = results.where((doc) {
@@ -214,7 +222,8 @@ class _StockAuditPageState extends State<StockAuditPage>
   /// Date Picker Logic
   Future<void> _selectDate(BuildContext context, bool isStartDate) async {
     // ... (This function remains unchanged)
-    final DateTime initial = (isStartDate ? _startDate : _endDate) ?? DateTime.now();
+    final DateTime initial =
+        (isStartDate ? _startDate : _endDate) ?? DateTime.now();
     final DateTime first = DateTime(2020);
     final DateTime last = DateTime.now().add(const Duration(days: 1));
 
@@ -267,10 +276,15 @@ class _StockAuditPageState extends State<StockAuditPage>
           mimeType: MimeType.pdf,
         );
       } else {
-        // --- ANDROID LOGIC (Open Print/Preview Dialog) ---
-        await Printing.layoutPdf(
-          onLayout: (PdfPageFormat format) async => pdfData,
-          name: fileName, // Pass the file name
+        // --- ✅ MODIFIED: MOBILE LOGIC (Open In-App PDF Viewer) ---
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => PdfViewerPage(
+              pdfBytes: pdfData,
+              title: fileName,
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -425,7 +439,8 @@ class _StockAuditPageState extends State<StockAuditPage>
             child: CustomScrollView(
               slivers: [
                 SliverPadding(
-                  padding: EdgeInsets.fromLTRB(paddingHorizontal, 100, paddingHorizontal, 16),
+                  padding: EdgeInsets.fromLTRB(
+                      paddingHorizontal, 100, paddingHorizontal, 16),
                   sliver: SliverToBoxAdapter(
                     child: _buildFilterSection(isWebOrTablet),
                   ),
@@ -437,7 +452,8 @@ class _StockAuditPageState extends State<StockAuditPage>
                       padding: const EdgeInsets.all(32.0),
                       child: Center(
                         child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                          valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.blue),
                         ),
                       ),
                     ),
@@ -459,7 +475,8 @@ class _StockAuditPageState extends State<StockAuditPage>
     final DateFormat formatter = DateFormat('dd/MM/yyyy');
 
     final bool isExporting = _isExportingPdf || _isExportingCsv;
-    final bool canExport = !_isLoading && !isExporting && _filteredMovements.isNotEmpty;
+    final bool canExport =
+        !_isLoading && !isExporting && _filteredMovements.isNotEmpty;
     final bool canFilter = !_isLoading && !isExporting;
 
     return AnimatedContainer(
@@ -522,7 +539,9 @@ class _StockAuditPageState extends State<StockAuditPage>
                       fillColor: Colors.grey.shade50,
                     ),
                     child: Text(
-                      _startDate == null ? 'Aucune date' : formatter.format(_startDate!),
+                      _startDate == null
+                          ? 'Aucune date'
+                          : formatter.format(_startDate!),
                     ),
                   ),
                 ),
@@ -542,7 +561,9 @@ class _StockAuditPageState extends State<StockAuditPage>
                       fillColor: Colors.grey.shade50,
                     ),
                     child: Text(
-                      _endDate == null ? 'Aucune date' : formatter.format(_endDate!),
+                      _endDate == null
+                          ? 'Aucune date'
+                          : formatter.format(_endDate!),
                     ),
                   ),
                 ),
@@ -605,7 +626,8 @@ class _StockAuditPageState extends State<StockAuditPage>
                 backgroundColor: Colors.blue.shade600,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                textStyle:
+                const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 elevation: 4,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -700,7 +722,8 @@ class _StockAuditPageState extends State<StockAuditPage>
         final data = doc.data();
 
         final int change = ((data['quantityChange'] ?? 0) as num).toInt();
-        final Color changeColor = change > 0 ? Colors.green.shade600 : Colors.red.shade600;
+        final Color changeColor =
+        change > 0 ? Colors.green.shade600 : Colors.red.shade600;
         final String changeSign = change > 0 ? '+' : '';
         final Timestamp? ts = data['timestamp'];
         final String formattedDate = ts != null
@@ -736,7 +759,8 @@ class _StockAuditPageState extends State<StockAuditPage>
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: changeColor.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(20),
@@ -765,18 +789,21 @@ class _StockAuditPageState extends State<StockAuditPage>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildStatChip('Avant', (data['oldQuantity'] ?? 0).toString()),
+                      _buildStatChip(
+                          'Avant', (data['oldQuantity'] ?? 0).toString()),
                       Icon(
                         change > 0 ? Icons.trending_up : Icons.trending_down,
                         color: changeColor,
                         size: 24,
                       ),
-                      _buildStatChip('Après', (data['newQuantity'] ?? 0).toString()),
+                      _buildStatChip(
+                          'Après', (data['newQuantity'] ?? 0).toString()),
                     ],
                   ),
                   const SizedBox(height: 12),
                   // ... (Notes - unchanged)
-                  if (data['notes'] != null && (data['notes'] as String).isNotEmpty)
+                  if (data['notes'] != null &&
+                      (data['notes'] as String).isNotEmpty)
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),

@@ -12,12 +12,19 @@ import 'package:boitex_info_app/screens/administration/stock_page.dart';
 // ✅ --- ADD THESE IMPORTS ---
 import 'package:boitex_info_app/services/inventory_pdf_service.dart';
 import 'package:boitex_info_app/services/inventory_csv_service.dart';
-import 'package:printing/printing.dart';
+// ⛔️ REMOVED: printing.dart (no longer used by mobile)
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ ADDED FOR WEB CHECK
+import 'package:file_saver/file_saver.dart'; // ✅ ADDED FOR WEB DOWNLOAD
+
+// ✅ --- RE-ADD THESE IMPORTS FOR MOBILE SHARING ---
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb; // ✅ ADDED FOR WEB CHECK
-import 'package:file_saver/file_saver.dart'; // ✅ ADDED FOR WEB DOWNLOAD
+// ✅ --- END OF IMPORTS ---
+
+// ✅ --- NEW IMPORTS FOR IN-APP VIEWERS ---
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
+import 'package:boitex_info_app/widgets/csv_viewer_page.dart';
 // ✅ --- END OF IMPORTS ---
 
 // --- ✨ NEW BRIGHT THEME COLORS ✨ ---
@@ -164,7 +171,9 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors du chargement des sous-catégories: $e')),
+          SnackBar(
+              content:
+              Text('Erreur lors du chargement des sous-catégories: $e')),
         );
       }
     }
@@ -189,7 +198,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
         // We require a main category to be selected
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Veuillez sélectionner une catégorie principale.')),
+            const SnackBar(
+                content: Text('Veuillez sélectionner une catégorie principale.')),
           );
         }
         setState(() {
@@ -231,7 +241,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       if (_products.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Aucun produit trouvé pour ces filtres.')),
+            const SnackBar(
+                content: Text('Aucun produit trouvé pour ces filtres.')),
           );
         }
       } else {
@@ -253,7 +264,7 @@ class _InventoryReportPageState extends State<InventoryReportPage>
     }
   }
 
-  // ✅ --- START: UPDATED PDF Export Function ---
+  // ✅ --- START: PDF EXPORT FUNCTION (MOBILE + WEB) ---
   void _generatePdf() async {
     if (_isExporting || _products.isEmpty) return;
 
@@ -286,10 +297,15 @@ class _InventoryReportPageState extends State<InventoryReportPage>
           mimeType: MimeType.pdf,
         );
       } else {
-        // --- ANDROID LOGIC (Open Print/Preview Dialog) ---
-        await Printing.layoutPdf(
-          onLayout: (format) => pdfData,
-          name: fileName,
+        // --- MOBILE LOGIC (Open In-App PDF Viewer) ---
+        if (!mounted) return; // Check if the widget is still in the tree
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => PdfViewerPage(
+              pdfBytes: pdfData,
+              title: fileName,
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -304,9 +320,9 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       }
     }
   }
-  // ✅ --- END: UPDATED PDF Export Function ---
+  // ✅ --- END: PDF EXPORT FUNCTION ---
 
-  // ✅ --- START: UPDATED CSV Export Function ---
+  // ✅ --- START: CSV EXPORT FUNCTION (MOBILE + WEB) ---
   void _generateCsv() async {
     if (_isExporting || _products.isEmpty) return;
 
@@ -318,6 +334,7 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       final List<DocumentSnapshot<Object?>> exportDocs =
       _products.cast<DocumentSnapshot<Object?>>();
 
+      // 1. Generate the CSV String
       final csvData = InventoryCsvService.generateInventoryCsv(exportDocs);
 
       final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -326,23 +343,94 @@ class _InventoryReportPageState extends State<InventoryReportPage>
 
       if (kIsWeb) {
         // --- WEB LOGIC (Direct Download) ---
-        final Uint8List bytes = utf8.encode(csvData); // 'utf8' is from dart:convert
+        final Uint8List bytes =
+        utf8.encode(csvData); // 'utf8' is from dart:convert
         await FileSaver.instance.saveFile(
           name: fileName,
           bytes: bytes,
           mimeType: MimeType.csv,
         );
       } else {
-        // --- ANDROID LOGIC (Open With / Share) ---
+        // --- MOBILE LOGIC (Show options dialog) ---
+
+        // 1. Save the file to a temporary directory
         final tempDir = await getTemporaryDirectory();
         final path = '${tempDir.path}/$fileName';
-
         final file = File(path);
-        await file.writeAsString(csvData, encoding: const SystemEncoding());
+        await file.writeAsString(csvData, encoding: utf8);
 
-        await Share.shareXFiles(
-          [XFile(path, mimeType: 'text/csv')],
-          subject: 'Rapport d\'Inventaire - ${_selectedMainCategory!.name}',
+        // 2. Show a dialog with options
+        if (!mounted) return;
+
+        // Find the button's position for iPad
+        final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+        final sharePosition = renderBox != null
+            ? renderBox.localToGlobal(Offset.zero) & renderBox.size
+            : Rect.fromCenter(
+          center: Offset(MediaQuery.of(context).size.width / 2,
+              MediaQuery.of(context).size.height / 2),
+          width: 0,
+          height: 0,
+        );
+
+        await showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.transparent,
+          builder: (builderContext) {
+            return Container(
+              margin: const EdgeInsets.all(12).copyWith(
+                  bottom: MediaQuery.of(builderContext).padding.bottom + 12),
+              decoration: BoxDecoration(
+                color: ReportTheme.card,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: SafeArea(
+                child: Wrap(
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text(
+                        'Exporter CSV',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    ListTile(
+                      leading:
+                      Icon(Icons.visibility, color: ReportTheme.primary),
+                      title: const Text('Prévisualiser le CSV'),
+                      onTap: () {
+                        Navigator.of(builderContext).pop(); // Close bottom sheet
+                        Navigator.of(context).push(
+                          // Use main context
+                          MaterialPageRoute(
+                            builder: (context) => CsvViewerPage(
+                              csvData: csvData,
+                              title: fileName,
+                              fieldDelimiter: ';', // Match your service
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    ListTile(
+                      leading:
+                      Icon(Icons.share, color: ReportTheme.accentGreen),
+                      title: const Text('Partager / Enregistrer'),
+                      onTap: () async {
+                        Navigator.of(builderContext).pop(); // Close bottom sheet
+                        await Share.shareXFiles(
+                          [XFile(path, mimeType: 'text/csv')],
+                          subject:
+                          'Rapport d\'Inventaire - ${_selectedMainCategory!.name}',
+                          sharePositionOrigin: sharePosition,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       }
     } catch (e) {
@@ -357,7 +445,7 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       }
     }
   }
-  // ✅ --- END: UPDATED CSV Export Function ---
+  // ✅ --- END: CSV EXPORT FUNCTION ---
 
   @override
   Widget build(BuildContext context) {
@@ -368,7 +456,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
     final paddingHorizontal = isWebOrTablet ? 32.0 : 16.0;
 
     // --- ✨ NEW BRIGHT THEME LOGIC ✨ ---
-    final Color accentColor = _selectedMainCategory?.color ?? ReportTheme.primary;
+    final Color accentColor =
+        _selectedMainCategory?.color ?? ReportTheme.primary;
 
     return Theme(
       data: ThemeData(
@@ -386,7 +475,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          systemOverlayStyle: SystemUiOverlayStyle.dark, // Dark icons for light bg
+          systemOverlayStyle:
+          SystemUiOverlayStyle.dark, // Dark icons for light bg
           iconTheme: IconThemeData(color: ReportTheme.text),
           titleTextStyle: TextStyle(
             color: ReportTheme.text,
@@ -459,7 +549,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                     paddingHorizontal,
                     16),
                 sliver: SliverToBoxAdapter(
-                  child: _buildFilterSection(isWebOrTablet, isWideWeb, accentColor),
+                  child: _buildFilterSection(
+                      isWebOrTablet, isWideWeb, accentColor),
                 ),
               ),
               // --- LOADING INDICATOR ---
@@ -573,7 +664,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
   }
 
   // --- ✨ NEW 2026 BRIGHT FILTER SECTION (FULL OVERFLOW FIXED) ✨ ---
-  Widget _buildFilterSection(bool isWebOrTablet, bool isWideWeb, Color accentColor) {
+  Widget _buildFilterSection(
+      bool isWebOrTablet, bool isWideWeb, Color accentColor) {
     // ✅ FIXED: Local screenWidth declaration to avoid getter error
     final screenWidth = MediaQuery.of(context).size.width;
 
@@ -621,7 +713,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
               ? Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: _mainCategories.map((category) {
-              final isSelected = _selectedMainCategory?.name == category.name;
+              final isSelected =
+                  _selectedMainCategory?.name == category.name;
               return Flexible(
                 flex: 1, // ✅ EQUAL FLEX FOR EVEN SPACING
                 child: ChoiceChip(
@@ -629,13 +722,16 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(category.icon,
-                          color: isSelected ? Colors.white : category.color,
+                          color: isSelected
+                              ? Colors.white
+                              : category.color,
                           size: 16), // ✅ FURTHER REDUCED
                       const SizedBox(width: 4), // ✅ TIGHTER
                       Flexible(
                         child: Text(
                           category.name,
-                          style: TextStyle(fontSize: 11), // ✅ SMALLER FONT
+                          style: TextStyle(
+                              fontSize: 11), // ✅ SMALLER FONT
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -655,14 +751,18 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                   selectedColor: category.color,
                   backgroundColor: ReportTheme.surface,
                   labelStyle: TextStyle(
-                    color: isSelected ? Colors.white : ReportTheme.text,
+                    color: isSelected
+                        ? Colors.white
+                        : ReportTheme.text,
                     fontWeight: FontWeight.bold,
                     fontSize: 11, // ✅ SMALLER FONT
                   ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(
-                      color: isSelected ? category.color : Colors.transparent,
+                      color: isSelected
+                          ? category.color
+                          : Colors.transparent,
                     ),
                   ),
                   padding: const EdgeInsets.symmetric(
@@ -676,19 +776,23 @@ class _InventoryReportPageState extends State<InventoryReportPage>
             runSpacing: 4.0, // ✅ TIGHTER FROM 6
             alignment: WrapAlignment.center,
             children: _mainCategories.map((category) {
-              final isSelected = _selectedMainCategory?.name == category.name;
+              final isSelected =
+                  _selectedMainCategory?.name == category.name;
               return ChoiceChip(
                 label: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(category.icon,
-                        color: isSelected ? Colors.white : category.color,
+                        color: isSelected
+                            ? Colors.white
+                            : category.color,
                         size: 16), // ✅ FURTHER REDUCED
                     const SizedBox(width: 4), // ✅ TIGHTER
                     Flexible(
                       child: Text(
                         category.name,
-                        style: TextStyle(fontSize: 11), // ✅ SMALLER FONT
+                        style: TextStyle(
+                            fontSize: 11), // ✅ SMALLER FONT
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -708,14 +812,18 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                 selectedColor: category.color,
                 backgroundColor: ReportTheme.surface,
                 labelStyle: TextStyle(
-                  color: isSelected ? Colors.white : ReportTheme.text,
+                  color: isSelected
+                      ? Colors.white
+                      : ReportTheme.text,
                   fontWeight: FontWeight.bold,
                   fontSize: 11, // ✅ SMALLER FONT
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                   side: BorderSide(
-                    color: isSelected ? category.color : Colors.transparent,
+                    color: isSelected
+                        ? category.color
+                        : Colors.transparent,
                   ),
                 ),
                 padding: const EdgeInsets.symmetric(
@@ -839,7 +947,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       child: isWebOrTablet
           ? SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16.0), // ✅ MINIMAL HORIZONTAL PAD
+        padding: const EdgeInsets.symmetric(
+            horizontal: 16.0), // ✅ MINIMAL HORIZONTAL PAD
         child: filterContent,
       )
           : filterContent,
@@ -908,7 +1017,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
       separatorBuilder: (context, index) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final Map<String, dynamic> productData = _products[index].data();
-        final num stockQuantityNum = (productData['quantiteEnStock'] ?? 0) as num;
+        final num stockQuantityNum =
+        (productData['quantiteEnStock'] ?? 0) as num;
         final int stockQuantity = stockQuantityNum.toInt();
 
         // Determine stock color and icon
@@ -939,15 +1049,18 @@ class _InventoryReportPageState extends State<InventoryReportPage>
               border: Border.all(color: ReportTheme.surface),
             ),
             child: ListTile(
-              contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // ✅ REDUCED VERTICAL
-              leading: ConstrainedBox( // ✅ NEW: CONSTRAIN LEADING WIDTH
-                constraints: const BoxConstraints(maxWidth: 50), // ✅ TIGHT BOUND
+              contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 8), // ✅ REDUCED VERTICAL
+              leading: ConstrainedBox(
+                // ✅ NEW: CONSTRAIN LEADING WIDTH
+                constraints:
+                const BoxConstraints(maxWidth: 50), // ✅ TIGHT BOUND
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      _formatStockDisplay(stockQuantity), // ✅ ABBREVIATED FOR LONG NUMBERS
+                      _formatStockDisplay(
+                          stockQuantity), // ✅ ABBREVIATED FOR LONG NUMBERS
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: stockColor,
@@ -966,7 +1079,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                   ],
                 ),
               ),
-              title: Flexible( // ✅ WRAP FOR RESPONSIVE
+              title: Flexible(
+                // ✅ WRAP FOR RESPONSIVE
                 child: Text(
                   productData['nom'] ?? 'Nom inconnu',
                   style: const TextStyle(
@@ -978,7 +1092,8 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                   maxLines: 2, // ✅ ALLOW SLIGHT MULTI-LINE FOR LONG NAMES
                 ),
               ),
-              subtitle: Flexible( // ✅ WRAP FOR RESPONSIVE (NOW ONLY REFERENCE)
+              subtitle: Flexible(
+                // ✅ WRAP FOR RESPONSIVE (NOW ONLY REFERENCE)
                 child: Padding(
                   padding: const EdgeInsets.only(top: 2.0), // ✅ TIGHTER SPACING
                   child: Text(
@@ -992,8 +1107,10 @@ class _InventoryReportPageState extends State<InventoryReportPage>
                   ),
                 ),
               ),
-              trailing: ConstrainedBox( // ✅ CONSTRAIN WIDTH TO PREVENT EXPANSION
-                constraints: const BoxConstraints(maxWidth: 120), // ✅ FIXED MAX WIDTH
+              trailing: ConstrainedBox(
+                // ✅ CONSTRAIN WIDTH TO PREVENT EXPANSION
+                constraints:
+                const BoxConstraints(maxWidth: 120), // ✅ FIXED MAX WIDTH
                 child: Container(
                   padding:
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
