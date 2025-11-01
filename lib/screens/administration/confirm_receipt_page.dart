@@ -117,14 +117,16 @@ class _ConfirmReceiptPageState extends State<ConfirmReceiptPage> {
   }
 
   // ✅ FIXED: Transaction now performs ALL READS BEFORE ALL WRITES
+  // ✅ AND writes to the correct 'stock_movements' collection
   Future<void> _confirmAndSave() async {
     setState(() => _isSaving = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("Utilisateur non connecté.");
 
+      // ✅ CHANGED: Get full display name
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final userName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
+      final userName = userDoc.data()?['displayName'] ?? user.email ?? 'Utilisateur inconnu';
 
       final List<Map<String, dynamic>> itemsForThisShipment = [];
       final Map<String, int> stockUpdates = {};
@@ -134,6 +136,12 @@ class _ConfirmReceiptPageState extends State<ConfirmReceiptPage> {
 
       for (final itemController in _itemControllers) {
         final int newReceivedQty = int.tryParse(itemController.receivedQuantityController.text) ?? 0;
+
+        // ✅ NEW: Validate quantity
+        if (newReceivedQty > itemController.remainingQuantity) {
+          throw Exception("La quantité reçue pour ${itemController.productName} ne peut pas dépasser la quantité restante.");
+        }
+
         if (newReceivedQty > 0) {
           hasItemsInThisShipment = true;
           itemsForThisShipment.add({
@@ -153,7 +161,7 @@ class _ConfirmReceiptPageState extends State<ConfirmReceiptPage> {
             "Vous devez saisir une quantité (> 0) OU ajouter une note explicative.");
       }
 
-      // ✅ --- CRITICAL FIX: ALL READS BEFORE ALL WRITES --- ✅
+      // ✅ --- CRITICAL: ALL READS BEFORE ALL WRITES --- ✅
       await FirebaseFirestore.instance.runTransaction((transaction) async {
 
         // ==================== PHASE 1: ALL READS ====================
@@ -219,7 +227,7 @@ class _ConfirmReceiptPageState extends State<ConfirmReceiptPage> {
 
         // ==================== PHASE 3: ALL WRITES ====================
 
-        // Write 1: Create the new reception document
+        // Write 1: Create the new reception document (sub-collection)
         final receptionRef = requisitionRef.collection('receptions').doc();
         transaction.set(receptionRef, {
           'receptionDate': Timestamp.now(),
@@ -236,24 +244,34 @@ class _ConfirmReceiptPageState extends State<ConfirmReceiptPage> {
 
             // Use the snapshot we already read in Phase 1
             final productSnap = productSnapshots[productId]!;
+            final productData = productSnap.data() as Map<String, dynamic>;
             final currentStock =
-                (productSnap.data() as Map<String, dynamic>?)?['quantiteEnStock'] ?? 0;
+            (productData['quantiteEnStock'] ?? 0) as int;
             final newStock = currentStock + receivedQty;
+            final productRefString = productData['reference'] ?? 'N/A';
+            final productNameString = productData['nom'] ?? 'Nom inconnu';
 
             final productRef = FirebaseFirestore.instance
                 .collection('produits')
                 .doc(productId);
 
+            // ✅ Write 2a: Update the product's stock level
             transaction.update(productRef, {'quantiteEnStock': newStock});
 
-            // Create stock history entry
-            final historyRef = productRef.collection('stock_history').doc();
+            // ✅ Write 2b: Create the audit log entry in 'stock_movements'
+            final historyRef = FirebaseFirestore.instance.collection('stock_movements').doc();
             transaction.set(historyRef, {
-              'change': receivedQty,
+              'productId': productId,
+              'productRef': productRefString,
+              'productName': productNameString,
+              'quantityChange': receivedQty, // Positive number
+              'oldQuantity': currentStock,
               'newQuantity': newStock,
-              'notes': 'Réception partielle (Demande ID: ${widget.requisitionId})',
+              'type': 'RECEPTION_ACHAT', // This matches the audit page
+              'notes': 'Réception pour DA: ${requisitionData['requisitionCode'] ?? requisitionRef.id}',
+              'userId': user.uid,
+              'userDisplayName': userName, // Store the name for convenience
               'timestamp': FieldValue.serverTimestamp(),
-              'updatedByUid': user.uid,
             });
           }
         }
@@ -282,7 +300,7 @@ class _ConfirmReceiptPageState extends State<ConfirmReceiptPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Réception enregistrée!'),
+            content: Text('Réception enregistrée et stock mis à jour!'), // ✅ Updated message
             backgroundColor: Colors.green,
           ),
         );
@@ -382,10 +400,19 @@ class _ConfirmReceiptPageState extends State<ConfirmReceiptPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _isSaving || _itemControllers.isEmpty
+                onPressed: _isSaving
                     ? null
-                    : _confirmAndSave,
-                icon: const Icon(Icons.check),
+                    : _confirmAndSave, // ✅ CHANGED: Removed _itemControllers.isEmpty check
+                icon: _isSaving
+                    ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.check),
                 label: const Text('Enregistrer la Réception'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.teal,
