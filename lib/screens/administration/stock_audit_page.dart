@@ -5,6 +5,16 @@ import 'package:flutter/services.dart'; // for HapticFeedback
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
+import 'dart:typed_data';
+import 'dart:io';
+import 'dart:convert';
+import 'package:boitex_info_app/services/stock_audit_pdf_service.dart';
+import 'package:boitex_info_app/services/stock_audit_csv_service.dart';
+import 'package:pdf/pdf.dart';
+import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
+
 class StockAuditPage extends StatefulWidget {
   const StockAuditPage({super.key});
 
@@ -22,8 +32,14 @@ class _StockAuditPageState extends State<StockAuditPage>
 
   // Query State
   bool _isLoading = false;
+  bool _isExportingPdf = false;
+  bool _isExportingCsv = false;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _movements = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filteredMovements = [];
+
+  // ✅ --- NEW: User name lookup map ---
+  Map<String, String> _userNamesMap = {};
+  // ✅ --- END NEW ---
 
   // Animation Controllers for smooth transitions
   late AnimationController _fadeController;
@@ -72,7 +88,6 @@ class _StockAuditPageState extends State<StockAuditPage>
   Future<void> _runQuery() async {
     if (_isLoading) return;
 
-    // We need at least a start or end date
     if (_startDate == null && _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Veuillez sélectionner au moins une date.')),
@@ -84,6 +99,7 @@ class _StockAuditPageState extends State<StockAuditPage>
       _isLoading = true;
       _movements = [];
       _filteredMovements = [];
+      _userNamesMap = {}; // Clear old names
     });
 
     try {
@@ -95,17 +111,48 @@ class _StockAuditPageState extends State<StockAuditPage>
       if (_startDate != null) {
         query = query.where('timestamp', isGreaterThanOrEqualTo: _startDate);
       }
-
       if (_endDate != null) {
-        // Add 1 day to _endDate to include the entire day
         final inclusiveEndDate = _endDate!.add(const Duration(days: 1));
         query = query.where('timestamp', isLessThanOrEqualTo: inclusiveEndDate);
       }
 
       final snapshot = await query.get();
+      final List<QueryDocumentSnapshot<Map<String, dynamic>>> movements = snapshot.docs;
+
+      // ✅ --- NEW: Fetch User Names ---
+      Map<String, String> fetchedNames = {};
+      if (movements.isNotEmpty) {
+        // 1. Get all unique user IDs from the movements
+        final Set<String> userIds = movements
+            .map((doc) => (doc.data()['userId'] ?? '').toString())
+            .where((id) => id.isNotEmpty)
+            .toSet();
+
+        // 2. Fetch user documents in batches (Firestore 'whereIn' is limited to 30 items)
+        if (userIds.isNotEmpty) {
+          final List<String> userIdList = userIds.toList();
+          for (int i = 0; i < userIdList.length; i += 30) {
+            final batch = userIdList.skip(i).take(30).toList();
+            if (batch.isEmpty) continue;
+
+            final userSnapshot = await FirebaseFirestore.instance
+                .collection('users')
+                .where(FieldPath.documentId, whereIn: batch)
+                .get();
+
+            // 3. Populate the name map
+            for (final userDoc in userSnapshot.docs) {
+              fetchedNames[userDoc.id] =
+                  userDoc.data()?['fullName'] ?? 'Utilisateur Inconnu';
+            }
+          }
+        }
+      }
+      // ✅ --- END: Fetch User Names ---
 
       setState(() {
-        _movements = snapshot.docs;
+        _movements = movements;
+        _userNamesMap = fetchedNames; // Store the map
         _applyClientFilters(); // Apply text filters to the new results
       });
 
@@ -116,10 +163,9 @@ class _StockAuditPageState extends State<StockAuditPage>
       } else {
         _scaleController
           ..reset()
-          ..forward(); // Animate list entrance
+          ..forward();
       }
     } catch (e) {
-      // ignore: avoid_print
       print("Error running query: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur: $e')),
@@ -150,7 +196,10 @@ class _StockAuditPageState extends State<StockAuditPage>
     if (userQuery.isNotEmpty) {
       results = results.where((doc) {
         final data = doc.data();
-        final user = (data['userDisplayName'] ?? '').toString().toLowerCase();
+        // ✅ --- UPDATED: Filter using the name map ---
+        final String userId = (data['userId'] ?? '').toString();
+        final String user = (_userNamesMap[userId] ?? '').toLowerCase();
+        // ✅ --- END UPDATED ---
         return user.contains(userQuery);
       }).toList();
     }
@@ -162,6 +211,7 @@ class _StockAuditPageState extends State<StockAuditPage>
 
   /// Date Picker Logic
   Future<void> _selectDate(BuildContext context, bool isStartDate) async {
+    // ... (This function remains unchanged)
     final DateTime initial = (isStartDate ? _startDate : _endDate) ?? DateTime.now();
     final DateTime first = DateTime(2020);
     final DateTime last = DateTime.now().add(const Duration(days: 1));
@@ -185,9 +235,102 @@ class _StockAuditPageState extends State<StockAuditPage>
     }
   }
 
+  /// PDF Export Function
+  Future<void> _exportToPdf() async {
+    if (_isExportingPdf || _isExportingCsv || _filteredMovements.isEmpty) return;
+
+    setState(() {
+      _isExportingPdf = true;
+    });
+
+    try {
+      final pdfService = StockAuditPdfService();
+      // ✅ --- UPDATED: Pass the name map ---
+      final Uint8List pdfData = await pdfService.generateAuditPdf(
+        _filteredMovements,
+        _startDate,
+        _endDate,
+        _userNamesMap, // Pass the map
+      );
+      // ✅ --- END UPDATED ---
+
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => pdfData,
+      );
+    } catch (e) {
+      print("Error exporting PDF: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la création du PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExportingPdf = false;
+        });
+      }
+    }
+  }
+
+  /// CSV Export Function
+  Future<void> _exportToCsv() async {
+    if (_isExportingPdf || _isExportingCsv || _filteredMovements.isEmpty) return;
+
+    setState(() {
+      _isExportingCsv = true;
+    });
+
+    try {
+      // 1. Generate CSV String
+      final csvService = StockAuditCsvService();
+      // ✅ --- UPDATED: Pass the name map ---
+      final String csvData = await csvService.generateAuditCsv(
+        _filteredMovements,
+        _userNamesMap, // Pass the map
+      );
+      // ✅ --- END UPDATED ---
+
+      // 2. Get temp directory
+      final Directory tempDir = await getTemporaryDirectory();
+      final String fileName =
+          'audit_mouvements_${DateTime.now().millisecondsSinceEpoch}.csv';
+      final String filePath = '${tempDir.path}/$fileName';
+
+      // 3. Write file
+      final File file = File(filePath);
+      await file.writeAsString(csvData, encoding: utf8);
+
+      // 4. Share file
+      final xFile = XFile(
+        filePath,
+        mimeType: 'text/csv',
+        name: fileName,
+      );
+
+      await Share.shareXFiles(
+        [xFile],
+        subject: 'Export Audit Mouvements de Stock',
+      );
+    } catch (e) {
+      print("Error exporting CSV: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la création du CSV: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExportingCsv = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Responsive design for phone and web
+    // ... (build method remains unchanged)
     final screenWidth = MediaQuery.of(context).size.width;
     final isWebOrTablet = screenWidth > 600;
     final paddingHorizontal = isWebOrTablet ? 32.0 : 16.0;
@@ -255,9 +398,9 @@ class _StockAuditPageState extends State<StockAuditPage>
                 ),
                 // --- LOADING INDICATOR ---
                 if (_isLoading)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.all(32.0),
+                      padding: const EdgeInsets.all(32.0),
                       child: Center(
                         child: CircularProgressIndicator(
                           valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
@@ -278,7 +421,12 @@ class _StockAuditPageState extends State<StockAuditPage>
   }
 
   Widget _buildFilterSection(bool isWideScreen) {
+    // ... (This function remains unchanged, the logic for canExport/canFilter already works)
     final DateFormat formatter = DateFormat('dd/MM/yyyy');
+
+    final bool isExporting = _isExportingPdf || _isExportingCsv;
+    final bool canExport = !_isLoading && !isExporting && _filteredMovements.isNotEmpty;
+    final bool canFilter = !_isLoading && !isExporting;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -407,9 +555,18 @@ class _StockAuditPageState extends State<StockAuditPage>
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              icon: const Icon(Icons.filter_list_alt),
+              icon: _isLoading
+                  ? Container(
+                width: 20,
+                height: 20,
+                child: const CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(Icons.filter_list_alt),
               label: const Text('Appliquer les Filtres'),
-              onPressed: _isLoading ? null : _runQuery,
+              onPressed: canFilter ? _runQuery : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue.shade600,
                 foregroundColor: Colors.white,
@@ -422,6 +579,56 @@ class _StockAuditPageState extends State<StockAuditPage>
               ),
             ),
           ),
+
+          // Export Buttons
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: _isExportingPdf
+                      ? Container(
+                    width: 20,
+                    height: 20,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                      : const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('Export PDF'),
+                  onPressed: canExport ? _exportToPdf : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: _isExportingCsv
+                      ? Container(
+                    width: 20,
+                    height: 20,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                      : const Icon(Icons.table_chart_outlined),
+                  label: const Text('Export CSV'),
+                  onPressed: canExport ? _exportToCsv : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -429,6 +636,7 @@ class _StockAuditPageState extends State<StockAuditPage>
 
   Widget _buildResultsList() {
     if (_filteredMovements.isEmpty && !_isLoading) {
+      // ... (This widget remains unchanged)
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -457,7 +665,6 @@ class _StockAuditPageState extends State<StockAuditPage>
         final doc = _filteredMovements[index];
         final data = doc.data();
 
-        // Convert any numeric (int/double) to a strict int for UI logic
         final int change = ((data['quantityChange'] ?? 0) as num).toInt();
         final Color changeColor = change > 0 ? Colors.green.shade600 : Colors.red.shade600;
         final String changeSign = change > 0 ? '+' : '';
@@ -480,7 +687,7 @@ class _StockAuditPageState extends State<StockAuditPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Row 1: Product and Quantity Change
+                  // ... (Product/Quantity Row - unchanged)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -520,7 +727,7 @@ class _StockAuditPageState extends State<StockAuditPage>
                     ),
                   ),
                   const Divider(height: 20),
-                  // Row 2: Details (Before/After)
+                  // ... (Before/After Row - unchanged)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -534,7 +741,7 @@ class _StockAuditPageState extends State<StockAuditPage>
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Notes
+                  // ... (Notes - unchanged)
                   if (data['notes'] != null && (data['notes'] as String).isNotEmpty)
                     Container(
                       width: double.infinity,
@@ -553,13 +760,14 @@ class _StockAuditPageState extends State<StockAuditPage>
                       ),
                     ),
                   const SizedBox(height: 12),
-                  // Row 4: User and Date
+                  // ✅ --- START: UPDATED User/Date Row ---
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
                         child: Text(
-                          data['userDisplayName'] ?? 'Utilisateur inconnu',
+                          // Use the map to find the name, fallback to 'Inconnu'
+                          _userNamesMap[data['userId']] ?? 'Utilisateur inconnu',
                           style: TextStyle(
                             color: Colors.grey.shade600,
                             fontSize: 14,
@@ -576,6 +784,7 @@ class _StockAuditPageState extends State<StockAuditPage>
                       ),
                     ],
                   ),
+                  // ✅ --- END: UPDATED User/Date Row ---
                 ],
               ),
             ),
@@ -586,6 +795,7 @@ class _StockAuditPageState extends State<StockAuditPage>
   }
 
   Widget _buildStatChip(String label, String value) {
+    // ... (This function remains unchanged)
     return Column(
       children: [
         Text(
