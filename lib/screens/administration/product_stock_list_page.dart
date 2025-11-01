@@ -1,6 +1,9 @@
+// lib/screens/administration/product_stock_list_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart'; // ✅ ADDED for number input
 
 class ProductStockListPage extends StatelessWidget {
   final String category;
@@ -12,93 +15,176 @@ class ProductStockListPage extends StatelessWidget {
     required this.categoryColor,
   });
 
+  /// ✅ --- REBUILT DIALOG LOGIC ---
+  /// This dialog now uses a Firebase Transaction to create a
+  /// stock_movements ledger entry for every change.
   void _showAdjustStockDialog(BuildContext context, DocumentSnapshot productDoc) {
     final formKey = GlobalKey<FormState>();
-    final quantityController = TextEditingController();
+    final productData = productDoc.data() as Map<String, dynamic>;
+
+    // Get current user details
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final currentUserName = currentUser?.displayName ?? 'Inconnu';
+    final currentUserId = currentUser?.uid ?? 'unknown_uid';
+
+    // Get old quantity
+    final int oldQuantity = productData['quantiteEnStock'] ?? 0;
+
+    // Controllers
+    final newQuantityController = TextEditingController(text: oldQuantity.toString());
     final notesController = TextEditingController();
-    List<bool> isSelected = [true, false];
+
     bool isLoading = false;
 
     showDialog(
       context: context,
+      barrierDismissible: !isLoading, // Prevent closing while saving
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (context, setState) {
+
+            // --- The Save Function ---
+            Future<void> _onSave() async {
+              if (isLoading) return;
+              if (!formKey.currentState!.validate()) {
+                return;
+              }
+
+              setState(() { isLoading = true; });
+
+              final int newQuantity = int.tryParse(newQuantityController.text) ?? oldQuantity;
+              final String notes = notesController.text.trim();
+
+              // Check if anything actually changed
+              if (newQuantity == oldQuantity) {
+                Navigator.of(context).pop();
+                return;
+              }
+
+              // Calculate the difference
+              final int quantityChange = newQuantity - oldQuantity;
+
+              final db = FirebaseFirestore.instance;
+              final productRef = productDoc.reference;
+              final ledgerRef = db.collection('stock_movements').doc(); // New ledger entry
+
+              try {
+                // Use a transaction for safety
+                await db.runTransaction((transaction) async {
+                  // 1. Create the new Stock Movement Log
+                  transaction.set(ledgerRef, {
+                    'productId': productDoc.id,
+                    'productRef': productData['reference'] ?? 'N/A',
+                    'productName': productData['nom'] ?? 'Nom inconnu',
+                    'quantityChange': quantityChange,
+                    'oldQuantity': oldQuantity,
+                    'newQuantity': newQuantity,
+                    'type': 'ADJUST', // Manual adjustment
+                    'notes': notes,
+                    'userId': currentUserId,
+                    'userDisplayName': currentUserName,
+                    'timestamp': FieldValue.serverTimestamp(),
+                  });
+
+                  // 2. Update the product's main stock level
+                  transaction.update(productRef, {
+                    'quantiteEnStock': newQuantity,
+                  });
+                });
+
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Stock pour ${productData['nom']} mis à jour!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                print("Transaction failed: $e");
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Erreur: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              } finally {
+                if (context.mounted) {
+                  setState(() { isLoading = false; });
+                }
+              }
+            }
+            // --- End of Save Function ---
+
+
             return AlertDialog(
-              title: const Text('Ajuster le Stock'),
+              title: Text(productData['nom'] ?? 'Ajuster le Stock'),
               content: Form(
                 key: formKey,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ToggleButtons(
-                      isSelected: isSelected,
-                      onPressed: (int index) {
-                        setState(() { isSelected = [index == 0, index == 1]; });
-                      },
-                      borderRadius: BorderRadius.circular(8.0),
-                      children: const [
-                        Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Ajouter')),
-                        Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Retirer')),
-                      ],
+                    Text(
+                      'Stock Actuel: $oldQuantity',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueGrey,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
-                      controller: quantityController,
-                      decoration: const InputDecoration(labelText: 'Quantité'),
+                      controller: newQuantityController,
                       keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'Nouvelle Quantité en Stock',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.inventory_2_outlined),
+                      ),
                       validator: (value) {
-                        if (value == null || value.isEmpty || int.tryParse(value) == null || int.parse(value) <= 0) {
+                        if (value == null || value.isEmpty) {
+                          return 'Veuillez entrer une quantité';
+                        }
+                        if (int.tryParse(value) == null) {
                           return 'Veuillez entrer un nombre valide';
                         }
                         return null;
                       },
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: notesController,
-                      decoration: const InputDecoration(labelText: 'Notes (ex: Arrivage, Vente)'),
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (Obligatoire)',
+                        hintText: 'Ex: comptage inventaire, perte, ...',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.notes_outlined),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Une note est obligatoire pour l\'audit';
+                        }
+                        return null;
+                      },
                     ),
                   ],
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: isLoading ? null : () => Navigator.of(context).pop(),
                   child: const Text('Annuler'),
                 ),
-                ElevatedButton(
-                  onPressed: isLoading ? null : () async {
-                    if (formKey.currentState!.validate()) {
-                      setState(() { isLoading = true; });
-                      final int quantityChange = int.parse(quantityController.text);
-                      final bool isAdding = isSelected[0];
-                      final user = FirebaseAuth.instance.currentUser;
-
-                      try {
-                        await FirebaseFirestore.instance.runTransaction((transaction) async {
-                          final productRef = FirebaseFirestore.instance.collection('produits').doc(productDoc.id);
-                          final freshSnap = await transaction.get(productRef);
-                          final currentQuantity = freshSnap.data()?['quantiteEnStock'] ?? 0;
-                          final newQuantity = isAdding ? currentQuantity + quantityChange : currentQuantity - quantityChange;
-                          transaction.update(productRef, {'quantiteEnStock': newQuantity});
-                          final historyRef = productRef.collection('stock_history').doc();
-                          transaction.set(historyRef, {
-                            'change': isAdding ? quantityChange : -quantityChange,
-                            'newQuantity': newQuantity,
-                            'notes': notesController.text,
-                            'timestamp': FieldValue.serverTimestamp(),
-                            'updatedByUid': user?.uid,
-                          });
-                        });
-                        if(context.mounted) Navigator.of(context).pop();
-                      } catch (e) {
-                        print("Error updating stock: $e");
-                        if(context.mounted) Navigator.of(context).pop();
-                      }
-                    }
-                  },
-                  child: isLoading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Mettre à jour'),
+                ElevatedButton.icon(
+                  icon: isLoading
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.save_outlined),
+                  label: const Text('Enregistrer'),
+                  onPressed: isLoading ? null : _onSave,
                 ),
               ],
             );
@@ -107,12 +193,14 @@ class ProductStockListPage extends StatelessWidget {
       },
     );
   }
+  // ✅ --- END OF REBUILT DIALOG ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(category),
+        backgroundColor: categoryColor,
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -121,9 +209,17 @@ class ProductStockListPage extends StatelessWidget {
             .orderBy('nom')
             .snapshots(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Erreur: ${snapshot.error}'));
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('Aucun produit dans cette catégorie.'));
+          }
+
           final productDocs = snapshot.data!.docs;
-          if (productDocs.isEmpty) return const Center(child: Text('Aucun produit dans cette catégorie.'));
 
           return ListView.builder(
             itemCount: productDocs.length,

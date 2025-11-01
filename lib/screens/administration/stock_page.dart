@@ -6,6 +6,8 @@ import 'package:boitex_info_app/screens/administration/stock_category_list_page.
 import 'package:boitex_info_app/screens/administration/add_requisition_page.dart';
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 import 'package:boitex_info_app/screens/administration/antivol_config/antivol_main_page.dart';
+import 'package:boitex_info_app/screens/administration/inventory_report_page.dart';
+import 'package:boitex_info_app/screens/administration/stock_audit_page.dart'; // ✅ IMPORT ADDED
 
 // Helper class to hold style info for our main sections
 class MainCategory {
@@ -23,7 +25,8 @@ class StockPage extends StatefulWidget {
   State<StockPage> createState() => _StockPageState();
 }
 
-class _StockPageState extends State<StockPage> with SingleTickerProviderStateMixin {
+class _StockPageState extends State<StockPage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   List<DocumentSnapshot> _searchResults = [];
@@ -32,9 +35,18 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
   late Animation<double> _fadeAnimation;
 
   final List<MainCategory> _mainCategories = [
-    MainCategory(name: 'Antivol', icon: Icons.shield_rounded, color: const Color(0xFF667EEA)),
-    MainCategory(name: 'TPV', icon: Icons.point_of_sale_rounded, color: const Color(0xFFEC4899)),
-    MainCategory(name: 'Compteur Client', icon: Icons.people_alt_rounded, color: const Color(0xFF10B981)),
+    MainCategory(
+        name: 'Antivol',
+        icon: Icons.shield_rounded,
+        color: const Color(0xFF667EEA)),
+    MainCategory(
+        name: 'TPV',
+        icon: Icons.point_of_sale_rounded,
+        color: const Color(0xFFEC4899)),
+    MainCategory(
+        name: 'Compteur Client',
+        icon: Icons.people_alt_rounded,
+        color: const Color(0xFF10B981)),
   ];
 
   @override
@@ -70,7 +82,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     setState(() => _isSearching = true);
     try {
       final queryLower = query.toLowerCase();
-      final snapshot = await FirebaseFirestore.instance.collection('produits').get();
+      final snapshot =
+      await FirebaseFirestore.instance.collection('produits').get();
 
       final results = snapshot.docs.where((doc) {
         final data = doc.data();
@@ -100,7 +113,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
             ),
             backgroundColor: const Color(0xFFEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
@@ -130,7 +144,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
         await showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Row(
               children: [
                 Container(
@@ -141,7 +156,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     ),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.inventory_2_rounded, color: Colors.white),
+                  child: const Icon(Icons.inventory_2_rounded,
+                      color: Colors.white),
                 ),
                 const SizedBox(width: 12),
                 Expanded(child: Text(productName)),
@@ -152,7 +168,9 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    stockQuantity > 0 ? Colors.green.shade50 : Colors.red.shade50,
+                    stockQuantity > 0
+                        ? Colors.green.shade50
+                        : Colors.red.shade50,
                     Colors.white,
                   ],
                 ),
@@ -167,7 +185,9 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: stockQuantity > 0 ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                      color: stockQuantity > 0
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFEF4444),
                     ),
                   ),
                 ],
@@ -185,7 +205,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
         await showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Row(
               children: [
                 Container(
@@ -196,7 +217,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     ),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.search_off_rounded, color: Colors.white),
+                  child: const Icon(Icons.search_off_rounded,
+                      color: Colors.white),
                 ),
                 const SizedBox(width: 12),
                 const Text('Produit non trouvé'),
@@ -224,7 +246,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
           ),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     }
@@ -279,12 +302,14 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
         child: FloatingActionButton.extended(
           onPressed: () {
             Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const AddRequisitionPage()),
+              MaterialPageRoute(
+                  builder: (context) => const AddRequisitionPage()),
             );
           },
           backgroundColor: Colors.transparent,
           elevation: 0,
-          label: const Text('Demande d\'Achat', style: TextStyle(fontWeight: FontWeight.bold)),
+          label: const Text('Demande d\'Achat',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           icon: const Icon(Icons.add_shopping_cart_rounded),
         ),
       ),
@@ -314,7 +339,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -340,11 +366,35 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 26),
+              icon: const Icon(Icons.qr_code_scanner_rounded,
+                  color: Colors.white, size: 26),
               tooltip: 'Scanner un produit',
               onPressed: () => _scanProduct(context),
             ),
           ),
+          const SizedBox(width: 8),
+
+          // Report Button
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.assessment_outlined,
+                  color: Colors.white, size: 26),
+              tooltip: 'Rapport d\'Inventaire',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const InventoryReportPage(),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // ✅ NEW AUDIT LOG BUTTON
           const SizedBox(width: 8),
           Container(
             decoration: BoxDecoration(
@@ -352,11 +402,34 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              icon: const Icon(Icons.tune_rounded, color: Colors.white, size: 26),
+              icon: const Icon(Icons.history_outlined,
+                  color: Colors.white, size: 26),
+              tooltip: 'Audit des Mouvements',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const StockAuditPage(),
+                  ),
+                );
+              },
+            ),
+          ),
+          // ✅ END OF NEW BUTTON
+
+          const SizedBox(width: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.tune_rounded,
+                  color: Colors.white, size: 26),
               tooltip: 'Configuration Antivol',
               onPressed: () {
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => const AntivolMainPage()),
+                  MaterialPageRoute(
+                      builder: (context) => const AntivolMainPage()),
                 );
               },
             ),
@@ -412,7 +485,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                 ),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.search_rounded, color: Colors.white, size: 20),
+              child:
+              const Icon(Icons.search_rounded, color: Colors.white, size: 20),
             ),
             suffixIcon: _searchQuery.isNotEmpty
                 ? IconButton(
@@ -422,7 +496,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                   color: Colors.grey.shade200,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF1F2937)),
+                child: const Icon(Icons.close_rounded,
+                    size: 18, color: Color(0xFF1F2937)),
               ),
               onPressed: () {
                 setState(() {
@@ -437,7 +512,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
               borderRadius: BorderRadius.circular(20),
               borderSide: BorderSide.none,
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
           ),
         ),
       ),
@@ -627,7 +703,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            Icon(Icons.qr_code_rounded, size: 14, color: Colors.grey.shade600),
+                            Icon(Icons.qr_code_rounded,
+                                size: 14, color: Colors.grey.shade600),
                             const SizedBox(width: 6),
                             Text(
                               reference,
@@ -641,7 +718,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                         ),
                         const SizedBox(height: 4),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
                             color: categoryColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(8),
@@ -659,17 +737,23 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: stock > 0
                             ? [const Color(0xFF10B981), const Color(0xFF059669)]
-                            : [const Color(0xFFEF4444), const Color(0xFFDC2626)],
+                            : [
+                          const Color(0xFFEF4444),
+                          const Color(0xFFDC2626)
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: (stock > 0 ? const Color(0xFF10B981) : const Color(0xFFEF4444))
+                          color: (stock > 0
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFEF4444))
                               .withOpacity(0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
@@ -736,7 +820,9 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     MaterialPageRoute(
                       builder: (context) => StockCategoryListPage(
                         mainCategory: mainCategory.name,
+                        // ✅ --- THIS IS THE FIX ---
                         mainCategoryColor: mainCategory.color,
+                        // ✅ --------------------------
                         mainCategoryIcon: mainCategory.icon,
                       ),
                     ),
