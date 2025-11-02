@@ -40,37 +40,72 @@ class AddInterventionPage extends StatefulWidget {
 class _AddInterventionPageState extends State<AddInterventionPage>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  final _descriptionController = TextEditingController();
 
-  List<Client> _clients = [];
+  // Existing Controllers
+  final _clientPhoneController = TextEditingController();
+  final _requestController = TextEditingController();
+
+  // ✅ ADDED: Search Controllers for Autocomplete
+  final _clientSearchController = TextEditingController();
+  final _storeSearchController = TextEditingController();
+
+  bool _isLoading = false;
+
+  // Existing State
+  String? _selectedInterventionType;
+  String? _selectedInterventionPriority;
   Client? _selectedClient;
-  List<Store> _stores = [];
   Store? _selectedStore;
+
+  // ✅ ADDED: Data and Loading States
+  List<Client> _clients = [];
+  List<Store> _stores = [];
   bool _isLoadingClients = true;
   bool _isLoadingStores = false;
-  bool _isSaving = false;
-  DateTime? _interventionDate;
-  String? _selectedPriority;
+
+  final List<Color> gradientColors = [
+    const Color(0xFF6A1B9A), // Deep Purple
+    const Color(0xFF8E24AA), // Purple
+  ];
 
   @override
   void initState() {
     super.initState();
+    // ✅ ADDED: Start fetching client data immediately
     _fetchClients();
   }
 
+  @override
+  void dispose() {
+    _clientPhoneController.dispose();
+    _requestController.dispose();
+    // ✅ ADDED: Dispose search controllers
+    _clientSearchController.dispose();
+    _storeSearchController.dispose();
+    super.dispose();
+  }
+
+  // -----------------------------------------------------------------
+  // ✅ ADDED: Data Fetching Logic (Copied/Adapted from AddProjectPage)
+  // -----------------------------------------------------------------
+
   Future<void> _fetchClients() async {
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('clients')
-          .where('services', arrayContains: widget.serviceType)
-          .orderBy('name')
-          .get();
-      final clients = snapshot.docs
-          .map((d) => Client(id: d.id, name: d.data()['name']))
-          .toList();
-      if (mounted) setState(() { _clients = clients; _isLoadingClients = false; });
-    } catch (_) {
-      if (mounted) setState(() { _isLoadingClients = false; });
+      final snapshot = await FirebaseFirestore.instance.collection('clients').orderBy('name').get();
+      final clients = snapshot.docs.map((doc) {
+        return Client(id: doc.id, name: doc.data()['name']);
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _clients = clients;
+          _isLoadingClients = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingClients = false);
+      }
     }
   }
 
@@ -80,6 +115,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       _stores = [];
       _selectedStore = null;
     });
+
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('clients')
@@ -87,208 +123,509 @@ class _AddInterventionPageState extends State<AddInterventionPage>
           .collection('stores')
           .orderBy('name')
           .get();
-      final stores = snapshot.docs.map((d) {
-        final data = d.data();
-        return Store(id: d.id, name: data['name'], location: data['location']);
+
+      final stores = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return Store(id: doc.id, name: data['name'], location: data['location']);
       }).toList();
-      if (mounted) setState(() { _stores = stores; _isLoadingStores = false; });
-    } catch (_) {
-      if (mounted) setState(() => _isLoadingStores = false);
+
+      if (mounted) {
+        setState(() {
+          _stores = stores;
+          _isLoadingStores = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingStores = false);
+      }
     }
   }
 
-  Future<void> _selectDate(BuildContext ctx) async {
-    final picked = await showDatePicker(
-      context: ctx,
-      initialDate: _interventionDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-      locale: const Locale('fr', 'FR'),
+  // -----------------------------------------------------------------
+  // ✅ ADDED: Quick-Add Dialogs (Copied/Adapted from AddProjectPage)
+  // -----------------------------------------------------------------
+
+  Future<void> _showAddClientDialog() async {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<Client>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ajouter un Nouveau Client'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nom du Client *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: phoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Téléphone (Optionnel)',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                try {
+                  // Save to Firestore
+                  final docRef = await FirebaseFirestore.instance.collection('clients').add({
+                    'name': nameController.text.trim(),
+                    'phone': phoneController.text.trim(),
+                    'createdAt': Timestamp.now(),
+                    'createdVia': 'intervention_quick_add', // Custom source tag
+                  });
+
+                  final newClient = Client(
+                    id: docRef.id,
+                    name: nameController.text.trim(),
+                  );
+
+                  Navigator.pop(context, newClient);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
+      ),
     );
-    if (picked != null && picked != _interventionDate) {
-      setState(() => _interventionDate = picked);
+
+    if (result != null) {
+      setState(() {
+        _clients.add(result);
+        _selectedClient = result;
+        _clientSearchController.text = result.name;
+      });
+      _fetchStores(result.id);
     }
   }
 
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSaving = true);
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) { setState(() => _isSaving = false); return; }
-    try {
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      final creator = userDoc.data()?['displayName'] ?? 'Inconnu';
-      final year = DateTime.now().year;
-      final counterRef = FirebaseFirestore.instance
-          .collection('counters')
-          .doc('intervention_counter_$year');
-      await FirebaseFirestore.instance.runTransaction((tx) async {
-        final cDoc = await tx.get(counterRef);
-        final newCount = (cDoc.data()?['count'] as int? ?? 0) + 1;
-        final code = 'INT-$newCount/$year';
-        final iRef = FirebaseFirestore.instance.collection('interventions').doc();
-        tx.set(iRef, {
+  Future<void> _showAddStoreDialog() async {
+    if (_selectedClient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez d\'abord sélectionner un client')),
+      );
+      return;
+    }
+
+    final nameController = TextEditingController();
+    final locationController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<Store>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ajouter un Nouveau Magasin'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nom du Magasin *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: locationController,
+                decoration: const InputDecoration(
+                  labelText: 'Emplacement *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                try {
+                  // Save to Firestore under client's stores subcollection
+                  final docRef = await FirebaseFirestore.instance
+                      .collection('clients')
+                      .doc(_selectedClient!.id)
+                      .collection('stores')
+                      .add({
+                    'name': nameController.text.trim(),
+                    'location': locationController.text.trim(),
+                    'createdAt': Timestamp.now(),
+                    'createdVia': 'intervention_quick_add', // Custom source tag
+                  });
+
+                  final newStore = Store(
+                    id: docRef.id,
+                    name: nameController.text.trim(),
+                    location: locationController.text.trim(),
+                  );
+
+                  Navigator.pop(context, newStore);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _stores.add(result);
+        _selectedStore = result;
+        _storeSearchController.text = '${result.name} - ${result.location}';
+      });
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // ✅ ADDED: Save Intervention function (Reconstructed based on app pattern)
+  // -----------------------------------------------------------------
+
+  Future<void> _saveIntervention() async {
+    FocusScope.of(context).unfocus();
+
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
+
+        final interventionRef = FirebaseFirestore.instance.collection('interventions');
+        // Simple code generation for placeholder
+        final interventionCode = 'INT-${DateFormat('yyMMdd').format(DateTime.now())}-${interventionRef.doc().id.substring(0, 4).toUpperCase()}';
+
+        await interventionRef.add({
+          'interventionCode': interventionCode,
           'serviceType': widget.serviceType,
-          'interventionCode': code,
           'clientId': _selectedClient!.id,
           'clientName': _selectedClient!.name,
+          'clientPhone': _clientPhoneController.text.trim(),
           'storeId': _selectedStore!.id,
-          'storeName': _selectedStore!.name,
-          'storeLocation': _selectedStore!.location,
-          'description': _descriptionController.text.trim(),
-          'interventionDate': Timestamp.fromDate(_interventionDate!),
-          'priority': _selectedPriority,
-          'status': 'Nouveau',
+          'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
+          'requestDescription': _requestController.text.trim(),
+          'interventionType': _selectedInterventionType,
+          'priority': _selectedInterventionPriority,
+          'status': 'Nouvelle Demande',
           'createdAt': Timestamp.now(),
           'createdByUid': user.uid,
-          'createdByName': creator,
+          'createdByName': creatorName,
         });
-        tx.set(counterRef, {'count': newCount}, SetOptions(merge: true));
-      });
-      if (mounted) Navigator.of(context).pop();
-    } catch (_) {
-      if (mounted) setState(() => _isSaving = false);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Intervention créée avec succès!')),
+          );
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red),
+          );
+          setState(() => _isLoading = false);
+        }
+      }
     }
   }
 
-  @override
-  void dispose() {
-    _descriptionController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
-    const gradientColors = [
-      Color(0xFFB3E5FC),
-      Color(0xFFCE93D8),
-      Color(0xFFF48FB1),
-    ];
-    const primaryColor = Colors.blue;
-    final focusedBorder = OutlineInputBorder(
-      borderSide: const BorderSide(color: primaryColor, width: 2.0),
-      borderRadius: BorderRadius.circular(12),
+    final Color primaryColor = gradientColors.first;
+
+    // Default border definitions (adapted for dark background)
+    final OutlineInputBorder focusedBorder = OutlineInputBorder(
+      borderSide: const BorderSide(color: Colors.white, width: 2.0),
+      borderRadius: BorderRadius.circular(12.0),
     );
-    final defaultBorder = OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.grey.shade300),
-      borderRadius: BorderRadius.circular(12),
+    final OutlineInputBorder defaultBorder = OutlineInputBorder(
+      borderSide: const BorderSide(color: Colors.white30),
+      borderRadius: BorderRadius.circular(12.0),
     );
 
-    Widget formContent = Form(
+    final formContent = Form(
       key: _formKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_isLoadingClients)
-            const Center(child: CircularProgressIndicator())
-          else if (_clients.isEmpty)
-            InputDecorator(
-              decoration: InputDecoration(
-                labelText: 'Client',
-                border: defaultBorder,
+          // -----------------------------------------------------------
+          // ✅ NEW: Client Autocomplete with Add Button
+          // -----------------------------------------------------------
+          Row(
+            children: [
+              Expanded(
+                child: _isLoadingClients
+                    ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                    : Autocomplete<Client>(
+                  optionsBuilder: (textEditingValue) {
+                    if (textEditingValue.text.isEmpty) {
+                      return _clients;
+                    }
+                    return _clients.where((client) =>
+                        client.name.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                  },
+                  displayStringForOption: (client) => client.name,
+                  onSelected: (client) {
+                    setState(() => _selectedClient = client);
+                    _fetchStores(client.id);
+                  },
+                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                    _clientSearchController.text = controller.text;
+                    return TextFormField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Nom du Client *',
+                        labelStyle: const TextStyle(color: Colors.white70),
+                        enabledBorder: defaultBorder,
+                        focusedBorder: focusedBorder,
+                        floatingLabelStyle: const TextStyle(color: Colors.white),
+                        suffixIcon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                      ),
+                      validator: (value) =>
+                      _selectedClient == null ? 'Veuillez sélectionner un client' : null,
+                    );
+                  },
+                ),
               ),
-              child: Text('Aucun client', style: TextStyle(color: Colors.grey)),
-            )
-          else
-            DropdownButtonFormField<Client>(
-              value: _selectedClient,
-              decoration: InputDecoration(
-                labelText: 'Client',
-                border: defaultBorder,
-                focusedBorder: focusedBorder,
-                floatingLabelStyle: const TextStyle(color: primaryColor),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: _showAddClientDialog,
+                icon: const Icon(Icons.add),
+                tooltip: 'Ajouter un nouveau client',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: primaryColor,
+                ),
               ),
-              items: _clients.map((c) => DropdownMenuItem(
-                value: c,
-                child: Text(c.name),
-              )).toList(),
-              onChanged: (c) { setState(() => _selectedClient = c); if (c != null) _fetchStores(c.id); },
-              validator: (v) => v == null ? 'Sélectionner un client' : null,
-            ),
-          const SizedBox(height: 20),
-          if (_isLoadingStores)
-            const Center(child: CircularProgressIndicator())
-          else
-            DropdownButtonFormField<Store>(
-              value: _selectedStore,
-              decoration: InputDecoration(
-                labelText: 'Magasin',
-                border: defaultBorder,
-                focusedBorder: focusedBorder,
-                floatingLabelStyle: const TextStyle(color: primaryColor),
-              ),
-              items: _stores.map((s) => DropdownMenuItem(
-                value: s,
-                child: Text('${s.name} (${s.location})'),
-              )).toList(),
-              onChanged: _selectedClient == null ? null : (s) => setState(() => _selectedStore = s),
-              validator: (v) => v == null ? 'Sélectionner un magasin' : null,
-            ),
-          const SizedBox(height: 20),
-          DropdownButtonFormField<String>(
-            value: _selectedPriority,
-            decoration: InputDecoration(
-              labelText: 'Priorité',
-              border: defaultBorder,
-              focusedBorder: focusedBorder,
-              floatingLabelStyle: const TextStyle(color: primaryColor),
-            ),
-            items: const [
-              DropdownMenuItem(value: 'Haute', child: Text('Haute')),
-              DropdownMenuItem(value: 'Moyenne', child: Text('Moyenne')),
-              DropdownMenuItem(value: 'Basse', child: Text('Basse')),
             ],
-            onChanged: (p) => setState(() => _selectedPriority = p),
-            validator: (v) => v == null ? 'Sélectionner une priorité' : null,
           ),
-          const SizedBox(height: 20),
-          InkWell(
-            onTap: () => _selectDate(context),
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: 'Date',
-                border: defaultBorder,
-                focusedBorder: focusedBorder,
-                floatingLabelStyle: const TextStyle(color: primaryColor),
+
+          const SizedBox(height: 16),
+
+          // -----------------------------------------------------------
+          // ✅ NEW: Store Autocomplete with Add Button
+          // -----------------------------------------------------------
+          Row(
+            children: [
+              Expanded(
+                child: _isLoadingStores
+                    ? const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: Center(child: CircularProgressIndicator(color: Colors.white)),
+                )
+                    : Autocomplete<Store>(
+                  optionsBuilder: (textEditingValue) {
+                    if (textEditingValue.text.isEmpty) {
+                      return _stores;
+                    }
+                    return _stores.where((store) =>
+                    store.name.toLowerCase().contains(textEditingValue.text.toLowerCase()) ||
+                        store.location.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                  },
+                  displayStringForOption: (store) => '${store.name} - ${store.location}',
+                  onSelected: (store) {
+                    setState(() => _selectedStore = store);
+                  },
+                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                    _storeSearchController.text = controller.text;
+                    return TextFormField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      enabled: _selectedClient != null,
+                      style: TextStyle(color: _selectedClient != null ? Colors.white : Colors.white70),
+                      decoration: InputDecoration(
+                        labelText: 'Magasin *',
+                        labelStyle: const TextStyle(color: Colors.white70),
+                        enabledBorder: defaultBorder,
+                        focusedBorder: focusedBorder,
+                        floatingLabelStyle: const TextStyle(color: Colors.white),
+                        suffixIcon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                      ),
+                      validator: (value) =>
+                      _selectedStore == null ? 'Veuillez sélectionner un magasin' : null,
+                    );
+                  },
+                ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(_interventionDate == null
-                      ? 'Sélectionner une date'
-                      : DateFormat('dd MMM yyyy', 'fr_FR').format(_interventionDate!)),
-                  const Icon(Icons.calendar_today, color: Colors.grey),
-                ],
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: _selectedClient == null ? null : _showAddStoreDialog,
+                icon: const Icon(Icons.add),
+                tooltip: 'Ajouter un nouveau magasin',
+                style: IconButton.styleFrom(
+                  backgroundColor: _selectedClient == null ? Colors.grey.shade400 : Colors.white,
+                  foregroundColor: primaryColor,
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 20),
-          TextFormField(
-            controller: _descriptionController,
+
+          const SizedBox(height: 16),
+
+          // -----------------------------------------------------------
+          // Existing Dropdowns for Type and Priority
+          // -----------------------------------------------------------
+          DropdownButtonFormField<String>(
+            value: _selectedInterventionType,
+            dropdownColor: primaryColor.withOpacity(0.9),
+            style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
-              labelText: 'Description',
-              border: defaultBorder,
+              labelText: 'Type d\'Intervention *',
+              labelStyle: const TextStyle(color: Colors.white70),
+              enabledBorder: defaultBorder,
               focusedBorder: focusedBorder,
-              floatingLabelStyle: const TextStyle(color: primaryColor),
+              floatingLabelStyle: const TextStyle(color: Colors.white),
             ),
-            maxLines: 5,
-            validator: (v) => v == null || v.isEmpty ? 'Décrire le problème' : null,
+            items: ['Maintenance', 'Installation', 'Mise à Jour', 'Autre']
+                .map((String value) => DropdownMenuItem<String>(
+              value: value,
+              child: Text(value, style: const TextStyle(color: Colors.white)),
+            ))
+                .toList(),
+            onChanged: (String? newValue) {
+              setState(() {
+                _selectedInterventionType = newValue;
+              });
+            },
+            validator: (value) => value == null ? 'Veuillez choisir un type' : null,
           ),
+
+          const SizedBox(height: 16),
+
+          DropdownButtonFormField<String>(
+            value: _selectedInterventionPriority,
+            dropdownColor: primaryColor.withOpacity(0.9),
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Priorité *',
+              labelStyle: const TextStyle(color: Colors.white70),
+              enabledBorder: defaultBorder,
+              focusedBorder: focusedBorder,
+              floatingLabelStyle: const TextStyle(color: Colors.white),
+            ),
+            items: ['Haute', 'Moyenne', 'Basse']
+                .map((String value) => DropdownMenuItem<String>(
+              value: value,
+              child: Text(value, style: const TextStyle(color: Colors.white)),
+            ))
+                .toList(),
+            onChanged: (String? newValue) {
+              setState(() {
+                _selectedInterventionPriority = newValue;
+              });
+            },
+            validator: (value) => value == null ? 'Veuillez choisir une priorité' : null,
+          ),
+
+          const SizedBox(height: 16),
+
+          // -----------------------------------------------------------
+          // Phone Number Field
+          // -----------------------------------------------------------
+          TextFormField(
+            controller: _clientPhoneController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Numéro de Téléphone (Contact) *',
+              labelStyle: const TextStyle(color: Colors.white70),
+              enabledBorder: defaultBorder,
+              focusedBorder: focusedBorder,
+              floatingLabelStyle: const TextStyle(color: Colors.white),
+            ),
+            keyboardType: TextInputType.phone,
+            validator: (value) =>
+            value == null || value.isEmpty ? 'Veuillez entrer un numéro' : null,
+          ),
+
+          const SizedBox(height: 16),
+
+          // -----------------------------------------------------------
+          // Description Field
+          // -----------------------------------------------------------
+          TextFormField(
+            controller: _requestController,
+            maxLines: 4,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Description de la Demande *',
+              labelStyle: const TextStyle(color: Colors.white70),
+              enabledBorder: defaultBorder,
+              focusedBorder: focusedBorder,
+              floatingLabelStyle: const TextStyle(color: Colors.white),
+            ),
+            validator: (value) =>
+            value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,
+          ),
+
           const SizedBox(height: 24),
+
+          // -----------------------------------------------------------
+          // Submit Button
+          // -----------------------------------------------------------
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _isSaving ? null : _submitForm,
+              onPressed: _isLoading ? null : _saveIntervention, // Updated to use _saveIntervention
               style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.white,
+                foregroundColor: primaryColor,
+                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
               ),
-              child: _isSaving
-                  ? const CircularProgressIndicator(color: Colors.white)
+              child: _isLoading
+                  ? CircularProgressIndicator(color: primaryColor) // ✅ FIX: Removed 'const'
                   : const Text('Créer Intervention'),
             ),
           ),
@@ -301,9 +638,9 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: Text('Nouvelle Intervention'),
+        title: const Text('Nouvelle Intervention'),
         flexibleSpace: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -315,7 +652,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
