@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-
 import 'package:boitex_info_app/screens/service_technique/add_intervention_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
@@ -12,7 +11,6 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 class InterventionListPage extends StatefulWidget {
   final String userRole;
   final String serviceType;
-
   const InterventionListPage({
     super.key,
     required this.userRole,
@@ -20,7 +18,7 @@ class InterventionListPage extends StatefulWidget {
   });
 
   @override
-  State<InterventionListPage> createState() => _InterventionListPageState();
+  State createState() => _InterventionListPageState();
 }
 
 class _InterventionListPageState extends State<InterventionListPage> {
@@ -48,6 +46,7 @@ class _InterventionListPageState extends State<InterventionListPage> {
       case 'En cours':
         return Colors.orange.shade700;
       case 'Nouveau':
+      case 'Nouvelle Demande': // ✅ ADDED TO MATCH CREATION STATUS
         return Colors.blue.shade700;
       case 'Terminé':
         return Colors.green.shade700;
@@ -73,6 +72,7 @@ class _InterventionListPageState extends State<InterventionListPage> {
       default:
         flagColor = Colors.grey;
     }
+
     return Container(
       width: 10,
       height: double.infinity,
@@ -90,7 +90,7 @@ class _InterventionListPageState extends State<InterventionListPage> {
           title: const Text('Confirmer la suppression'),
           content: Text(
               'Êtes-vous sûr de vouloir supprimer définitivement l\'intervention pour "$title"? Cette action est irréversible.'),
-          actions: <Widget>[
+          actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
               child: const Text('Annuler'),
@@ -111,7 +111,6 @@ class _InterventionListPageState extends State<InterventionListPage> {
             .collection('interventions')
             .doc(interventionId)
             .delete();
-
         // Afficher la confirmation
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -146,8 +145,8 @@ class _InterventionListPageState extends State<InterventionListPage> {
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('interventions')
         .where('serviceType', isEqualTo: serviceType)
-    // ✅ FIX: Filter to show ONLY truly active/pending statuses.
-        .where('status', whereIn: ['Nouveau', 'En cours', 'En attente'])
+    // ✅ FIXED QUERY: Filter to include 'Nouvelle Demande' from the creation page
+        .where('status', whereIn: ['Nouvelle Demande', 'Nouveau', 'En cours', 'En attente'])
         .orderBy('status', descending: true)
         .orderBy('createdAt', descending: true);
 
@@ -161,9 +160,11 @@ class _InterventionListPageState extends State<InterventionListPage> {
           if (snapshot.hasError) {
             return Center(child: Text('Erreur: ${snapshot.error}'));
           }
+
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return const Center(
               child: Text('Aucune intervention en cours ou nouvelle.'),
@@ -171,7 +172,6 @@ class _InterventionListPageState extends State<InterventionListPage> {
           }
 
           final interventions = snapshot.data!.docs;
-
           return ListView.builder(
             itemCount: interventions.length,
             itemBuilder: (context, index) {
@@ -179,7 +179,6 @@ class _InterventionListPageState extends State<InterventionListPage> {
               final interventionData = interventionDoc.data();
               final String docId = interventionDoc.id;
               final String storeName = interventionData['storeName'] ?? 'Magasin Inconnu';
-
               final DateTime? createdAt = (interventionData['createdAt'] as Timestamp?)?.toDate();
               final String formattedDate = createdAt != null
                   ? DateFormat('dd/MM/yyyy HH:mm').format(createdAt)
@@ -233,9 +232,9 @@ class _InterventionListPageState extends State<InterventionListPage> {
                                     _deleteIntervention(docId, storeName);
                                   }
                                 },
-                                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                itemBuilder: (BuildContext context) => <PopupMenuItem<String>>[
                                   if (_canDelete) // Affiche seulement si la permission est activée
-                                    const PopupMenuItem<String>(
+                                    const PopupMenuItem(
                                       value: 'delete',
                                       child: Text('Supprimer', style: TextStyle(color: Colors.red)),
                                     ),

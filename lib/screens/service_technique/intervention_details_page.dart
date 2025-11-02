@@ -3,7 +3,6 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -30,7 +29,6 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 class AppUser {
   final String uid;
   final String displayName;
-
   AppUser({required this.uid, required this.displayName});
 
   @override
@@ -45,7 +43,6 @@ class AppUser {
 // ----------------------------------------------------------------------
 class InterventionDetailsPage extends StatefulWidget {
   final DocumentSnapshot<Map<String, dynamic>> interventionDoc;
-
   const InterventionDetailsPage({super.key, required this.interventionDoc});
 
   @override
@@ -68,10 +65,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   List<AppUser> _allTechnicians = [];
   List<AppUser> _selectedTechnicians = [];
   bool _isLoading = false;
-
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _mediaFilesToUpload = [];
-  final List<String> _existingMediaUrls = [];
+  List<String> _existingMediaUrls = []; // ✅ Null-safe list
 
   // Backblaze B2 helper function endpoint
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -80,14 +76,21 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   // File size limit (50MB in bytes)
   static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
 
-  // Status options derived from current doc
+  // Status options derived from current doc (✅ FIXED: Include 'Nouvelle Demande')
   List<String> get statusOptions {
     final current =
         (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
     if (current == 'Clôturé' || current == 'Facturé') {
       return ['Clôturé', 'Facturé'];
     }
-    return ['Nouveau', 'En cours', 'Terminé', 'En attente'];
+
+    // ✅ FIX: Include 'Nouvelle Demande' for new interventions; add current if missing
+    List<String> baseOptions = ['Nouvelle Demande', 'Nouveau', 'En cours', 'Terminé', 'En attente'];
+    final Set<String> optionsSet = Set<String>.from(baseOptions);
+    if (!optionsSet.contains(current)) {
+      optionsSet.add(current); // Dynamic fallback
+    }
+    return optionsSet.toList();
   }
 
   // Read-only when closed or invoiced
@@ -101,7 +104,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   void initState() {
     super.initState();
     final data = widget.interventionDoc.data() ?? {};
-
     _managerNameController =
         TextEditingController(text: data['managerName'] ?? '');
     _managerPhoneController =
@@ -112,11 +114,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
     _signatureController = SignatureController();
-
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
-    _existingMediaUrls
-        .addAll(List<String>.from(data['mediaUrls'] ?? const []));
+
+    // ✅ FIX: Null-safe media load from creation (via add_intervention_page.dart)
+    final mediaList = data['mediaUrls'] as List?;
+    _existingMediaUrls = mediaList != null ? List<String>.from(mediaList) : [];
 
     _fetchTechnicians().then((_) {
       final List<dynamic> assigned =
@@ -147,7 +150,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         ),
         iconTheme: IconThemeData(color: Colors.white),
       ),
-      cardTheme: CardThemeData( // <-- was CardTheme
+      cardTheme: CardThemeData(
         color: Colors.white.withOpacity(0.95),
         elevation: 8,
         shadowColor: const Color(0xFF667EEA).withOpacity(0.15),
@@ -196,9 +199,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       final query = await FirebaseFirestore.instance.collection('users').get();
       _allTechnicians = query.docs
           .map((doc) => AppUser(
-        uid: doc.id,
-        displayName: (doc.data()['displayName'] ?? 'No Name') as String,
-      ))
+          uid: doc.id,
+          displayName: (doc.data()['displayName'] ?? 'No Name') as String))
           .toList();
     } catch (e) {
       if (!mounted) return;
@@ -221,14 +223,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
     if (pickedFiles.isEmpty) return;
-
     final List<XFile> validFiles = [];
     final List<String> rejectedFiles = [];
-
     for (final file in pickedFiles) {
       final int fileSize = await file.length();
       final bool isVideo = _isVideoPath(file.name);
-
       if (isVideo && fileSize > _maxFileSizeInBytes) {
         rejectedFiles.add(
           '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
@@ -278,9 +277,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-
       final fileName = file.name.split('/').last;
-
       final resp = await http.post(
         uploadUri,
         headers: {
@@ -333,12 +330,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
 
       // 2) Media uploads to B2
-      final uploaded = List<String>.from(_existingMediaUrls);
+      final List<String> uploaded = List<String>.from(_existingMediaUrls); // ✅ Null-safe
       for (final file in _mediaFilesToUpload) {
         final creds = await _getB2UploadCredentials();
         if (creds == null) {
           throw Exception('Impossible de récupérer les accès B2.');
         }
+
         final url = await _uploadFileToB2(file, creds);
         if (url != null) {
           uploaded.add(url);
@@ -372,12 +370,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       // Check if mounted BEFORE showing snackbar and popping
       if (!mounted) return;
-
       scaffoldMessenger.showSnackBar(
         const SnackBar(content: Text('Rapport enregistré avec succès!')),
       );
       navigator.pop();
-
     } catch (e) {
       // Check if mounted BEFORE showing error
       if (!mounted) return;
@@ -404,6 +400,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         final r = await http.get(Uri.parse(data['signatureUrl'] as String));
         if (r.statusCode == 200) signatureBytes = r.bodyBytes;
       }
+
       final pdfData = {...data, 'signatureUrl': signatureBytes};
       await InterventionPdfService.generateAndSharePdf(pdfData);
     } catch (e) {
@@ -426,13 +423,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         final r = await http.get(Uri.parse(data['signatureUrl'] as String));
         if (r.statusCode == 200) signatureBytes = r.bodyBytes;
       }
+
       final pdfData = {...data, 'signatureUrl': signatureBytes};
       await InterventionPdfService.generateAndPrintPdf(pdfData);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar( // Corrected line
-        SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')),
-      ); // Corrected line
+        SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')), // Corrected line
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -447,6 +445,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         final r = await http.get(Uri.parse(data['signatureUrl'] as String));
         if (r.statusCode == 200) signatureBytes = r.bodyBytes;
       }
+
       final pdfData = {...data, 'signatureUrl': signatureBytes};
       final Uint8List pdfBytes =
       await InterventionPdfService.generatePdfBytes(pdfData);
@@ -487,7 +486,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   @override
   Widget build(BuildContext context) {
     final data = widget.interventionDoc.data() ?? {};
-    final createdAt = (data['createdAt'] as Timestamp).toDate();
+
+    // ✅ FIX: Safely access Timestamp fields, defaulting to current time if missing
+    final createdAtTimestamp = data['createdAt'] as Timestamp?;
+    final createdAt = createdAtTimestamp?.toDate() ?? DateTime.now();
 
     return Theme(
       data: _interventionTheme(context),
@@ -563,13 +565,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ✅ FIX: Use 'createdByName' from data, which should be present
             Text(
-              'Demandé par ${data['createdByName']}',
+              'Demandé par ${data['createdByName'] ?? 'Inconnu'}',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              'Client: ${data['clientName']} - Magasin: ${data['storeName']}',
+              'Client: ${data['clientName'] ?? 'N/A'} - Magasin: ${data['storeName'] ?? 'N/A'}',
               style: const TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 4),
@@ -583,7 +586,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const Text('Description du Problème:',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text(data['description'] ?? 'Non spécifié'),
+            // ✅ FIX: Use 'requestDescription' from add_intervention_page.dart
+            Text(data['requestDescription'] ?? 'Non spécifié'),
           ],
         ),
       ),
@@ -612,7 +616,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             decoration: const InputDecoration(labelText: 'Téléphone du contact'),
           ),
           const SizedBox(height: 16),
-
           // ✅ ADDED THIS BLOCK
           TextFormField(
             controller: _managerEmailController,
@@ -625,10 +628,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           ),
           const SizedBox(height: 16),
           // ✅ END OF ADDED BLOCK
-
           MultiSelectDialogField<AppUser>(
             items: _allTechnicians
-                .map((t) => MultiSelectItem<AppUser>(t, t.displayName))
+                .map((t) => MultiSelectItem(t, t.displayName))
                 .toList(),
             title: const Text('Techniciens'),
             selectedColor: const Color(0xFF667EEA),
@@ -715,7 +717,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           DropdownButtonFormField<String>(
             value: _currentStatus,
             items: statusOptions
-                .map((s) => DropdownMenuItem<String>(value: s, child: Text(s)))
+                .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                 .toList(),
             onChanged:
             isReadOnly ? null : (v) => setState(() => _currentStatus = v!),
@@ -749,7 +751,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
           const Text('Aucun fichier ajouté.',
               style: TextStyle(color: Colors.grey)),
-
         // Existing (uploaded) media
         Wrap(
           spacing: 8,
@@ -758,7 +759,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
               .map((url) => _buildMediaThumbnail(url: url))
               .toList(),
         ),
-
         // Pending (local) media
         Wrap(
           spacing: 8,
@@ -787,8 +787,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
   // ✅ 2. THIS IS THE MODIFIED THUMBNAIL WIDGET
   Widget _buildMediaThumbnail({String? url, XFile? file}) {
+    // The B2 upload logic in add_intervention_page.dart allows PDF uploads, but the current _isVideoPath only checks for video extensions.
+    // We assume any non-video network URL that isn't image is a document (like PDF) and will be handled by launching the URL.
     final bool isVideo = (url != null && _isVideoPath(url)) ||
         (file != null && _isVideoPath(file.path));
+    final bool isPdf = url != null && url.toLowerCase().endsWith('.pdf');
 
     Widget content;
     if (file != null) {
@@ -806,6 +809,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
+
             if (snapshot.hasData && snapshot.data != null) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(12),
@@ -817,22 +821,29 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 ),
               );
             }
+
             return const Center(
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
         // --- END NEW LOGIC FOR LOCAL VIDEO ---
       } else {
-        // Local Image
+        // Local Image/Document
         content = ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: Image.file(File(file.path),
-              width: 100, height: 100, fit: BoxFit.cover),
+              width: 100, height: 100, fit: BoxFit.cover,
+              errorBuilder: (c, e, s) => isPdf
+                  ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
+                  : const Icon(Icons.insert_drive_file, size: 40, color: Colors.blue)),
         );
       }
     } else if (url != null && url.isNotEmpty) {
       // Existing URL
-      if (isVideo) {
+      if (isPdf) {
+        content = const Center(
+            child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
+      } else if (isVideo) {
         // --- START NEW LOGIC FOR NETWORK VIDEO ---
         content = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
@@ -845,6 +856,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
+
             if (snapshot.hasData && snapshot.data != null) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(12),
@@ -856,6 +868,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 ),
               );
             }
+
             return const Center(
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
@@ -886,23 +899,27 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
 
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         // Local media can't be previewed in viewer until uploaded
         if (url == null || url.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content:
-                Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
+                content: Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
           );
           return;
         }
-        if (isVideo) {
+
+        if (isPdf) {
+          // Handle PDF view: launch external viewer for network files
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        } else if (isVideo) {
           Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)),
           );
         } else {
+          // Image viewer
           final images =
-          _existingMediaUrls.where((u) => !_isVideoPath(u)).toList();
+          _existingMediaUrls.where((u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf')).toList();
           if (images.isEmpty) return;
           final initial = images.indexOf(url);
           Navigator.of(context).push(
@@ -927,7 +944,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           clipBehavior: Clip.none,
           children: [
             Positioned.fill(child: content),
-
+            // Video/PDF icon overlay
+            if (isVideo || isPdf)
+              const Center(
+                child: Icon(Icons.play_circle_fill, color: Colors.white, size: 30),
+              ),
             // Remove button for local pending file
             if (!isReadOnly && file != null)
               Positioned(
@@ -939,7 +960,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                       setState(() => _mediaFilesToUpload.remove(file)),
                 ),
               ),
-
             // Remove button for existing URL
             if (!isReadOnly && url != null)
               Positioned(

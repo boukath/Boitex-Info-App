@@ -8,6 +8,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
+// ✅ NEW IMPORTS FOR B2 & MEDIA HANDLING
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as path;
+import 'package:image_picker/image_picker.dart'; // For camera/video access
+import 'package:video_thumbnail/video_thumbnail.dart'; // For displaying video thumbnails
+
+
 // Simple data model for a Client
 class Client {
   final String id;
@@ -47,6 +58,10 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
 
+  // ✅ NEW: B2 Cloud Function URL (Copied from mission_details_page)
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+
   // Existing Controllers
   final _clientPhoneController = TextEditingController();
   final _requestController = TextEditingController();
@@ -68,6 +83,11 @@ class _AddInterventionPageState extends State<AddInterventionPage>
   List<Store> _stores = [];
   bool _isLoadingClients = true;
   bool _isLoadingStores = false;
+
+  // ✅ NEW: State for Media Upload
+  List<File> _localFilesToUpload = [];
+  List<String> _uploadedMediaUrls = [];
+  bool _isUploadingMedia = false;
 
   // Creamy light + sunlit pastels background (sorbet gradient, luminous neutrals)
   final List<Color> gradientColors = const [
@@ -107,6 +127,121 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     _storeSearchController.dispose();
     _animationController.dispose();
     super.dispose();
+  }
+
+  // --- B2 HELPER FUNCTIONS (COPIED/ADAPTED FROM mission_details_page) ---
+
+  // Gets credentials from the cloud function
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+  // Uploads a single file to B2
+  Future<String?> _uploadFileToB2(
+      File file, Map<String, dynamic> b2Creds) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final fileName = path.basename(file.path);
+
+      String? mimeType;
+      // Simple MIME type detection for common media
+      final extension = path.extension(fileName).toLowerCase();
+      if (extension == '.jpg' || extension == '.jpeg') {
+        mimeType = 'image/jpeg';
+      } else if (extension == '.png') {
+        mimeType = 'image/png';
+      } else if (extension == '.mp4' || extension == '.mov') {
+        mimeType = 'video/mp4';
+      } else if (extension == '.pdf') {
+        mimeType = 'application/pdf';
+      } else {
+        mimeType = 'b2/x-auto';
+      }
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': mimeType,
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        final encodedPath =
+        (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+
+  // --- NEW MEDIA PICKER LOGIC ---
+
+  // Handles picking multiple files (photos, videos, docs)
+  Future<void> _pickFiles() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'mp4', 'mov', 'pdf'],
+      allowMultiple: true,
+    );
+
+    if (result != null) {
+      setState(() {
+        final newFiles = result.paths
+            .where((p) => p != null)
+            .map((p) => File(p!))
+            .toList();
+        _localFilesToUpload.addAll(newFiles);
+      });
+    }
+  }
+
+  // Handles capturing a single photo from the camera
+  Future<void> _capturePhoto() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? xFile = await picker.pickImage(source: ImageSource.camera);
+
+    if (xFile != null) {
+      setState(() {
+        _localFilesToUpload.add(File(xFile.path));
+      });
+    }
+  }
+
+  // Handles capturing a single video from the camera
+  Future<void> _captureVideo() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? xFile = await picker.pickVideo(source: ImageSource.camera);
+
+    if (xFile != null) {
+      setState(() {
+        _localFilesToUpload.add(File(xFile.path));
+      });
+    }
   }
 
   // Data Fetching Logic
@@ -438,16 +573,68 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     return result;
   }
 
-  // Save Intervention Function
+  // Save Intervention Function (MODIFIED FOR B2 UPLOAD)
   Future<void> _saveIntervention() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
-    setState(() => _isLoading = true);
+
+    if (_selectedClient == null || _selectedStore == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez sélectionner un client et un magasin.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _isUploadingMedia = true;
+      _uploadedMediaUrls = []; // Reset uploaded URLs list
+    });
+
+    // --- STEP 1: UPLOAD MEDIA TO B2 ---
+    try {
+      if (_localFilesToUpload.isNotEmpty) {
+        final b2Credentials = await _getB2UploadCredentials();
+        if (b2Credentials == null) {
+          throw Exception('Impossible de récupérer les accès B2 pour le téléchargement.');
+        }
+
+        final List<String> urls = [];
+        for (var file in _localFilesToUpload) {
+          final url = await _uploadFileToB2(file, b2Credentials);
+          if (url != null) {
+            urls.add(url);
+          } else {
+            // Log failure but continue with other files
+            debugPrint('Failed to upload file: ${file.path}');
+          }
+        }
+        _uploadedMediaUrls = urls;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur d\'upload média: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isLoading = false);
+      }
+      return; // Stop submission if media upload fails critically
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingMedia = false);
+      }
+    }
+
+    // --- STEP 2: SAVE INTERVENTION DATA TO FIRESTORE ---
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       setState(() => _isLoading = false);
       return;
     }
+
     try {
       final userDoc =
       await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -455,7 +642,8 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       final interventionRef = FirebaseFirestore.instance.collection('interventions');
       final interventionCode =
           'INT-${DateFormat('yyMMdd').format(DateTime.now())}-${interventionRef.doc().id.substring(0, 4).toUpperCase()}';
-      await interventionRef.add({
+
+      final interventionData = {
         'interventionCode': interventionCode,
         'serviceType': widget.serviceType,
         'clientId': _selectedClient!.id,
@@ -470,7 +658,12 @@ class _AddInterventionPageState extends State<AddInterventionPage>
         'createdAt': Timestamp.now(),
         'createdByUid': user.uid,
         'createdByName': creatorName,
-      });
+        // ✅ NEW: Save the list of B2 media URLs
+        'mediaUrls': _uploadedMediaUrls,
+      };
+
+      await interventionRef.add(interventionData);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -484,7 +677,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur: ${e.toString()}'),
+            content: Text('Erreur lors de l\'enregistrement: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -541,8 +734,14 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     required Widget child,
     bool isLoading = false,
     Color? backgroundColor,
+    // ✅ NEW: Added isUploadingMedia check
+    bool isUploadingMedia = false,
   }) {
     final buttonColor = backgroundColor ?? kDuotoneGlow;
+
+    // Disable if loading OR uploading media
+    final isDisabled = isLoading || isUploadingMedia;
+
     return GestureDetector(
       onTapDown: (_) {
         HapticFeedback.lightImpact(); // haptic cues
@@ -550,34 +749,39 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: isDisabled
+              ? null // No gradient if disabled
+              : LinearGradient(
             colors: [
               buttonColor,
               buttonColor.withOpacity(0.85),
             ],
           ),
+          color: isDisabled ? Colors.grey : buttonColor, // Grey if disabled
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
-            BoxShadow(
-              color: kDuotoneGlow.withOpacity(0.4),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: Colors.white.withOpacity(0.18),
-              blurRadius: 6,
-              offset: const Offset(0, -2),
-            ),
+            if (!isDisabled)
+              BoxShadow(
+                color: kDuotoneGlow.withOpacity(0.4),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            if (!isDisabled)
+              BoxShadow(
+                color: Colors.white.withOpacity(0.18),
+                blurRadius: 6,
+                offset: const Offset(0, -2),
+              ),
           ],
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
-            onTap: isLoading ? null : onPressed,
+            onTap: isDisabled ? null : onPressed,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              child: isLoading
+              child: isLoading || isUploadingMedia
                   ? const SizedBox(
                 height: 20,
                 width: 20,
@@ -593,6 +797,125 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       ),
     );
   }
+
+  // --- NEW MEDIA UI BUILDERS ---
+
+  Widget _buildMediaSection() {
+    final textColor = _isDarkMode ? Colors.white : Colors.black87;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'FICHIERS & MÉDIAS DE SUPPORT (${_localFilesToUpload.length})',
+          style: TextStyle(
+              fontSize: 16, fontWeight: FontWeight.w700, color: textColor),
+        ),
+        const Divider(color: kJewelAccent),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _buildMediaActionButton(
+              icon: Icons.photo_camera,
+              label: 'Photo',
+              onPressed: _capturePhoto,
+              color: Colors.blue.shade700,
+            ),
+            _buildMediaActionButton(
+              icon: Icons.videocam,
+              label: 'Vidéo',
+              onPressed: _captureVideo,
+              color: Colors.purple.shade700,
+            ),
+            _buildMediaActionButton(
+              icon: Icons.attach_file,
+              label: 'PDF',
+              onPressed: _pickFiles,
+              color: Colors.orange.shade700,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_localFilesToUpload.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: (_isDarkMode ? Colors.white10 : Colors.grey.shade100),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Fichiers locaux à envoyer:',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                ..._localFilesToUpload.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final file = entry.value;
+                  return ListTile(
+                    leading: FutureBuilder<Widget>(
+                      future: _getLeadingIcon(file.path),
+                      builder: (context, snapshot) {
+                        return snapshot.data ??
+                            const Icon(Icons.file_present, color: kJewelAccent);
+                      },
+                    ),
+                    title: Text(path.basename(file.path),
+                        style: TextStyle(color: textColor),
+                        overflow: TextOverflow.ellipsis),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close, color: Colors.red),
+                      onPressed: () => setState(
+                              () => _localFilesToUpload.removeAt(index)),
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildMediaActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+    required Color color,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: _isUploadingMedia ? null : onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: ElevatedButton.styleFrom(
+        foregroundColor: Colors.white,
+        backgroundColor: color,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
+  }
+
+  Future<Widget> _getLeadingIcon(String filePath) async {
+    final extension = path.extension(filePath).toLowerCase();
+    if (extension == '.jpg' || extension == '.jpeg' || extension == '.png') {
+      return const Icon(Icons.image, color: Colors.green);
+    } else if (extension == '.mp4' || extension == '.mov') {
+      // Generate thumbnail for videos
+      final thumbPath = await VideoThumbnail.thumbnailFile(
+        video: filePath,
+        imageFormat: ImageFormat.JPEG,
+        maxHeight: 64,
+        quality: 50,
+      );
+      if (thumbPath != null) {
+        return Image.file(File(thumbPath), width: 40, height: 40, fit: BoxFit.cover);
+      }
+      return const Icon(Icons.videocam, color: Colors.purple);
+    } else if (extension == '.pdf') {
+      return const Icon(Icons.picture_as_pdf, color: Colors.red);
+    }
+    return const Icon(Icons.insert_drive_file, color: Colors.blue);
+  }
+
+  // --- MAIN BUILD & DISPOSE ---
 
   @override
   Widget build(BuildContext context) {
@@ -716,6 +1039,8 @@ class _AddInterventionPageState extends State<AddInterventionPage>
                   },
                   child: const Icon(Icons.add, color: Colors.white, size: 20),
                   backgroundColor: kDuotoneGlow,
+                  isLoading: _isLoading, // Use general loading state for client add
+                  isUploadingMedia: _isUploadingMedia,
                 ),
               ],
             ),
@@ -796,6 +1121,8 @@ class _AddInterventionPageState extends State<AddInterventionPage>
                   child: const Icon(Icons.add, color: Colors.white, size: 20),
                   backgroundColor:
                   _selectedClient == null ? Colors.grey : kDuotoneGlow,
+                  isLoading: _isLoading, // Use general loading state for store add
+                  isUploadingMedia: _isUploadingMedia,
                 ),
               ],
             ),
@@ -903,6 +1230,11 @@ class _AddInterventionPageState extends State<AddInterventionPage>
             ),
           ),
 
+          // ✅ NEW: Media Upload Section
+          _buildMediaSection(),
+          const SizedBox(height: 24),
+
+
           // Submit Button
           SizedBox(
             width: double.infinity,
@@ -910,15 +1242,16 @@ class _AddInterventionPageState extends State<AddInterventionPage>
               onPressed: () {
                 _saveIntervention();
               },
-              child: const Text(
-                'Créer Intervention',
-                style: TextStyle(
+              child: Text(
+                _isUploadingMedia ? 'Téléchargement Média en cours...' : 'Créer Intervention',
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
                 ),
               ),
               isLoading: _isLoading,
+              isUploadingMedia: _isUploadingMedia, // Use the new flag
             ),
           ),
         ],
