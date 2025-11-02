@@ -89,6 +89,19 @@ class RolePermissions {
 
   // --- Synchronous Public Permission Checks (for when role is already known) ---
 
+  /// ✅ NEWLY ADDED: Check if user can edit missions (as requested previously)
+  /// Check if the user has permission to edit missions.
+  /// This permission is granted to all administrative/management roles.
+  static bool canEditMission(String userRole) {
+    return _checkRole(userRole, _fullAccessRoles);
+  }
+
+  /// ✅ NEWLY ADDED: Check if user can delete missions.
+  /// This permission is granted to all administrative/management roles.
+  static bool canDeleteMission(String userRole) {
+    return _checkRole(userRole, _fullAccessRoles);
+  }
+
   /// ✅ FIXED: Check if user can schedule installations.
   static bool canScheduleInstallation(String userRole) {
     return _checkRole(userRole, _fullAccessRoles);

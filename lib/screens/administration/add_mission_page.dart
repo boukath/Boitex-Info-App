@@ -19,7 +19,10 @@ class UserViewModel {
 }
 
 class AddMissionPage extends StatefulWidget {
-  const AddMissionPage({super.key});
+  // ✅ MODIFIED: Optional parameter for editing an existing mission
+  final Mission? missionToEdit;
+
+  const AddMissionPage({super.key, this.missionToEdit}); // ✅ MODIFIED
 
   @override
   State<AddMissionPage> createState() => _AddMissionPageState();
@@ -69,19 +72,95 @@ class _AddMissionPageState extends State<AddMissionPage> {
   // ✅ OPTIMIZED: Async initialization
   late Future<void> _loadDataFuture;
 
+  // ✅ NEW: Getter for edit mode
+  bool get _isEditMode => widget.missionToEdit != null;
+
   @override
   void initState() {
     super.initState();
     _loadDataFuture = _loadData();
+    // ✅ NEW: Initialize form fields if in edit mode
+    if (_isEditMode) {
+      _initializeForEdit();
+    }
   }
 
-  // ✅ Load data in parallel
+  // ✅ NEW: Function to pre-fill all fields when in edit mode
+  void _initializeForEdit() {
+    final mission = widget.missionToEdit!;
+    _selectedServiceType = mission.serviceType;
+    _titleController.text = mission.title;
+    _destinations.addAll(mission.destinations);
+
+    _startDate = mission.startDate;
+    _endDate = mission.endDate;
+
+    // Load tasks. Must create new objects as MissionTasks are final in the list.
+    _tasks.addAll(mission.tasks.map((t) => MissionTask.fromJson(t.toJson())));
+
+    // Set budgets in controllers. We rely on _loadData to set per-person controllers after fetching users.
+    _fuelBudgetController.text = mission.expenseReport.fuel.budget.toString();
+    _hotelBudgetController.text = mission.expenseReport.hotel.budget.toString();
+    _purchaseBudgetController.text = mission.expenseReport.purchases.budget.toString();
+
+    // Load resources
+    if (mission.resources != null) {
+      _equipment.addAll(mission.resources!.equipment);
+
+      // Load pre-mission purchases. Must create new objects for mutability.
+      _preMissionPurchases.addAll(mission.resources!.preMissionPurchases.map((p) => PurchaseItem.fromJson(p.toJson())));
+      _purchaseNotesController.text = mission.resources!.purchaseNotes;
+
+      // Note: _selectedVehicle is set after _fetchVehicles() completes in _loadData()
+    }
+  }
+
+
+  // ✅ MODIFIED: Load data now handles post-load initialization for edit mode
   Future<void> _loadData() async {
     try {
       await Future.wait([
         _fetchUsers(),
         _fetchVehicles(),
       ]);
+
+      // ✅ POST-LOAD INITIALIZATION FOR EDIT MODE (depends on fetched lists)
+      if (_isEditMode) {
+        final mission = widget.missionToEdit!;
+
+        // Reconstruct selected technicians and initialize their budget controllers
+        if (mounted) {
+          setState(() {
+            _selectedTechnicians = _allUsers
+                .where((u) => mission.assignedTechniciansIds.contains(u.id))
+                .toList();
+
+            // Initialize per-person budget controllers with saved values
+            for (var tech in _selectedTechnicians) {
+              final savedBudget = mission.expenseReport.dailyAllowancesPerTechnician[tech.name]?.budget.toString() ?? '0';
+              // Check if controller already exists (shouldn't, but safe check)
+              if (!_perPersonBudgetControllers.containsKey(tech.id)) {
+                _perPersonBudgetControllers[tech.id] = TextEditingController(text: savedBudget);
+              } else {
+                _perPersonBudgetControllers[tech.id]!.text = savedBudget;
+              }
+            }
+
+            // Select the assigned vehicle
+            if (mission.resources?.vehicleId != null) {
+              try {
+                _selectedVehicle = _availableVehicles.firstWhere(
+                      (v) => v.id == mission.resources!.vehicleId,
+                );
+              } catch (_) {
+                // Vehicle not found (e.g., deleted or status changed to unavailable). Keep _selectedVehicle null.
+              }
+            }
+
+            _checkVehicleAvailability();
+          });
+        }
+      }
     } catch (e) {
       debugPrint('Error loading data: $e');
       rethrow; // Allow FutureBuilder to catch error
@@ -137,6 +216,9 @@ class _AddMissionPageState extends State<AddMissionPage> {
       return;
     }
 
+    // Exclude the current mission if in edit mode
+    final currentMissionId = _isEditMode ? widget.missionToEdit!.id : null;
+
     final conflicting = await FirebaseFirestore.instance
         .collection('missions')
         .where('resources.vehicleId', isEqualTo: _selectedVehicle!.id)
@@ -145,6 +227,11 @@ class _AddMissionPageState extends State<AddMissionPage> {
 
     bool hasConflict = false;
     for (var mission in conflicting.docs) {
+      // Skip the current mission when checking for conflicts
+      if (currentMissionId != null && mission.id == currentMissionId) {
+        continue;
+      }
+
       final data = mission.data();
       final existingStart = (data['startDate'] as Timestamp).toDate();
       final existingEnd = (data['endDate'] as Timestamp).toDate();
@@ -228,76 +315,139 @@ class _AddMissionPageState extends State<AddMissionPage> {
 
     setState(() => _isLoading = true);
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final currentYear = DateTime.now().year;
-        final counterRef = FirebaseFirestore.instance
-            .collection('counters')
-            .doc('mission_counter_$currentYear');
-        final counterSnap = await transaction.get(counterRef);
-        final newCount = ((counterSnap.data()?['count'] as int?) ?? 0) + 1;
-        final missionCode = 'MISS-$newCount/$currentYear';
 
-        // Build expense report with per-person budgets
-        final dailyAllowances = <String, ExpenseCategory>{};
-        for (var tech in _selectedTechnicians) {
-          final budget = double.tryParse(
-              _perPersonBudgetControllers[tech.id]?.text ?? '0') ??
-              0.0;
-          dailyAllowances[tech.name] = ExpenseCategory(budget: budget);
+      // --- 1. BUILD COMMON MISSION OBJECTS (EXPENSE REPORT & RESOURCES) ---
+      final dailyAllowances = <String, ExpenseCategory>{};
+
+      // Preserve existing 'spent' data and bill URLs in edit mode
+      final existingExpenseReport = _isEditMode ? widget.missionToEdit!.expenseReport : null;
+
+      for (var tech in _selectedTechnicians) {
+        final budget = double.tryParse(
+            _perPersonBudgetControllers[tech.id]?.text ?? '0') ??
+            0.0;
+
+        // Use existing 'spent' and 'billUrls' if updating
+        final spent = existingExpenseReport?.dailyAllowancesPerTechnician[tech.name]?.spent ?? 0.0;
+        final billUrls = existingExpenseReport?.dailyAllowancesPerTechnician[tech.name]?.billUrls;
+
+        dailyAllowances[tech.name] = ExpenseCategory(
+          budget: budget,
+          spent: spent,
+          billUrls: billUrls,
+        );
+      }
+
+      final expenseReport = ExpenseReport(
+        dailyAllowancesPerTechnician: dailyAllowances,
+        fuel: ExpenseCategory(
+          budget: double.tryParse(_fuelBudgetController.text) ?? 0.0,
+          spent: existingExpenseReport?.fuel.spent ?? 0.0,
+          billUrls: existingExpenseReport?.fuel.billUrls,
+        ),
+        purchases: ExpenseCategory(
+          budget: double.tryParse(_purchaseBudgetController.text) ?? 0.0,
+          spent: existingExpenseReport?.purchases.spent ?? 0.0,
+          billUrls: existingExpenseReport?.purchases.billUrls,
+        ),
+        hotel: ExpenseCategory(
+          budget: double.tryParse(_hotelBudgetController.text) ?? 0.0,
+          spent: existingExpenseReport?.hotel.spent ?? 0.0,
+          billUrls: existingExpenseReport?.hotel.billUrls,
+        ),
+      );
+
+      // Build resources
+      final resources = MissionResources(
+        vehicleId: _selectedVehicle?.id,
+        vehicleModel: _selectedVehicle?.model,
+        vehiclePlate: _selectedVehicle?.plateNumber,
+        equipment: _equipment,
+        preMissionPurchases: _preMissionPurchases,
+        purchaseNotes: _purchaseNotesController.text.trim(),
+      );
+
+      // --- 2. HANDLE CREATION VS. UPDATE ---
+      if (_isEditMode) {
+        // ✅ EDIT MODE: UPDATE EXISTING DOCUMENT
+        if (widget.missionToEdit!.id == null) {
+          throw Exception("Mission ID is missing for update.");
         }
 
-        final expenseReport = ExpenseReport(
-          dailyAllowancesPerTechnician: dailyAllowances,
-          fuel: ExpenseCategory(
-              budget: double.tryParse(_fuelBudgetController.text) ?? 0.0),
-          // ✅ MODIFIED: Using the new controller's value instead of 0.0
-          purchases: ExpenseCategory(
-              budget: double.tryParse(_purchaseBudgetController.text) ?? 0.0),
-          hotel: ExpenseCategory(
-              budget: double.tryParse(_hotelBudgetController.text) ?? 0.0),
-        );
+        final missionId = widget.missionToEdit!.id!;
 
-        // Build resources
-        final resources = MissionResources(
-          vehicleId: _selectedVehicle?.id,
-          vehicleModel: _selectedVehicle?.model,
-          vehiclePlate: _selectedVehicle?.plateNumber,
-          equipment: _equipment,
-          preMissionPurchases: _preMissionPurchases,
-          purchaseNotes: _purchaseNotesController.text.trim(),
-        );
+        final updatedData = {
+          // Fields that can be modified
+          'serviceType': _selectedServiceType!,
+          'title': _titleController.text.trim(),
+          'destinations': _destinations,
+          'startDate': Timestamp.fromDate(_startDate!),
+          'endDate': Timestamp.fromDate(_endDate!),
+          'assignedTechniciansIds': _selectedTechnicians.map((t) => t.id).toList(),
+          'assignedTechniciansNames': _selectedTechnicians.map((t) => t.name).toList(),
+          'assignedTechniciansRoles': _selectedTechnicians.map((t) => t.role).toList(),
+          'tasks': _tasks.map((task) => task.toJson()).toList(),
+          'expenseReport': expenseReport.toJson(),
+          'resources': resources.toJson(),
+        };
 
-        final mission = Mission(
-          missionCode: missionCode,
-          serviceType: _selectedServiceType!,
-          title: _titleController.text.trim(),
-          destinations: _destinations,
-          startDate: _startDate!,
-          endDate: _endDate!,
-          assignedTechniciansIds: _selectedTechnicians.map((t) => t.id).toList(),
-          assignedTechniciansNames:
-          _selectedTechnicians.map((t) => t.name).toList(),
-          assignedTechniciansRoles:
-          _selectedTechnicians.map((t) => t.role).toList(),
-          tasks: _tasks,
-          status: 'Planifiée',
-          expenseReport: expenseReport,
-          resources: resources,
-          createdAt: DateTime.now(),
-          createdBy: 'Admin',
-        );
+        await FirebaseFirestore.instance
+            .collection('missions')
+            .doc(missionId)
+            .update(updatedData);
 
-        final missionRef = FirebaseFirestore.instance.collection('missions').doc();
-        transaction.set(missionRef, mission.toJson());
-        transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
-      });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Mission mise à jour avec succès!')),
+          );
+          Navigator.pop(context); // Close the edit page
+        }
+      } else {
+        // ✅ CREATION MODE: ORIGINAL LOGIC INSIDE TRANSACTION
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final currentYear = DateTime.now().year;
+          final counterRef = FirebaseFirestore.instance
+              .collection('counters')
+              .doc('mission_counter_$currentYear');
+          final counterSnap = await transaction.get(counterRef);
+          final newCount = ((counterSnap.data()?['count'] as int?) ?? 0) + 1;
+          final missionCode = 'MISS-$newCount/$currentYear';
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Mission créée avec succès!')),
-        );
-        Navigator.pop(context);
+          // Build expense report with per-person budgets (using the one defined above which defaults to 0 spent)
+
+          final mission = Mission(
+            missionCode: missionCode,
+            serviceType: _selectedServiceType!,
+            title: _titleController.text.trim(),
+            destinations: _destinations,
+            startDate: _startDate!,
+            endDate: _endDate!,
+            assignedTechniciansIds: _selectedTechnicians.map((t) => t.id).toList(),
+            assignedTechniciansNames:
+            _selectedTechnicians.map((t) => t.name).toList(),
+            assignedTechniciansRoles:
+            _selectedTechnicians.map((t) => t.role).toList(),
+            tasks: _tasks,
+            status: 'Planifiée',
+            expenseReport: expenseReport,
+            resources: resources,
+            createdAt: DateTime.now(),
+            createdBy: 'Admin',
+          );
+
+          final missionRef = FirebaseFirestore.instance.collection('missions').doc();
+          transaction.set(missionRef, mission.toJson());
+          transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Mission créée avec succès!')),
+          );
+          Navigator.pop(context);
+        }
       }
+
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -313,7 +463,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('✨ Créer une Mission'),
+        // ✅ MODIFIED: Dynamic title based on mode
+        title: Text(_isEditMode ? '✏️ Modifier Mission' : '✨ Créer une Mission'),
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -511,8 +662,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
             onTap: () async {
               final date = await showDatePicker(
                 context: context,
-                initialDate: DateTime.now(),
-                firstDate: DateTime.now(),
+                initialDate: _startDate ?? DateTime.now(), // Use existing date if editing
+                firstDate: _isEditMode ? DateTime(_startDate!.year - 1) : DateTime.now(), // Allow past dates for editing
                 lastDate: DateTime(2030),
               );
               if (date != null) {
@@ -529,7 +680,7 @@ class _AddMissionPageState extends State<AddMissionPage> {
             onTap: () async {
               final date = await showDatePicker(
                 context: context,
-                initialDate: _startDate ?? DateTime.now(),
+                initialDate: _endDate ?? _startDate ?? DateTime.now(), // Use existing date
                 firstDate: _startDate ?? DateTime.now(),
                 lastDate: DateTime(2030),
               );
@@ -555,6 +706,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
             title: const Text('Sélectionner Membres'),
             selectedColor: Colors.purple,
             buttonText: const Text('Sélectionner Techniciens'),
+            // ✅ MODIFIED: Pre-select items if in edit mode
+            initialValue: _selectedTechnicians,
             onConfirm: _onTeamSelected,
             chipDisplay: MultiSelectChipDisplay.none(),
           ),
@@ -726,7 +879,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
                 padding: const EdgeInsets.all(8),
                 child: Column(
                   children: [
-                    TextField(
+                    TextFormField(
+                      initialValue: item.item,
                       decoration: const InputDecoration(
                         labelText: 'Article',
                         border: OutlineInputBorder(),
@@ -734,7 +888,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
                       onChanged: (val) => item.item = val,
                     ),
                     const SizedBox(height: 8),
-                    TextField(
+                    TextFormField(
+                      initialValue: item.description,
                       decoration: const InputDecoration(
                         labelText: 'Description',
                         border: OutlineInputBorder(),
@@ -742,7 +897,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
                       onChanged: (val) => item.description = val,
                     ),
                     const SizedBox(height: 8),
-                    TextField(
+                    TextFormField(
+                      initialValue: item.estimatedBudget.toString(),
                       decoration: const InputDecoration(
                         labelText: 'Budget estimé (DZD)',
                         border: OutlineInputBorder(),
@@ -839,9 +995,10 @@ class _AddMissionPageState extends State<AddMissionPage> {
           shadowColor: Colors.transparent,
           padding: const EdgeInsets.symmetric(vertical: 16),
         ),
-        child: const Text(
-          '✨ Créer la Mission ✨',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        child: Text(
+          // ✅ MODIFIED: Dynamic button text
+          _isEditMode ? '💾 Enregistrer les Modifications' : '✨ Créer la Mission ✨',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
       ),
     );

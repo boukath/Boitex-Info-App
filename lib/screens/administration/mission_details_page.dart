@@ -19,6 +19,10 @@ import 'dart:convert';
 // ✅ ADDED: Import for the image gallery viewer
 import 'package:boitex_info_app/widgets/image_gallery_page.dart'; // Make sure this path is correct
 
+// ✅ NEW IMPORTS FOR EDITING/DELETION
+import 'package:boitex_info_app/screens/administration/add_mission_page.dart';
+import 'package:boitex_info_app/utils/user_roles.dart'; // Import for permissions check
+
 class MissionDetailsPage extends StatefulWidget {
   final Mission mission;
 
@@ -44,11 +48,86 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
     _fetchUserRole();
   }
 
+  // ✅ NEW: Navigate to the AddMissionPage in edit mode
+  void _navigateToEditMission() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddMissionPage(missionToEdit: _currentMission),
+      ),
+    );
+  }
+
+  // ✅ NEW: Confirmation and delete logic
+  Future<void> _confirmAndDeleteMission() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmer la suppression'),
+        content: Text(
+            'Êtes-vous sûr de vouloir supprimer la mission "${_currentMission.missionCode}" ? Cette action est irréversible.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() {
+        _isUpdatingStatus = true;
+      });
+      try {
+        if (_currentMission.id == null) {
+          throw Exception("L'identifiant de la mission est manquant.");
+        }
+        await FirebaseFirestore.instance
+            .collection('missions')
+            .doc(_currentMission.id)
+            .delete();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Mission supprimée avec succès!'),
+                backgroundColor: Colors.green),
+          );
+          // Navigate back twice: close details and refresh the list page
+          Navigator.pop(context);
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Erreur lors de la suppression: $e'),
+                backgroundColor: Colors.red),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isUpdatingStatus = false;
+          });
+        }
+      }
+    }
+  }
+
+
   // Fetches the current user's role from Firestore
   Future<void> _fetchUserRole() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final userDoc =
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     if (mounted) {
       setState(() {
         _userRole = userDoc.data()?['role'] as String?;
@@ -86,7 +165,9 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
 
   // Updates the overall status of the mission
   Future<void> _updateMissionStatus(String newStatus) async {
-    setState(() { _isUpdatingStatus = true; });
+    setState(() {
+      _isUpdatingStatus = true;
+    });
 
     try {
       if (_currentMission.id == null) return;
@@ -95,20 +176,24 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
           .doc(_currentMission.id)
           .update({'status': newStatus});
 
-      final updatedDoc = await FirebaseFirestore.instance.collection('missions').doc(_currentMission.id!).get();
+      final updatedDoc = await FirebaseFirestore.instance
+          .collection('missions')
+          .doc(_currentMission.id!)
+          .get();
       if (mounted) {
         setState(() {
           _currentMission = Mission.fromFirestore(updatedDoc);
         });
       }
-
     } catch (e) {
-      if(mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     } finally {
       if (mounted) {
-        setState(() { _isUpdatingStatus = false; });
+        setState(() {
+          _isUpdatingStatus = false;
+        });
       }
     }
   }
@@ -484,10 +569,16 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
     );
   }
 
-  // --- BUILD METHODS --- (No changes needed below this line)
+  // --- BUILD METHODS ---
 
   @override
   Widget build(BuildContext context) {
+    final bool canEditMission =
+        _userRole != null && RolePermissions.canEditMission(_userRole!);
+    // ✅ NEW: Check for delete permission
+    final bool canDeleteMission =
+        _userRole != null && RolePermissions.canDeleteMission(_userRole!);
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -502,6 +593,36 @@ class _MissionDetailsPageState extends State<MissionDetailsPage> {
               ),
             ),
           ),
+          actions: [
+            if (canEditMission)
+              IconButton(
+                icon: const Icon(Icons.edit_note_outlined, color: Colors.white),
+                onPressed: _navigateToEditMission,
+                tooltip: 'Modifier la mission',
+              ),
+            // ✅ NEW: Delete Mission button/menu
+            if (canDeleteMission)
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'delete') {
+                    _confirmAndDeleteMission();
+                  }
+                },
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_forever, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Supprimer la Mission', style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                  ),
+                ],
+                icon: const Icon(Icons.more_vert, color: Colors.white),
+              ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(icon: Icon(Icons.info_outline), text: 'Détails'),
