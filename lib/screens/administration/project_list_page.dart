@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/administration/project_details_page.dart';
+import 'package:boitex_info_app/utils/user_roles.dart'; // ✅ AJOUTÉ: Import pour la gestion des rôles
 
 class ProjectListPage extends StatefulWidget {
   final String userRole;
@@ -22,6 +23,7 @@ class ProjectListPage extends StatefulWidget {
 class _ProjectListPageState extends State<ProjectListPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  bool _canDelete = false; // ✅ AJOUTÉ: État pour la permission de suppression
 
   // ✅ NEW: This list is now our single source of truth for the pipeline.
   // It defines the title and the statuses for each tab.
@@ -51,9 +53,9 @@ class _ProjectListPageState extends State<ProjectListPage>
   @override
   void initState() {
     super.initState();
-    // ✅ The controller's length is now based on our pipeline definition
     _tabController =
         TabController(length: _pipelineStages.length, vsync: this);
+    _checkUserPermissions(); // ✅ AJOUTÉ: Vérification des permissions au démarrage
   }
 
   @override
@@ -61,6 +63,73 @@ class _ProjectListPageState extends State<ProjectListPage>
     _tabController.dispose();
     super.dispose();
   }
+
+  // ✅ NOUVEAU: Vérification de la permission de suppression (réservée aux managers)
+  Future<void> _checkUserPermissions() async {
+    // Utilise la vérification d'accès complet existante
+    final canDelete = await RolePermissions.canCurrentUserDeleteLivraison();
+    if (mounted) {
+      setState(() {
+        _canDelete = canDelete;
+      }
+      );
+    }
+  }
+
+  // ✅ NOUVEAU: Fonction de suppression avec dialogue de confirmation
+  /// Affiche une boîte de dialogue de confirmation et supprime le projet si confirmé.
+  Future<void> _deleteProject(String projectId, String clientName) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirmer la suppression'),
+          content: Text(
+              'Êtes-vous sûr de vouloir supprimer définitivement le projet pour "$clientName"? Cette action est irréversible et supprime toutes les données associées.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton.tonal(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Supprimer', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('projects')
+            .doc(projectId)
+            .delete();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Projet supprimé pour "$clientName".'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Erreur lors de la suppression du projet: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ Erreur de suppression: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -81,7 +150,7 @@ class _ProjectListPageState extends State<ProjectListPage>
           }).toList(),
         ),
       ),
-      // ✅ MODIFIED: The TabBarView children are also built dynamically
+      // ✅ MODIFIED: Passing state and callback to _ProjectListStream
       body: TabBarView(
         controller: _tabController,
         children: _pipelineStages.map((stage) {
@@ -91,6 +160,8 @@ class _ProjectListPageState extends State<ProjectListPage>
             serviceType: widget.serviceType,
             statuses: stage['statuses'] as List<String>,
             emptyMessage: 'Aucun projet dans "${stage['title']}".',
+            canDelete: _canDelete, // ✅ PASSAGE DE L'ÉTAT
+            onDelete: _deleteProject, // ✅ PASSAGE DU CALLBACK
           );
         }).toList(),
       ),
@@ -162,19 +233,23 @@ class _ProjectPipelineTab extends StatelessWidget {
   }
 }
 
-// ✅ --- This is the same list widget from before, unchanged ---
+// ✅ --- This is the same list widget from before, now updated ---
 // It displays the actual list of projects for a given tab.
 class _ProjectListStream extends StatelessWidget {
   final String userRole;
   final String serviceType;
   final List<String> statuses;
   final String emptyMessage;
+  final bool canDelete; // ✅ NOUVEAU: Permission de suppression
+  final Function(String, String) onDelete; // ✅ NOUVEAU: Callback de suppression
 
   const _ProjectListStream({
     required this.userRole,
     required this.serviceType,
     required this.statuses,
     required this.emptyMessage,
+    required this.canDelete, // ✅ AJOUTÉ AU CONSTRUCTEUR
+    required this.onDelete, // ✅ AJOUTÉ AU CONSTRUCTEUR
   });
 
   Color _getStatusColor(String status) {
@@ -223,12 +298,13 @@ class _ProjectListStream extends StatelessWidget {
           itemBuilder: (context, index) {
             final projectDoc = projectDocs[index];
             final projectData = projectDoc.data() as Map<String, dynamic>;
+            final String projectId = projectDoc.id; // ✅ Récupération de l'ID
             final createdAt = (projectData['createdAt'] as Timestamp).toDate();
 
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: InkWell(
                 onTap: () {
                   Navigator.of(context).push(
@@ -272,15 +348,37 @@ class _ProjectListStream extends StatelessWidget {
                               ],
                             ),
                           ),
-                          Chip(
-                            label: Text(
-                              projectData['status'] ?? 'Inconnu',
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 12),
-                            ),
-                            backgroundColor:
-                            _getStatusColor(projectData['status'] ?? ''),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          // ✅ MODIFIÉ: Ajout d'un Row pour le Chip et le bouton de menu
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Chip(
+                                label: Text(
+                                  projectData['status'] ?? 'Inconnu',
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 12),
+                                ),
+                                backgroundColor:
+                                _getStatusColor(projectData['status'] ?? ''),
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                              ),
+                              // ✅ NOUVEAU: PopupMenuButton pour la suppression
+                              if (canDelete)
+                                PopupMenuButton<String>(
+                                  onSelected: (value) {
+                                    if (value == 'delete') {
+                                      // Appel du callback de suppression passé par le parent
+                                      onDelete(projectId, projectData['clientName'] ?? 'Projet Inconnu');
+                                    }
+                                  },
+                                  itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                    const PopupMenuItem<String>(
+                                      value: 'delete',
+                                      child: Text('Supprimer', style: TextStyle(color: Colors.red)),
+                                    ),
+                                  ],
+                                ),
+                            ],
                           ),
                         ],
                       ),

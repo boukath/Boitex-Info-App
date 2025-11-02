@@ -17,6 +17,7 @@ class LivraisonsHubPage extends StatefulWidget {
 
 class _LivraisonsHubPageState extends State<LivraisonsHubPage> {
   bool _canEdit = false;
+  bool _canDelete = false; // ✅ AJOUTÉ: Variable d'état pour la permission de suppression
 
   @override
   void initState() {
@@ -28,9 +29,12 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage> {
   Future<void> _checkUserPermissions() async {
     // This calls the centralized permission logic from your user_roles.dart file.
     final canEdit = await RolePermissions.canCurrentUserEditLivraison();
+    final canDelete = await RolePermissions.canCurrentUserDeleteLivraison(); // ✅ AJOUTÉ: Vérification de la permission de suppression
+
     if (mounted) {
       setState(() {
         _canEdit = canEdit;
+        _canDelete = canDelete; // ✅ MISE À JOUR
       });
     }
   }
@@ -57,6 +61,62 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage> {
           style: const TextStyle(color: Colors.white, fontSize: 12)),
       backgroundColor: color,
     );
+  }
+
+  // ✅ NOUVEAU: Fonction de suppression avec dialogue de confirmation
+  /// Affiche une boîte de dialogue de confirmation et supprime la livraison si confirmé.
+  Future<void> _deleteLivraison(String livraisonId, String bonNumber) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirmer la suppression'),
+          content: Text(
+              'Êtes-vous sûr de vouloir supprimer définitivement le Bon de Livraison $bonNumber? Cette action est irréversible.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton.tonal(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Supprimer', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('livraisons')
+            .doc(livraisonId)
+            .delete();
+
+        // Afficher la confirmation
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Livraison supprimée.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        // Gérer l'erreur de suppression
+        debugPrint('Erreur lors de la suppression de la livraison: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ Erreur de suppression: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -168,6 +228,8 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage> {
                                 builder: (_) =>
                                     LivraisonDetailsPage(livraisonId: doc.id)),
                           );
+                        } else if (value == 'delete') { // ✅ AJOUTÉ: Gestion de la suppression
+                          _deleteLivraison(doc.id, bonNumber);
                         }
                       },
                       itemBuilder: (BuildContext context) =>
@@ -181,6 +243,12 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage> {
                           const PopupMenuItem<String>(
                             value: 'edit',
                             child: Text('Modifier'),
+                          ),
+                        // ✅ NOUVEAU: Option de suppression conditionnelle
+                        if (_canDelete)
+                          const PopupMenuItem<String>(
+                            value: 'delete',
+                            child: Text('Supprimer', style: TextStyle(color: Colors.red)),
                           ),
                       ],
                     ),

@@ -69,6 +69,23 @@ class RolePermissions {
     return canManageLivraisons(role);
   }
 
+  /// Asynchronously checks if the *currently logged-in user* can delete livraisons.
+  static Future<bool> canCurrentUserDeleteLivraison() async {
+    final role = await UserRoles.getCurrentUserRole();
+    if (role == null) return false;
+    // Deletion requires the same full access role as editing/managing.
+    return canManageLivraisons(role);
+  }
+
+  // ✅ NOUVEAU: Check if user can delete interventions
+  /// Asynchronously checks if the *currently logged-in user* can delete interventions.
+  static Future<bool> canCurrentUserDeleteIntervention() async {
+    final role = await UserRoles.getCurrentUserRole();
+    if (role == null) return false;
+    // La suppression des interventions est limitée aux rôles d'accès complet (full access roles).
+    return _checkRole(role, _fullAccessRoles);
+  }
+
 
   // --- Synchronous Public Permission Checks (for when role is already known) ---
 

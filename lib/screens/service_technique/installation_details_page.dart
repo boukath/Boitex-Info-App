@@ -58,18 +58,26 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   Future<void> _fetchTechnicians() async {
     try {
+      // ✅ MODIFIED: List includes ALL managerial roles and technicians EXCEPT PDG
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .where('role', whereIn: [
-        'Responsable Technique',
-        'Responsable IT',
-        'Chef de Projet',
-        UserRoles.technicienST,
-        UserRoles.technicienIT
+        UserRoles.admin, // Admin
+        UserRoles.responsableAdministratif, // Responsable Administratif
+        UserRoles.responsableCommercial,    // Responsable Commercial
+        UserRoles.responsableTechnique,     // Responsable Technique
+        UserRoles.responsableIT,            // Responsable IT
+        UserRoles.chefDeProjet,             // Chef de Projet
+        UserRoles.technicienST,             // Technicien ST
+        UserRoles.technicienIT              // Technicien IT
       ]).get();
+
       final allTechnicians = snapshot.docs
           .map((doc) =>
-          AppUser(uid: doc.id, displayName: doc.data()['displayName']))
+          AppUser(
+              uid: doc.id,
+              displayName: doc.data()['displayName'] as String? ?? 'Utilisateur Inconnu'
+          ))
           .toList();
       if (mounted) setState(() => _allTechnicians = allTechnicians);
     } catch (e) {
@@ -118,7 +126,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           title: const Text('Planifier l\'Installation'),
           content: SingleChildScrollView(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisSize: MainAxisSize.min, // ✅ FIXED: Removed redundant 'MainAxisSize.'
               children: [
                 ListTile(
                   title: Text(tempDate == null
@@ -252,24 +260,205 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
   // ✅ --- END: HELPER FUNCTION TO SORT MEDIA ---
 
+  // ✅ NOUVEAU: Helper pour afficher une ligne simple
+  Widget _buildDetailRow(String label, dynamic value, [Color? color]) {
+    final displayValue = value is bool ? (value ? 'Oui' : 'Non') : (value ?? 'N/A').toString();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+          ),
+          Expanded(
+            flex: 6,
+            child: Text(displayValue, style: TextStyle(fontWeight: FontWeight.w600, color: color, fontSize: 14)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ NOUVEAU: Helper pour afficher les questions Oui/Non avec notes
+  Widget _buildBooleanRow(String label, dynamic value, [String? notes]) {
+    if (value == null) return const SizedBox.shrink();
+
+    final bool isYes = value == true;
+    final String statusText = isYes ? 'Oui' : 'Non';
+    final Color statusColor = isYes ? Colors.green.shade700 : Colors.red.shade700;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDetailRow(label, statusText, statusColor),
+        // Display notes regardless of Oui/Non, but styled differently
+        if (notes != null && notes.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 32.0, bottom: 8.0, right: 16.0),
+            child: Text('Détails: $notes', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: isYes ? Colors.grey.shade600 : Colors.red.shade400)),
+          ),
+      ],
+    );
+  }
+
+  // ✅ MODIFIÉ: Fonction pour afficher les détails de l'évaluation technique (expansible avec tous les détails)
+  List<Widget> _buildTechnicalEvaluation(
+      List<dynamic> evaluations) {
+    if (evaluations.isEmpty) return [];
+
+    return evaluations.asMap().entries.map((entry) {
+      // ✅ FIX ANTI-CRASH: Cast entry.value safely to Map<String, dynamic>
+      Map<String, dynamic> evalData = (entry.value is Map)
+          ? Map<String, dynamic>.from(entry.value as Map)
+          : {};
+
+      if (evalData.isEmpty) return const SizedBox.shrink(); // Skip invalid entries
+
+      List<Widget> details = [
+        _buildDetailRow('Type d\'entrée', evalData['entranceType']),
+        _buildDetailRow('Type de porte', evalData['doorType']),
+        _buildDetailRow('Largeur entrée', '${evalData['entranceWidth'] ?? 'N/A'} m'),
+        _buildDetailRow('Longeur entrée', '${evalData['entranceLength'] ?? 'N/A'} m'), // ✅ CORRECTED: Used evalData here
+        const Divider(height: 1),
+
+        // 1. Alimentation
+        _buildBooleanRow('Alimentation disponible', evalData['isPowerAvailable'], evalData['powerNotes']),
+
+        // 2. Sol Fini (Simple Boolean)
+        _buildBooleanRow('Sol Fini', evalData['isFloorFinalized']),
+
+        // 3. Conduit
+        _buildBooleanRow('Conduit disponible', evalData['isConduitAvailable']),
+
+        // 4. Tranchée
+        _buildBooleanRow('Autorisé à trancher', evalData['canMakeTrench']),
+
+        // 5. Obstacles
+        _buildBooleanRow('Obstacles', evalData['hasObstacles'], evalData['obstacleNotes']),
+
+        // 6. Structures Métalliques
+        _buildBooleanRow('Structures métalliques', evalData['hasMetalStructures']),
+
+        // 7. Autres Systèmes
+        _buildBooleanRow('Autres systèmes', evalData['hasOtherSystems']),
+
+        // Overall notes
+        if (evalData['generalNotes'] != null && (evalData['generalNotes'] as String).isNotEmpty) ...[
+          const Divider(height: 1),
+          _buildDetailRow('Notes générales', evalData['generalNotes']),
+        ],
+      ];
+
+      // ✅ MODIFIÉ: Retourne un Card avec ExpansionTile (pour l'expandabilité)
+      return Card(
+        elevation: 2,
+        margin: const EdgeInsets.only(bottom: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          tilePadding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          leading: Icon(Icons.square_foot_outlined, color: primaryColor),
+          title: Text(
+              'Évaluation Technique #${entry.key + 1}',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+          ),
+          children: [
+            const Divider(height: 1),
+            // The list of details forms the content of the expanded area
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: details),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
+  // ✅ MODIFIÉ: Fonction pour afficher les détails de l'évaluation IT (maintenant expansible)
+  List<Widget> _buildItEvaluation(
+      List<dynamic> itItems) {
+    if (itItems.isEmpty) return [];
+
+    List<Widget> children = [];
+
+    itItems.asMap().entries.forEach((entry) {
+      // ✅ FIX ANTI-CRASH: Cast entry.value safely to Map<String, dynamic>
+      Map<String, dynamic> itemData = (entry.value is Map)
+          ? Map<String, dynamic>.from(entry.value as Map)
+          : {};
+
+      if (itemData.isEmpty) return; // Skip invalid entries
+
+      children.add(
+        ListTile(
+          dense: true,
+          leading: Icon(Icons.computer, color: Colors.blue.shade800),
+          title: Text(itemData['itemType'] ?? 'Équipement Inconnu', style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDetailRow('Marque', itemData['brand']),
+              _buildDetailRow('Modèle', itemData['model']),
+              if (itemData['osType'] != null)
+                _buildDetailRow('OS', itemData['osType']),
+              if (itemData['notes'] != null && (itemData['notes'] as String).isNotEmpty)
+                _buildDetailRow('Notes', itemData['notes']),
+            ],
+          ),
+        ),
+      );
+    });
+
+    // ✅ MODIFIÉ: Retourne un Card avec ExpansionTile (pour l'expandabilité)
+    return [
+      Card(
+        elevation: 2,
+        margin: const EdgeInsets.only(bottom: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          tilePadding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          leading: Icon(Icons.computer_outlined, color: Colors.blue.shade800),
+          title: const Text(
+              'Évaluation IT',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+          ),
+          children: [
+            const Divider(height: 1),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+          ],
+        ),
+      )
+    ];
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final data = widget.installationDoc.data() as Map<String, dynamic>;
-    final technicalEvaluation = data['technicalEvaluation'] as List? ?? [];
+
+    // ✅ CRITICAL FIX (CRASH PREVENTION): Safely convert the evaluation data from Map or null to List.
+    // This handles the type mismatch error: Map is not List.
+    dynamic rawTechnicalData = data['technicalEvaluation'];
+    final List<dynamic> technicalEvaluation = (rawTechnicalData is List)
+        ? rawTechnicalData
+        : (rawTechnicalData is Map ? [rawTechnicalData] : []);
+
+    dynamic rawItData = data['itEvaluation'];
+    final List<dynamic> itEvaluation = (rawItData is List)
+        ? rawItData
+        : (rawItData is Map ? [rawItData] : []);
+
     final status = data['status'] ?? 'Inconnu';
     final orderedProducts = data['orderedProducts'] as List? ?? [];
 
-    // ✅ --- START: FIXED MEDIA SORTING LOGIC ---
-
-    // 1. Read the single 'mediaUrls' list from Firestore.
+    // --- Media Sorting Logic (Remains unchanged but uses safe list) ---
     final List<String> allMediaUrls =
     List<String>.from(data['mediaUrls'] ?? []);
 
-    // 2. Create two empty lists to sort the URLs into.
     final List<String> sortedPhotoUrls = [];
     final List<String> sortedVideoUrls = [];
 
-    // 3. Loop through the main list and sort each URL.
     for (String url in allMediaUrls) {
       if (_isVideoUrl(url)) {
         sortedVideoUrls.add(url);
@@ -277,7 +466,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         sortedPhotoUrls.add(url);
       }
     }
-    // ✅ --- END: FIXED MEDIA SORTING LOGIC ---
+    // --- End Media Sorting Logic ---
 
     return Scaffold(
       appBar: AppBar(
@@ -318,26 +507,16 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               ))
                   .toList(),
             ),
-          ...technicalEvaluation.asMap().entries.map((entry) {
-            int idx = entry.key;
-            Map<String, dynamic> evalData =
-            Map<String, dynamic>.from(entry.value);
-            return _buildInfoCard(
-              title: 'Évaluation - Entrée #${idx + 1}',
-              icon: Icons.square_foot_outlined,
-              children: [
-                ListTile(
-                    title: Text(evalData['entranceType'] ?? 'N/A'),
-                    subtitle: const Text('Type d\'entrée')),
-                ListTile(
-                    title: Text(evalData['doorType'] ?? 'N/A'),
-                    subtitle: const Text('Type de porte')),
-                ListTile(
-                    title: Text('${evalData['entranceLength'] ?? 'N/A'} m'),
-                    subtitle: const Text('Longeur entrée')),
-              ],
-            );
-          }).toList(),
+
+          // ✅ Remplacement de l'ancien affichage simple par les nouvelles fonctions
+          ..._buildTechnicalEvaluation(technicalEvaluation),
+          const SizedBox(height: 16),
+
+          // ✅ FIX VISIBILITY: Only show IT Evaluation if the service type is NOT Service Technique (or if it's dual service/IT service)
+          if (data['serviceType'] != 'Service Technique') ...[
+            ..._buildItEvaluation(itEvaluation),
+            const SizedBox(height: 16),
+          ],
 
           // ✅ MODIFIED: Pass the new sorted lists to the widget
           MediaGalleryWidget(
@@ -429,7 +608,13 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             ),
           ),
           const Divider(height: 1),
-          ...children,
+          // Only wrap content in a Column if there are items, otherwise it can cause issues.
+          ...children.isNotEmpty ? [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
+            )
+          ] : [],
         ],
       ),
     );
