@@ -1,7 +1,9 @@
 // lib/screens/service_technique/add_intervention_page.dart
 
+import 'dart:ui' as ui; // for ImageFilter.blur in BackdropFilter
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart'; // Haptic feedback
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -11,8 +13,10 @@ class Client {
   final String id;
   final String name;
   Client({required this.id, required this.name});
+
   @override
   bool operator ==(Object other) => other is Client && other.id == id;
+
   @override
   int get hashCode => id.hashCode;
 }
@@ -23,8 +27,10 @@ class Store {
   final String name;
   final String location;
   Store({required this.id, required this.name, required this.location});
+
   @override
   bool operator ==(Object other) => other is Store && other.id == id;
+
   @override
   int get hashCode => id.hashCode;
 }
@@ -34,7 +40,7 @@ class AddInterventionPage extends StatefulWidget {
   const AddInterventionPage({super.key, required this.serviceType});
 
   @override
-  State<AddInterventionPage> createState() => _AddInterventionPageState();
+  State createState() => _AddInterventionPageState();
 }
 
 class _AddInterventionPageState extends State<AddInterventionPage>
@@ -45,7 +51,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
   final _clientPhoneController = TextEditingController();
   final _requestController = TextEditingController();
 
-  // ✅ ADDED: Search Controllers for Autocomplete
+  // Search Controllers for Autocomplete
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
 
@@ -57,21 +63,39 @@ class _AddInterventionPageState extends State<AddInterventionPage>
   Client? _selectedClient;
   Store? _selectedStore;
 
-  // ✅ ADDED: Data and Loading States
+  // Data and Loading States
   List<Client> _clients = [];
   List<Store> _stores = [];
   bool _isLoadingClients = true;
   bool _isLoadingStores = false;
 
-  final List<Color> gradientColors = [
-    const Color(0xFF6A1B9A), // Deep Purple
-    const Color(0xFF8E24AA), // Purple
+  // Creamy light + sunlit pastels background (sorbet gradient, luminous neutrals)
+  final List<Color> gradientColors = const [
+    Color(0xFFFDF4F0), // pastel peach (porcelain base)
+    Color(0xFFE8F5E8), // muted mint pastel (luminous neutral)
+    Color(0xFFF3E8FF), // soft lavender (sorbet accent)
   ];
+
+  // Jewel-tone accents and duotone glow (color tokens)
+  static const Color kJewelAccent = Color(0xFF6B7280); // slate jewel
+  static const Color kDuotoneGlow = Color(0xFF10B981); // emerald glow
+
+  // Adaptive themes: creamy light mode / velvet dark mode
+  bool _isDarkMode = false;
+
+  late AnimationController _animationController;
+  late Animation<double> _parallaxAnimation;
 
   @override
   void initState() {
     super.initState();
-    // ✅ ADDED: Start fetching client data immediately
+    _animationController = AnimationController(
+      duration: const Duration(seconds: 10),
+      vsync: this,
+    )..repeat();
+    _parallaxAnimation = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
     _fetchClients();
   }
 
@@ -79,23 +103,22 @@ class _AddInterventionPageState extends State<AddInterventionPage>
   void dispose() {
     _clientPhoneController.dispose();
     _requestController.dispose();
-    // ✅ ADDED: Dispose search controllers
     _clientSearchController.dispose();
     _storeSearchController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
-  // -----------------------------------------------------------------
-  // ✅ ADDED: Data Fetching Logic (Copied/Adapted from AddProjectPage)
-  // -----------------------------------------------------------------
-
+  // Data Fetching Logic
   Future<void> _fetchClients() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('clients').orderBy('name').get();
+      final snapshot = await FirebaseFirestore.instance
+          .collection('clients')
+          .orderBy('name')
+          .get();
       final clients = snapshot.docs.map((doc) {
         return Client(id: doc.id, name: doc.data()['name']);
       }).toList();
-
       if (mounted) {
         setState(() {
           _clients = clients;
@@ -105,6 +128,9 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingClients = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de chargement des clients: $e')),
+        );
       }
     }
   }
@@ -115,7 +141,6 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       _stores = [];
       _selectedStore = null;
     });
-
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('clients')
@@ -123,12 +148,14 @@ class _AddInterventionPageState extends State<AddInterventionPage>
           .collection('stores')
           .orderBy('name')
           .get();
-
       final stores = snapshot.docs.map((doc) {
         final data = doc.data();
-        return Store(id: doc.id, name: data['name'], location: data['location']);
+        return Store(
+          id: doc.id,
+          name: data['name'],
+          location: data['location'],
+        );
       }).toList();
-
       if (mounted) {
         setState(() {
           _stores = stores;
@@ -138,85 +165,131 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingStores = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de chargement des magasins: $e')),
+        );
       }
     }
   }
 
-  // -----------------------------------------------------------------
-  // ✅ ADDED: Quick-Add Dialogs (Copied/Adapted from AddProjectPage)
-  // -----------------------------------------------------------------
-
-  Future<void> _showAddClientDialog() async {
+  // Quick-Add Dialogs
+  Future<Client?> _showAddClientDialog() async {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
     final formKey = GlobalKey<FormState>();
-
     final result = await showDialog<Client>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Client'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nom du Client *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Téléphone (Optionnel)',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
-            ],
+      builder: (context) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: gradientColors[0],
+            brightness: _isDarkMode ? Brightness.dark : Brightness.light,
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+        child: AlertDialog(
+          backgroundColor: _isDarkMode
+              ? const Color(0xFF1F2937).withOpacity(0.9) // velvet dark
+              : Colors.white.withOpacity(0.95), // porcelain white space
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Ajouter un Nouveau Client',
+            style: TextStyle(
+              color: _isDarkMode ? Colors.white : Colors.black87,
+              fontWeight: FontWeight.w600, // elegant serif feel
+              fontSize: 20,
+              height: 1.1,
+            ),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  // Save to Firestore
-                  final docRef = await FirebaseFirestore.instance.collection('clients').add({
-                    'name': nameController.text.trim(),
-                    'phone': phoneController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'intervention_quick_add', // Custom source tag
-                  });
-
-                  final newClient = Client(
-                    id: docRef.id,
-                    name: nameController.text.trim(),
-                  );
-
-                  Navigator.pop(context, newClient);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
-                  );
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.black87, fontSize: 16),
+                  decoration: InputDecoration(
+                    labelText: 'Nom du Client *',
+                    labelStyle: const TextStyle(color: Colors.black54),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                      const BorderSide(color: kJewelAccent, width: 0.6),
+                    ),
+                    filled: true,
+                    fillColor: _isDarkMode
+                        ? const Color(0xFF374151).withOpacity(0.8)
+                        : Colors.white.withOpacity(0.9),
+                  ),
+                  validator: (value) =>
+                  value == null || value.trim().isEmpty ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: phoneController,
+                  style: const TextStyle(color: Colors.black87, fontSize: 16),
+                  decoration: InputDecoration(
+                    labelText: 'Téléphone (Optionnel)',
+                    labelStyle: const TextStyle(color: Colors.black54),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                      const BorderSide(color: kJewelAccent, width: 0.6),
+                    ),
+                    filled: true,
+                    fillColor: _isDarkMode
+                        ? const Color(0xFF374151).withOpacity(0.8)
+                        : Colors.white.withOpacity(0.9),
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Annuler',
+                style: TextStyle(
+                  color: _isDarkMode ? Colors.white70 : kJewelAccent,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  try {
+                    final docRef = await FirebaseFirestore.instance
+                        .collection('clients')
+                        .add({
+                      'name': nameController.text.trim(),
+                      'phone': phoneController.text.trim(),
+                      'createdAt': Timestamp.now(),
+                      'createdVia': 'intervention_quick_add',
+                    });
+                    final newClient = Client(
+                      id: docRef.id,
+                      name: nameController.text.trim(),
+                    );
+                    Navigator.pop(context, newClient);
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur: $e')),
+                    );
+                  }
                 }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kDuotoneGlow,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Ajouter'),
+            ),
+          ],
+        ),
       ),
     );
-
     if (result != null) {
       setState(() {
         _clients.add(result);
@@ -225,92 +298,136 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       });
       _fetchStores(result.id);
     }
+    return result;
   }
 
-  Future<void> _showAddStoreDialog() async {
+  Future<Store?> _showAddStoreDialog() async {
     if (_selectedClient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Veuillez d\'abord sélectionner un client')),
       );
-      return;
+      return null;
     }
-
     final nameController = TextEditingController();
     final locationController = TextEditingController();
     final formKey = GlobalKey<FormState>();
-
     final result = await showDialog<Store>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Magasin'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nom du Magasin *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: locationController,
-                decoration: const InputDecoration(
-                  labelText: 'Emplacement *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-            ],
+      builder: (context) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: gradientColors[1],
+            brightness: _isDarkMode ? Brightness.dark : Brightness.light,
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+        child: AlertDialog(
+          backgroundColor: _isDarkMode
+              ? const Color(0xFF1F2937).withOpacity(0.9)
+              : Colors.white.withOpacity(0.95),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Ajouter un Nouveau Magasin',
+            style: TextStyle(
+              color: _isDarkMode ? Colors.white : Colors.black87,
+              fontWeight: FontWeight.w600,
+              fontSize: 20,
+              height: 1.1,
+            ),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  // Save to Firestore under client's stores subcollection
-                  final docRef = await FirebaseFirestore.instance
-                      .collection('clients')
-                      .doc(_selectedClient!.id)
-                      .collection('stores')
-                      .add({
-                    'name': nameController.text.trim(),
-                    'location': locationController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'intervention_quick_add', // Custom source tag
-                  });
-
-                  final newStore = Store(
-                    id: docRef.id,
-                    name: nameController.text.trim(),
-                    location: locationController.text.trim(),
-                  );
-
-                  Navigator.pop(context, newStore);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
-                  );
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.black87, fontSize: 16),
+                  decoration: InputDecoration(
+                    labelText: 'Nom du Magasin *',
+                    labelStyle: const TextStyle(color: Colors.black54),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                      const BorderSide(color: kJewelAccent, width: 0.6),
+                    ),
+                    filled: true,
+                    fillColor: _isDarkMode
+                        ? const Color(0xFF374151).withOpacity(0.8)
+                        : Colors.white.withOpacity(0.9),
+                  ),
+                  validator: (value) =>
+                  value == null || value.trim().isEmpty ? 'Requis' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: locationController,
+                  style: const TextStyle(color: Colors.black87, fontSize: 16),
+                  decoration: InputDecoration(
+                    labelText: 'Emplacement *',
+                    labelStyle: const TextStyle(color: Colors.black54),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                      const BorderSide(color: kJewelAccent, width: 0.6),
+                    ),
+                    filled: true,
+                    fillColor: _isDarkMode
+                        ? const Color(0xFF374151).withOpacity(0.8)
+                        : Colors.white.withOpacity(0.9),
+                  ),
+                  validator: (value) =>
+                  value == null || value.trim().isEmpty ? 'Requis' : null,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Annuler',
+                style: TextStyle(
+                  color: _isDarkMode ? Colors.white70 : kJewelAccent,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  try {
+                    final docRef = await FirebaseFirestore.instance
+                        .collection('clients')
+                        .doc(_selectedClient!.id)
+                        .collection('stores')
+                        .add({
+                      'name': nameController.text.trim(),
+                      'location': locationController.text.trim(),
+                      'createdAt': Timestamp.now(),
+                      'createdVia': 'intervention_quick_add',
+                    });
+                    final newStore = Store(
+                      id: docRef.id,
+                      name: nameController.text.trim(),
+                      location: locationController.text.trim(),
+                    );
+                    Navigator.pop(context, newStore);
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur: $e')),
+                    );
+                  }
                 }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kDuotoneGlow,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Ajouter'),
+            ),
+          ],
+        ),
       ),
     );
-
     if (result != null) {
       setState(() {
         _stores.add(result);
@@ -318,79 +435,178 @@ class _AddInterventionPageState extends State<AddInterventionPage>
         _storeSearchController.text = '${result.name} - ${result.location}';
       });
     }
+    return result;
   }
 
-  // -----------------------------------------------------------------
-  // ✅ ADDED: Save Intervention function (Reconstructed based on app pattern)
-  // -----------------------------------------------------------------
-
+  // Save Intervention Function
   Future<void> _saveIntervention() async {
+    if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
-
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
-
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        setState(() => _isLoading = false);
-        return;
+    setState(() => _isLoading = true);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    try {
+      final userDoc =
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
+      final interventionRef = FirebaseFirestore.instance.collection('interventions');
+      final interventionCode =
+          'INT-${DateFormat('yyMMdd').format(DateTime.now())}-${interventionRef.doc().id.substring(0, 4).toUpperCase()}';
+      await interventionRef.add({
+        'interventionCode': interventionCode,
+        'serviceType': widget.serviceType,
+        'clientId': _selectedClient!.id,
+        'clientName': _selectedClient!.name,
+        'clientPhone': _clientPhoneController.text.trim(),
+        'storeId': _selectedStore!.id,
+        'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
+        'requestDescription': _requestController.text.trim(),
+        'interventionType': _selectedInterventionType,
+        'priority': _selectedInterventionPriority,
+        'status': 'Nouvelle Demande',
+        'createdAt': Timestamp.now(),
+        'createdByUid': user.uid,
+        'createdByName': creatorName,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Intervention créée avec succès!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop();
       }
-
-      try {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
-
-        final interventionRef = FirebaseFirestore.instance.collection('interventions');
-        // Simple code generation for placeholder
-        final interventionCode = 'INT-${DateFormat('yyMMdd').format(DateTime.now())}-${interventionRef.doc().id.substring(0, 4).toUpperCase()}';
-
-        await interventionRef.add({
-          'interventionCode': interventionCode,
-          'serviceType': widget.serviceType,
-          'clientId': _selectedClient!.id,
-          'clientName': _selectedClient!.name,
-          'clientPhone': _clientPhoneController.text.trim(),
-          'storeId': _selectedStore!.id,
-          'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
-          'requestDescription': _requestController.text.trim(),
-          'interventionType': _selectedInterventionType,
-          'priority': _selectedInterventionPriority,
-          'status': 'Nouvelle Demande',
-          'createdAt': Timestamp.now(),
-          'createdByUid': user.uid,
-          'createdByName': creatorName,
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Intervention créée avec succès!')),
-          );
-          Navigator.of(context).pop();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red),
-          );
-          setState(() => _isLoading = false);
-        }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // Subtle glassmorphism frosted card (depth layering, soft shadows)
+  Widget _buildGlassCard({required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.1)), // satin sheen
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: _isDarkMode
+              ? [
+            const Color(0xFF1F2937).withOpacity(0.85), // velvet dark
+            const Color(0xFF111827).withOpacity(0.85),
+          ]
+              : [
+            Colors.white.withOpacity(0.85), // porcelain white space
+            Colors.white.withOpacity(0.7),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: kDuotoneGlow.withOpacity(0.18), // duotone glow
+            blurRadius: 16,
+            spreadRadius: 0,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 22,
+            spreadRadius: 0,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+        child: child,
+      ),
+    );
+  }
+
+  // Magnetic buttons with microinteractions (glistening highlights)
+  Widget _buildMagneticButton({
+    required VoidCallback onPressed,
+    required Widget child,
+    bool isLoading = false,
+    Color? backgroundColor,
+  }) {
+    final buttonColor = backgroundColor ?? kDuotoneGlow;
+    return GestureDetector(
+      onTapDown: (_) {
+        HapticFeedback.lightImpact(); // haptic cues
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              buttonColor,
+              buttonColor.withOpacity(0.85),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: kDuotoneGlow.withOpacity(0.4),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: Colors.white.withOpacity(0.18),
+              blurRadius: 6,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: isLoading ? null : onPressed,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: isLoading
+                  ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2,
+                ),
+              )
+                  : child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final Color primaryColor = gradientColors.first;
+    final textColor = _isDarkMode ? Colors.white : Colors.black87;
+    final backgroundColor =
+    _isDarkMode ? const Color(0xFF111827) : const Color(0xFFFAFAF9);
 
-    // Default border definitions (adapted for dark background)
     final OutlineInputBorder focusedBorder = OutlineInputBorder(
-      borderSide: const BorderSide(color: Colors.white, width: 2.0),
-      borderRadius: BorderRadius.circular(12.0),
+      borderSide: const BorderSide(color: kDuotoneGlow, width: 2.0),
+      borderRadius: BorderRadius.circular(16.0),
     );
     final OutlineInputBorder defaultBorder = OutlineInputBorder(
-      borderSide: const BorderSide(color: Colors.white30),
-      borderRadius: BorderRadius.circular(12.0),
+      borderSide: BorderSide(color: gradientColors[0].withOpacity(0.4)),
+      borderRadius: BorderRadius.circular(16.0),
     );
 
     final formContent = Form(
@@ -398,235 +614,311 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // -----------------------------------------------------------
-          // ✅ NEW: Client Autocomplete with Add Button
-          // -----------------------------------------------------------
-          Row(
-            children: [
-              Expanded(
-                child: _isLoadingClients
-                    ? const Center(child: CircularProgressIndicator(color: Colors.white))
-                    : Autocomplete<Client>(
-                  optionsBuilder: (textEditingValue) {
-                    if (textEditingValue.text.isEmpty) {
-                      return _clients;
-                    }
-                    return _clients.where((client) =>
-                        client.name.toLowerCase().contains(textEditingValue.text.toLowerCase()));
-                  },
-                  displayStringForOption: (client) => client.name,
-                  onSelected: (client) {
-                    setState(() => _selectedClient = client);
-                    _fetchStores(client.id);
-                  },
-                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                    _clientSearchController.text = controller.text;
-                    return TextFormField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Nom du Client *',
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        enabledBorder: defaultBorder,
-                        focusedBorder: focusedBorder,
-                        floatingLabelStyle: const TextStyle(color: Colors.white),
-                        suffixIcon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+          // Oversized hero with feathered motion (parallax-lite)
+          AnimatedBuilder(
+            animation: _parallaxAnimation,
+            builder: (context, child) {
+              return Transform.translate(
+                offset: Offset(0, _parallaxAnimation.value * 10),
+                child: Text(
+                  'Nouvelle Intervention',
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                    height: 1.1,
+                    shadows: [
+                      Shadow(
+                        color: kDuotoneGlow.withOpacity(0.28),
+                        offset: const Offset(0, 2),
+                        blurRadius: 8,
                       ),
-                      validator: (value) =>
-                      _selectedClient == null ? 'Veuillez sélectionner un client' : null,
-                    );
-                  },
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: _showAddClientDialog,
-                icon: const Icon(Icons.add),
-                tooltip: 'Ajouter un nouveau client',
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: primaryColor,
+              );
+            },
+          ),
+          const SizedBox(height: 32),
+
+          // Adaptive theme toggle (floating nav feel)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              IconButton(
+                onPressed: () {
+                  setState(() => _isDarkMode = !_isDarkMode);
+                },
+                icon: Icon(
+                  _isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                  color: kJewelAccent,
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 20),
 
-          const SizedBox(height: 16),
+          // Client Autocomplete + Add (card stacks feel via spacing)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _isLoadingClients
+                      ? Center(
+                    child: CircularProgressIndicator(color: kDuotoneGlow),
+                  )
+                      : Autocomplete<Client>(
+                    optionsBuilder: (textEditingValue) {
+                      if (textEditingValue.text.isEmpty) {
+                        return _clients;
+                      }
+                      return _clients.where((client) => client.name
+                          .toLowerCase()
+                          .contains(textEditingValue.text.toLowerCase()));
+                    },
+                    displayStringForOption: (client) => client.name,
+                    onSelected: (client) {
+                      setState(() => _selectedClient = client);
+                      _fetchStores(client.id);
+                    },
+                    fieldViewBuilder: (context, controller, focusNode,
+                        onFieldSubmitted) {
+                      _clientSearchController.text = controller.text;
+                      return TextFormField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        style: TextStyle(color: textColor, fontSize: 16),
+                        decoration: InputDecoration(
+                          labelText: 'Nom du Client *',
+                          labelStyle:
+                          TextStyle(color: textColor.withOpacity(0.7)),
+                          enabledBorder: defaultBorder,
+                          focusedBorder: focusedBorder,
+                          filled: true,
+                          fillColor: backgroundColor.withOpacity(0.9),
+                          suffixIcon: const Icon(
+                            Icons.arrow_drop_down,
+                            color: kJewelAccent,
+                          ),
+                        ),
+                        validator: (value) => _selectedClient == null
+                            ? 'Veuillez sélectionner un client'
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _buildMagneticButton(
+                  onPressed: () {
+                    _showAddClientDialog();
+                  },
+                  child: const Icon(Icons.add, color: Colors.white, size: 20),
+                  backgroundColor: kDuotoneGlow,
+                ),
+              ],
+            ),
+          ),
 
-          // -----------------------------------------------------------
-          // ✅ NEW: Store Autocomplete with Add Button
-          // -----------------------------------------------------------
-          Row(
-            children: [
-              Expanded(
-                child: _isLoadingStores
-                    ? const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Center(child: CircularProgressIndicator(color: Colors.white)),
-                )
-                    : Autocomplete<Store>(
-                  optionsBuilder: (textEditingValue) {
-                    if (textEditingValue.text.isEmpty) {
-                      return _stores;
+          // Store Autocomplete + Add
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _isLoadingStores
+                      ? Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Center(
+                      child:
+                      CircularProgressIndicator(color: kDuotoneGlow),
+                    ),
+                  )
+                      : Autocomplete<Store>(
+                    optionsBuilder: (textEditingValue) {
+                      if (textEditingValue.text.isEmpty) {
+                        return _stores;
+                      }
+                      return _stores.where((store) =>
+                      store.name
+                          .toLowerCase()
+                          .contains(textEditingValue.text.toLowerCase()) ||
+                          store.location
+                              .toLowerCase()
+                              .contains(textEditingValue.text.toLowerCase()));
+                    },
+                    displayStringForOption: (store) =>
+                    '${store.name} - ${store.location}',
+                    onSelected: (store) {
+                      setState(() => _selectedStore = store);
+                    },
+                    fieldViewBuilder: (context, controller, focusNode,
+                        onFieldSubmitted) {
+                      _storeSearchController.text = controller.text;
+                      return TextFormField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        enabled: _selectedClient != null,
+                        style: TextStyle(
+                          color: _selectedClient != null
+                              ? textColor
+                              : textColor.withOpacity(0.5),
+                          fontSize: 16,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Magasin *',
+                          labelStyle:
+                          TextStyle(color: textColor.withOpacity(0.7)),
+                          enabledBorder: defaultBorder,
+                          focusedBorder: focusedBorder,
+                          filled: true,
+                          fillColor: backgroundColor.withOpacity(0.9),
+                          suffixIcon: const Icon(
+                            Icons.arrow_drop_down,
+                            color: kJewelAccent,
+                          ),
+                        ),
+                        validator: (value) => _selectedStore == null
+                            ? 'Veuillez sélectionner un magasin'
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _buildMagneticButton(
+                  onPressed: () {
+                    if (_selectedClient != null) {
+                      _showAddStoreDialog();
                     }
-                    return _stores.where((store) =>
-                    store.name.toLowerCase().contains(textEditingValue.text.toLowerCase()) ||
-                        store.location.toLowerCase().contains(textEditingValue.text.toLowerCase()));
                   },
-                  displayStringForOption: (store) => '${store.name} - ${store.location}',
-                  onSelected: (store) {
-                    setState(() => _selectedStore = store);
-                  },
-                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                    _storeSearchController.text = controller.text;
-                    return TextFormField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      enabled: _selectedClient != null,
-                      style: TextStyle(color: _selectedClient != null ? Colors.white : Colors.white70),
-                      decoration: InputDecoration(
-                        labelText: 'Magasin *',
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        enabledBorder: defaultBorder,
-                        focusedBorder: focusedBorder,
-                        floatingLabelStyle: const TextStyle(color: Colors.white),
-                        suffixIcon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                      ),
-                      validator: (value) =>
-                      _selectedStore == null ? 'Veuillez sélectionner un magasin' : null,
-                    );
-                  },
+                  child: const Icon(Icons.add, color: Colors.white, size: 20),
+                  backgroundColor:
+                  _selectedClient == null ? Colors.grey : kDuotoneGlow,
                 ),
+              ],
+            ),
+          ),
+
+          // Type Dropdown
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: DropdownButtonFormField<String>(
+              value: _selectedInterventionType,
+              dropdownColor: backgroundColor.withOpacity(0.95),
+              style: TextStyle(color: textColor, fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Type d\'Intervention *',
+                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
+                enabledBorder: defaultBorder,
+                focusedBorder: focusedBorder,
+                filled: true,
+                fillColor: backgroundColor.withOpacity(0.9),
               ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: _selectedClient == null ? null : _showAddStoreDialog,
-                icon: const Icon(Icons.add),
-                tooltip: 'Ajouter un nouveau magasin',
-                style: IconButton.styleFrom(
-                  backgroundColor: _selectedClient == null ? Colors.grey.shade400 : Colors.white,
-                  foregroundColor: primaryColor,
-                ),
+              items: ['Maintenance', 'Formation', 'Mise à Jour', 'Autre']
+                  .map((String value) => DropdownMenuItem(
+                value: value,
+                child: Text(value, style: TextStyle(color: textColor)),
+              ))
+                  .toList(),
+              onChanged: (String? newValue) {
+                setState(() {
+                  _selectedInterventionType = newValue;
+                });
+              },
+              validator: (value) =>
+              value == null ? 'Veuillez choisir un type' : null,
+            ),
+          ),
+
+          // Priority Dropdown
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: DropdownButtonFormField<String>(
+              value: _selectedInterventionPriority,
+              dropdownColor: backgroundColor.withOpacity(0.95),
+              style: TextStyle(color: textColor, fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Priorité *',
+                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
+                enabledBorder: defaultBorder,
+                focusedBorder: focusedBorder,
+                filled: true,
+                fillColor: backgroundColor.withOpacity(0.9),
               ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // -----------------------------------------------------------
-          // Existing Dropdowns for Type and Priority
-          // -----------------------------------------------------------
-          DropdownButtonFormField<String>(
-            value: _selectedInterventionType,
-            dropdownColor: primaryColor.withOpacity(0.9),
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Type d\'Intervention *',
-              labelStyle: const TextStyle(color: Colors.white70),
-              enabledBorder: defaultBorder,
-              focusedBorder: focusedBorder,
-              floatingLabelStyle: const TextStyle(color: Colors.white),
+              items: ['Haute', 'Moyenne', 'Basse']
+                  .map((String value) => DropdownMenuItem(
+                value: value,
+                child: Text(value, style: TextStyle(color: textColor)),
+              ))
+                  .toList(),
+              onChanged: (String? newValue) {
+                setState(() {
+                  _selectedInterventionPriority = newValue;
+                });
+              },
+              validator: (value) =>
+              value == null ? 'Veuillez choisir une priorité' : null,
             ),
-            items: ['Maintenance', 'Installation', 'Mise à Jour', 'Autre']
-                .map((String value) => DropdownMenuItem<String>(
-              value: value,
-              child: Text(value, style: const TextStyle(color: Colors.white)),
-            ))
-                .toList(),
-            onChanged: (String? newValue) {
-              setState(() {
-                _selectedInterventionType = newValue;
-              });
-            },
-            validator: (value) => value == null ? 'Veuillez choisir un type' : null,
           ),
 
-          const SizedBox(height: 16),
-
-          DropdownButtonFormField<String>(
-            value: _selectedInterventionPriority,
-            dropdownColor: primaryColor.withOpacity(0.9),
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Priorité *',
-              labelStyle: const TextStyle(color: Colors.white70),
-              enabledBorder: defaultBorder,
-              focusedBorder: focusedBorder,
-              floatingLabelStyle: const TextStyle(color: Colors.white),
+          // Phone Field
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: TextFormField(
+              controller: _clientPhoneController,
+              style: TextStyle(color: textColor, fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Numéro de Téléphone (Contact) *',
+                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
+                enabledBorder: defaultBorder,
+                focusedBorder: focusedBorder,
+                filled: true,
+                fillColor: backgroundColor.withOpacity(0.9),
+              ),
+              keyboardType: TextInputType.phone,
+              validator: (value) =>
+              value == null || value.isEmpty ? 'Veuillez entrer un numéro' : null,
             ),
-            items: ['Haute', 'Moyenne', 'Basse']
-                .map((String value) => DropdownMenuItem<String>(
-              value: value,
-              child: Text(value, style: const TextStyle(color: Colors.white)),
-            ))
-                .toList(),
-            onChanged: (String? newValue) {
-              setState(() {
-                _selectedInterventionPriority = newValue;
-              });
-            },
-            validator: (value) => value == null ? 'Veuillez choisir une priorité' : null,
           ),
 
-          const SizedBox(height: 16),
-
-          // -----------------------------------------------------------
-          // Phone Number Field
-          // -----------------------------------------------------------
-          TextFormField(
-            controller: _clientPhoneController,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Numéro de Téléphone (Contact) *',
-              labelStyle: const TextStyle(color: Colors.white70),
-              enabledBorder: defaultBorder,
-              focusedBorder: focusedBorder,
-              floatingLabelStyle: const TextStyle(color: Colors.white),
-            ),
-            keyboardType: TextInputType.phone,
-            validator: (value) =>
-            value == null || value.isEmpty ? 'Veuillez entrer un numéro' : null,
-          ),
-
-          const SizedBox(height: 16),
-
-          // -----------------------------------------------------------
           // Description Field
-          // -----------------------------------------------------------
-          TextFormField(
-            controller: _requestController,
-            maxLines: 4,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Description de la Demande *',
-              labelStyle: const TextStyle(color: Colors.white70),
-              enabledBorder: defaultBorder,
-              focusedBorder: focusedBorder,
-              floatingLabelStyle: const TextStyle(color: Colors.white),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: TextFormField(
+              controller: _requestController,
+              maxLines: 4,
+              style: TextStyle(color: textColor, fontSize: 16),
+              decoration: InputDecoration(
+                labelText: 'Description de la Demande *',
+                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
+                enabledBorder: defaultBorder,
+                focusedBorder: focusedBorder,
+                filled: true,
+                fillColor: backgroundColor.withOpacity(0.9),
+              ),
+              validator: (value) =>
+              value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,
             ),
-            validator: (value) =>
-            value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,
           ),
 
-          const SizedBox(height: 24),
-
-          // -----------------------------------------------------------
           // Submit Button
-          // -----------------------------------------------------------
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _saveIntervention, // Updated to use _saveIntervention
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: primaryColor,
-                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+            child: _buildMagneticButton(
+              onPressed: () {
+                _saveIntervention();
+              },
+              child: const Text(
+                'Créer Intervention',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
               ),
-              child: _isLoading
-                  ? CircularProgressIndicator(color: primaryColor) // ✅ FIX: Removed 'const'
-                  : const Text('Créer Intervention'),
+              isLoading: _isLoading,
             ),
           ),
         ],
@@ -634,20 +926,44 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     );
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
+      extendBodyBehindAppBar: true, // edge-to-edge imagery
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Nouvelle Intervention'),
+        title: Text(
+          'Nouvelle Intervention',
+          style: TextStyle(
+            color: textColor,
+            fontWeight: FontWeight.w700,
+            fontSize: 20,
+            shadows: [
+              Shadow(
+                color: kDuotoneGlow.withOpacity(0.22),
+                blurRadius: 8,
+              ),
+            ],
+          ),
+        ),
         flexibleSpace: Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+            gradient: LinearGradient( // sorbet gradients
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
               colors: gradientColors,
             ),
           ),
         ),
+        actions: [
+          // AI-assisted personalization (placeholder)
+          IconButton(
+            icon: Icon(Icons.smart_toy, color: textColor),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('AI Suggestions Coming Soon!')),
+              );
+            },
+          ),
+        ],
       ),
       body: Container(
         width: double.infinity,
@@ -656,22 +972,30 @@ class _AddInterventionPageState extends State<AddInterventionPage>
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: gradientColors,
+            colors: gradientColors, // high-key brightness
+            stops: const [0.0, 0.5, 1.0],
           ),
         ),
         child: SafeArea(
-          child: LayoutBuilder(builder: (ctx, constraints) {
-            final maxWidth = kIsWeb ? 600.0 : constraints.maxWidth;
-            return Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: formContent,
-                ),
-              ),
-            );
-          }),
+          child: _buildGlassCard(
+            child: LayoutBuilder(
+              builder: (ctx, constraints) {
+                final maxWidth = kIsWeb ? 600.0 : constraints.maxWidth; // fluid grid for web/phone
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxWidth),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24), // airy spacing
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: formContent,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
