@@ -25,6 +25,9 @@ import 'package:video_thumbnail/video_thumbnail.dart'; // For video thumbs
 // ✅ ADDED: Import for Firebase Auth to get current user
 import 'package:firebase_auth/firebase_auth.dart';
 
+// ❌ REMOVED: Import for unique ID generation
+// import 'package:uuid/uuid.dart';
+
 class LivraisonDetailsPage extends StatefulWidget {
   final String livraisonId;
   const LivraisonDetailsPage({super.key, required this.livraisonId});
@@ -56,6 +59,20 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   final _recipientNameController = TextEditingController();
   final _recipientPhoneController = TextEditingController();
   final _recipientEmailController = TextEditingController();
+
+  // ❌ REMOVED: Unique ID generator instance
+  // final Uuid _uuid = const Uuid();
+
+  // ❌ REMOVED: Function to generate a unique serial number
+  /*
+  String _generateSerialNumber() {
+    // Generate a unique, recognizable serial number for items without one.
+    // Format: 'GEN-YYYYMMDD-UUID_SHORT'
+    final datePart = DateTime.now().toIso8601String().substring(0, 10).replaceAll('-', '');
+    final shortUuid = _uuid.v4().substring(0, 8).toUpperCase();
+    return 'GEN-$datePart-$shortUuid';
+  }
+  */
 
   bool get _allCompleted {
     // If already completed, don't re-evaluate
@@ -358,7 +375,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         // Group serialized items
         for (final item in _serializedItems) {
           final productId = item['productId'] as String?;
-          if (item['scanned'] == true && productId != null) {
+          // Check if item was scanned OR if it has a serial number (manually entered/generated)
+          if ((item['scanned'] == true || item['serialNumber'] != null) && productId != null) {
             productQuantityChanges[productId] = (productQuantityChanges[productId] ?? 0) + 1;
             productDetails.putIfAbsent(productId, () => {
               'name': item['productName'],
@@ -423,6 +441,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         final Map<String, Map<String, dynamic>> groupedProducts = {};
         for (final item in _serializedItems) {
           final key = item['partNumber'] ?? item['productName'];
+          // Use a stricter check to only include items confirmed delivered/scanned/generated
+          if (item['scanned'] != true && item['serialNumber'] == null) continue;
+
           if (!groupedProducts.containsKey(key)) {
             final originalProduct = originalProducts.firstWhere(
                     (p) => (p['partNumber'] ?? p['productName']) == key,
@@ -444,6 +465,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           }
         }
         for (final item in _bulkItems) {
+          // Only include bulk items confirmed delivered
+          if (item['delivered'] != true) continue;
+
           final key = item['partNumber'] ?? item['productName'];
           final originalProduct = originalProducts.firstWhere(
                   (p) => (p['partNumber'] ?? p['productName']) == key,
@@ -777,6 +801,99 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
   // ✅ --- END: B2 UPLOAD & FILE LOGIC ---
 
+  // ✅ NEW WIDGET: Builds an editable product item for serialized products
+  Widget _buildEditableSerializedItem(Map<String, dynamic> item, int index) {
+    bool isScanned = item['scanned'] ?? false;
+
+    // Use a unique key to ensure TextFormField re-renders correctly when the item data changes
+    final Key itemKey = ValueKey('item_${widget.livraisonId}_$index');
+
+    // Create a controller to hold and manage the dynamic value
+    final TextEditingController snController =
+    TextEditingController(text: item['serialNumber'] ?? '');
+
+    // A simple onChanged to keep the map updated if the user types manually
+    void updateItem(String value) {
+      item['serialNumber'] = value;
+      // If user manually enters a value, mark it as 'scanned'
+      if (value.isNotEmpty) {
+        item['scanned'] = true;
+      } else {
+        item['scanned'] = false;
+      }
+    }
+
+    // Since this widget will be rebuilt by setState, the controller is recreated
+    // correctly reflecting the current state of item['serialNumber'].
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Card(
+        key: itemKey, // Apply the key
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        color: isScanned ? Colors.green.shade50 : Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      item['productName'] ?? 'Produit Inconnu',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isScanned ? Colors.green.shade900 : Colors.black87,
+                      ),
+                    ),
+                  ),
+                  if (isScanned)
+                    const Icon(Icons.check_circle, color: Colors.green, size: 24)
+                  else if (!_isLivraisonCompleted)
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_scanner),
+                      color: Colors.blue,
+                      tooltip: 'Scanner',
+                      onPressed: () => _scanSerializedItem(item),
+                    ),
+                ],
+              ),
+              Text('Réf: ${item['partNumber'] ?? 'N/A'}', style: TextStyle(color: Colors.grey.shade700)),
+              if (item['originalSerialNumber'] != null)
+                Text('N/S Attendu: ${item['originalSerialNumber']}', style: TextStyle(color: Colors.orange.shade700)),
+              const SizedBox(height: 10),
+
+              // --- Editable Serial Number Field (Generation button removed) ---
+              TextFormField(
+                controller: snController,
+                enabled: !_isLivraisonCompleted, // Disable editing if completed
+                decoration: InputDecoration(
+                  labelText: 'Numéro de Série Scanné/Saisi', // MODIFIED TEXT
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                  // REMOVED: suffixIcon (Generation Button)
+                ),
+                onChanged: updateItem, // Use the update function
+                validator: (value) {
+                  // Ensure a value is present if not completed
+                  if (!_isLivraisonCompleted && (value == null || value.isEmpty)) {
+                    // MODIFIED TEXT
+                    return 'Veuillez scanner ou entrer un numéro de série.';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -880,54 +997,15 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                 ],
               ),
               const SizedBox(height: 8),
-              Card(
-                elevation: 1,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                child: ListView.separated( // Use ListView.separated for dividers
-                  shrinkWrap: true,
-                  physics: NeverScrollableScrollPhysics(),
-                  itemCount: _serializedItems.length,
-                  separatorBuilder: (_, __) => Divider(height: 1, indent: 16, endIndent: 16),
-                  itemBuilder: (context, index) {
-                    final item = _serializedItems[index];
-                    bool isScanned = item['scanned'] ?? false;
-                    return ListTile(
-                      leading: isScanned
-                          ? const Icon(Icons.check_circle,
-                          color: Colors.green, size: 30)
-                          : Icon(Icons.inventory_2_outlined,
-                          color: _isLivraisonCompleted ? Colors.grey : Colors.orange, size: 30),
-                      title: Text(item['productName'] ?? 'Produit Inconnu'),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Réf: ${item['partNumber'] ?? 'N/A'}'),
-                          Text(
-                            item['serialNumber'] != null
-                                ? 'N/S Scanné: ${item['serialNumber']}'
-                                : (item['originalSerialNumber'] != null ? 'N/S Attendu: ${item['originalSerialNumber']}' : 'N/S: À scanner'),
-                            style: TextStyle(
-                              color: item['serialNumber'] != null
-                                  ? Colors.black87
-                                  : Colors.orange.shade700,
-                              fontWeight: item['serialNumber'] != null
-                                  ? FontWeight.normal
-                                  : FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      trailing: !isScanned && !_isLivraisonCompleted
-                          ? IconButton(
-                        icon: const Icon(Icons.qr_code_scanner),
-                        color: Colors.blue,
-                        tooltip: 'Scanner',
-                        onPressed: () => _scanSerializedItem(item),
-                      )
-                          : (isScanned ? const Icon(Icons.check, color: Colors.green) : null),
-                    );
-                  },
-                ),
+              // ✅ MODIFIED: Use the new builder with Card per item
+              ListView.builder(
+                shrinkWrap: true,
+                physics: NeverScrollableScrollPhysics(),
+                itemCount: _serializedItems.length,
+                itemBuilder: (context, index) {
+                  final item = _serializedItems[index];
+                  return _buildEditableSerializedItem(item, index);
+                },
               ),
               const SizedBox(height: 24),
             ],

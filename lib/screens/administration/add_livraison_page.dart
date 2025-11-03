@@ -17,6 +17,12 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'dart:developer'; // for debugPrint
 
+// ❌ REMOVED: Import for unique ID generation
+// import 'package:uuid/uuid.dart';
+
+// ❌ REMOVED: TEMPORARY STAND-IN FOR PRODUCT MODEL (Fixing the compilation error)
+
+
 class AddLivraisonPage extends StatefulWidget {
   final String? serviceType;
   final String? livraisonId;
@@ -48,13 +54,28 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   bool _isLoadingPage = false;
   String? _clientError;
 
-  // ✅ --- START: MODIFIED FOR MULTI-FILE ---
+  // ❌ REMOVED: Unique ID generator instance
+  // final Uuid _uuid = const Uuid();
+
+  // ❌ REMOVED: Function to generate a unique serial number
+  /*
+  String _generateSerialNumber() {
+    // Generate a unique, recognizable serial number for items without one.
+    // Format: 'GEN-YYYYMMDD-UUID_SHORT'
+    final datePart = DateTime.now().toIso8601String().substring(0, 10).replaceAll('-', '');
+    final shortUuid = _uuid.v4().substring(0, 8).toUpperCase();
+    return 'GEN-$datePart-$shortUuid';
+  }
+  */
+
+
+  // --- START: MODIFIED FOR MULTI-FILE ---
   /// Stores newly selected files from the picker
   List<PlatformFile> _pickedFiles = [];
   /// Stores file metadata loaded from Firestore (for edit mode)
   /// Each map is {'url': '...', 'name': '...'}
   List<Map<String, String>> _existingFiles = [];
-  // ✅ --- END: MODIFIED FOR MULTI-FILE ---
+  // --- END: MODIFIED FOR MULTI-FILE ---
 
   bool _isUploading = false;
 
@@ -129,8 +150,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       }
 
       if (data['products'] is List) {
+        // Use the canonical ProductSelection.fromJson
         _selectedProducts = (data['products'] as List)
-            .map((p) => ProductSelection.fromJson(p))
+            .map((p) => ProductSelection.fromJson(p as Map<String, dynamic>))
             .toList();
       }
 
@@ -166,7 +188,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Future<void> _fetchClients() async {
-    // ... (Your existing code, no changes needed)
     if (FirebaseAuth.instance.currentUser == null) {
       if (mounted) {
         setState(() => _clientError = "Erreur: Utilisateur non connecté.");
@@ -191,7 +212,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Future<void> _fetchStores(String clientId) async {
-    // ... (Your existing code, no changes needed)
     setState(() {
       _isLoadingStores = true;
       _selectedStore = null;
@@ -221,7 +241,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Future<void> _fetchTechnicians() async {
-    // ... (Your existing code, no changes needed)
     setState(() => _isLoadingTechnicians = true);
     try {
       final snapshot =
@@ -240,7 +259,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
   // ✅ --- START: ADDED B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
-    // ... (Your existing code, no changes needed)
     try {
       final response =
       await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
@@ -258,7 +276,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
   Future<Map<String, String>?> _uploadFileToB2(
       PlatformFile file, Map<String, dynamic> b2Creds) async {
-    // ... (Your existing code, no changes needed)
     try {
       final fileBytes = file.bytes;
       if (fileBytes == null) {
@@ -314,7 +331,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   // ✅ --- END: ADDED B2 HELPER FUNCTIONS ---
 
   Future<String> _getNextBonLivraisonCode() async {
-    // ... (Your existing code, no changes needed)
     final year = DateTime.now().year;
     final counterRef = FirebaseFirestore.instance
         .collection('counters')
@@ -340,7 +356,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   void _showProductSelectorDialog() async {
-    // ... (Your existing code, no changes needed)
     final List<ProductSelection>? result = await showDialog(
         context: context,
         builder: (context) =>
@@ -363,16 +378,10 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       setState(() {
         // Add new files to the list
         _pickedFiles.addAll(result.files);
-        // We no longer clear existing files, allowing users to add more.
-        // If you want to replace, you would do:
-        // _pickedFiles = result.files;
-        // _existingFiles.clear();
       });
     }
   }
   // ✅ --- END: MODIFIED FOR MULTI-FILE ---
-
-  // ❌ REMOVED Firebase Storage upload function (already commented out in your file)
 
   Future<void> _saveLivraison() async {
     if (!_formKey.currentState!.validate()) return;
@@ -455,9 +464,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           ..._existingFiles,
           ...uploadedFilesInfo,
         ],
-        // ❌ Remove old singular fields
-        // 'externalBonUrl': ...,
-        // 'externalBonFileName': ...,
         // ✅ --- END: MODIFIED FOR MULTI-FILE ---
       };
 
@@ -497,7 +503,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA), // Light grey background
       appBar: AppBar(
-        // ... (Your existing code, no changes needed)
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -528,7 +533,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   title: 'Informations Livraison',
                   icon: Icons.info_outline,
                   children: [
-                    // ... (Your existing code, no changes needed)
                     if (widget.serviceType == null) ...[
                       _buildDropdownField(
                         label: 'Choisir le Service',
@@ -605,7 +609,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   title: 'Destination',
                   icon: Icons.location_on_outlined,
                   children: [
-                    // ... (Your existing code, no changes needed)
                     _buildSelectableDropdown(
                       label: 'Client',
                       value: _selectedClient,
@@ -653,7 +656,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   title: 'Produits à Livrer',
                   icon: Icons.inventory_2_outlined,
                   children: [
-                    // ... (Your existing code, no changes needed)
                     if (_selectedProducts.isEmpty)
                       const Center(
                         child: Padding(
@@ -662,17 +664,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                         ),
                       )
                     else
+                    // ✅ MODIFIED: Use _buildProductItem for serial number management
                       ..._selectedProducts
-                          .map((product) => ListTile(
-                        leading: const Icon(
-                            Icons.check_box_outline_blank,
-                            color: Color(0xFF1976D2)),
-                        title: Text(product.productName,
-                            style: textTheme.bodyMedium),
-                        trailing: Text('Qté: ${product.quantity}',
-                            style: textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.bold)),
-                      ))
+                          .asMap()
+                          .entries
+                          .map((entry) => _buildProductItem(entry.value, entry.key))
                           .toList(),
                     const SizedBox(height: 16),
                     SizedBox(
@@ -753,11 +749,109 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     );
   }
 
+  // ✅ NEW WIDGET: Build individual product item with serial number and button
+  Widget _buildProductItem(ProductSelection item, int index) {
+    // We use a key based on the product ID and index to ensure the TextFormField
+    // resets properly when the underlying data changes.
+    final Key snKey = ValueKey('sn_${item.productId}_$index');
+
+    // Get the current serial number (or empty string if list is empty)
+    final String currentSn = item.serialNumbers.isNotEmpty ? item.serialNumbers.first : '';
+
+    // Create a controller to hold and manage the dynamic value
+    final TextEditingController snController = TextEditingController(text: currentSn);
+
+    // Update the model whenever the text field changes
+    snController.addListener(() {
+      final value = snController.text;
+      if (value.isEmpty) {
+        item.serialNumbers.clear();
+      } else if (item.serialNumbers.isEmpty) {
+        item.serialNumbers.add(value);
+      } else {
+        item.serialNumbers[0] = value;
+      }
+    });
+
+    return Card(
+      elevation: 1,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    '${item.productName} (Qté: ${item.quantity})',
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: const Color(0xFF0D47A1),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                // Optional: Button to remove the product from the list
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () {
+                    setState(() {
+                      _selectedProducts.removeAt(index);
+                    });
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // ✅ MODIFIED: Serial Number Text Field (Generate button removed)
+            TextFormField(
+              key: snKey, // Use key for proper widget lifecycle management
+              controller: snController,
+              decoration: InputDecoration(
+                labelText: 'Numéro de Série (Obligatoire)',
+                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFF1976D2)),
+                ),
+                // ❌ REMOVED: Generate Button was here
+              ),
+              onChanged: (value) {
+                // Controller listener handles this, but keeping it here for clarity/safety
+                if (value.isEmpty) {
+                  item.serialNumbers.clear();
+                } else if (item.serialNumbers.isEmpty) {
+                  item.serialNumbers.add(value);
+                } else {
+                  item.serialNumbers[0] = value;
+                }
+              },
+              validator: (value) {
+                // ✅ UPDATED TEXT: Removed "ou générer"
+                if (value == null || value.isEmpty) {
+                  return 'Veuillez entrer un numéro de série.';
+                }
+                return null;
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionCard(
       {required String title,
         required IconData icon,
         required List<Widget> children}) {
-    // ... (Your existing code, no changes needed)
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -794,7 +888,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     required IconData icon,
     String? Function(String?)? validator,
   }) {
-    // ... (Your existing code, no changes needed)
     return TextFormField(
       controller: controller,
       validator: validator,
@@ -820,7 +913,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     required IconData icon,
     String? Function(T?)? validator,
   }) {
-    // ... (Your existing code, no changes needed)
     return DropdownButtonFormField<T>(
       value: value,
       items: items
@@ -855,7 +947,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     Widget Function(SelectableItem)? itemBuilder,
     String? Function(SelectableItem?)? validator,
   }) {
-    // ... (Your existing code, no changes needed)
     return DropdownButtonFormField<SelectableItem>(
       value: value,
       items: items
@@ -888,7 +979,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Widget _buildFileUploadBox() {
-    // ... (Your existing code, no changes needed)
     return InkWell(
       onTap: _pickFile,
       borderRadius: BorderRadius.circular(12),
@@ -933,7 +1023,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     VoidCallback? onClear,
     VoidCallback? onTap,
   }) {
-    // ... (Your existing code, no changes needed)
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -956,7 +1045,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   }
 
   Widget _buildSubmitButton() {
-    // ... (Your existing code, no changes needed)
     return Container(
       decoration: BoxDecoration(
           gradient: const LinearGradient(
@@ -966,6 +1054,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           ),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
+            // ✅ FIX: Corrected typo from 'BoxBoxShadow' to 'BoxShadow'
             BoxShadow(
               color: Colors.blue.withOpacity(0.4),
               blurRadius: 10,
