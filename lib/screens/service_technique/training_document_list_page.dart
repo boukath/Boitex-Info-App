@@ -9,11 +9,14 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
-
-// ✅ 1. CLONED IMPORTS (from intervention_details_page.dart)
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
+
+// ✅ 1. ADD NEW IMPORTS FOR THUMBNAILS AND LOADING
+import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:shimmer/shimmer.dart';
 
 class TrainingDocumentListPage extends StatefulWidget {
   final String categoryId;
@@ -40,8 +43,8 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
   late final CollectionReference _documentsCollection;
   bool _isLoading = false;
 
-  // ✅ 2. CLONED B2 PUBLIC URL (from intervention_details_page.dart)
-  final String b2PublicUrl = 'https://f005.backblazeb2.com/file/boitex-info-bucket';
+  // This is the correct, working URL
+  final String b2PublicUrl = 'https://f003.backblazeb2.com/file/BoitexInfo';
 
   @override
   void initState() {
@@ -63,6 +66,7 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
     super.dispose();
   }
 
+  // --- No changes to these functions ---
   Future<void> _fetchUserRole() async {
     final role = await UserRoles.getCurrentUserRole();
     if (mounted) {
@@ -121,8 +125,12 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
                               type: FileType.custom,
                               allowedExtensions: [
                                 'pdf',
-                                'png', 'jpg', 'jpeg',
-                                'mp4', 'mov', 'avi'
+                                'png',
+                                'jpg',
+                                'jpeg',
+                                'mp4',
+                                'mov',
+                                'avi'
                               ],
                             );
                             if (result != null) {
@@ -177,13 +185,10 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
     );
   }
 
-  // ✅ 3. CLONED FUNCTION (from intervention_details_page.dart)
-  /// Calls the Firebase Function to get a B2 upload URL
   Future<Map<String, String>?> _getB2UploadUrl() async {
     try {
-      // NOTE: This MUST match your Firebase Function name in `index.ts`
-      final functionUrl =
-      Uri.parse('https://europe-west1-boitex-info-app.cloudfunctions.net/getB2UploadUrl');
+      final functionUrl = Uri.parse(
+          'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl');
       final response = await http.get(functionUrl);
 
       if (response.statusCode == 200) {
@@ -192,19 +197,22 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
           'uploadUrl': data['uploadUrl'] as String,
           'authorizationToken': data['authorizationToken'] as String,
         };
+      } else {
+        print(
+            'Error getting B2 URL - Status ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
-      print('Error getting B2 upload URL: $e');
+      print('Error calling B2 upload function: $e');
     }
     return null;
   }
 
-  // ✅ 4. UPGRADED: Function now uploads to B2, not Firebase Storage
   Future<void> _addDocument(String name, File file) async {
-    setState(() { _isLoading = true; });
+    setState(() {
+      _isLoading = true;
+    });
 
     try {
-      // 1. Get B2 Upload URL from our cloud function
       final b2Data = await _getB2UploadUrl();
       if (b2Data == null) {
         throw Exception('Impossible d\'obtenir l\'URL d\'upload B2.');
@@ -213,21 +221,19 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
       final uploadUrl = b2Data['uploadUrl']!;
       final token = b2Data['authorizationToken']!;
 
-      // 2. Get file info and calculate SHA1
       final fileBytes = await file.readAsBytes();
       final hash = sha1.convert(fileBytes).toString();
-      final fileExtension = path.extension(file.path).substring(1);
+      final fileExtension = path.extension(file.path).replaceAll('.', '');
       final docType = _getFileType(fileExtension);
       final uniqueId = const Uuid().v4();
       final b2FileName = 'training_documents/$uniqueId.$fileExtension';
 
-      // 3. Upload file directly to B2 (cloned from intervention_details_page.dart)
       final response = await http.post(
         Uri.parse(uploadUrl),
         headers: {
           'Authorization': token,
           'X-Bz-File-Name': b2FileName,
-          'Content-Type': 'application/octet-stream', // Use generic stream or mime type
+          'Content-Type': 'application/octet-stream',
           'Content-Length': fileBytes.length.toString(),
           'X-Bz-Content-Sha1': hash,
         },
@@ -237,26 +243,39 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
       if (response.statusCode != 200) {
         throw Exception('Erreur d\'upload B2: ${response.body}');
       }
-
-      // 4. Get the final public URL
       final publicUrl = '$b2PublicUrl/$b2FileName';
-
-      // 5. Save document info to Firestore
       await _documentsCollection.add({
         'name': name,
         'type': docType,
-        'url': publicUrl, // This is now the B2 URL
-        'b2FileName': b2FileName, // Save B2 name for future (e.g., deletion)
+        'url': publicUrl,
+        'b2FileName': b2FileName,
         'fileExtension': fileExtension,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Document téléversé avec succès.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
-      setState(() { _isLoading = false; });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -288,31 +307,27 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
     );
   }
 
-  // ✅ 5. UPGRADED: Cloned deletion logic (only deletes from Firestore)
   Future<void> _deleteDocument(DocumentSnapshot doc) async {
-    // Your app's pattern (from intervention_details_page.dart)
-    // seems to only remove the Firestore reference, not the B2 file.
-    // I am cloning that logic here.
-
-    // If you DO have a cloud function for B2 deletion,
-    // you would call it here before deleting the doc.
-    // (e.g., await http.post(Uri.parse('.../deleteB2File'), body: {'b2FileName': ...}))
-
-    setState(() { _isLoading = true; });
+    setState(() {
+      _isLoading = true;
+    });
     try {
-      // Delete document from Firestore
       await _documentsCollection.doc(doc.id).delete();
-
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
     } finally {
-      setState(() { _isLoading = false; });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  // Helper to get file type from extension
   String _getFileType(String extension) {
     final ext = extension.toLowerCase();
     if (ext == 'pdf') {
@@ -327,41 +342,39 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
     return 'other';
   }
 
-  // Helper to build colorful icons
-  Widget _buildFileIcon(String type) {
-    switch (type) {
-      case 'pdf':
-        return const Icon(Icons.picture_as_pdf, color: Colors.redAccent);
-      case 'image':
-        return const Icon(Icons.image, color: Colors.blueAccent);
-      case 'video':
-        return const Icon(Icons.video_library, color: Colors.green);
-      default:
-        return const Icon(Icons.insert_drive_file, color: Colors.grey);
-    }
-  }
-
-  // Handles opening the correct viewer for each file type
   Future<void> _openDocument(Map<String, dynamic> data) async {
     if (!data.containsKey('url') || data['url'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('URL du document non trouvée.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('URL du document non trouvée.')),
+        );
+      }
       return;
     }
 
     final String url = data['url'];
     final String type = data['type'] ?? 'other';
+    final uri = Uri.tryParse(url);
+
+    if (uri == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('URL invalide: $url')),
+        );
+      }
+      return;
+    }
 
     switch (type) {
       case 'pdf':
-        final uri = Uri.tryParse(url);
-        if (uri != null && await canLaunchUrl(uri)) {
+        if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Impossible d\'ouvrir le PDF: $url')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Impossible d\'ouvrir le PDF: $url')),
+            );
+          }
         }
         break;
       case 'image':
@@ -386,17 +399,102 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
         );
         break;
       default:
-        final uri = Uri.tryParse(url);
-        if (uri != null && await canLaunchUrl(uri)) {
+        if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Impossible d\'ouvrir ce type de fichier: $type')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content:
+                  Text('Impossible d\'ouvrir ce type de fichier: $type')),
+            );
+          }
         }
     }
   }
+  // --- End of unchanged functions ---
 
+  // ✅ 2. DELETED the old `_buildFileIcon` function. It's replaced by DocumentThumbnail.
+
+  // ✅ 3. NEW: A dedicated widget to build the card for our GridView
+  Widget _buildDocumentCard(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final docName = data['name'] ?? 'Sans nom';
+    final docType = data['type'] ?? 'other';
+    final docExtension = data['fileExtension'] ?? '...';
+    final url = data['url'] ?? '';
+
+    return Card(
+      clipBehavior: Clip.antiAlias, // Ensures the thumbnail corners are rounded
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12.0),
+      ),
+      elevation: 3,
+      child: InkWell(
+        onTap: () {
+          _openDocument(data);
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Thumbnail section
+            AspectRatio(
+              aspectRatio: 16 / 10,
+              child: DocumentThumbnail(
+                docType: docType,
+                url: url,
+              ),
+            ),
+            // Text content section
+            Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    docName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '.$docExtension',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+            ),
+            // Delete button (if manager)
+            if (_isManager) ...[
+              const Spacer(), // Pushes the button to the bottom
+              Align(
+                alignment: Alignment.bottomRight,
+                child: IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      color: Colors.redAccent),
+                  tooltip: 'Supprimer le document',
+                  onPressed: () {
+                    _showDeleteConfirmDialog(doc);
+                  },
+                ),
+              ),
+            ] else
+              const Spacer(), // Use spacer to keep card heights consistent
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ 4. UPDATED: The main build method now uses GridView.builder
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -421,7 +519,8 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+                // Show a loading grid
+                return _buildLoadingGrid();
               }
               if (snapshot.hasError) {
                 return const Center(
@@ -435,36 +534,18 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
 
               final docs = snapshot.data!.docs;
 
-              return ListView.builder(
+              // Use GridView.builder instead of ListView
+              return GridView.builder(
+                padding: const EdgeInsets.all(12.0),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, // 2 columns
+                  crossAxisSpacing: 12.0, // Spacing between columns
+                  mainAxisSpacing: 12.0, // Spacing between rows
+                  childAspectRatio: 0.75, // Adjust height vs width
+                ),
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  final doc = docs[index];
-                  final data = doc.data() as Map<String, dynamic>;
-                  final docName = data['name'] ?? 'Sans nom';
-                  final docType = data['type'] ?? 'other';
-                  final docExtension = data['fileExtension'] ?? '...';
-
-                  return ListTile(
-                    leading: _buildFileIcon(docType),
-                    title: Text(docName),
-                    subtitle: Text(
-                      'Type: ${docType.toUpperCase()} ($docExtension)',
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                    onTap: () {
-                      _openDocument(data);
-                    },
-                    trailing: _isManager
-                        ? IconButton(
-                      icon: const Icon(Icons.delete_outline_rounded,
-                          color: Colors.red),
-                      tooltip: 'Supprimer le document',
-                      onPressed: () {
-                        _showDeleteConfirmDialog(doc);
-                      },
-                    )
-                        : null,
-                  );
+                  return _buildDocumentCard(docs[index]);
                 },
               );
             },
@@ -488,6 +569,181 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
             ),
         ],
       ),
+    );
+  }
+
+  // ✅ 5. NEW: A helper to show a loading state for the grid
+  Widget _buildLoadingGrid() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: GridView.builder(
+        padding: const EdgeInsets.all(12.0),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 12.0,
+          mainAxisSpacing: 12.0,
+          childAspectRatio: 0.75,
+        ),
+        itemCount: 6, // Show 6 shimmer cards
+        itemBuilder: (context, index) {
+          return Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12.0),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ✅ 6. NEW: Helper widget to display the correct thumbnail
+class DocumentThumbnail extends StatelessWidget {
+  final String docType;
+  final String url;
+
+  const DocumentThumbnail({
+    super.key,
+    required this.docType,
+    required this.url,
+  });
+
+  // Loading placeholder
+  Widget _buildLoadingPlaceholder() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(color: Colors.white),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    switch (docType) {
+      case 'image':
+        return Image.network(
+          url,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return _buildLoadingPlaceholder();
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return const Center(child: Icon(Icons.broken_image, color: Colors.grey));
+          },
+        );
+      case 'video':
+        return VideoThumbnailWidget(videoUrl: url);
+      case 'pdf':
+        return Container(
+          color: Colors.red[50],
+          child: const Center(
+            child: Icon(Icons.picture_as_pdf, color: Colors.red, size: 40),
+          ),
+        );
+      default:
+        return Container(
+          color: Colors.grey[200],
+          child: Center(
+            child: Icon(Icons.insert_drive_file, color: Colors.grey[700], size: 40),
+          ),
+        );
+    }
+  }
+}
+
+// ✅ 7. NEW: Stateful widget to generate and display video thumbnails
+class VideoThumbnailWidget extends StatefulWidget {
+  final String videoUrl;
+  const VideoThumbnailWidget({super.key, required this.videoUrl});
+
+  @override
+  State<VideoThumbnailWidget> createState() => _VideoThumbnailWidgetState();
+}
+
+class _VideoThumbnailWidgetState extends State<VideoThumbnailWidget> {
+  String? _thumbnailPath;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _generateThumbnail();
+  }
+
+  Future<void> _generateThumbnail() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final thumbnailPath = await VideoThumbnail.thumbnailFile(
+        video: widget.videoUrl,
+        thumbnailPath: tempDir.path,
+        imageFormat: ImageFormat.WEBP,
+        quality: 50,
+      );
+      if (mounted) {
+        setState(() {
+          _thumbnailPath = thumbnailPath;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error generating video thumbnail: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      // Loading placeholder
+      return Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: Container(color: Colors.white),
+      );
+    }
+
+    if (_thumbnailPath == null) {
+      // Error placeholder
+      return Container(
+        color: Colors.grey[200],
+        child: Center(
+          child: Icon(Icons.movie_creation, color: Colors.grey[700], size: 40),
+        ),
+      );
+    }
+
+    // Display the thumbnail
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.file(
+          File(_thumbnailPath!),
+          fit: BoxFit.cover,
+        ),
+        // Play icon overlay
+        Container(
+          color: Colors.black.withOpacity(0.2),
+          child: const Center(
+            child: Icon(
+              Icons.play_circle_fill,
+              color: Colors.white,
+              size: 40,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
