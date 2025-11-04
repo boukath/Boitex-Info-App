@@ -18,6 +18,10 @@ import 'package:boitex_info_app/screens/service_technique/pending_evaluations_li
 
 // ✅✅✅ NEW IMPORT FOR THE JOURNAL PAGE ✅✅✅
 import 'package:boitex_info_app/screens/service_technique/daily_activity_feed_page.dart';
+
+// ===== NOUVEL IMPORT POUR LA PAGE FORMATION =====
+import 'package:boitex_info_app/screens/service_technique/training_hub_page.dart';
+// ===== FIN DE L'IMPORT =====
 // ***** END CODE TO ADD *****
 
 import 'dart:math' as math;
@@ -649,6 +653,21 @@ class _ServiceTechniqueDashboardPageState
               const LivraisonsHubPage(serviceType: 'Service Technique')),
         ),
       ),
+
+      // ===== NOUVELLE CARTE AJOUTÉE ICI =====
+      _ActionData(
+        'Formation', // "Training"
+        Icons.school_rounded, // Icon for learning/school
+        const Color(0xFFEF4444), // A new color (Red)
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const TrainingHubPage(),
+          ),
+        ),
+      ),
+      // ===== FIN DE LA NOUVELLE CARTE =====
+
       _ActionData(
         'Historique',
         Icons.history,
@@ -927,7 +946,7 @@ class _InstallationsCard extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('installations')
           .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', isEqualTo: 'Nouveau')
+          .where('status', whereIn: ['Nouveau', 'Planifiée'])
           .snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
@@ -1026,7 +1045,7 @@ class _MissionsCard extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('missions')
           .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', whereIn: ['En cours', 'Planifiée']).snapshots(),
+          .where('status', whereIn: ['En Cours', 'Planifiée']).snapshots(),
       builder: (ctx, snap) {
         final count = snap.hasData ? snap.data!.docs.length : 0;
         return _buildGlowingCard(
