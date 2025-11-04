@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:boitex_info_app/utils/user_roles.dart'; // Import user roles
+import 'package:boitex_info_app/utils/user_roles.dart';
 
 // Product Selection Imports
 import 'package:boitex_info_app/models/selection_models.dart';
@@ -10,6 +10,13 @@ import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 
 // Technician Multi-Select Import
 import 'package:multi_select_flutter/multi_select_flutter.dart';
+
+// ✅ 1. B2 IMPORTS
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 // --- Reusable data models ---
 class Client {
@@ -37,7 +44,6 @@ class Store {
   int get hashCode => id.hashCode;
 }
 
-// AppUser class (copied from installation_details_page.dart)
 class AppUser {
   final String uid;
   final String displayName;
@@ -67,7 +73,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   final _formKey = GlobalKey<FormState>();
   final _requestController = TextEditingController();
   final _clientPhoneController = TextEditingController();
-  // ✅ ADDED: Controller for the new Contact Name field
   final _contactNameController = TextEditingController();
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
@@ -93,7 +98,16 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   List<AppUser> _selectedTechnicians = [];
   bool _isFetchingTechnicians = false;
 
+  // State for file attachment
+  File? _pickedFile;
+  String? _pickedFileName;
+  bool _isUploadingFile = false;
+
   static const Color primaryColor = Colors.green; // Match your details page
+
+  // ✅ 2. B2 CONSTANT - MUST BE UPDATED BY USER
+  static const String _b2UploadCredentialUrl =
+      "https://europe-west1-your-firebase-project.cloudfunctions.net/b2GetUploadCredentials";
 
   @override
   void initState() {
@@ -106,7 +120,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   void dispose() {
     _requestController.dispose();
     _clientPhoneController.dispose();
-    // ✅ ADDED: Dispose the new controller
     _contactNameController.dispose();
     _clientSearchController.dispose();
     _storeSearchController.dispose();
@@ -197,6 +210,88 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     return 'INS-$uniquePart';
   }
 
+  Future<void> _pickFile() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+    );
+
+    if (result != null && result.files.single.path != null) {
+      setState(() {
+        _pickedFile = File(result.files.single.path!);
+        _pickedFileName = result.files.single.name;
+      });
+    } else {
+      // User canceled the picker
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // ✅ 3. REPLACED: B2 Upload Logic
+  // -----------------------------------------------------------------
+  Future<String?> _uploadFileToB2(String installationCode) async {
+    if (_pickedFile == null) return null;
+
+    setState(() => _isUploadingFile = true);
+
+    try {
+      // --- STEP 1: Get Upload Credentials from Cloud Function ---
+      final authResponse = await http.get(Uri.parse(_b2UploadCredentialUrl));
+
+      if (authResponse.statusCode != 200) {
+        throw Exception(
+            'Failed to get B2 credentials: ${authResponse.body}');
+      }
+
+      final authData = jsonDecode(authResponse.body);
+      final uploadUrl = authData['uploadUrl'] as String;
+      final authorizationToken = authData['authorizationToken'] as String;
+
+      // --- STEP 2: Prepare File Data ---
+      final fileBytes = await _pickedFile!.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final fileMimeType = _pickedFileName!.endsWith('.pdf')
+          ? 'application/pdf'
+          : 'image/jpeg';
+      final fileName =
+          'installation_files/${installationCode}_${DateTime.now().millisecondsSinceEpoch}_${_pickedFileName}';
+
+      // --- STEP 3: Upload Directly to B2 ---
+      final uploadResponse = await http.post(
+        Uri.parse(uploadUrl),
+        headers: {
+          'Authorization': authorizationToken,
+          'X-Bz-File-Name': fileName,
+          'Content-Type': fileMimeType,
+          'X-Bz-Content-Sha1': sha1Hash,
+        },
+        body: fileBytes,
+      );
+
+      if (uploadResponse.statusCode == 200) {
+        final uploadData = jsonDecode(uploadResponse.body);
+        return uploadData['fileId'] != null
+            ? "https://f005.backblazeb2.com/file/boitex-bucket/${fileName}" // Using the common B2 URL pattern (adjust bucket/domain if needed)
+            : null;
+      } else {
+        throw Exception(
+            'B2 Upload failed: ${uploadResponse.body}');
+      }
+    } catch (e) {
+      print('Error during B2 upload process: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Échec de l\'envoi du fichier: $e'),
+              backgroundColor: Colors.red),
+        );
+      }
+      return null;
+    } finally {
+      if (mounted) setState(() => _isUploadingFile = false);
+    }
+  }
+
   // -----------------------------------------------------------------
   // VVV THIS FUNCTION IS MODIFIED VVV
   // -----------------------------------------------------------------
@@ -232,8 +327,24 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       return;
     }
 
+    String? preliminaryFileUrl;
+    String? preliminaryFileName;
+
     try {
       final installationCode = _generateInstallationCode();
+
+      // ✅ USE NEW B2 UPLOAD METHOD
+      if (_pickedFile != null) {
+        preliminaryFileUrl = await _uploadFileToB2(installationCode);
+        if (preliminaryFileUrl != null) {
+          preliminaryFileName = _pickedFileName;
+        } else {
+          // Stop save process if upload failed
+          setState(() => _isLoading = false);
+          return;
+        }
+      }
+
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -259,13 +370,16 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         'clientName': _selectedClient!.name,
         'clientId': _selectedClient!.id,
         'clientPhone': _clientPhoneController.text.trim(),
-        // ✅ ADDED: New field for Contact Name
         'contactName': _contactNameController.text.trim(),
         'storeName': _selectedStore!.name,
         'storeId': _selectedStore!.id,
         'storeLocation': _selectedStore!.location,
         'initialRequest': _requestController.text.trim(),
         'serviceType': widget.serviceType,
+
+        // Preliminary file details
+        'preliminaryFileUrl': preliminaryFileUrl,
+        'preliminaryFileName': preliminaryFileName,
 
         // Status & Timestamps
         'status': 'À Planifier', // Default status
@@ -507,8 +621,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       context: context,
       builder: (BuildContext context) {
         return ProductSelectorDialog(
-          initialProducts:
-          _selectedProducts.map((p) => p.copy()).toList(),
+          initialProducts: _selectedProducts.map((p) => p.copy()).toList(),
         );
       },
     );
@@ -666,7 +779,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
               const SizedBox(height: 20),
 
-              // ✅ ADDED: Contact Name Field
+              // --- Contact Name Field ---
               TextFormField(
                 controller: _contactNameController,
                 decoration: InputDecoration(
@@ -678,6 +791,68 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   floatingLabelStyle: const TextStyle(color: primaryColor),
                 ),
                 keyboardType: TextInputType.text,
+              ),
+
+              const SizedBox(height: 20),
+
+              // --- Preliminary File Attachment ---
+              Text(
+                'Fichier Préliminaire (Optionnel)',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isUploadingFile ? null : _pickFile,
+                      icon: Icon(
+                        _pickedFile == null
+                            ? Icons.attach_file
+                            : Icons.file_present,
+                        color: primaryColor,
+                      ),
+                      label: Text(
+                        _pickedFile == null
+                            ? 'Joindre un fichier (PDF/Image)'
+                            : _pickedFileName!,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: primaryColor),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: primaryColor.withOpacity(0.5)),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_pickedFile != null && !_isUploadingFile) ...[
+                    const SizedBox(width: 8),
+                    // Clear file button
+                    IconButton(
+                      icon: const Icon(Icons.delete_forever, color: Colors.red),
+                      onPressed: () {
+                        setState(() {
+                          _pickedFile = null;
+                          _pickedFileName = null;
+                        });
+                      },
+                    ),
+                  ] else if (_isUploadingFile) ...[
+                    const SizedBox(width: 8),
+                    // Upload spinner
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ],
+                ],
               ),
 
               const SizedBox(height: 20),
@@ -753,7 +928,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _saveInstallation,
+                  onPressed: (_isLoading || _isUploadingFile) ? null : _saveInstallation,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
@@ -761,7 +936,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12.0)),
                   ),
-                  child: _isLoading
+                  child: (_isLoading || _isUploadingFile)
                       ? const CircularProgressIndicator(color: Colors.white)
                       : const Text('Créer l\'Installation'),
                 ),
