@@ -64,20 +64,19 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           .where('role', whereIn: [
         UserRoles.admin, // Admin
         UserRoles.responsableAdministratif, // Responsable Administratif
-        UserRoles.responsableCommercial,    // Responsable Commercial
-        UserRoles.responsableTechnique,     // Responsable Technique
-        UserRoles.responsableIT,            // Responsable IT
-        UserRoles.chefDeProjet,             // Chef de Projet
-        UserRoles.technicienST,             // Technicien ST
-        UserRoles.technicienIT              // Technicien IT
+        UserRoles.responsableCommercial, // Responsable Commercial
+        UserRoles.responsableTechnique, // Responsable Technique
+        UserRoles.responsableIT, // Responsable IT
+        UserRoles.chefDeProjet, // Chef de Projet
+        UserRoles.technicienST, // Technicien ST
+        UserRoles.technicienIT // Technicien IT
       ]).get();
 
       final allTechnicians = snapshot.docs
-          .map((doc) =>
-          AppUser(
-              uid: doc.id,
-              displayName: doc.data()['displayName'] as String? ?? 'Utilisateur Inconnu'
-          ))
+          .map((doc) => AppUser(
+          uid: doc.id,
+          displayName:
+          doc.data()['displayName'] as String? ?? 'Utilisateur Inconnu'))
           .toList();
       if (mounted) setState(() => _allTechnicians = allTechnicians);
     } catch (e) {
@@ -86,10 +85,10 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   Future<void> _saveSchedule() async {
-    if (_scheduledDate == null || _selectedTechnicians.isEmpty) {
+    // This function is from our previous change (technician is optional)
+    if (_scheduledDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-          Text('Veuillez sélectionner une date et au moins un technicien.')));
+          content: Text('Veuillez sélectionner une date.')));
       return;
     }
     setState(() => _isLoading = true);
@@ -102,7 +101,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           .doc(widget.installationDoc.id)
           .update({
         'installationDate': Timestamp.fromDate(_scheduledDate!),
-        'assignedTechnicians': techniciansToSave,
+        'assignedTechnicians':
+        techniciansToSave, // This will save an empty list if none are selected
         'status': 'Planifiée',
       });
       if (mounted)
@@ -126,7 +126,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           title: const Text('Planifier l\'Installation'),
           content: SingleChildScrollView(
             child: Column(
-              mainAxisSize: MainAxisSize.min, // ✅ FIXED: Removed redundant 'MainAxisSize.'
+              mainAxisSize:
+              MainAxisSize.min, // ✅ FIXED: Removed redundant 'MainAxisSize.'
               children: [
                 ListTile(
                   title: Text(tempDate == null
@@ -149,12 +150,12 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 const SizedBox(height: 16),
                 MultiSelectDialogField<AppUser>(
                   items: _allTechnicians
-                      .map(
-                          (user) => MultiSelectItem<AppUser>(user, user.displayName))
+                      .map((user) =>
+                      MultiSelectItem<AppUser>(user, user.displayName))
                       .toList(),
                   initialValue: tempTechnicians,
                   title: const Text("Sélectionner Techniciens"),
-                  buttonText: const Text("Assigner à"),
+                  buttonText: const Text("Assigner à (Optionnel)"), // Text updated
                   decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey.shade600),
                       borderRadius: BorderRadius.circular(8)),
@@ -191,8 +192,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile =
-      await InstallationPdfService.generateInstallationReport(
+      final pdfFile = await InstallationPdfService.generateInstallationReport(
           installationData: data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -215,8 +215,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile =
-      await InstallationPdfService.generateInstallationReport(
+      final pdfFile = await InstallationPdfService.generateInstallationReport(
           installationData: data);
       final message = InstallationPdfService.generateWhatsAppMessage(data);
       await Share.shareXFiles([XFile(pdfFile.path)], text: message);
@@ -233,8 +232,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile =
-      await InstallationPdfService.generateInstallationReport(
+      final pdfFile = await InstallationPdfService.generateInstallationReport(
           installationData: data);
       final emailContent = InstallationPdfService.generateEmailContent(data);
       await Share.shareXFiles([XFile(pdfFile.path)],
@@ -262,7 +260,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   // ✅ NOUVEAU: Helper pour afficher une ligne simple
   Widget _buildDetailRow(String label, dynamic value, [Color? color]) {
-    final displayValue = value is bool ? (value ? 'Oui' : 'Non') : (value ?? 'N/A').toString();
+    final displayValue = value is bool
+        ? (value ? 'Oui' : 'Non')
+        : (value ?? 'N/A').toString();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
       child: Row(
@@ -270,11 +270,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         children: [
           Expanded(
             flex: 4,
-            child: Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+            child: Text(label,
+                style:
+                TextStyle(color: Colors.grey.shade600, fontSize: 14)),
           ),
           Expanded(
             flex: 6,
-            child: Text(displayValue, style: TextStyle(fontWeight: FontWeight.w600, color: color, fontSize: 14)),
+            child: Text(displayValue,
+                style: TextStyle(
+                    fontWeight: FontWeight.w600, color: color, fontSize: 14)),
           ),
         ],
       ),
@@ -287,7 +291,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
     final bool isYes = value == true;
     final String statusText = isYes ? 'Oui' : 'Non';
-    final Color statusColor = isYes ? Colors.green.shade700 : Colors.red.shade700;
+    final Color statusColor =
+    isYes ? Colors.green.shade700 : Colors.red.shade700;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -296,16 +301,20 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         // Display notes regardless of Oui/Non, but styled differently
         if (notes != null && notes.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(left: 32.0, bottom: 8.0, right: 16.0),
-            child: Text('Détails: $notes', style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: isYes ? Colors.grey.shade600 : Colors.red.shade400)),
+            padding:
+            const EdgeInsets.only(left: 32.0, bottom: 8.0, right: 16.0),
+            child: Text('Détails: $notes',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: isYes ? Colors.grey.shade600 : Colors.red.shade400)),
           ),
       ],
     );
   }
 
   // ✅ MODIFIÉ: Fonction pour afficher les détails de l'évaluation technique (expansible avec tous les détails)
-  List<Widget> _buildTechnicalEvaluation(
-      List<dynamic> evaluations) {
+  List<Widget> _buildTechnicalEvaluation(List<dynamic> evaluations) {
     if (evaluations.isEmpty) return [];
 
     return evaluations.asMap().entries.map((entry) {
@@ -314,17 +323,22 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           ? Map<String, dynamic>.from(entry.value as Map)
           : {};
 
-      if (evalData.isEmpty) return const SizedBox.shrink(); // Skip invalid entries
+      if (evalData.isEmpty)
+        return const SizedBox.shrink(); // Skip invalid entries
 
       List<Widget> details = [
         _buildDetailRow('Type d\'entrée', evalData['entranceType']),
         _buildDetailRow('Type de porte', evalData['doorType']),
-        _buildDetailRow('Largeur entrée', '${evalData['entranceWidth'] ?? 'N/A'} m'),
-        _buildDetailRow('Longeur entrée', '${evalData['entranceLength'] ?? 'N/A'} m'), // ✅ CORRECTED: Used evalData here
+        _buildDetailRow(
+            'Largeur entrée', '${evalData['entranceWidth'] ?? 'N/A'} m'),
+        _buildDetailRow('Longeur entrée',
+            '${evalData['entranceLength'] ?? 'N/A'} m'), // ✅ CORRECTED: Used evalData here
         const Divider(height: 1),
 
         // 1. Alimentation
-        _buildBooleanRow('Alimentation disponible', evalData['isPowerAvailable'], evalData['powerNotes']),
+        _buildBooleanRow(
+            'Alimentation disponible', evalData['isPowerAvailable'],
+            evalData['powerNotes']),
 
         // 2. Sol Fini (Simple Boolean)
         _buildBooleanRow('Sol Fini', evalData['isFloorFinalized']),
@@ -336,16 +350,19 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         _buildBooleanRow('Autorisé à trancher', evalData['canMakeTrench']),
 
         // 5. Obstacles
-        _buildBooleanRow('Obstacles', evalData['hasObstacles'], evalData['obstacleNotes']),
+        _buildBooleanRow(
+            'Obstacles', evalData['hasObstacles'], evalData['obstacleNotes']),
 
         // 6. Structures Métalliques
-        _buildBooleanRow('Structures métalliques', evalData['hasMetalStructures']),
+        _buildBooleanRow(
+            'Structures métalliques', evalData['hasMetalStructures']),
 
         // 7. Autres Systèmes
         _buildBooleanRow('Autres systèmes', evalData['hasOtherSystems']),
 
         // Overall notes
-        if (evalData['generalNotes'] != null && (evalData['generalNotes'] as String).isNotEmpty) ...[
+        if (evalData['generalNotes'] != null &&
+            (evalData['generalNotes'] as String).isNotEmpty) ...[
           const Divider(height: 1),
           _buildDetailRow('Notes générales', evalData['generalNotes']),
         ],
@@ -360,14 +377,14 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           initiallyExpanded: false,
           tilePadding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           leading: Icon(Icons.square_foot_outlined, color: primaryColor),
-          title: Text(
-              'Évaluation Technique #${entry.key + 1}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
-          ),
+          title: Text('Évaluation Technique #${entry.key + 1}',
+              style:
+              const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           children: [
             const Divider(height: 1),
             // The list of details forms the content of the expanded area
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: details),
+            Column(
+                crossAxisAlignment: CrossAxisAlignment.start, children: details),
           ],
         ),
       );
@@ -375,8 +392,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   // ✅ MODIFIÉ: Fonction pour afficher les détails de l'évaluation IT (maintenant expansible)
-  List<Widget> _buildItEvaluation(
-      List<dynamic> itItems) {
+  List<Widget> _buildItEvaluation(List<dynamic> itItems) {
     if (itItems.isEmpty) return [];
 
     List<Widget> children = [];
@@ -393,7 +409,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         ListTile(
           dense: true,
           leading: Icon(Icons.computer, color: Colors.blue.shade800),
-          title: Text(itemData['itemType'] ?? 'Équipement Inconnu', style: const TextStyle(fontWeight: FontWeight.bold)),
+          title: Text(itemData['itemType'] ?? 'Équipement Inconnu',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -401,7 +418,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               _buildDetailRow('Modèle', itemData['model']),
               if (itemData['osType'] != null)
                 _buildDetailRow('OS', itemData['osType']),
-              if (itemData['notes'] != null && (itemData['notes'] as String).isNotEmpty)
+              if (itemData['notes'] != null &&
+                  (itemData['notes'] as String).isNotEmpty)
                 _buildDetailRow('Notes', itemData['notes']),
             ],
           ),
@@ -419,20 +437,21 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           initiallyExpanded: false,
           tilePadding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           leading: Icon(Icons.computer_outlined, color: Colors.blue.shade800),
-          title: const Text(
-              'Évaluation IT',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
-          ),
+          title: const Text('Évaluation IT',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           children: [
             const Divider(height: 1),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+            Column(
+                crossAxisAlignment: CrossAxisAlignment.start, children: children),
           ],
         ),
       )
     ];
   }
 
-
+  // -----------------------------------------------------------------
+  // VVV THIS FUNCTION IS MODIFIED VVV
+  // -----------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final data = widget.installationDoc.data() as Map<String, dynamic>;
@@ -494,8 +513,32 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 subtitle: const Text('Demande initiale'),
                 isThreeLine: true,
               ),
+              // --- MODIFICATION START ---
+              // ✅ ADDED: Display the installation date
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: Icon(Icons.calendar_today_outlined,
+                    color: Colors.grey.shade600),
+                title: Text(
+                  _scheduledDate == null
+                      ? 'Non planifiée'
+                      : DateFormat('dd MMMM yyyy', 'fr_FR')
+                      .format(_scheduledDate!),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: _scheduledDate == null ? Colors.blue.shade700 : null,
+                  ),
+                ),
+                subtitle: const Text('Date d\'installation'),
+                visualDensity: VisualDensity.compact,
+              ),
+              // --- MODIFICATION END ---
             ],
           ),
+
+          // This is from our previous change
+          _buildTechnicianCard(),
+
           if (orderedProducts.isNotEmpty)
             _buildInfoCard(
               title: 'Produits à Installer',
@@ -530,6 +573,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       ),
     );
   }
+  // -----------------------------------------------------------------
+  // ^^^ THIS FUNCTION IS MODIFIED ^^^
+  // -----------------------------------------------------------------
 
   Widget _buildStatusHeader(String status) {
     IconData icon;
@@ -609,14 +655,40 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           ),
           const Divider(height: 1),
           // Only wrap content in a Column if there are items, otherwise it can cause issues.
-          ...children.isNotEmpty ? [
+          ...children.isNotEmpty
+              ? [
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: children,
             )
-          ] : [],
+          ]
+              : [],
         ],
       ),
+    );
+  }
+
+  /// Builds a card to display the list of assigned technicians
+  Widget _buildTechnicianCard() {
+    return _buildInfoCard(
+      title: 'Techniciens Assignés',
+      icon: Icons.engineering_outlined,
+      children: _selectedTechnicians.isEmpty
+      // Show this if no technicians are assigned
+          ? [
+        const ListTile(
+          title: Text('Aucun technicien assigné'),
+          subtitle: Text('La planification est requise'),
+        )
+      ]
+      // Show the list of technicians
+          : _selectedTechnicians
+          .map(
+            (user) => ListTile(
+          title: Text(user.displayName),
+        ),
+      )
+          .toList(),
     );
   }
 
@@ -638,6 +710,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   List<Widget> _buildActionButtons(String status, String userRole) {
+    // This function is from our previous change (Edit button for "Planifiée")
     List<Widget> buttons = [];
     switch (status) {
       case 'À Planifier':
@@ -663,6 +736,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         }
         break;
       case 'Planifiée':
+      // Button 1: Rédiger le Rapport (for Technicians)
         buttons.add(
           ElevatedButton.icon(
             onPressed: () => Navigator.of(context).push(
@@ -681,6 +755,26 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             ),
           ),
         );
+
+        // Button 2: Modifier la Planification (for Managers)
+        if (RolePermissions.canScheduleInstallation(userRole)) {
+          buttons.add(const SizedBox(height: 12)); // Add space
+          buttons.add(
+            ElevatedButton.icon(
+              onPressed:
+              _showSchedulingDialog, // Re-uses the same dialog function
+              icon: const Icon(Icons.edit_calendar_outlined),
+              label: const Text('Modifier la Planification'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700, // Different color
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          );
+        }
         break;
       case 'Terminée':
         buttons.addAll([
