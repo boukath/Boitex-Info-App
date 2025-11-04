@@ -85,7 +85,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
 
     // ✅ FIX: Include 'Nouvelle Demande' for new interventions; add current if missing
-    List<String> baseOptions = ['Nouvelle Demande', 'Nouveau', 'En cours', 'Terminé', 'En attente'];
+    List<String> baseOptions = [
+      'Nouveau',
+      'En cours',
+      'Terminé',
+      'En attente'
+    ];
     final Set<String> optionsSet = Set<String>.from(baseOptions);
     if (!optionsSet.contains(current)) {
       optionsSet.add(current); // Dynamic fallback
@@ -330,7 +335,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
 
       // 2) Media uploads to B2
-      final List<String> uploaded = List<String>.from(_existingMediaUrls); // ✅ Null-safe
+      final List<String> uploaded =
+      List<String>.from(_existingMediaUrls); // ✅ Null-safe
       for (final file in _mediaFilesToUpload) {
         final creds = await _getB2UploadCredentials();
         if (creds == null) {
@@ -428,8 +434,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       await InterventionPdfService.generateAndPrintPdf(pdfData);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar( // Corrected line
-        SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')), // Corrected line
+      ScaffoldMessenger.of(context).showSnackBar(
+        // Corrected line
+        SnackBar(
+            content: Text('Erreur lors de l\'affichage du PDF : $e')), // Corrected line
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -558,6 +566,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
+  // ✅ THIS IS THE MODIFIED WIDGET
   Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
     return Card(
       child: Padding(
@@ -586,8 +595,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const Text('Description du Problème:',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            // ✅ FIX: Use 'requestDescription' from add_intervention_page.dart
-            Text(data['requestDescription'] ?? 'Non spécifié'),
+            // ✅ MODIFIED: Changed field name to 'description' to match your Firestore screenshot
+            Text(data['description'] ?? 'Non spécifié'),
           ],
         ),
       ),
@@ -834,8 +843,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           child: Image.file(File(file.path),
               width: 100, height: 100, fit: BoxFit.cover,
               errorBuilder: (c, e, s) => isPdf
-                  ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
-                  : const Icon(Icons.insert_drive_file, size: 40, color: Colors.blue)),
+                  ? const Icon(Icons.picture_as_pdf,
+                  size: 40, color: Colors.red)
+                  : const Icon(Icons.insert_drive_file,
+                  size: 40, color: Colors.blue)),
         );
       }
     } else if (url != null && url.isNotEmpty) {
@@ -904,7 +915,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         if (url == null || url.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content: Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
+                content:
+                Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
           );
           return;
         }
@@ -918,8 +930,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           );
         } else {
           // Image viewer
-          final images =
-          _existingMediaUrls.where((u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf')).toList();
+          final images = _existingMediaUrls
+              .where((u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
+              .toList();
           if (images.isEmpty) return;
           final initial = images.indexOf(url);
           Navigator.of(context).push(
@@ -947,7 +960,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             // Video/PDF icon overlay
             if (isVideo || isPdf)
               const Center(
-                child: Icon(Icons.play_circle_fill, color: Colors.white, size: 30),
+                child:
+                Icon(Icons.play_circle_fill, color: Colors.white, size: 30),
               ),
             // Remove button for local pending file
             if (!isReadOnly && file != null)
