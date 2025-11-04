@@ -185,34 +185,67 @@ class AnnounceService {
     return mentionedUids.toList();
   }
 
-  /// Sends a text message
+  // ✅ --- START: MODIFIED FUNCTION ---
+  /// Sends a text message, automatically detecting if it's an APK link
   Future<void> sendTextMessage(String channelId, String text) async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    final (String senderName, List<String> mentionedUids) = (
-    await _getSenderName(),
-    await _parseMentionsForUids(text)
-    );
+    final String senderName = await _getSenderName();
+    final String trimmedText = text.trim();
 
-    final newMessageData = {
-      'senderId': currentUser.uid,
-      'senderName': senderName,
-      'timestamp': FieldValue.serverTimestamp(),
-      'messageType': 'text',
-      'text': text,
-      'fileUrl': null,
-      'fileName': null,
-      'reactions': {},
-      'mentionedUserIds': mentionedUids,
-      'isEdited': false, // ✅ ADDED
-    };
+    // Regex to check if the message is a URL ending in .apk
+    // It must be the *only* thing in the message.
+    final RegExp apkLinkRegex = RegExp(r'^https?:\/\/.+\.apk$', caseSensitive: false);
+    final bool isApkLink = apkLinkRegex.hasMatch(trimmedText);
+
+    Map<String, dynamic> newMessageData;
+
+    if (isApkLink) {
+      // --- It's an APK link ---
+      // Extract file name from the URL
+      String fileName = trimmedText.split('/').last;
+      // Sanitize, just in case there are query params
+      fileName = fileName.split('?').first;
+
+      newMessageData = {
+        'senderId': currentUser.uid,
+        'senderName': senderName,
+        'timestamp': FieldValue.serverTimestamp(),
+        'messageType': 'apk', // Set special type
+        'text': null,
+        'fileUrl': trimmedText, // Save the link as the fileUrl
+        'fileName': fileName,
+        'fileSize': null, // We don't know the size from a link
+        'reactions': {},
+        'mentionedUserIds': [], // No mentions for APK links
+        'isEdited': false,
+      };
+    } else {
+      // --- It's a regular text message ---
+      final List<String> mentionedUids = await _parseMentionsForUids(trimmedText);
+
+      newMessageData = {
+        'senderId': currentUser.uid,
+        'senderName': senderName,
+        'timestamp': FieldValue.serverTimestamp(),
+        'messageType': 'text',
+        'text': trimmedText,
+        'fileUrl': null,
+        'fileName': null,
+        'fileSize': null,
+        'reactions': {},
+        'mentionedUserIds': mentionedUids,
+        'isEdited': false,
+      };
+    }
 
     await _channelsCollection
         .doc(channelId)
         .collection('messages')
         .add(newMessageData);
   }
+  // ✅ --- END: MODIFIED FUNCTION ---
 
   // ✅ --- START: NEW FUNCTIONS ---
 
@@ -260,6 +293,7 @@ class AnnounceService {
     required String fileUrl,
     required String fileName,
     required String messageType,
+    required int fileSize,
   }) async {
     final User? currentUser = _auth.currentUser;
     if (currentUser == null) return;
@@ -275,9 +309,10 @@ class AnnounceService {
         'text': null,
         'fileUrl': fileUrl, // The B2 URL
         'fileName': fileName,
+        'fileSize': fileSize,
         'reactions': {},
         'mentionedUserIds': [], // Files don't have mentions
-        'isEdited': false, // ✅ ADDED
+        'isEdited': false,
       };
 
       await _channelsCollection
@@ -330,9 +365,10 @@ class AnnounceService {
         'text': null,
         'fileUrl': downloadUrl,
         'fileName': file.name,
+        'fileSize': file.size,
         'reactions': {},
         'mentionedUserIds': [],
-        'isEdited': false, // ✅ ADDED
+        'isEdited': false,
       };
 
       await _channelsCollection

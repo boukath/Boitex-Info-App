@@ -2,6 +2,8 @@
 import 'dart:ui';
 import 'dart:io';
 import 'dart:convert'; // ✅ ADDED FOR B2
+import 'dart:math'; // ✅ --- ADDED FOR FILE SIZE FORMATTING ---
+
 import 'package:crypto/crypto.dart'; // ✅ ADDED FOR B2
 import 'package:path/path.dart' as path; // ✅ ADDED FOR B2
 
@@ -96,6 +98,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         mimeType = 'video/mp4';
       } else if (fNameLower.endsWith('.mov')) {
         mimeType = 'video/quicktime';
+        // ✅ --- MODIFIED: Removed 'apk' mime type detection ---
       } else {
         mimeType = 'b2/x-auto'; // Backblaze default
       }
@@ -331,17 +334,17 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
   }
   // ✅ --- END: NEW FUNCTIONS ---
 
-
-  // ✅ --- THIS FUNCTION IS UNCHANGED (but I left it here for context) ---
+  // ✅ --- MODIFIED: Removed 'apk' to prevent crash ---
   void _pickAndUploadFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: [
           'jpg', 'jpeg', 'png', 'gif', 'pdf', 'mp4', 'mov', 'avi', 'mkv',
-          'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'
+          'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar',
+          // 'apk', // ✅ --- REMOVED TO PREVENT OutOfMemoryError ---
         ],
-        withData: true, // Ensure bytes are loaded for web compatibility
+        withData: kIsWeb, // Use 'true' for web, 'false' for mobile
       );
 
       if (result != null && result.files.single != null) {
@@ -356,6 +359,8 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         if (kIsWeb) {
           fileBytes = platformFile.bytes;
         } else if (platformFile.path != null) {
+          // This path is safe for small files, but would crash on large ones.
+          // Since we removed 'apk', we are only handling smaller files.
           fileBytes = await File(platformFile.path!).readAsBytes();
         }
 
@@ -387,6 +392,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
         } else if (['mp4', 'mov', 'avi', 'mkv'].contains(extension)) {
           messageType = 'video';
         }
+        // ✅ --- MODIFIED: Removed 'apk' detection logic ---
 
         // 4. Call the (new) service method to save the URL and metadata
         await _announceService.saveFileMessageWithUrl(
@@ -394,6 +400,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
           fileUrl: downloadUrl,
           fileName: platformFile.name,
           messageType: messageType,
+          fileSize: platformFile.size,
         );
       }
     } catch (e) {
@@ -502,6 +509,17 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
+  // ✅ --- START: NEW HELPER FUNCTION ---
+  /// Formats bytes into a human-readable string (e.g., "1.2 MB")
+  String _formatBytes(int bytes, [int decimals = 1]) {
+    if (bytes <= 0) return "0 B";
+    const suffixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+    var i = (log(bytes) / log(1024)).floor();
+    return '${(bytes / pow(1024, i)).toStringAsFixed(decimals)} ${suffixes[i]}';
+  }
+  // ✅ --- END: NEW HELPER FUNCTION ---
+
+
   @override
   Widget build(BuildContext context) {
     // ✅ --- NEW ---
@@ -554,7 +572,25 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                             style: TextStyle(color: Colors.grey)));
                   }
                   final messages = snapshot.data!;
-                  WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+                  // ✅ --- START: IMPROVED AUTO-SCROLL ---
+                  // Check if we are already at the bottom BEFORE the frame renders
+                  bool isAtBottom = true; // Default to true if not scrollable
+                  if (_scrollController.hasClients) {
+                    isAtBottom = _scrollController.position.atEdge &&
+                        _scrollController.position.pixels ==
+                            _scrollController.position.maxScrollExtent;
+                  }
+
+                  // Schedule the scroll for AFTER the frame has rendered
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    // Only auto-scroll if we were at the bottom
+                    if (isAtBottom) {
+                      _scrollToBottom();
+                    }
+                  });
+                  // ✅ --- END: IMPROVED AUTO-SCROLL ---
+
                   return ListView.builder(
                     controller: _scrollController,
                     reverse: false,
@@ -889,6 +925,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
     );
   }
 
+  // ✅ --- MODIFIED: Added 'apk' case ---
   Widget _buildMessageContent(MessageModel message, Color textColor) {
     final bool amIMentioned = message.mentionedUserIds.contains(_currentUserId);
 
@@ -975,6 +1012,16 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
                 Colors.blue.shade700),
           ),
         );
+    // ✅ --- START: NEW CASE ---
+      case 'apk':
+        return GestureDetector(
+          onTap: () => _launchFile(message.fileUrl!),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: _buildApkBubble(message), // Use new bubble
+          ),
+        );
+    // ✅ --- END: NEW CASE ---
       default:
         return GestureDetector(
           onTap: () => _launchFile(message.fileUrl!),
@@ -1020,6 +1067,68 @@ class _ChannelChatPageState extends State<ChannelChatPage> {
       ),
     );
   }
+
+  // ✅ --- START: NEW WIDGET ---
+  /// Builds the special blue bubble for APK files
+  Widget _buildApkBubble(MessageModel message) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F2FF),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Blue circle icon
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: Color(0xFF3380FF),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.android, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 12),
+          // File name and size
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // File name
+                Text(
+                  message.fileName ?? 'application.apk',
+                  style: const TextStyle(
+                    color: Color(0xFF174485),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    fontFamily: "Inter",
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+                // File size
+                if (message.fileSize != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2.0),
+                    child: Text(
+                      _formatBytes(message.fileSize!),
+                      style: const TextStyle(
+                        color: Color(0xFF27416A),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
+                        fontFamily: "FiraCode",
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  // ✅ --- END: NEW WIDGET ---
 
   Widget _buildTextWithMentions(String text, Color defaultColor, bool amIMentioned) {
     final RegExp mentionRegex = RegExp(r'@(\w+)');
