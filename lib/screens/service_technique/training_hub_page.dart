@@ -1,8 +1,9 @@
+// ✅ 1. NOUVEL IMPORT AJOUTÉ
+import 'package:boitex_info_app/screens/service_technique/training_systems_list_page.dart';
+
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-// REMPLACEZ CECI par le chemin correct vers votre future page de liste de systèmes
-// import 'package:boitex_info_app/screens/service_technique/system_list_page.dart';
 
 class TrainingHubPage extends StatefulWidget {
   const TrainingHubPage({super.key});
@@ -155,15 +156,15 @@ class _TrainingHubPageState extends State<TrainingHubPage> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
+        actions: [
+          if (_isManager)
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline_rounded),
+              tooltip: 'Ajouter une catégorie',
+              onPressed: _showAddCategoryDialog,
+            ),
+        ],
       ),
-      // Affiche le bouton "Ajouter" (+) uniquement pour les managers
-      floatingActionButton: _isManager
-          ? FloatingActionButton(
-        onPressed: _showAddCategoryDialog,
-        child: const Icon(Icons.add),
-        tooltip: 'Ajouter une catégorie',
-      )
-          : null,
       body: StreamBuilder<QuerySnapshot>(
         // Lit le flux de données depuis la collection Firestore
         stream: FirebaseFirestore.instance
@@ -207,24 +208,19 @@ class _TrainingHubPageState extends State<TrainingHubPage> {
               return _CategoryCard(
                 category: category,
                 isManager: _isManager,
+                // ✅ 2. LOGIQUE 'ONTAP' MISE À JOUR
                 onTap: () {
                   // Naviguer vers la page de liste des systèmes
-                  // REMARQUE: Vous devez créer cette page
-                  /*
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => SystemListPage(
+                      builder: (context) => TrainingSystemsListPage(
                         categoryName: category.name,
+                        categoryId: category.docId,
                       ),
                     ),
                   );
-                  */
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text(
-                            'Action: Ouvre la liste pour ${category.name}')),
-                  );
+                  // ❌ Ancien SnackBar supprimé
                 },
                 onDelete: () {
                   _showDeleteConfirmDialog(category.docId, category.name);
