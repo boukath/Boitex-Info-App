@@ -1,14 +1,17 @@
 // lib/screens/service_technique/installation_list_page.dart
 // UPDATED: Filters out 'Terminée' installations (they go to history)
 // ADDED: Slidable action to edit installations
+// ADDED: FloatingActionButton to create new installations
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
-// ✅ 1. ADD THIS IMPORT for the Slidable widget
 import 'package:flutter_slidable/flutter_slidable.dart';
+
+// ✅ 1. ADD IMPORT for the new page
+import 'package:boitex_info_app/screens/service_technique/add_installation_page.dart';
 
 class InstallationListPage extends StatelessWidget {
   final String userRole;
@@ -33,7 +36,7 @@ class InstallationListPage extends StatelessWidget {
     }
   }
 
-  // ✅ 2. ADD HELPER METHOD for navigation
+  // Helper method for navigation
   void _navigateToDetails(BuildContext context, DocumentSnapshot doc) {
     Navigator.push(
       context,
@@ -48,15 +51,17 @@ class InstallationListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ 3. CHECK EDIT PERMISSION (we'll use this in the builder)
+    // Check edit permission
     final bool canEdit = RolePermissions.canScheduleInstallation(userRole);
 
     return Scaffold(
       appBar: AppBar(
         title: Text('Installations $serviceType'),
       ),
+      // -----------------------------------------------------------------
+      // VVV THIS IS THE MODIFIED BODY VVV
+      // -----------------------------------------------------------------
       body: StreamBuilder<QuerySnapshot>(
-        // ... (your stream query is correct)
         stream: FirebaseFirestore.instance
             .collection('installations')
             .where('serviceType', isEqualTo: serviceType)
@@ -64,7 +69,6 @@ class InstallationListPage extends StatelessWidget {
             .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
-          // ... (your loading, error, and empty states are correct)
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -130,14 +134,8 @@ class InstallationListPage extends StatelessWidget {
                 dateDisplay = 'Non planifiée';
               }
 
-              // -----------------------------------------------------------------
-              // VVV THIS IS THE MODIFIED WIDGET VVV
-              // -----------------------------------------------------------------
-
-              // ✅ 4. WRAP THE CARD WITH A SLIDABLE WIDGET
               return Slidable(
                 key: ValueKey(doc.id),
-                // Show edit action only if user has permission
                 endActionPane: canEdit
                     ? ActionPane(
                   motion: const StretchMotion(),
@@ -161,7 +159,6 @@ class InstallationListPage extends StatelessWidget {
                   ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    // Use the helper method for navigation
                     onTap: () => _navigateToDetails(context, doc),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -282,13 +279,31 @@ class InstallationListPage extends StatelessWidget {
                   ),
                 ),
               );
-              // -----------------------------------------------------------------
-              // ^^^ THIS IS THE MODIFIED WIDGET ^^^
-              // -----------------------------------------------------------------
             },
           );
         },
       ),
+      // -----------------------------------------------------------------
+      // VVV THIS IS THE NEW FLOATING ACTION BUTTON VVV
+      // -----------------------------------------------------------------
+      floatingActionButton: canEdit
+          ? FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AddInstallationPage(
+                userRole: userRole,
+                serviceType: serviceType,
+              ),
+            ),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Nouvelle'),
+        backgroundColor: Colors.green, // Match your theme
+      )
+          : null, // Hide button if user has no permission
     );
   }
 }
