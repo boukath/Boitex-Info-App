@@ -18,6 +18,8 @@ import 'package:path/path.dart' as path;
 import 'package:image_picker/image_picker.dart'; // For camera/video access
 import 'package:video_thumbnail/video_thumbnail.dart'; // For displaying video thumbnails
 
+// ✅ ADDED: Import for AI Keyword Enhancement
+import 'package:cloud_functions/cloud_functions.dart';
 
 // Simple data model for a Client
 class Client {
@@ -89,6 +91,9 @@ class _AddInterventionPageState extends State<AddInterventionPage>
   List<String> _uploadedMediaUrls = [];
   bool _isUploadingMedia = false;
 
+  // ✅ ADDED: State for AI Keyword Enhancement
+  bool _isGeneratingAi = false;
+
   // Creamy light + sunlit pastels background (sorbet gradient, luminous neutrals)
   final List<Color> gradientColors = const [
     Color(0xFFFDF4F0), // pastel peach (porcelain base)
@@ -128,6 +133,51 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     _animationController.dispose();
     super.dispose();
   }
+
+  // --- ✅ START OF MODIFIED AI FUNCTION ---
+
+  // Call the Cloud Function
+  Future<void> _generateReportFromKeywords() async {
+    final rawNotes = _requestController.text; // Get text from controller
+    if (rawNotes.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez d\'abord saisir des mots-clés.')),
+      );
+      return;
+    }
+
+    setState(() => _isGeneratingAi = true);
+    FocusScope.of(context).unfocus(); // Hide keyboard
+
+    try {
+      // 1. Get the function
+      final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('generateReportFromNotes');
+
+      // 2. Send the raw text AND THE CONTEXT
+      final result = await callable.call<String>({
+        'rawNotes': rawNotes,
+        'context': 'problem_report', // ✅ THIS IS THE REQUIRED UPDATE
+      });
+
+      // 3. Populate the text field with the AI's formal report
+      setState(() {
+        _requestController.text = result.data; // Populate the description field
+      });
+
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de génération AI: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGeneratingAi = false);
+      }
+    }
+  }
+  // --- ✅ END OF MODIFIED AI FUNCTION ---
 
   // --- B2 HELPER FUNCTIONS (COPIED/ADAPTED FROM mission_details_page) ---
 
@@ -1270,6 +1320,25 @@ class _AddInterventionPageState extends State<AddInterventionPage>
                 focusedBorder: focusedBorder,
                 filled: true,
                 fillColor: backgroundColor.withOpacity(0.9),
+                // ✅ --- START AI KEYWORD BUTTON ---
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.all(4.0),
+                  child: _isGeneratingAi
+                      ? Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: CircularProgressIndicator(color: kDuotoneGlow),
+                  )
+                      : IconButton(
+                    icon: Icon(
+                      Icons.auto_awesome, // "Magic" icon
+                      color: kJewelAccent,
+                      size: 28,
+                    ),
+                    tooltip: 'Améliorer le texte par IA',
+                    onPressed: _generateReportFromKeywords, // Call new function
+                  ),
+                ),
+                // ✅ --- END AI KEYWORD BUTTON ---
               ),
               validator: (value) =>
               value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,

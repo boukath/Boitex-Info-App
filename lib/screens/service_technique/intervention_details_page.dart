@@ -23,6 +23,9 @@ import 'package:boitex_info_app/widgets/video_player_page.dart';
 // ✅ 1. ADD THIS IMPORT AT THE TOP OF THE FILE
 import 'package:video_thumbnail/video_thumbnail.dart';
 
+// ✅ 2. ADD IMPORT FOR CLOUD FUNCTIONS
+import 'package:cloud_functions/cloud_functions.dart';
+
 // ----------------------------------------------------------------------
 // Data model
 // ----------------------------------------------------------------------
@@ -68,6 +71,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _mediaFilesToUpload = [];
   List<String> _existingMediaUrls = []; // ✅ Null-safe list
+
+  // ✅ 3. ADD AI STATE VARIABLES
+  bool _isGeneratingDiagnostic = false;
+  bool _isGeneratingWorkDone = false;
+
 
   // Backblaze B2 helper function endpoint
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -198,6 +206,69 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
+  // ✅ 4. AI HELPER FUNCTION (NOW FIXED)
+  // ----------------------------------------------------------------------
+
+  /// Reusable function to call our smart Cloud Function
+  Future<void> _generateAiText({
+    required String aiContext, // ✅ RENAMED: 'diagnostic' or 'workDone'
+    required TextEditingController controller,
+  }) async {
+    final rawNotes = controller.text;
+    if (rawNotes.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez d\'abord saisir des mots-clés.')),
+      );
+      return;
+    }
+
+    // Set loading state
+    setState(() {
+      if (aiContext == 'diagnostic') { // ✅ RENAMED
+        _isGeneratingDiagnostic = true;
+      } else {
+        _isGeneratingWorkDone = true;
+      }
+    });
+
+    if (mounted) {
+      FocusScope.of(context).unfocus();
+    }
+
+    try {
+      final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('generateReportFromNotes');
+
+      final result = await callable.call<String>({
+        'rawNotes': rawNotes,
+        'context': aiContext, // ✅ RENAMED: Pass the correct context!
+      });
+
+      // Update the specific controller
+      controller.text = result.data;
+
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur de génération AI: $e')),
+      );
+    } finally {
+      // Unset loading state
+      if (mounted) {
+        setState(() {
+          if (aiContext == 'diagnostic') { // ✅ RENAMED
+            _isGeneratingDiagnostic = false;
+          } else {
+            _isGeneratingWorkDone = false;
+          }
+        });
+      }
+    }
+  }
+
+
+  // ----------------------------------------------------------------------
   // Data helpers
   // ----------------------------------------------------------------------
   Future<void> _fetchTechnicians() async {
@@ -313,7 +384,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ CORRECTED FUNCTION TO PREVENT RUNTIME ERROR
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
@@ -375,20 +445,17 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       await widget.interventionDoc.reference.update(reportData);
 
-      // Check if mounted BEFORE showing snackbar and popping
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
         const SnackBar(content: Text('Rapport enregistré avec succès!')),
       );
       navigator.pop();
     } catch (e) {
-      // Check if mounted BEFORE showing error
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')),
       );
     } finally {
-      // Add a mounted check here to prevent calling setState on a disposed widget
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -420,7 +487,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ CORRECTED FUNCTION SYNTAX
   Future<void> _generateAndPrintPdf() async {
     setState(() => _isLoading = true);
     try {
@@ -436,9 +502,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        // Corrected line
         SnackBar(
-            content: Text('Erreur lors de l\'affichage du PDF : $e')), // Corrected line
+            content: Text('Erreur lors de l\'affichage du PDF : $e')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -557,7 +622,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 children: [
                   _buildSummaryCard(data, createdAt),
                   const SizedBox(height: 24),
-                  _buildReportForm(context),
+                  _buildReportForm(context), // ✅ THIS WIDGET IS NOW MODIFIED
                 ],
               ),
             ),
@@ -568,7 +633,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
 
-  // ✅ THIS IS THE MODIFIED WIDGET
   Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
     return Card(
       child: Padding(
@@ -614,6 +678,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
+  // ✅ 5. THIS ENTIRE WIDGET IS UPDATED WITH AI BUTTONS (NOW FIXED)
   Widget _buildReportForm(BuildContext context) {
     return Form(
       child: Column(
@@ -676,25 +741,75 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             dialogWidth: MediaQuery.of(context).size.width * 0.9,
           ),
           const SizedBox(height: 16),
+
+          // --- ✅ START DIAGNOSTIC AI FIELD ---
           TextFormField(
             controller: _diagnosticController,
             readOnly: isReadOnly,
             maxLines: 4,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Diagnostique / Panne Signalée',
               alignLabelWithHint: true,
+              suffixIcon: isReadOnly
+                  ? null
+                  : Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: _isGeneratingDiagnostic
+                    ? const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : IconButton(
+                  icon: Icon(
+                    Icons.auto_awesome, // "Magic" icon
+                    color: Colors.grey.shade600,
+                  ),
+                  tooltip: 'Améliorer le texte par IA',
+                  onPressed: () => _generateAiText(
+                    aiContext: 'diagnostic', // ✅ RENAMED
+                    controller: _diagnosticController,
+                  ),
+                ),
+              ),
             ),
           ),
+          // --- ✅ END DIAGNOSTIC AI FIELD ---
+
           const SizedBox(height: 16),
+
+          // --- ✅ START WORKDONE AI FIELD ---
           TextFormField(
             controller: _workDoneController,
             readOnly: isReadOnly,
             maxLines: 4,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Travaux Effectués',
               alignLabelWithHint: true,
+              suffixIcon: isReadOnly
+                  ? null
+                  : Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: _isGeneratingWorkDone
+                    ? const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : IconButton(
+                  icon: Icon(
+                    Icons.auto_awesome, // "Magic" icon
+                    color: Colors.grey.shade600,
+                  ),
+                  tooltip: 'Améliorer le texte par IA',
+                  onPressed: () => _generateAiText(
+                    aiContext: 'workDone', // ✅ RENAMED
+                    controller: _workDoneController,
+                  ),
+                ),
+              ),
             ),
           ),
+          // --- ✅ END WORKDONE AI FIELD ---
+
           const SizedBox(height: 24),
           _buildMediaSection(), // Uses the modified thumbnail widget
           const SizedBox(height: 24),
@@ -805,19 +920,15 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
-  // ✅ 2. THIS IS THE MODIFIED THUMBNAIL WIDGET
   Widget _buildMediaThumbnail({String? url, XFile? file}) {
-    // The B2 upload logic in add_intervention_page.dart allows PDF uploads, but the current _isVideoPath only checks for video extensions.
-    // We assume any non-video network URL that isn't image is a document (like PDF) and will be handled by launching the URL.
     final bool isVideo = (url != null && _isVideoPath(url)) ||
         (file != null && _isVideoPath(file.path));
-    final bool isPdf = url != null && url.toLowerCase().endsWith('.pdf');
+    final bool isPdf = (url != null && url.toLowerCase().endsWith('.pdf')) || (file != null && file.path.toLowerCase().endsWith('.pdf'));
 
     Widget content;
     if (file != null) {
       // Local not-yet-uploaded file
       if (isVideo) {
-        // --- START NEW LOGIC FOR LOCAL VIDEO ---
         content = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
             video: file.path,
@@ -846,18 +957,20 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
-        // --- END NEW LOGIC FOR LOCAL VIDEO ---
       } else {
         // Local Image/Document
         content = ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.file(File(file.path),
-              width: 100, height: 100, fit: BoxFit.cover,
-              errorBuilder: (c, e, s) => isPdf
-                  ? const Icon(Icons.picture_as_pdf,
-                  size: 40, color: Colors.red)
-                  : const Icon(Icons.insert_drive_file,
-                  size: 40, color: Colors.blue)),
+          child: isPdf // Check if local file is PDF
+              ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
+              : Image.file(
+            File(file.path),
+            width: 100,
+            height: 100,
+            fit: BoxFit.cover,
+            errorBuilder: (c, e, s) => const Icon(Icons.insert_drive_file,
+                size: 40, color: Colors.blue),
+          ),
         );
       }
     } else if (url != null && url.isNotEmpty) {
@@ -866,7 +979,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         content = const Center(
             child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
       } else if (isVideo) {
-        // --- START NEW LOGIC FOR NETWORK VIDEO ---
         content = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
             video: url,
@@ -895,7 +1007,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
-        // --- END NEW LOGIC FOR NETWORK VIDEO ---
       } else {
         // Network Image (No change)
         content = Hero(
@@ -969,7 +1080,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           children: [
             Positioned.fill(child: content),
             // Video/PDF icon overlay
-            if (isVideo || isPdf)
+            if (isVideo && !isPdf) // Show play icon only for video
               const Center(
                 child:
                 Icon(Icons.play_circle_fill, color: Colors.white, size: 30),
