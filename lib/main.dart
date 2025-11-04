@@ -6,6 +6,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 // ADDED: Import for Firebase Messaging
 import 'package:firebase_messaging/firebase_messaging.dart';
 
+// ✅ 1. ADD THIS IMPORT FOR TIMEAGO
+import 'package:timeago/timeago.dart' as timeago;
+
 // ADDED: This function MUST be a top-level function (outside of any class)
 // It handles notifications that arrive when the app is closed.
 @pragma('vm:entry-point')
@@ -25,6 +28,10 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // ✅ 2. ADD THESE TWO LINES TO REGISTER FRENCH LOCALE
+  timeago.setLocaleMessages('fr', timeago.FrMessages());
+  timeago.setDefaultLocale('fr');
 
   // ADDED: Set the background messaging handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);

@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/service_technique/add_intervention_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
+// ✅ 1. IMPORT THE TIMEAGO PACKAGE
+import 'package:timeago/timeago.dart' as timeago;
 
 // ✅ MODIFIÉ: Converti en StatefulWidget pour gérer l'état de la permission de suppression
 class InterventionListPage extends StatefulWidget {
@@ -73,10 +75,16 @@ class _InterventionListPageState extends State<InterventionListPage> {
         flagColor = Colors.grey;
     }
 
+    // Return a rounded container for a more modern look
     return Container(
       width: 10,
-      height: double.infinity,
-      color: flagColor,
+      decoration: BoxDecoration(
+        color: flagColor,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(12),
+          bottomLeft: Radius.circular(12),
+        ),
+      ),
     );
   }
 
@@ -98,7 +106,8 @@ class _InterventionListPageState extends State<InterventionListPage> {
             FilledButton.tonal(
               onPressed: () => Navigator.of(context).pop(true),
               style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Supprimer', style: TextStyle(color: Colors.white)),
+              child: const Text('Supprimer',
+                  style: TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -146,7 +155,8 @@ class _InterventionListPageState extends State<InterventionListPage> {
         .collection('interventions')
         .where('serviceType', isEqualTo: serviceType)
     // ✅ FIXED QUERY: Filter to include 'Nouvelle Demande' from the creation page
-        .where('status', whereIn: ['Nouvelle Demande', 'Nouveau', 'En cours', 'En attente'])
+        .where('status',
+        whereIn: ['Nouvelle Demande', 'Nouveau', 'En cours', 'En attente'])
         .orderBy('status', descending: true)
         .orderBy('createdAt', descending: true);
 
@@ -173,87 +183,173 @@ class _InterventionListPageState extends State<InterventionListPage> {
 
           final interventions = snapshot.data!.docs;
           return ListView.builder(
+            padding: const EdgeInsets.only(bottom: 80), // Space for FAB
             itemCount: interventions.length,
             itemBuilder: (context, index) {
               final interventionDoc = interventions[index];
               final interventionData = interventionDoc.data();
               final String docId = interventionDoc.id;
-              final String storeName = interventionData['storeName'] ?? 'Magasin Inconnu';
-              final DateTime? createdAt = (interventionData['createdAt'] as Timestamp?)?.toDate();
-              final String formattedDate = createdAt != null
-                  ? DateFormat('dd/MM/yyyy HH:mm').format(createdAt)
+
+              // --- Data extraction ---
+              final String storeName =
+                  interventionData['storeName'] ?? 'Magasin Inconnu';
+              final String clientName =
+                  interventionData['clientName'] ?? 'Client Inconnu';
+              final String interventionCode =
+                  interventionData['interventionCode'] ?? 'INT-XX/XXXX';
+              final String status = interventionData['status'] ?? 'Inconnu';
+              final DateTime? createdAt =
+              (interventionData['createdAt'] as Timestamp?)?.toDate();
+              final String timeAgoDate = createdAt != null
+                  ? timeago.format(createdAt, locale: 'fr') // Use timeago
                   : 'Date inconnue';
               final String priority = interventionData['priority'] ?? 'Basse';
 
+              // ✅ --- NEW CARD LAYOUT ---
+              // This layout replaces the ListTile to fix the overflow
+              // and implements the new design.
               return Card(
-                margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+                margin:
+                const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
                 elevation: 2,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                clipBehavior: Clip.hardEdge, // Ensures priority flag clips
                 child: IntrinsicHeight(
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _getPriorityFlag(priority), // Flag color on the left
+
+                      // Main content area
                       Expanded(
-                        child: ListTile(
-                          // ✅ MODIFIED: Adjusted padding to try and restore original layout
-                          contentPadding: const EdgeInsets.only(left: 16.0, top: 8.0, bottom: 8.0, right: 0),
-                          title: Text(
-                            storeName,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Column( // Wrapped subtitle content in a Column to manage flow
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Client: ${interventionData['clientName'] ?? 'Client Inconnu'}'),
-                              // ✅ REMOVED: The creator text line is gone.
-                              Text('Créée le: $formattedDate'),
-                            ],
-                          ),
-                          // The 'isThreeLine' property is kept, which now refers to:
-                          // 1. Title (Store Name)
-                          // 2. Subtitle Line 1 (Client Name)
-                          // 3. Subtitle Line 2 (Date)
-                          isThreeLine: true,
-                          // ✅ MODIFIED: Use Row to combine Chip and Menu Button
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Chip(
-                                label: Text(
-                                  (interventionData['status'] as String?) ?? 'Inconnu',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                ),
-                                backgroundColor: _getStatusColor(interventionData['status'] as String?),
-                                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                              ),
-                              // ✅ PopupMenuButton for deletion
-                              PopupMenuButton<String>(
-                                onSelected: (value) {
-                                  if (value == 'delete') {
-                                    _deleteIntervention(docId, storeName);
-                                  }
-                                },
-                                itemBuilder: (BuildContext context) => <PopupMenuItem<String>>[
-                                  if (_canDelete) // Affiche seulement si la permission est activée
-                                    const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Text('Supprimer', style: TextStyle(color: Colors.red)),
-                                    ),
-                                ],
-                                // Affiche l'icône de menu seulement si l'utilisateur a la permission de supprimer
-                                icon: _canDelete ? const Icon(Icons.more_vert) : null,
-                              ),
-                            ],
-                          ),
+                        child: InkWell(
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                // QueryDocumentSnapshot<Map<String, dynamic>> is a DocumentSnapshot<Map<String, dynamic>>
-                                builder: (context) => InterventionDetailsPage(interventionDoc: interventionDoc),
+                                builder: (context) => InterventionDetailsPage(
+                                    interventionDoc: interventionDoc),
                               ),
                             );
                           },
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Top Row: Code and Status
+                                Row(
+                                  mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        interventionCode,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color: Colors.deepPurple.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Chip(
+                                      label: Text(
+                                        status,
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12),
+                                      ),
+                                      backgroundColor: _getStatusColor(status),
+                                      padding: const EdgeInsets.all(0),
+                                      labelPadding:
+                                      const EdgeInsets.symmetric(horizontal: 8),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+
+                                // Store Name
+                                Text(
+                                  storeName,
+                                  style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 6),
+
+                                // Client Name
+                                Row(
+                                  children: [
+                                    Icon(Icons.business,
+                                        size: 14,
+                                        color: Colors.grey.shade700),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Client: $clientName',
+                                        style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey.shade800),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+
+                                // Date
+                                Row(
+                                  children: [
+                                    Icon(Icons.access_time,
+                                        size: 14,
+                                        color: Colors.grey.shade700),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Créée $timeAgoDate',
+                                      style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey.shade800,
+                                          fontStyle: FontStyle.italic),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
+
+                      // More Icon (for delete)
+                      if (_canDelete)
+                        PopupMenuButton<String>(
+                          onSelected: (value) {
+                            if (value == 'delete') {
+                              _deleteIntervention(docId, storeName);
+                            }
+                          },
+                          itemBuilder: (BuildContext context) =>
+                          <PopupMenuItem<String>>[
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete,
+                                      color: Colors.red, size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Supprimer',
+                                      style: TextStyle(color: Colors.red)),
+                                ],
+                              ),
+                            ),
+                          ],
+                          icon: Icon(Icons.more_vert,
+                              color: Colors.grey.shade600),
+                        ),
+                      // Add padding if delete is not available, to keep UI balanced
+                      if (!_canDelete) const SizedBox(width: 12),
                     ],
                   ),
                 ),
@@ -266,7 +362,9 @@ class _InterventionListPageState extends State<InterventionListPage> {
           ? FloatingActionButton(
         onPressed: () {
           Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => AddInterventionPage(serviceType: serviceType)),
+            MaterialPageRoute(
+                builder: (context) =>
+                    AddInterventionPage(serviceType: serviceType)),
           );
         },
         tooltip: "Nouvelle Demande D'intervention",

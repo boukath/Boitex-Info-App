@@ -86,6 +86,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
     // ✅ FIX: Include 'Nouvelle Demande' for new interventions; add current if missing
     List<String> baseOptions = [
+      'Nouvelle Demande',
       'Nouveau',
       'En cours',
       'Terminé',
@@ -566,6 +567,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
+
   // ✅ THIS IS THE MODIFIED WIDGET
   Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
     return Card(
@@ -595,8 +597,17 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const Text('Description du Problème:',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            // ✅ MODIFIED: Changed field name to 'description' to match your Firestore screenshot
-            Text(data['description'] ?? 'Non spécifié'),
+            // ✅ Use the correct field name 'requestDescription'
+            Text(data['requestDescription'] ?? 'Non spécifié'),
+
+            // ✅ --- NEW SECTION FOR INTERVENTION TYPE ---
+            const SizedBox(height: 12),
+            const Text('Type d\'Intervention:',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(data['interventionType'] ?? 'Non spécifié'),
+            // ✅ --- END OF NEW SECTION ---
+
           ],
         ),
       ),

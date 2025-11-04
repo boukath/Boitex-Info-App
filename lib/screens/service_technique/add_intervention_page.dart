@@ -573,7 +573,52 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     return result;
   }
 
-  // Save Intervention Function (MODIFIED FOR B2 UPLOAD)
+  // --- ✅ NEW: Sequential Code Generation Logic ---
+  Future<String> _generateSequentialInterventionCode() async {
+    final now = DateTime.now();
+    final currentYear = DateFormat('yyyy').format(now);
+
+    // 1. Find the intervention with the highest code for the current year.
+    final latestInterventionQuery = await FirebaseFirestore.instance
+        .collection('interventions')
+        .where('interventionCode', isGreaterThanOrEqualTo: 'INT-00/$currentYear') // Start of range
+        .where('interventionCode', isLessThan: 'INT-a/$currentYear') // Use 'a' as an upper bound (string sort)
+        .orderBy('interventionCode', descending: true)
+        .limit(1)
+        .get();
+
+    int nextCounter = 1;
+    String codePrefix = 'INT-';
+
+    if (latestInterventionQuery.docs.isNotEmpty) {
+      final latestCode = latestInterventionQuery.docs.first.data()['interventionCode'] as String? ?? '';
+
+      // Expected format: INT-XX/YYYY
+      try {
+        final parts = latestCode.split('-'); // ["INT", "XX/YYYY"]
+        if (parts.length > 1) {
+          final counterPart = parts.last.split('/').first; // "XX"
+          nextCounter = int.parse(counterPart) + 1;
+        } else {
+          nextCounter = 1; // Fallback if format is unexpected
+        }
+      } catch (e) {
+        // Fallback if parsing fails for any reason
+        debugPrint('Error parsing latest code: $latestCode, resetting counter to 1. Error: $e');
+        nextCounter = 1;
+      }
+    }
+
+    // 2. Format the new code (e.g., 'INT-01/2025' or 'INT-34/2025' or 'INT-123/2025')
+    // This will format 1 as "01", 34 as "34", and 123 as "123".
+    final newCounterString = nextCounter.toString().padLeft(2, '0');
+
+    return '$codePrefix$newCounterString/$currentYear';
+  }
+  // --- End of new helper function ---
+
+
+  // Save Intervention Function (MODIFIED FOR B2 UPLOAD & SEQUENTIAL CODE)
   Future<void> _saveIntervention() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
@@ -639,9 +684,10 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       final userDoc =
       await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
+
+      // ✅ NEW: Generate the sequential code
+      final interventionCode = await _generateSequentialInterventionCode();
       final interventionRef = FirebaseFirestore.instance.collection('interventions');
-      final interventionCode =
-          'INT-${DateFormat('yyMMdd').format(DateTime.now())}-${interventionRef.doc().id.substring(0, 4).toUpperCase()}';
 
       final interventionData = {
         'interventionCode': interventionCode,
