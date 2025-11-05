@@ -32,17 +32,22 @@ class _BillingHubPageState extends State<BillingHubPage> {
 
     final allDocs = [...results[0].docs, ...results[1].docs];
 
-    // Sort all documents by their creation date, descending.
+    // ✅ FIXED: Sort by date. Handle potential nulls in 'interventionDate' or 'createdAt'.
     allDocs.sort((a, b) {
-      final aData = a.data() as Map<String, dynamic>;
-      final bData = b.data() as Map<String, dynamic>;
-      final aDate = (aData['createdAt'] as Timestamp? ??
-          aData['interventionDate'] as Timestamp)
-          .toDate();
-      final bDate = (bData['createdAt'] as Timestamp? ??
-          bData['interventionDate'] as Timestamp)
-          .toDate();
-      return bDate.compareTo(aDate);
+      final aData = a.data() as Map<String, dynamic>?;
+      final bData = b.data() as Map<String, dynamic>?;
+
+      // Helper to get a date, checking multiple possible fields
+      DateTime? getDate(Map<String, dynamic>? data) {
+        if (data == null) return null;
+        final ts = (data['interventionDate'] ?? data['createdAt'] ?? data['updatedAt']) as Timestamp?;
+        return ts?.toDate();
+      }
+
+      final aDate = getDate(aData) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = getDate(bData) ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+      return bDate.compareTo(aDate); // Sort descending (newest first)
     });
 
     return allDocs;
@@ -52,8 +57,16 @@ class _BillingHubPageState extends State<BillingHubPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Facturation en Attente'),
-        backgroundColor: Colors.teal,
+        title: const Text("Dossiers à Facturer"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              // ✅ FIXED: Refresh the FutureBuilder
+              setState(() {});
+            },
+          ),
+        ],
       ),
       body: FutureBuilder<List<DocumentSnapshot>>(
         future: _fetchPendingItems(),
@@ -62,29 +75,54 @@ class _BillingHubPageState extends State<BillingHubPage> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return const Center(child: Text('Une erreur est survenue.'));
+            return Center(child: Text("Erreur: ${snapshot.error}"));
           }
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(
-                child: Text('Aucun dossier en attente de facturation.'));
+              child: Text(
+                "Aucun dossier en attente de facturation.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+              ),
+            );
           }
 
-          final allDocs = snapshot.data!;
+          final items = snapshot.data!;
 
           return ListView.builder(
-            padding: const EdgeInsets.all(8.0),
-            itemCount: allDocs.length,
+            itemCount: items.length,
             itemBuilder: (context, index) {
-              final doc = allDocs[index];
-              final data = doc.data() as Map<String, dynamic>;
+              final doc = items[index];
+              final data = doc.data() as Map<String, dynamic>?; // Safe cast
 
-              final bool isIntervention = data.containsKey('interventionCode');
+              // ✅ FIXED: Check for null data
+              if (data == null) {
+                return Card(
+                  color: Colors.red.shade100,
+                  child: ListTile(
+                    leading: const Icon(Icons.error, color: Colors.red),
+                    title: Text("Erreur de données pour doc ID: ${doc.id}"),
+                    subtitle: const Text("Ce document est peut-être corrompu."),
+                  ),
+                );
+              }
 
-              if (isIntervention) {
+              // Determine if it's an intervention or SAV ticket
+              if (data.containsKey('serviceType')) {
+                // This is an Intervention
                 return _buildInterventionTile(context, doc);
-              } else {
+              } else if (data.containsKey('savCode')) {
+                // This is an SAV Ticket
                 return _buildSavTicketTile(context, doc);
               }
+
+              // Fallback for an unknown document type
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.help),
+                  title: Text("Document inconnu: ${doc.id}"),
+                ),
+              );
             },
           );
         },
@@ -93,24 +131,44 @@ class _BillingHubPageState extends State<BillingHubPage> {
   }
 
   Widget _buildInterventionTile(BuildContext context, DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final date = (data['interventionDate'] as Timestamp).toDate();
+    // ✅ FIX: Apply null-safety to all data access
+    final data = doc.data() as Map<String, dynamic>?;
+
+    // Safety check: If data is null, return an error tile.
+    if (data == null) {
+      return Card(
+        color: Colors.red.shade100,
+        child: ListTile(
+          leading: const Icon(Icons.error, color: Colors.red),
+          title: Text("Erreur de données pour Intervention ID: ${doc.id}"),
+        ),
+      );
+    }
+
+    final clientName = data['clientName'] as String? ?? 'Client N/A';
+    final serviceType = data['serviceType'] as String? ?? 'Service N/A';
+
+    // ✅ FIX: Safely get and format the date
+    final dateRaw = (data['interventionDate'] ?? data['createdAt']) as Timestamp?;
+    final String dateFormatted;
+    if (dateRaw != null) {
+      dateFormatted = DateFormat('dd/MM/yy').format(dateRaw.toDate());
+    } else {
+      dateFormatted = 'Date N/A';
+    }
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Colors.teal,
+        leading: CircleAvatar(
+          backgroundColor: serviceType == 'Service IT' ? Colors.green : Colors.blue,
           foregroundColor: Colors.white,
-          child: Icon(Icons.construction_outlined),
+          child: Icon(serviceType == 'Service IT' ? Icons.computer : Icons.construction),
         ),
-        title: Text(data['interventionCode'] ?? 'Intervention',
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(
-          '${data['clientName'] ?? ''}\n${data['storeName'] ?? ''}',
-        ),
-        trailing: Text(DateFormat('dd/MM/yy').format(date)),
+        title: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(serviceType),
+        trailing: Text(dateFormatted), // Use the safe, formatted string
         onTap: () {
           Navigator.of(context)
               .push(

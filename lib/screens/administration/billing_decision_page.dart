@@ -26,7 +26,13 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
   Future<void> _closeWithoutBilling() async {
     setState(() => _isActionInProgress = true);
     try {
-      final data = widget.interventionDoc.data() as Map<String, dynamic>;
+      // ✅ NULL-SAFETY FIX APPLIED
+      final data = widget.interventionDoc.data() as Map<String, dynamic>?;
+
+      // ✅ ADDED NULL CHECK
+      if (data == null) {
+        throw Exception("Les données du document sont introuvables.");
+      }
 
       await FirebaseFirestore.instance.collection('interventions').doc(widget.interventionDoc.id).update({
         'status': 'Clôturé',
@@ -76,7 +82,13 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
         TaskSnapshot snapshot = await task;
         String downloadUrl = await snapshot.ref.getDownloadURL();
 
-        final data = widget.interventionDoc.data() as Map<String, dynamic>;
+        // ✅ NULL-SAFETY FIX APPLIED
+        final data = widget.interventionDoc.data() as Map<String, dynamic>?;
+
+        // ✅ ADDED NULL CHECK
+        if (data == null) {
+          throw Exception("Les données du document sont introuvables.");
+        }
 
         await FirebaseFirestore.instance.collection('interventions').doc(widget.interventionDoc.id).update({
           'status': 'Clôturé',
@@ -249,11 +261,12 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ NULL-SAFETY FIX APPLIED
     // Attempt to cast, handle potential errors if data isn't a map
-    Map<String, dynamic> data = {};
-    if (widget.interventionDoc.data() is Map<String, dynamic>) {
-      data = widget.interventionDoc.data() as Map<String, dynamic>;
-    } else {
+    final data = widget.interventionDoc.data() as Map<String, dynamic>?;
+
+    // ✅ ADDED NULL CHECK
+    if (data == null) {
       // Handle case where data is not the expected type, maybe show an error
       return Scaffold(
         appBar: AppBar(title: const Text('Erreur')),
@@ -436,6 +449,7 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                               icon: const Icon(Icons.do_not_disturb_alt),
                               onPressed: _closeWithoutBilling,
                               label: const Text('Sans Facture'),
+                              // ✅ THIS IS THE FIX
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.grey.shade800,
                                 side: BorderSide(color: Colors.grey.shade400),
