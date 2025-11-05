@@ -21,6 +21,7 @@ setGlobalOptions({region: "europe-west1"});
 
 const MANAGERS_TOPIC = "manager_notifications";
 const TECH_ST_TOPIC = "technician_st_alerts";
+const TECH_IT_TOPIC = "technician_it_alerts"; // ✅ --- ADDED ---
 
 // ✅ NEW TOPIC CONSTANT
 const GLOBAL_ANNOUNCEMENTS_TOPIC = "GLOBAL_ANNOUNCEMENTS";
@@ -52,6 +53,22 @@ const notifyServiceTechnique = async (title: string, body: string) => {
     console.error("❌ Error sending ST notification:", error);
   }
 };
+
+// ✅ --- ADDED FUNCTION ---
+const notifyServiceIT = async (title: string, body: string) => {
+  const message = {
+    notification: {title, body},
+    topic: TECH_IT_TOPIC,
+  };
+
+  try {
+    await admin.messaging().send(message);
+    console.log(`✅ Sent Service IT notification: ${title}`);
+  } catch (error) {
+    console.error("❌ Error sending SIT notification:", error);
+  }
+};
+// ✅ --- END OF ADDED FUNCTION ---
 
 // ------------------------------------------------------------------
 // START: DAILY ACTIVITY FEED (JOURNAL DE BORD) HELPER
@@ -114,13 +131,15 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   // Notify managers
   await notifyManagers(title, body);
 
-  // ✅ --- FIX: Only notify the correct service ---
-  if (logService === "technique") {
-    await notifyServiceTechnique(title, body);
+  // ✅ --- MODIFIED LOGIC ---
+  // Only notify the correct service based on the intervention's serviceType
+  if (data.serviceType === "Service IT") {
+    await notifyServiceIT(title, body);
   } else {
-    // You can add a new topic for IT notifications here if needed
-    // e.g., await notifyServiceIT(title, body);
+    // Default to Service Technique if not specified or is "Service Technique"
+    await notifyServiceTechnique(title, body);
   }
+  // ✅ --- END OF MODIFIED LOGIC ---
 });
 
 //
@@ -664,6 +683,12 @@ export const onSupportTicketCreated_v2 = onDocumentCreated(
       relatedDocId: snapshot.id,
       relatedCollection: "support_tickets",
     });
+
+    // ✅ --- ADD NOTIFICATION FOR IT TEAM ---
+    const title = `Nouveau Ticket Support: ${data.clientName || ""}`;
+    const body = data.subject || "Nouveau ticket de support IT";
+    await notifyServiceIT(title, body);
+    // ✅ --- END OF NOTIFICATION ---
   }
 );
 
@@ -726,6 +751,12 @@ export const onMaintenanceTaskCreated_v2 = onDocumentCreated(
       relatedDocId: snapshot.id,
       relatedCollection: "maintenance_it",
     });
+
+    // ✅ --- ADD NOTIFICATION FOR IT TEAM ---
+    const title = `Maintenance IT: ${data.taskName || "Nouvelle Tâche"}`;
+    const body = data.description || "Une nouvelle tâche de maintenance a été créée.";
+    await notifyServiceIT(title, body);
+    // ✅ --- END OF NOTIFICATION ---
   }
 );
 
