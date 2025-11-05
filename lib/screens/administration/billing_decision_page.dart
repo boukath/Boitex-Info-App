@@ -1,18 +1,28 @@
 // lib/screens/administration/billing_decision_page.dart
 
 import 'dart:io';
+import 'dart:typed_data'; // ADDED for thumbnails
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:boitex_info_app/services/activity_logger.dart';
-import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart'; // Keep for potential navigation
+// Keep for potential navigation
+import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:url_launcher/url_launcher.dart'; // Added for URL launching
+import 'package:url_launcher/url_launcher.dart';
+
+// ✅ 1. ADD IMPORTS FOR IN-APP MEDIA VIEWERS
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+import 'package:boitex_info_app/widgets/video_player_page.dart';
+
+// ✅ 2. ADD IMPORT FOR VIDEO THUMBNAILS
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 class BillingDecisionPage extends StatefulWidget {
   final DocumentSnapshot interventionDoc;
+
   const BillingDecisionPage({super.key, required this.interventionDoc});
 
   @override
@@ -26,10 +36,8 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
   Future<void> _closeWithoutBilling() async {
     setState(() => _isActionInProgress = true);
     try {
-      // ✅ NULL-SAFETY FIX APPLIED
       final data = widget.interventionDoc.data() as Map<String, dynamic>?;
 
-      // ✅ ADDED NULL CHECK
       if (data == null) {
         throw Exception("Les données du document sont introuvables.");
       }
@@ -37,13 +45,12 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
       await FirebaseFirestore.instance.collection('interventions').doc(widget.interventionDoc.id).update({
         'status': 'Clôturé',
         'billingStatus': 'Sans Facture',
-        'closedAt': Timestamp.now(), // Use closedAt for consistency, unless updatedAt is specifically needed here
+        'closedAt': Timestamp.now(),
       });
 
-      // ✅ FIX: Log activity using the correct category "Facturation"
       await ActivityLogger.logActivity(
         message: "Intervention clôturée sans facture.",
-        category: "Facturation", // <-- CORRECTED
+        category: "Facturation",
         interventionId: widget.interventionDoc.id,
         clientName: data['clientName'] ?? '',
         storeName: data['storeName'] ?? '',
@@ -82,10 +89,8 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
         TaskSnapshot snapshot = await task;
         String downloadUrl = await snapshot.ref.getDownloadURL();
 
-        // ✅ NULL-SAFETY FIX APPLIED
         final data = widget.interventionDoc.data() as Map<String, dynamic>?;
 
-        // ✅ ADDED NULL CHECK
         if (data == null) {
           throw Exception("Les données du document sont introuvables.");
         }
@@ -93,14 +98,13 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
         await FirebaseFirestore.instance.collection('interventions').doc(widget.interventionDoc.id).update({
           'status': 'Clôturé',
           'billingStatus': 'Facturé',
-          'closedAt': Timestamp.now(), // Use closedAt for consistency
+          'closedAt': Timestamp.now(),
           'invoiceUrl': downloadUrl,
         });
 
-        // ✅ FIX: Log activity using the correct category "Facturation"
         await ActivityLogger.logActivity(
           message: "Intervention facturée et clôturée.",
-          category: "Facturation", // <-- CORRECTED
+          category: "Facturation",
           interventionId: widget.interventionDoc.id,
           clientName: data['clientName'] ?? '',
           storeName: data['storeName'] ?? '',
@@ -258,16 +262,159 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
     }
   }
 
+  // ✅ 3. ADD HELPER FUNCTIONS FOR MEDIA TYPES
+  // Helper function for checking video type
+  bool _isVideoPath(String path) {
+    final p = path.toLowerCase();
+    return p.endsWith('.mp4') ||
+        p.endsWith('.mov') ||
+        p.endsWith('.avi') ||
+        p.endsWith('.mkv');
+  }
+
+  // Helper function for checking PDF type
+  bool _isPdfPath(String path) {
+    final p = path.toLowerCase();
+    return p.endsWith('.pdf');
+  }
+
+  // ✅ 4. MODIFIED HELPER FUNCTION to open the correct viewer
+  Future<void> _openMedia(BuildContext context, String mediaUrl, List<dynamic>? allMediaUrls, {String? signatureUrl}) async {
+    // 1. Check for PDF
+    if (_isPdfPath(mediaUrl)) {
+      _launchURL(context, mediaUrl); // Use existing launcher for PDFs
+      return;
+    }
+
+    // 2. Check for Video
+    if (_isVideoPath(mediaUrl)) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => VideoPlayerPage(videoUrl: mediaUrl),
+        ),
+      );
+      return;
+    }
+
+    // 3. Assume Image and open gallery
+    // Filter for images only from the media list
+    final List<String> imageUrls = (allMediaUrls ?? [])
+        .whereType<String>() // Ensure all are strings
+        .where((url) =>
+    !_isVideoPath(url) &&
+        !_isPdfPath(url))
+        .toList();
+
+    // If a signatureUrl is provided and not already in the list, add it
+    if (signatureUrl != null && signatureUrl.isNotEmpty && !imageUrls.contains(signatureUrl)) {
+      imageUrls.add(signatureUrl);
+    }
+
+    if (imageUrls.isEmpty) return; // No images to show
+
+    // Find the index of the clicked image (which could be the signature)
+    final int initialIndex = imageUrls.indexOf(mediaUrl);
+
+    if (context.mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ImageGalleryPage(
+            imageUrls: imageUrls,
+            initialIndex: initialIndex != -1 ? initialIndex : 0,
+          ),
+        ),
+      );
+    }
+  }
+
+
+  // ✅ 5. ADD THUMBNAIL WIDGET
+  Widget _buildMediaThumbnail(BuildContext context, String url, List<dynamic> allMediaUrls, {String? signatureUrl}) {
+    final bool isVideo = _isVideoPath(url);
+    final bool isPdf = _isPdfPath(url);
+
+    Widget content;
+    if (isPdf) {
+      content = const Center(
+          child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
+    } else if (isVideo) {
+      content = FutureBuilder<Uint8List?>(
+        future: VideoThumbnail.thumbnailData(
+          video: url,
+          imageFormat: ImageFormat.JPEG,
+          maxWidth: 100,
+          quality: 30,
+        ),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasData && snapshot.data != null) {
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                snapshot.data!,
+                width: 100,
+                height: 100,
+                fit: BoxFit.cover,
+              ),
+            );
+          }
+          return const Center(
+              child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+        },
+      );
+    } else {
+      // Network Image
+      content = Hero(
+        tag: url, // Use URL as hero tag
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.network(
+            url,
+            width: 100,
+            height: 100,
+            fit: BoxFit.cover,
+            loadingBuilder: (c, child, prog) => prog == null
+                ? child
+                : const Center(child: CircularProgressIndicator()),
+            errorBuilder: (c, e, s) =>
+            const Icon(Icons.broken_image, color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => _openMedia(context, url, allMediaUrls, signatureUrl: signatureUrl),
+      child: Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+          color: const Color(0xFFF1F5F9),
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(child: content),
+            if (isVideo && !isPdf)
+              const Center(
+                child:
+                Icon(Icons.play_circle_fill, color: Colors.white, size: 30),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
-    // ✅ NULL-SAFETY FIX APPLIED
-    // Attempt to cast, handle potential errors if data isn't a map
     final data = widget.interventionDoc.data() as Map<String, dynamic>?;
 
-    // ✅ ADDED NULL CHECK
     if (data == null) {
-      // Handle case where data is not the expected type, maybe show an error
       return Scaffold(
         appBar: AppBar(title: const Text('Erreur')),
         body: const Center(child: Text('Impossible de lire les données de l\'intervention.')),
@@ -278,18 +425,23 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
     final String? clientName = data['clientName'] as String?;
     final String? storeName = data['storeName'] as String?;
     final String? storeLocation = data['storeLocation'] as String?;
-    final String? serviceType = data['serviceType'] as String?; // Using user's field name
-    final Timestamp? interventionDateRaw = data['interventionDate'] as Timestamp?; // Using user's field name
-    final String interventionDateFormatted = interventionDateRaw != null ? DateFormat('dd/MM/yyyy', 'fr_FR').format(interventionDateRaw.toDate()) : 'N/A';
+    final String? serviceType = data['serviceType'] as String?;
+
     final String? managerName = data['managerName'] as String?;
     final String? managerPhone = data['managerPhone'] as String?;
     final List<dynamic>? assignedTechniciansList = data['assignedTechnicians'] as List<dynamic>?;
-    final String assignedTechniciansFormatted = assignedTechniciansList?.join(', ') ?? 'N/A'; // Simple comma separation
-    final String? description = data['description'] as String?;
+    final String assignedTechniciansFormatted = assignedTechniciansList?.join(', ') ?? 'N/A';
+
+    final String? description = data['requestDescription'] as String?;
+
     final String? diagnostic = data['diagnostic'] as String?;
-    final String? workDone = data['workDone'] as String?; // Using user's field name
-    final Timestamp? updatedAtRaw = data['updatedAt'] as Timestamp?; // Using user's field name
+    final String? workDone = data['workDone'] as String?;
+    final Timestamp? updatedAtRaw = data['updatedAt'] as Timestamp?;
+
+    final String interventionDateFromUpdatedAt = updatedAtRaw != null ? DateFormat('dd/MM/yyyy', 'fr_FR').format(updatedAtRaw.toDate()) : 'N/A';
+
     final String updatedAtFormatted = updatedAtRaw != null ? DateFormat('dd/MM/yyyy HH:mm', 'fr_FR').format(updatedAtRaw.toDate()) : 'N/A';
+
     final String? signatureUrl = data['signatureUrl'] as String?;
     final List<dynamic>? mediaUrlsList = data['mediaUrls'] as List<dynamic>?;
     // --- End Extraction ---
@@ -323,13 +475,12 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                     const Divider(height: 20, thickness: 1),
                     _buildInfoRow('Client:', clientName, icon: Icons.person_outline),
                     _buildInfoRow('Magasin:', storeName, icon: Icons.storefront_outlined),
-                    _buildInfoRow('Lieu:', storeLocation, icon: Icons.location_on_outlined),
-                    _buildInfoRow('Date Intervention:', interventionDateFormatted, icon: Icons.calendar_today_outlined),
+                    _buildInfoRow('Date Intervention:', interventionDateFromUpdatedAt, icon: Icons.calendar_today_outlined),
                     _buildInfoRow('Type Service:', serviceType, icon: Icons.build_outlined),
                     _buildInfoRow('Manager:', managerName, icon: Icons.manage_accounts_outlined),
                     _buildInfoRow('Téléphone Man.:', managerPhone, icon: Icons.phone_outlined),
                     _buildInfoRow('Techniciens:', assignedTechniciansFormatted, icon: Icons.engineering_outlined),
-                    _buildInfoRow('Dern. MàJ:', updatedAtFormatted, icon: Icons.update_outlined), // Display updatedAt
+                    _buildInfoRow('Dern. MàJ:', updatedAtFormatted, icon: Icons.update_outlined),
                   ],
                 ),
               ),
@@ -350,10 +501,12 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                       style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepPurple),
                     ),
                     const Divider(height: 20, thickness: 1),
-                    _buildDetailSection('Description:', description, icon: Icons.description_outlined), // Added Description
-                    _buildDetailSection('Diagnostic:', diagnostic, icon: Icons.medical_information_outlined),
-                    _buildDetailSection('Travaux Réalisés:', workDone, icon: Icons.handyman_outlined), // Used workDone
 
+                    _buildDetailSection('Description:', description, icon: Icons.description_outlined),
+                    _buildDetailSection('Diagnostic:', diagnostic, icon: Icons.medical_information_outlined),
+                    _buildDetailSection('Travaux Réalisés:', workDone, icon: Icons.handyman_outlined),
+
+                    // ✅ 6. UPDATE SIGNATURE ONTAP
                     // Display Signature if available
                     if (signatureUrl != null && signatureUrl.isNotEmpty)
                       _buildInfoRow(
@@ -361,7 +514,7 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                         'Voir Signature', // Display text instead of URL
                         icon: Icons.draw_outlined,
                         isLink: true,
-                        onTap: () => _launchURL(context, signatureUrl),
+                        onTap: () => _openMedia(context, signatureUrl, mediaUrlsList, signatureUrl: signatureUrl),
                       ),
                     if (signatureUrl == null || signatureUrl.isEmpty)
                       _buildInfoRow(
@@ -371,7 +524,7 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                       ),
 
 
-                    // Display Media links if available
+                    // UPDATE MEDIA SECTION TO USE THUMBNAILS
                     if (mediaUrlsList != null && mediaUrlsList.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -388,27 +541,18 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 4),
-                            ...mediaUrlsList.map((mediaUrl) {
-                              if (mediaUrl is String && mediaUrl.isNotEmpty) {
-                                // Basic filename extraction (can be improved)
-                                String fileName = mediaUrl.split('%2F').last.split('?').first;
-                                if (fileName.length > 30) fileName = "...${fileName.substring(fileName.length - 27)}"; // Shorten long names
-
-                                return InkWell(
-                                  onTap: () => _launchURL(context, mediaUrl),
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(left: 26.0, top: 4.0), // Indent links
-                                    child: Text(
-                                      fileName,
-                                      style: GoogleFonts.poppins(color: Colors.blue, decoration: TextDecoration.underline),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                );
-                              }
-                              return const SizedBox.shrink(); // Skip invalid entries
-                            }).toList(),
+                            const SizedBox(height: 12), // Added space
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: mediaUrlsList.map((mediaUrl) {
+                                if (mediaUrl is String && mediaUrl.isNotEmpty) {
+                                  // Pass signatureUrl so it can be included in the gallery
+                                  return _buildMediaThumbnail(context, mediaUrl, mediaUrlsList, signatureUrl: signatureUrl);
+                                }
+                                return const SizedBox.shrink();
+                              }).toList(),
+                            ),
                           ],
                         ),
                       ),
@@ -449,7 +593,6 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                               icon: const Icon(Icons.do_not_disturb_alt),
                               onPressed: _closeWithoutBilling,
                               label: const Text('Sans Facture'),
-                              // ✅ THIS IS THE FIX
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.grey.shade800,
                                 side: BorderSide(color: Colors.grey.shade400),

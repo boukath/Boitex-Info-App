@@ -135,11 +135,15 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     final mediaList = data['mediaUrls'] as List?;
     _existingMediaUrls = mediaList != null ? List<String>.from(mediaList) : [];
 
+    // ✅ FIX #1: THIS IS THE FIRST PART OF THE FIX
+    // We now read the correct field 'assignedTechniciansIds' which is a List<String>
     _fetchTechnicians().then((_) {
-      final List<dynamic> assigned =
-      List.from(data['assignedTechnicians'] ?? const []);
+      // ✅ FIX: Read from 'assignedTechniciansIds' which is a List<String>
+      final List<dynamic> assignedIds =
+      List.from(data['assignedTechniciansIds'] ?? const []); // <-- Read the ID list
       _selectedTechnicians = _allTechnicians.where((tech) {
-        return assigned.any((a) => (a is Map && a['uid'] == tech.uid));
+        // ✅ FIX: Check if the tech's UID is in the list of strings
+        return assignedIds.any((id) => (id is String && id == tech.uid));
       }).toList();
       if (mounted) setState(() {});
     });
@@ -423,6 +427,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
 
       // 3) Persist
+      // ✅ FIX #2: THIS IS THE SECOND PART OF THE FIX
+      // We now save two separate lists to match your database schema
       final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
@@ -431,9 +437,17 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'workDone': _workDoneController.text.trim(),
         'signatureUrl': newSignatureUrl,
         'status': _currentStatus,
+
+        // ✅ FIX: Save just the names here
         'assignedTechnicians': _selectedTechnicians
-            .map((t) => {'uid': t.uid, 'name': t.displayName})
+            .map((t) => t.displayName)
             .toList(),
+
+        // ✅ FIX: Save just the UIDs here
+        'assignedTechniciansIds': _selectedTechnicians
+            .map((t) => t.uid)
+            .toList(),
+
         'mediaUrls': uploaded,
         'updatedAt': FieldValue.serverTimestamp(),
       };
