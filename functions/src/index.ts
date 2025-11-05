@@ -26,6 +26,28 @@ const TECH_IT_TOPIC = "technician_it_alerts"; // ✅ --- ADDED ---
 // ✅ NEW TOPIC CONSTANT
 const GLOBAL_ANNOUNCEMENTS_TOPIC = "GLOBAL_ANNOUNCEMENTS";
 
+// ------------------------------------------------------------------
+// START: NEW NOTIFICATION INBOX CONSTANTS
+// ------------------------------------------------------------------
+
+// --- Role Lists (from user_roles.dart) ---
+// Used to find users for the notification inbox
+const ROLES_MANAGERS = [
+  "Admin",
+  "PDG",
+  "Responsable Administratif",
+  "Responsable Commercial",
+  "Responsable Technique",
+  "Responsable IT",
+  "Chef de Projet",
+];
+const ROLES_TECH_ST = ["Technicien ST"];
+const ROLES_TECH_IT = ["Technicien IT"];
+
+// ------------------------------------------------------------------
+// END: NEW NOTIFICATION INBOX CONSTANTS
+// ------------------------------------------------------------------
+
 const notifyManagers = async (title: string, body: string) => {
   const message = {
     notification: {title, body},
@@ -93,6 +115,163 @@ const createActivityLog = (data: { [key: string]: any }) => {
 // END: DAILY ACTIVITY FEED (JOURNAL DE BORD) HELPER
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// START: NEW NOTIFICATION INBOX HELPERS
+// ------------------------------------------------------------------
+
+/**
+ * Creates a new notification document in the 'user_notifications' collection.
+ */
+const createUserNotification = (data: {
+  userId: string;
+  title: string;
+  body: string;
+  isRead?: boolean;
+  relatedDocId?: string;
+  relatedCollection?: string;
+}) => {
+  // We don't await this, let it run in the background
+  admin.firestore().collection("user_notifications").add({
+    ...data,
+    isRead: data.isRead || false,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  }).then(() => {
+    console.log(`✅ User notification created for: ${data.userId}`);
+  }).catch((err) => {
+    console.error("❌ Error creating user notification:", err);
+  });
+};
+
+/**
+ * Fetches all user UIDs that match a list of roles.
+ * Roles must match the 'role' field in the 'users' collection (e.g., "Responsable Administratif")
+ */
+const getUidsForRoles = async (roles: string[]): Promise<string[]> => {
+  if (roles.length === 0) {
+    return [];
+  }
+
+  const uids: string[] = [];
+  try {
+    // Query users collection where 'role' is in the provided list
+    const usersSnapshot = await admin.firestore()
+      .collection("users")
+      .where("role", "in", roles)
+      .get();
+
+    if (!usersSnapshot.empty) {
+      for (const doc of usersSnapshot.docs) {
+        uids.push(doc.id); // doc.id is the user UID
+      }
+    }
+    return uids;
+  } catch (error) {
+    console.error("❌ Error fetching UIDs for roles:", error);
+    return [];
+  }
+};
+
+/**
+ * Fetches UIDs for given roles and creates a notification
+ * document for each user.
+ */
+const createNotificationsForRoles = async (
+  roles: string[],
+  notificationData: {
+    title: string;
+    body: string;
+    relatedDocId?: string;
+    relatedCollection?: string;
+  }
+) => {
+  const uids = await getUidsForRoles(roles);
+  if (uids.length === 0) {
+    console.log("No users found for roles, no inbox notifications created.");
+    return;
+  }
+
+  const {title, body, relatedDocId, relatedCollection} = notificationData;
+
+  // Create a notification for each user
+  const promises = uids.map((uid) => {
+    return createUserNotification({
+      userId: uid,
+      title,
+      body,
+      relatedDocId,
+      relatedCollection,
+    });
+  });
+
+  await Promise.all(promises);
+  console.log(`✅ Created ${uids.length} inbox notifications.`);
+};
+
+/**
+ * Fetches all user UIDs.
+ */
+const getUidsForAllUsers = async (): Promise<string[]> => {
+  const uids: string[] = [];
+  try {
+    const usersSnapshot = await admin.firestore().collection("users").get();
+    if (!usersSnapshot.empty) {
+      for (const doc of usersSnapshot.docs) {
+        uids.push(doc.id); // doc.id is the user UID
+      }
+    }
+    return uids;
+  } catch (error) {
+    console.error("❌ Error fetching all UIDs:", error);
+    return [];
+  }
+};
+
+/**
+ * Creates a notification document for ALL users.
+ */
+const createNotificationsForAllUsers = async (
+  notificationData: {
+    title: string;
+    body: string;
+    relatedDocId?: string;
+    relatedCollection?: string;
+  }
+) => {
+  const uids = await getUidsForAllUsers();
+  if (uids.length === 0) {
+    console.log("No users found, no global inbox notifications created.");
+    return;
+  }
+
+  const {title, body, relatedDocId, relatedCollection} = notificationData;
+
+  // Create a notification for each user
+  const promises = uids.map((uid) => {
+    return createUserNotification({
+      userId: uid,
+      title,
+      body,
+      relatedDocId,
+      relatedCollection,
+    });
+  });
+
+  await Promise.all(promises);
+  console.log(`✅ Created ${uids.length} inbox notifications for global announcement.`);
+};
+
+/**
+ * Converts FCM topic names (with underscores) back to
+ * Firestore role names (with spaces).
+ */
+const convertTopicsToRoles = (topics: string[]): string[] => {
+  return topics.map((topic) => topic.replace(/_/g, " "));
+};
+
+// ------------------------------------------------------------------
+// END: NEW NOTIFICATION INBOX HELPERS
+// ------------------------------------------------------------------
+
 
 //
 // ⭐️ ----- MODIFIED FUNCTION ----- ⭐️
@@ -128,16 +307,30 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   });
   // --- End of Log ---
 
+  // --- Notification Data ---
+  const notificationData = {
+    title,
+    body,
+    relatedDocId: snapshot.id,
+    relatedCollection: "interventions",
+  };
+
   // Notify managers
   await notifyManagers(title, body);
+  // ✅ ADD TO INBOX
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
 
   // ✅ --- MODIFIED LOGIC ---
   // Only notify the correct service based on the intervention's serviceType
   if (data.serviceType === "Service IT") {
     await notifyServiceIT(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_TECH_IT, notificationData);
   } else {
     // Default to Service Technique if not specified or is "Service Technique"
     await notifyServiceTechnique(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
   }
   // ✅ --- END OF MODIFIED LOGIC ---
 });
@@ -171,6 +364,26 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
     relatedCollection: "interventions",
   });
   // --- End of Log ---
+
+  // ✅ --- NEW: ADD INBOX NOTIFICATION FOR STATUS CHANGE ---
+  // (Note: No push notification is sent here, only inbox)
+  const title = `Mise à Jour Intervention: ${after.interventionCode || "N/A"}`;
+  const body = `Statut: '${before.status}' -> '${after.status}'`;
+  const notificationData = {
+    title,
+    body,
+    relatedDocId: event.data.after.id,
+    relatedCollection: "interventions",
+  };
+
+  // Notify roles that can see this intervention
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
+  if (logService === "it") {
+    await createNotificationsForRoles(ROLES_TECH_IT, notificationData);
+  } else {
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
+  }
+  // ✅ --- END OF NEW LOGIC ---
 
   return null;
 });
@@ -206,8 +419,21 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
   });
   // --- End of Log ---
 
+  // --- Notification Data ---
+  const notificationData = {
+    title,
+    body,
+    relatedDocId: snapshot.id,
+    relatedCollection: "sav_tickets",
+  };
+
   await notifyManagers(title, body);
+  // ✅ ADD TO INBOX
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
+
   await notifyServiceTechnique(title, body);
+  // ✅ ADD TO INBOX
+  await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
 });
 
 export const onReplacementRequestCreated_v2 = onDocumentCreated("replacement_requests/{requestId}", async (event) => {
@@ -221,7 +447,17 @@ export const onReplacementRequestCreated_v2 = onDocumentCreated("replacement_req
   const title = `Nouvelle Demande de Remplacement: ${data.replacementRequestCode}`;
   const body = `Demandé par: ${data.technicianName} pour ${data.clientName}`;
 
+  // --- Notification Data ---
+  const notificationData = {
+    title,
+    body,
+    relatedDocId: snapshot.id,
+    relatedCollection: "replacement_requests",
+  };
+
   await notifyManagers(title, body);
+  // ✅ ADD TO INBOX
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
 });
 
 // ✅ Notification for new requisition creation
@@ -242,6 +478,7 @@ export const onRequisitionCreated_v2 = onDocumentCreated(
     const title = `Nouvelle Demande d'Achat: ${requisitionCode}`;
     const body = `Demandée par: ${requestedBy} - ${itemCount} article(s)`;
 
+    // Role list for topics
     const targetRoles = [
       "PDG",
       "Admin",
@@ -267,6 +504,15 @@ export const onRequisitionCreated_v2 = onDocumentCreated(
     });
 
     await Promise.all(sendPromises);
+
+    // ✅ ADD TO INBOX
+    // Use the ROLES_MANAGERS constant which has the correct role names
+    await createNotificationsForRoles(ROLES_MANAGERS, {
+      title,
+      body,
+      relatedDocId: snapshot.id,
+      relatedCollection: "requisitions",
+    });
   }
 );
 
@@ -288,6 +534,14 @@ export const onRequisitionStatusUpdate_v2 = onDocumentUpdated(
     const body = `Statut: ${newStatus} - Demandé par: ${requestedBy}`;
 
     await notifyManagers(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_MANAGERS, {
+      title,
+      body,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "requisitions",
+    });
+
     console.log(`✅ Requisition status update notification sent for ${requisitionCode}`);
   }
 );
@@ -310,6 +564,7 @@ export const onProjectCreated_v2 = onDocumentCreated(
     const title = `Nouveau Projet: ${projectName}`;
     const body = `Client: ${clientName} - Début: ${startDate}`;
 
+    // Role list for topics
     const targetRoles = [
       "PDG",
       "Admin",
@@ -335,6 +590,15 @@ export const onProjectCreated_v2 = onDocumentCreated(
     });
 
     await Promise.all(sendPromises);
+
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_MANAGERS, {
+      title,
+      body,
+      relatedDocId: snapshot.id,
+      relatedCollection: "projects",
+    });
+
     console.log(`✅ Project creation notification sent for: ${projectName}`);
   }
 );
@@ -365,12 +629,21 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated(
         relatedDocId: event.data.after.id,
         relatedCollection: "projects",
       });
+
+      // ✅ ADD TO INBOX for IT team
+      await createNotificationsForRoles(ROLES_TECH_IT, {
+        title: "Évaluation IT Terminée",
+        body: `Client: ${after.clientName || "N/A"} - Magasin: ${after.storeName || "N/A"}`,
+        relatedDocId: event.data.after.id,
+        relatedCollection: "projects",
+      });
     }
     // ✅ --- END NEW LOGIC ---
 
     // --- Original Status Change Logic ---
     if (before.status === after.status) {
-      return; // No status change, so no notification needed
+      // If only IT eval changed, we don't need the status notification
+      return;
     }
 
     const projectName = after.projectName || "N/A";
@@ -381,6 +654,14 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated(
     const body = `Client: ${clientName} - Statut: ${newStatus}`;
 
     await notifyManagers(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_MANAGERS, {
+      title,
+      body,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "projects",
+    });
+
     console.log(`✅ Project status update notification sent for ${projectName}`);
   }
 );
@@ -420,8 +701,21 @@ export const onInstallationCreated_v2 = onDocumentCreated(
     });
     // --- End of Log ---
 
+    // --- Notification Data ---
+    const notificationData = {
+      title,
+      body,
+      relatedDocId: snapshot.id,
+      relatedCollection: "installations",
+    };
+
     await notifyManagers(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
+
     await notifyServiceTechnique(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
   }
 );
 
@@ -456,8 +750,22 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated(
     // Also send a notification for the status change
     const title = `Mise à Jour Installation: ${after.installationCode || "N/A"}`;
     const body = `Client: ${after.clientName} - Statut: ${after.status}`;
+
+    // --- Notification Data ---
+    const notificationData = {
+      title,
+      body,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "installations",
+    };
+
     await notifyManagers(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
+
     await notifyServiceTechnique(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
 
     return null;
   }
@@ -501,7 +809,7 @@ export const onLivraisonCreated_v2 = onDocumentCreated(
     });
     // --- End of Log ---
 
-    // Send to all management roles + technicians
+    // Send to all management roles + technicians (topics)
     const targetRoles = [
       "PDG",
       "Admin",
@@ -529,6 +837,21 @@ export const onLivraisonCreated_v2 = onDocumentCreated(
     });
 
     await Promise.all(sendPromises);
+
+    // ✅ ADD TO INBOX
+    // Combine all target roles for the inbox
+    const allTargetRoles = [
+      ...ROLES_MANAGERS,
+      ...ROLES_TECH_ST,
+      ...ROLES_TECH_IT,
+    ];
+    await createNotificationsForRoles(allTargetRoles, {
+      title,
+      body,
+      relatedDocId: snapshot.id,
+      relatedCollection: "livraisons",
+    });
+
     console.log(`✅ Livraison creation notification sent for: ${bonLivraisonCode}`);
   }
 );
@@ -570,9 +893,23 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated(
     });
     // --- End of Log ---
 
+    // --- Notification Data ---
+    const notificationData = {
+      title,
+      body,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "livraisons",
+    };
+
     // Notify managers and relevant technicians
     await notifyManagers(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
+
     await notifyServiceTechnique(title, body);
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
+
 
     console.log(`✅ Livraison status update notification sent for ${bonLivraisonCode}`);
   }
@@ -609,10 +946,22 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated(
       });
       // --- End of Log ---
 
+      // --- Notification Data ---
+      const notificationData = {
+        title,
+        body,
+        relatedDocId: event.data.after.id,
+        relatedCollection: "sav_tickets",
+      };
+
       await notifyManagers(title, body);
+      // ✅ ADD TO INBOX
+      await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
 
       if (["En attente de pièce", "Terminé"].includes(after.status)) {
         await notifyServiceTechnique(title, body);
+        // ✅ ADD TO INBOX
+        await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
       }
     }
   }
@@ -637,17 +986,38 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated(
       const title = `Remplacement Approuvé: ${requestCode}`;
       const body = `Préparez la pièce pour ${clientName} | Produit: ${productName}`;
 
+      // --- Notification Data ---
+      const notificationData = {
+        title,
+        body,
+        relatedDocId: event.data.after.id,
+        relatedCollection: "replacement_requests",
+      };
+
       await notifyServiceTechnique(title, body);
+      // ✅ ADD TO INBOX
+      await createNotificationsForRoles(ROLES_TECH_ST, notificationData);
+
       await notifyManagers(title, body);
+      // ✅ ADD TO INBOX
+      await createNotificationsForRoles(ROLES_MANAGERS, notificationData);
+
 
       console.log(`✅ Replacement approval notification sent for ${requestCode}`);
     }
 
     if (beforeStatus !== afterStatus) {
-      await notifyManagers(
-        "Mise à Jour: Demande de Remplacement",
-        `Le statut pour ${after.replacementRequestCode || "N/A"} est maintenant: ${afterStatus}.`
-      );
+      const title = "Mise à Jour: Demande de Remplacement";
+      const body = `Le statut pour ${after.replacementRequestCode || "N/A"} est maintenant: ${afterStatus}.`;
+
+      await notifyManagers(title, body);
+      // ✅ ADD TO INBOX
+      await createNotificationsForRoles(ROLES_MANAGERS, {
+        title,
+        body,
+        relatedDocId: event.data.after.id,
+        relatedCollection: "replacement_requests",
+      });
     }
   }
 );
@@ -688,6 +1058,14 @@ export const onSupportTicketCreated_v2 = onDocumentCreated(
     const title = `Nouveau Ticket Support: ${data.clientName || ""}`;
     const body = data.subject || "Nouveau ticket de support IT";
     await notifyServiceIT(title, body);
+
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_TECH_IT, {
+      title,
+      body,
+      relatedDocId: snapshot.id,
+      relatedCollection: "support_tickets",
+    });
     // ✅ --- END OF NOTIFICATION ---
   }
 );
@@ -721,6 +1099,15 @@ export const onSupportTicketUpdated_v2 = onDocumentUpdated(
       relatedDocId: event.data.after.id,
       relatedCollection: "support_tickets",
     });
+
+    // ✅ --- NEW: ADD INBOX NOTIFICATION FOR STATUS CHANGE ---
+    await createNotificationsForRoles(ROLES_TECH_IT, {
+      title: `Mise à Jour Support: ${after.clientName || "N/A"}`,
+      body: `Statut: '${before.status}' -> '${after.status}'`,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "support_tickets",
+    });
+    // ✅ --- END OF NEW LOGIC ---
   }
 );
 
@@ -756,6 +1143,14 @@ export const onMaintenanceTaskCreated_v2 = onDocumentCreated(
     const title = `Maintenance IT: ${data.taskName || "Nouvelle Tâche"}`;
     const body = data.description || "Une nouvelle tâche de maintenance a été créée.";
     await notifyServiceIT(title, body);
+
+    // ✅ ADD TO INBOX
+    await createNotificationsForRoles(ROLES_TECH_IT, {
+      title,
+      body,
+      relatedDocId: snapshot.id,
+      relatedCollection: "maintenance_it",
+    });
     // ✅ --- END OF NOTIFICATION ---
   }
 );
@@ -789,6 +1184,15 @@ export const onMaintenanceTaskUpdated_v2 = onDocumentUpdated(
       relatedDocId: event.data.after.id,
       relatedCollection: "maintenance_it",
     });
+
+    // ✅ --- NEW: ADD INBOX NOTIFICATION FOR STATUS CHANGE ---
+    await createNotificationsForRoles(ROLES_TECH_IT, {
+      title: `Mise à Jour Maintenance: ${after.taskName || "N/A"}`,
+      body: `Statut: '${before.status}' -> '${after.status}'`,
+      relatedDocId: event.data.after.id,
+      relatedCollection: "maintenance_it",
+    });
+    // ✅ --- END OF NEW LOGIC ---
   }
 );
 
@@ -864,6 +1268,14 @@ export const onNewAnnouncementMessage = onDocumentCreated(
     } catch (error) {
       functions.logger.error("❌ Error sending announcement notification:", error);
     }
+
+    // ✅ 5. ADD TO INBOX for all users
+    await createNotificationsForAllUsers({
+      title: payload.notification.title,
+      body: payload.notification.body,
+      relatedDocId: params.channelId, // The channel ID
+      relatedCollection: "channels", // To know to navigate to the channel
+    });
   });
 // ✅
 // ✅ END OF NEW FUNCTION (FROM YOUR FILE - UNTOUCHED)
@@ -893,6 +1305,19 @@ collectionsToWatchForUpdates.forEach((collection) => {
       const body = `Statut de '${code}' est maintenant '${status}'`;
 
       await notifyManagers(title, body);
+
+      // ✅ ADD TO INBOX
+      // Note: This might create duplicate inbox items for updates
+      // that are already handled by specific functions above
+      // (onInterventionStatusUpdate_v2, onInstallationStatusUpdate_v2, etc.)
+      // This is OK for now, but you might want to remove items from
+      // 'collectionsToWatchForUpdates' to prevent this.
+      await createNotificationsForRoles(ROLES_MANAGERS, {
+        title,
+        body,
+        relatedDocId: event.data.after.id,
+        relatedCollection: collection,
+      });
     }
   );
 });
@@ -1072,6 +1497,7 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
   for (const doc of remindersSnapshot.docs) {
     const reminder = doc.data();
     const title = reminder.title;
+    // These are topic names (e.g., "Responsable_Administratif")
     const targetRoles = reminder.targetRoles as string[];
 
     if (!title || !targetRoles || targetRoles.length === 0) {
@@ -1101,6 +1527,17 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
     });
 
     await Promise.all(sendPromises);
+
+    // ✅ ADD TO INBOX
+    // Convert topic names ("Responsable_Administratif")
+    // to role names ("Responsable Administratif")
+    const rolesWithSpaces = convertTopicsToRoles(targetRoles);
+    await createNotificationsForRoles(rolesWithSpaces, {
+      title: "🔔 Rappel", // Match the push notification title
+      body: title,
+      relatedCollection: "reminders",
+      relatedDocId: doc.id,
+    });
 
     promises.push(doc.ref.update({
       status: "sent",

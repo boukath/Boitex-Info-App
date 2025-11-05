@@ -9,6 +9,8 @@ import 'package:boitex_info_app/screens/service_it/service_it_dashboard_page.dar
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/api/firebase_api.dart';
 import 'dart:math' as math;
+import 'package:cloud_firestore/cloud_firestore.dart'; // ✅ ADDED: For StreamBuilder
+import 'package:boitex_info_app/screens/home/notifications_page.dart'; // ✅ ADDED: Our new page
 
 class HomePage extends StatefulWidget {
   final String userRole;
@@ -77,6 +79,84 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     } catch (_) {}
     await api.saveTokenForCurrentUser();
   }
+
+  // ✅ --- NEW WIDGET ---
+  // This widget builds the bell icon, listens for unread
+  // notifications, and shows a badge.
+  Widget _buildNotificationBell(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      // 1. Listen to the new collection for unread items
+      stream: FirebaseFirestore.instance
+          .collection('user_notifications')
+          .where('userId', isEqualTo: currentUser.uid)
+          .where('isRead', isEqualTo: false)
+          .limit(1) // We only need to know if 1 or more exist
+          .snapshots(),
+      builder: (context, snapshot) {
+        bool hasUnread = false;
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          hasUnread = true;
+        }
+
+        // 2. Use a Stack to place a badge on top of the icon
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // Styled just like the logout button
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: IconButton(
+                icon: Icon(
+                  Icons.notifications_none_rounded,
+                  color: Colors.white,
+                  size: kIsWeb ? 20 : 18, // Match web/mobile logout icon sizes
+                ),
+                tooltip: 'Notifications',
+                onPressed: () {
+                  // 3. Navigate to our new page
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => NotificationsPage(
+                        userRole: widget.userRole,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            // The unread badge
+            if (hasUnread)
+              Positioned(
+                top: 4, // Adjust as needed
+                right: 4, // Adjust as needed
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Colors.redAccent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+  // ✅ --- END OF NEW WIDGET ---
 
   @override
   Widget build(BuildContext context) {
@@ -210,6 +290,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ],
               ),
             ),
+            const SizedBox(width: 16),
+
+            // ✅ ADDED: Notification Bell
+            _buildNotificationBell(context),
+
             const SizedBox(width: 16),
             // Logout Button
             Container(
@@ -511,6 +596,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
+
+                          // ✅ ADDED: Notification Bell
+                          _buildNotificationBell(context),
+
                           const SizedBox(width: 8),
 
                           // Logout button

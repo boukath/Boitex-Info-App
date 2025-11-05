@@ -623,52 +623,13 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     return result;
   }
 
-  // --- ✅ NEW: Sequential Code Generation Logic ---
-  Future<String> _generateSequentialInterventionCode() async {
-    final now = DateTime.now();
-    final currentYear = DateFormat('yyyy').format(now);
+  // --- ❌ DELETED OLD/BUGGY HELPER FUNCTION ---
+  // The old _generateSequentialInterventionCode function that was here has been removed.
+  // The correct logic is now inside the _saveIntervention transaction.
 
-    // 1. Find the intervention with the highest code for the current year.
-    final latestInterventionQuery = await FirebaseFirestore.instance
-        .collection('interventions')
-        .where('interventionCode', isGreaterThanOrEqualTo: 'INT-00/$currentYear') // Start of range
-        .where('interventionCode', isLessThan: 'INT-a/$currentYear') // Use 'a' as an upper bound (string sort)
-        .orderBy('interventionCode', descending: true)
-        .limit(1)
-        .get();
-
-    int nextCounter = 1;
-    String codePrefix = 'INT-';
-
-    if (latestInterventionQuery.docs.isNotEmpty) {
-      final latestCode = latestInterventionQuery.docs.first.data()['interventionCode'] as String? ?? '';
-
-      // Expected format: INT-XX/YYYY
-      try {
-        final parts = latestCode.split('-'); // ["INT", "XX/YYYY"]
-        if (parts.length > 1) {
-          final counterPart = parts.last.split('/').first; // "XX"
-          nextCounter = int.parse(counterPart) + 1;
-        } else {
-          nextCounter = 1; // Fallback if format is unexpected
-        }
-      } catch (e) {
-        // Fallback if parsing fails for any reason
-        debugPrint('Error parsing latest code: $latestCode, resetting counter to 1. Error: $e');
-        nextCounter = 1;
-      }
-    }
-
-    // 2. Format the new code (e.g., 'INT-01/2025' or 'INT-34/2025' or 'INT-123/2025')
-    // This will format 1 as "01", 34 as "34", and 123 as "123".
-    final newCounterString = nextCounter.toString().padLeft(2, '0');
-
-    return '$codePrefix$newCounterString/$currentYear';
-  }
-  // --- End of new helper function ---
-
-
-  // Save Intervention Function (MODIFIED FOR B2 UPLOAD & SEQUENTIAL CODE)
+  // --- ✅ START: MODIFIED _saveIntervention FUNCTION ---
+  // This function now uses a transaction and the 'intervention_counter_YYYY' document
+  // to safely generate the new intervention code.
   Future<void> _saveIntervention() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
@@ -686,7 +647,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       _uploadedMediaUrls = []; // Reset uploaded URLs list
     });
 
-    // --- STEP 1: UPLOAD MEDIA TO B2 ---
+    // --- STEP 1: UPLOAD MEDIA TO B2 (Unchanged) ---
     try {
       if (_localFilesToUpload.isNotEmpty) {
         final b2Credentials = await _getB2UploadCredentials();
@@ -723,47 +684,96 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       }
     }
 
-    // --- STEP 2: SAVE INTERVENTION DATA TO FIRESTORE ---
+    // --- STEP 2: SAVE INTERVENTION DATA TO FIRESTORE (WITH TRANSACTION) ---
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       setState(() => _isLoading = false);
       return;
     }
 
+    // ✅ --- START OF FIX ---
+
+    // Get the current year in yyyy format (e.g., "2025")
+    final currentYear = DateFormat('yyyy').format(DateTime.now());
+
+    // Get a reference to the correct counter (e.g., "intervention_counter_2025")
+    final counterRef = FirebaseFirestore.instance
+        .collection('counters')
+        .doc('intervention_counter_$currentYear'); // <-- This is the fix
+
+    // Get a reference for the new intervention document
+    final interventionRef =
+    FirebaseFirestore.instance.collection('interventions').doc();
+
+    // ✅ --- END OF FIX ---
+
     try {
       final userDoc =
       await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
 
-      // ✅ NEW: Generate the sequential code
-      final interventionCode = await _generateSequentialInterventionCode();
-      final interventionRef = FirebaseFirestore.instance.collection('interventions');
+      // Run a transaction to safely get the new code and save the intervention
+      String finalInterventionCode = '';
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final counterDoc = await transaction.get(counterRef);
 
-      final interventionData = {
-        'interventionCode': interventionCode,
-        'serviceType': widget.serviceType,
-        'clientId': _selectedClient!.id,
-        'clientName': _selectedClient!.name,
-        'clientPhone': _clientPhoneController.text.trim(),
-        'storeId': _selectedStore!.id,
-        'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
-        'requestDescription': _requestController.text.trim(),
-        'interventionType': _selectedInterventionType,
-        'priority': _selectedInterventionPriority,
-        'status': 'Nouvelle Demande',
-        'createdAt': Timestamp.now(),
-        'createdByUid': user.uid,
-        'createdByName': creatorName,
-        // ✅ NEW: Save the list of B2 media URLs
-        'mediaUrls': _uploadedMediaUrls,
-      };
+        int newCount;
+        if (counterDoc.exists) {
+          final data = counterDoc.data() as Map<String, dynamic>;
+          // Check if the counter doc has a 'lastReset' field for the year
+          // If not, we'll just use the count
+          final lastResetYear = data['lastReset'] as String?;
+          final currentCount = data['count'] as int? ?? 0;
 
-      await interventionRef.add(interventionData);
+          if (lastResetYear == currentYear) {
+            // Year is the same, increment the count (e.g., 36 -> 37)
+            newCount = currentCount + 1;
+          } else {
+            // This is a new year (or new counter doc), reset count to 1
+            newCount = 1;
+          }
+        } else {
+          // Document "intervention_counter_2025" doesn't exist, start at 1
+          newCount = 1;
+        }
 
+        // Format the code: INT-37/2025 (no padding based on your example)
+        finalInterventionCode = 'INT-$newCount/$currentYear';
+
+        // Set the data for the new intervention
+        final interventionData = {
+          'interventionCode': finalInterventionCode, // Use the new transactional code
+          'serviceType': widget.serviceType,
+          'clientId': _selectedClient!.id,
+          'clientName': _selectedClient!.name,
+          'clientPhone': _clientPhoneController.text.trim(),
+          'storeId': _selectedStore!.id,
+          'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
+          'requestDescription': _requestController.text.trim(),
+          'interventionType': _selectedInterventionType,
+          'priority': _selectedInterventionPriority,
+          'status': 'Nouvelle Demande',
+          'createdAt': Timestamp.now(),
+          'createdByUid': user.uid,
+          'createdByName': creatorName,
+          'mediaUrls': _uploadedMediaUrls,
+        };
+
+        // Save the new intervention
+        transaction.set(interventionRef, interventionData);
+
+        // Update the counter document (e.g., "intervention_counter_2025")
+        transaction.set(counterRef, {
+          'count': newCount,
+          'lastReset': currentYear, // Save the current year
+        });
+      });
+
+      // --- Success ---
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Intervention créée avec succès!'),
+          SnackBar(
+            content: Text('Intervention $finalInterventionCode créée avec succès!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -782,6 +792,8 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       if (mounted) setState(() => _isLoading = false);
     }
   }
+  // --- ✅ END: MODIFIED _saveIntervention FUNCTION ---
+
 
   // Subtle glassmorphism frosted card (depth layering, soft shadows)
   Widget _buildGlassCard({required Widget child}) {
