@@ -70,41 +70,23 @@ class _ServiceTechniqueDashboardPageState
 
   @override
   Widget build(BuildContext context) {
-    // ***** START MODIFIED CODE *****
-    // We wrap the entire page in a StreamBuilder to get the evaluation count
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('projects')
-          .where('status', isEqualTo: 'Nouvelle Demande')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .snapshots(),
-      builder: (context, projectSnapshot) {
-        // Get the count, or 0 if still loading
-        final int evaluationCount =
-        projectSnapshot.hasData ? projectSnapshot.data!.docs.length : 0;
-
-        return LayoutBuilder(builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          if (width > 900) {
-            // Pass the count to the web dashboard
-            return _buildWebDashboard(context, width, evaluationCount);
-          } else {
-            // Pass the count to the mobile dashboard
-            return _buildMobileDashboard(context, evaluationCount);
-          }
-        });
-      },
-    );
-    // ***** END MODIFIED CODE *****
+    // ✅ REMOVED: Root StreamBuilder is no longer needed
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      if (width > 900) {
+        // ✅ REMOVED: evaluationCount
+        return _buildWebDashboard(context, width);
+      } else {
+        // ✅ REMOVED: evaluationCount
+        return _buildMobileDashboard(context);
+      }
+    });
   }
 
   // ========================= WEB =========================
 
-  // ***** START MODIFIED CODE *****
-  // Added evaluationCount parameter
-  Widget _buildWebDashboard(
-      BuildContext context, double width, int evaluationCount) {
-    // ***** END MODIFIED CODE *****
+  // ✅ REMOVED: evaluationCount parameter
+  Widget _buildWebDashboard(BuildContext context, double width) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -130,38 +112,10 @@ class _ServiceTechniqueDashboardPageState
                       padding: EdgeInsets.symmetric(
                         horizontal: math.min((width - 1400) / 2, width * 0.1),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: _buildGlassCard(
-                                child: _buildWebActionsGrid(context)),
-                          ),
-                          const SizedBox(width: 24),
-                          Expanded(
-                            flex: 2,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Statistiques', // Your original title
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.95),
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                // ***** START MODIFIED CODE *****
-                                // Pass the count to the stats column
-                                _buildWebStatsColumn(evaluationCount),
-                                // ***** END MODIFIED CODE *****
-                              ],
-                            ),
-                          ),
-                        ],
+                      // ✅ MODIFIED: Removed Row and Stats column
+                      // The Actions Grid now takes all the space
+                      child: _buildGlassCard(
+                        child: _buildWebActionsGrid(context),
                       ),
                     ),
                   ),
@@ -306,56 +260,12 @@ class _ServiceTechniqueDashboardPageState
     );
   }
 
-  // ***** START MODIFIED CODE *****
-  // Added evaluationCount parameter
-  Widget _buildWebStatsColumn(int evaluationCount) {
-    // ***** END MODIFIED CODE *****
-    // Keeping your original web stats column structure
-    final cards = <Widget>[
-      // ***** START MODIFIED CODE *****
-      // Add the new Evaluations Card here
-      _EvaluationsCard(
-        userRole: widget.userRole,
-        evaluationCount: evaluationCount,
-      ),
-      const SizedBox(height: 16),
-      // ***** END MODIFIED CODE *****
-
-      _InterventionsCard(userRole: widget.userRole),
-      const SizedBox(height: 16),
-      _InstallationsCard(userRole: widget.userRole),
-      const SizedBox(height: 16),
-      _SavTicketsCard(userRole: widget.userRole),
-      const SizedBox(height: 16),
-      _ReadyReplacementsCard(userRole: widget.userRole),
-      const SizedBox(height: 16),
-      _MissionsCard(userRole: widget.userRole),
-    ];
-    return Column(
-      children: cards.asMap().entries.map((entry) {
-        final index = entry.key;
-        final card = entry.value;
-        return TweenAnimationBuilder<double>(
-          duration: Duration(milliseconds: 600 + (index * 100)),
-          tween: Tween(begin: 0, end: 1),
-          builder: (context, value, child) {
-            return Transform.translate(
-              offset: Offset(0, 30 * (1 - value)),
-              child: Opacity(opacity: value, child: child),
-            );
-          },
-          child: card,
-        );
-      }).toList(),
-    );
-  }
+  // ✅ REMOVED: _buildWebStatsColumn function
 
   // ========================= MOBILE =========================
 
-  // ***** START MODIFIED CODE *****
-  // Added evaluationCount parameter
-  Widget _buildMobileDashboard(BuildContext context, int evaluationCount) {
-    // ***** END MODIFIED CODE *****
+  // ✅ REMOVED: evaluationCount parameter
+  Widget _buildMobileDashboard(BuildContext context) {
     // Keeping your original mobile dashboard structure
     return Scaffold(
       body: Container(
@@ -384,11 +294,7 @@ class _ServiceTechniqueDashboardPageState
                         _buildGlassCard(
                             child:
                             _buildActionsGrid(context)), // Uses your mobile actions grid
-                        const SizedBox(height: 24),
-                        // ***** START MODIFIED CODE *****
-                        // Pass the count to the stats section
-                        _buildStatsSection(evaluationCount),
-                        // ***** END MODIFIED CODE *****
+                        // ✅ REMOVED: Stats Section and SizedBox
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -593,6 +499,12 @@ class _ServiceTechniqueDashboardPageState
             ),
           ),
         ),
+        // Stream for pending interventions
+        countStream: FirebaseFirestore.instance
+            .collection('interventions')
+            .where('serviceType', isEqualTo: 'Service Technique')
+            .where('status', isEqualTo: 'Nouvelle Demande')
+            .snapshots(),
       ),
       _ActionData(
         'Installations',
@@ -607,6 +519,12 @@ class _ServiceTechniqueDashboardPageState
             ),
           ),
         ),
+        // Stream for pending installations
+        countStream: FirebaseFirestore.instance
+            .collection('installations')
+            .where('serviceType', isEqualTo: 'Service Technique')
+            .where('status', whereIn: ['Nouveau', 'Planifiée'])
+            .snapshots(),
       ),
       _ActionData(
         'Tickets SAV',
@@ -618,6 +536,12 @@ class _ServiceTechniqueDashboardPageState
             builder: (_) => const SavListPage(serviceType: 'Service Technique'),
           ),
         ),
+        // Stream for pending SAV tickets
+        countStream: FirebaseFirestore.instance
+            .collection('sav_tickets')
+            .where('serviceType', isEqualTo: 'Service Technique')
+            .where('status', isEqualTo: 'Nouveau')
+            .snapshots(),
       ),
       _ActionData(
         'Remplacements',
@@ -630,6 +554,12 @@ class _ServiceTechniqueDashboardPageState
                 serviceType: 'Service Technique'),
           ),
         ),
+        // Stream for pending replacements
+        countStream: FirebaseFirestore.instance
+            .collection('replacementRequests')
+            .where('serviceType', isEqualTo: 'Service Technique')
+            .where('requestStatus', isEqualTo: 'Prêt pour Technicien')
+            .snapshots(),
       ),
       _ActionData(
         'Missions',
@@ -641,6 +571,11 @@ class _ServiceTechniqueDashboardPageState
               builder: (_) =>
                   ManageMissionsPage(serviceType: 'Service Technique')),
         ),
+        // Stream for pending missions
+        countStream: FirebaseFirestore.instance
+            .collection('missions')
+            .where('serviceType', isEqualTo: 'Service Technique')
+            .where('status', whereIn: ['En Cours', 'Planifiée']).snapshots(),
       ),
       _ActionData(
         'Livraisons',
@@ -652,6 +587,12 @@ class _ServiceTechniqueDashboardPageState
               builder: (_) =>
               const LivraisonsHubPage(serviceType: 'Service Technique')),
         ),
+        // Stream for pending livraisons (assumes 'En Attente de Livraison' status)
+        countStream: FirebaseFirestore.instance
+            .collection('livraisons')
+            .where('serviceType', isEqualTo: 'Service Technique')
+            .where('status', isEqualTo: 'En Attente de Livraison')
+            .snapshots(),
       ),
 
       // ===== NOUVELLE CARTE AJOUTÉE ICI =====
@@ -665,6 +606,7 @@ class _ServiceTechniqueDashboardPageState
             builder: (_) => const TrainingHubPage(),
           ),
         ),
+        // No stream needed
       ),
       // ===== FIN DE LA NOUVELLE CARTE =====
 
@@ -681,6 +623,7 @@ class _ServiceTechniqueDashboardPageState
             ),
           ),
         ),
+        // No stream needed
       ),
       // ✅✅✅ NEW BUTTON ADDED HERE ✅✅✅
       _ActionData(
@@ -693,8 +636,29 @@ class _ServiceTechniqueDashboardPageState
             builder: (_) => const DailyActivityFeedPage(),
           ),
         ),
+        // No stream needed
       ),
       // ✅✅✅ END OF NEW BUTTON ✅✅✅
+
+      // ✅ NEW "ÉVALUATIONS" BUTTON
+      _ActionData(
+        'Évaluations',
+        Icons.pending_actions_rounded,
+        const Color(0xFFEC4899), // Using pink color
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                PendingEvaluationsListPage(userRole: widget.userRole),
+          ),
+        ),
+        // Stream for pending evaluations
+        countStream: FirebaseFirestore.instance
+            .collection('projects')
+            .where('status', isEqualTo: 'Nouvelle Demande')
+            .where('serviceType', isEqualTo: 'Service Technique')
+            .snapshots(),
+      ),
     ];
 
     return actions.asMap().entries.map((entry) {
@@ -714,72 +678,14 @@ class _ServiceTechniqueDashboardPageState
           icon: action.icon,
           color: action.color,
           onTap: action.onTap,
+          countStream: action
+              .countStream, // ✅ Pass the stream to the card
         ),
       );
     }).toList();
   }
 
-  // ========================= STATS SECTION (MOBILE) =========================
-
-  // ***** START MODIFIED CODE *****
-  // Added evaluationCount parameter
-  Widget _buildStatsSection(int evaluationCount) {
-    // ***** END MODIFIED CODE *****
-    final cards = <Widget>[
-      // ***** START MODIFIED CODE *****
-      // Add the new Evaluations Card here
-      _EvaluationsCard(
-        userRole: widget.userRole,
-        evaluationCount: evaluationCount,
-      ),
-      // ***** END MODIFIED CODE *****
-
-      _InterventionsCard(userRole: widget.userRole),
-      _InstallationsCard(userRole: widget.userRole),
-      _SavTicketsCard(userRole: widget.userRole),
-      _ReadyReplacementsCard(userRole: widget.userRole),
-      _MissionsCard(userRole: widget.userRole),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Text(
-            'Statistiques',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.95),
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Column(
-          children: cards.asMap().entries.map((entry) {
-            final index = entry.key;
-            final card = entry.value;
-            return TweenAnimationBuilder<double>(
-              duration: Duration(milliseconds: 600 + (index * 100)),
-              tween: Tween(begin: 0, end: 1),
-              builder: (context, value, child) {
-                return Transform.translate(
-                  offset: Offset(0, 30 * (1 - value)),
-                  child: Opacity(opacity: value, child: child),
-                );
-              },
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: card,
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
+// ✅ REMOVED: _buildStatsSection function
 } // End of State Class
 
 // ========================= MODELS & CARDS =========================
@@ -790,378 +696,163 @@ class _ActionData {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  _ActionData(this.label, this.icon, this.color, this.onTap);
+  final Stream<QuerySnapshot>? countStream; // ✅ New field
+
+  _ActionData(
+      this.label,
+      this.icon,
+      this.color,
+      this.onTap, {
+        this.countStream, // ✅ Made optional in constructor
+      });
 }
 
-// Keeping your original _ActionCard widget
+// Keeping your original _ActionCard widget (with the alignment fix)
 class _ActionCard extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final Stream<QuerySnapshot>? countStream; // ✅ New field
 
   const _ActionCard({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
+    this.countStream, // ✅ Added to constructor
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.white.withOpacity(0.25), Colors.white.withOpacity(0.15)],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 20,
-              offset: const Offset(0, 10)),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    gradient:
-                    LinearGradient(colors: [color, color.withOpacity(0.7)]),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                          color: color.withOpacity(0.4),
-                          blurRadius: 16,
-                          offset: const Offset(0, 8)),
-                    ],
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 28),
+    // StreamBuilder to get the count
+    return StreamBuilder<QuerySnapshot>(
+      stream: countStream,
+      builder: (context, snapshot) {
+        final int count =
+        snapshot.hasData ? snapshot.data!.docs.length : 0;
+
+        // Stack to overlay the badge
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // The main card
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withOpacity(0.25),
+                    Colors.white.withOpacity(0.15)
+                  ],
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 0.3,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                    color: Colors.white.withOpacity(0.3), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10)),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onTap,
+                  borderRadius: BorderRadius.circular(24),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                                colors: [color, color.withOpacity(0.7)]),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                  color: color.withOpacity(0.4),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 8)),
+                            ],
+                          ),
+                          child: Icon(icon, color: Colors.white, size: 28),
+                        ),
+
+                        // ===== START OF FIX =====
+                        // This Container replaces the SizedBox(height: 10) and Text
+                        // to ensure a fixed height for the text area.
+
+                        Container(
+                          // Fixed height to accommodate 2 lines + padding
+                          // (fontSize 13 * ~1.25 height * 2 lines) = ~33.0
+                          // We add 10 for the top padding, so ~44.0 total.
+                          height: 44.0,
+                          alignment: Alignment.center, // Center the text (1 or 2 lines)
+                          child: Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                        // ===== END OF FIX =====
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
+
+            // The Badge
+            if (count > 0)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.5), width: 1.5),
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 22,
+                    minHeight: 22,
+                  ),
+                  child: Center(
+                    child: Text(
+                      count.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
 
 // ========================= STAT CARDS =========================
-
-// ***** START CODE TO ADD *****
-// This is the new card for pending evaluations.
-// It takes the count as a parameter instead of using its own StreamBuilder.
-class _EvaluationsCard extends StatelessWidget {
-  final String userRole;
-  final int evaluationCount;
-  const _EvaluationsCard(
-      {required this.userRole, required this.evaluationCount});
-
-  @override
-  Widget build(BuildContext context) {
-    return _buildGlowingCard(
-      context: context,
-      title: 'Évaluations à Faire',
-      count: evaluationCount.toString(),
-      icon: Icons.pending_actions_rounded,
-      gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFFDB2777)]),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PendingEvaluationsListPage(userRole: userRole),
-        ),
-      ),
-    );
-  }
-}
-// ***** END CODE TO ADD *****
-
-// Keeping your original Stat Card widgets
-class _InterventionsCard extends StatelessWidget {
-  final String userRole;
-  const _InterventionsCard({required this.userRole});
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('interventions')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', isEqualTo: 'Nouveau')
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Interventions',
-          count: count.toString(),
-          icon: Icons.construction_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF059669)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InterventionListPage(
-                userRole: userRole,
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _InstallationsCard extends StatelessWidget {
-  final String userRole;
-  const _InstallationsCard({required this.userRole});
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('installations')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', whereIn: ['Nouveau', 'Planifiée'])
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Installations',
-          count: count.toString(),
-          icon: Icons.router_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF2563EB)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => InstallationListPage(
-                // ✅✅✅ THIS IS THE FIX ✅✅✅
-                userRole: userRole, // Was widget.userRole
-                serviceType: 'Service Technique',
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _SavTicketsCard extends StatelessWidget {
-  final String userRole;
-  const _SavTicketsCard({required this.userRole});
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('sav_tickets')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', isEqualTo: 'Nouveau')
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Tickets SAV',
-          count: count.toString(),
-          icon: Icons.support_agent_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) => const SavListPage(serviceType: 'Service Technique')),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ReadyReplacementsCard extends StatelessWidget {
-  final String userRole;
-  const _ReadyReplacementsCard({required this.userRole});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('replacementRequests')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('requestStatus', isEqualTo: 'Prêt pour Technicien')
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Remplacements Prêts',
-          count: count.toString(),
-          icon: Icons.inventory_2_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFFDB2777)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const ReadyReplacementsListPage(
-                  serviceType: 'Service Technique'),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _MissionsCard extends StatelessWidget {
-  final String userRole;
-  const _MissionsCard({required this.userRole});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('missions')
-          .where('serviceType', isEqualTo: 'Service Technique')
-          .where('status', whereIn: ['En Cours', 'Planifiée']).snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Missions Actives',
-          count: count.toString(),
-          icon: Icons.assignment_rounded,
-          gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) =>
-                    ManageMissionsPage(serviceType: 'Service Technique')),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// Keeping your original _buildGlowingCard function
-Widget _buildGlowingCard({
-  required BuildContext context,
-  required String title,
-  required String count,
-  required IconData icon,
-  required Gradient gradient,
-  VoidCallback? onTap,
-}) {
-  final isWeb = MediaQuery.of(context).size.width > 900;
-
-  return Container(
-    margin: isWeb ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 20),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.1)],
-      ),
-      borderRadius: BorderRadius.circular(28),
-      border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-      boxShadow: [
-        BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 30,
-            offset: const Offset(0, 15)),
-      ],
-    ),
-    child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(28),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      gradient: gradient,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: gradient.colors.first.withOpacity(0.4),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Icon(icon, color: Colors.white, size: 28),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
-                  if (onTap != null)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(Icons.arrow_forward_ios_rounded,
-                          size: 16, color: Colors.white.withOpacity(0.9)),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              ShaderMask(
-                shaderCallback: (bounds) => gradient.createShader(bounds),
-                child: Text(
-                  count,
-                  style: const TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: -1,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
+// ✅ REMOVED: All Stat Card widgets
+// (_EvaluationsCard, _InterventionsCard, _InstallationsCard,
+// _SavTicketsCard, _ReadyReplacementsCard, _MissionsCard)
+// and the _buildGlowingCard helper function.
