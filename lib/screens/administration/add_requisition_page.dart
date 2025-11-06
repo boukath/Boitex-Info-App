@@ -18,14 +18,17 @@ class RequisitionItem {
     return {
       'productId': id,
       'productName': name,
-      'orderedQuantity': quantity,  // ✅ CHANGED for partial reception
-      'receivedQuantity': 0,         // ✅ NEW FIELD
+      'orderedQuantity': quantity,
+      'receivedQuantity': 0, // Assume 0 when creating/updating
     };
   }
 }
 
 class AddRequisitionPage extends StatefulWidget {
-  const AddRequisitionPage({super.key});
+  // Optional parameter to accept an existing requisition ID for editing
+  final String? requisitionId;
+
+  const AddRequisitionPage({super.key, this.requisitionId});
 
   @override
   State<AddRequisitionPage> createState() => _AddRequisitionPageState();
@@ -36,155 +39,353 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
   final List<RequisitionItem> _items = [];
   bool _isLoading = false;
 
+  late bool _isEditMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _isEditMode = widget.requisitionId != null;
+    if (_isEditMode) {
+      _loadExistingRequisition();
+    }
+  }
+
+  Future<void> _loadExistingRequisition() async {
+    setState(() => _isLoading = true);
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('requisitions')
+          .doc(widget.requisitionId!)
+          .get();
+
+      if (!doc.exists) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Demande non trouvée.')),
+          );
+          Navigator.of(context).pop();
+        }
+        return;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      final itemsFromDb = List<Map<String, dynamic>>.from(data['items'] ?? []);
+
+      for (var itemMap in itemsFromDb) {
+        final productDoc = await FirebaseFirestore.instance
+            .collection('produits')
+            .doc(itemMap['productId'])
+            .get();
+
+        if (productDoc.exists) {
+          _items.add(RequisitionItem(
+            productDoc: productDoc,
+            quantity: itemMap['orderedQuantity'],
+          ));
+        }
+      }
+
+      setState(() => _isLoading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de chargement: $e')),
+        );
+      }
+    }
+  }
+
+
   Future<void> _showAddItemDialog() async {
     final result = await showDialog<RequisitionItem>(
       context: context,
       builder: (ctx) => const _AddItemDialog(),
     );
-
     if (result != null) {
       setState(() {
-        if (!_items.any((item) => item.id == result.id)) {
-          _items.add(result);
-        } else {
+        if (_items.any((item) => item.id == result.id)) {
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Ce produit est déjà dans la liste.")));
+            const SnackBar(content: Text('Ce produit est déjà dans la liste.')),
+          );
+        } else {
+          _items.add(result);
         }
       });
     }
   }
 
-  // ✅ COMPLETELY REWRITTEN - New transaction-based code generation
-  Future<void> _saveRequisition() async {
+  // ✅ NEW: Function to show an edit dialog for an item's quantity
+  Future<void> _showEditItemQuantityDialog(int index) async {
+    final item = _items[index];
+    final quantityController =
+    TextEditingController(text: item.quantity.toString());
+
+    final newQuantity = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Modifier Quantité'),
+          content: TextFormField(
+            controller: quantityController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Quantité',
+              border: OutlineInputBorder(),
+            ),
+            autofocus: true,
+            validator: (v) {
+              return (int.tryParse(v ?? '') ?? 0) <= 0
+                  ? 'Quantité requise'
+                  : null;
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final int? qty = int.tryParse(quantityController.text);
+                if (qty != null && qty > 0) {
+                  Navigator.of(context).pop(qty);
+                } else {
+                  // Show a small error without closing
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Veuillez entrer une quantité valide.')),
+                  );
+                }
+              },
+              child: const Text('Enregistrer'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (newQuantity != null && newQuantity > 0) {
+      // Update the item in the list
+      final updatedItem = RequisitionItem(
+        productDoc: item.productDoc,
+        quantity: newQuantity,
+      );
+      setState(() {
+        _items.removeAt(index);
+        _items.insert(index, updatedItem);
+      });
+    }
+  }
+
+  void _removeItem(int index) {
+    setState(() {
+      _items.removeAt(index);
+    });
+  }
+
+  Future<void> _submitRequisition() async {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Veuillez ajouter au moins un produit.")));
+        const SnackBar(content: Text('Veuillez ajouter au moins un produit.')),
+      );
       return;
     }
 
     setState(() => _isLoading = true);
 
+    if (_isEditMode) {
+      await _updateRequisition();
+    } else {
+      await _createNewRequisition();
+    }
+  }
+
+  Future<void> _updateRequisition() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception("Utilisateur non connecté.");
+      final user = FirebaseAuth.instance.currentUser!;
+      final userDoc =
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userName = userDoc.data()?['displayName'] ?? 'Utilisateur Inconnu';
 
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      final creatorName = userDoc.data()?['displayName'] ?? user.email ?? 'Utilisateur inconnu';
+      final itemsJson = _items.map((item) => item.toJson()).toList();
 
-      // ✅ ADDED: The new code generation logic
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final currentYear = DateTime.now().year;
-        final counterRef = FirebaseFirestore.instance
-            .collection('counters')
-            .doc('requisition_counter_$currentYear');
+      final logEntry = {
+        'action': 'Modification',
+        'user': userName,
+        'timestamp': Timestamp.now(),
+        'details': 'La liste des articles a été modifiée.'
+      };
 
-        final counterSnap = await transaction.get(counterRef);
-        final newCount = ((counterSnap.data()?['count'] as int?) ?? 0) + 1;
-        final newCode = 'CM-$newCount/$currentYear';
-
-        final requisitionRef = FirebaseFirestore.instance.collection('requisitions').doc();
-        transaction.set(requisitionRef, {
-          'requisitionCode': newCode,  // ✅ The new unique code
-          'requestedBy': creatorName,
-          'requestedByUid': user.uid,
-          'createdAt': Timestamp.now(),
-          'status': "En attente d'approbation",
-          'items': _items.map((item) => item.toJson()).toList(),
-        });
-
-        transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
+      await FirebaseFirestore.instance
+          .collection('requisitions')
+          .doc(widget.requisitionId)
+          .update({
+        'items': itemsJson,
+        'activityLog': FieldValue.arrayUnion([logEntry]),
       });
 
       if (mounted) {
-        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Demande d'achat envoyée pour approbation.")));
+          const SnackBar(content: Text('Demande modifiée avec succès.')),
+        );
+        Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  Future<void> _createNewRequisition() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('Utilisateur non connecté.');
+      }
+
+      final userDoc =
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userName = userDoc.data()?['displayName'] ?? 'Utilisateur Inconnu';
+      final userRole = userDoc.data()?['role'] ?? 'Inconnu';
+
+      final counterDocRef = FirebaseFirestore.instance
+          .collection('counters')
+          .doc('requisition_counter');
+
+      final counterDoc = await counterDocRef.get();
+      int nextId = 1;
+
+      if (counterDoc.exists) {
+        nextId = (counterDoc.data()?['currentId'] ?? 0) + 1;
+      }
+      await counterDocRef.set({'currentId': nextId}, SetOptions(merge: true));
+
+      final String requisitionCode =
+          'CM-${DateTime.now().year}-${nextId.toString().padLeft(4, '0')}';
+
+      final itemsJson = _items.map((item) => item.toJson()).toList();
+
+      final newRequisition = {
+        'requisitionCode': requisitionCode,
+        'requestedBy': userName,
+        'requestedById': user.uid,
+        'requestedByRole': userRole,
+        'status': "En attente d'approbation",
+        'createdAt': Timestamp.now(),
+        'items': itemsJson,
+        'activityLog': [
+          {
+            'action': 'Création',
+            'user': userName,
+            'timestamp': Timestamp.now(),
+          }
+        ],
+      };
+
+      await FirebaseFirestore.instance
+          .collection('requisitions')
+          .add(newRequisition);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Demande soumise avec succès.')),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Colors.indigo;
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Nouvelle Demande d'Achat"),
-        backgroundColor: primaryColor,
+        title: Text(_isEditMode ? 'Modifier la Demande' : 'Nouvelle Demande'),
       ),
-      body: Form(
-        key: _formKey,
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
+      body: _isLoading && _isEditMode
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Produits Demandés',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
               Expanded(
                 child: _items.isEmpty
-                    ? Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Center(
-                      child: Text("Aucun produit ajouté.",
-                          style: TextStyle(color: Colors.grey))),
+                    ? const Center(
+                  child: Text('Veuillez ajouter des produits.'),
                 )
                     : ListView.builder(
                   itemCount: _items.length,
                   itemBuilder: (context, index) {
                     final item = _items[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(item.name),
-                        subtitle: Text("Quantité: ${item.quantity}"),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          color: Colors.red,
-                          onPressed: () {
-                            setState(() {
-                              _items.removeAt(index);
-                            });
-                          },
-                        ),
+                    return ListTile(
+                      // ✅ NEW: Added leading icon for editing
+                      leading: const Icon(Icons.edit, color: Colors.blue),
+                      title: Text(item.name),
+                      subtitle: Text('Quantité: ${item.quantity}'),
+                      // ✅ NEW: onTap to trigger the edit dialog
+                      onTap: () {
+                        _showEditItemQuantityDialog(index);
+                      },
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete,
+                            color: Colors.red),
+                        onPressed: () => _removeItem(index),
                       ),
                     );
                   },
                 ),
               ),
               const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: _showAddItemDialog,
+              TextButton.icon(
                 icon: const Icon(Icons.add),
-                label: const Text("Ajouter un Produit"),
+                label: const Text('Ajouter un Produit'),
+                onPressed: _showAddItemDialog,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 12, horizontal: 20),
+                  side: BorderSide(color: Theme.of(context).primaryColor),
+                ),
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _saveRequisition,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                    height: 24,
-                    width: 24,
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: _isLoading
+                      ? const SizedBox(
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
-                        color: Colors.white, strokeWidth: 2))
-                    : const Text("Soumettre pour Approbation"),
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                      : Icon(_isEditMode
+                      ? Icons.save
+                      : Icons.send),
+                  label: Text(_isLoading
+                      ? 'Chargement...'
+                      : _isEditMode
+                      ? 'Enregistrer les Modifications'
+                      : 'Soumettre la Demande'),
+                  onPressed: _isLoading ? null : _submitRequisition,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
               ),
             ],
           ),
@@ -194,7 +395,7 @@ class _AddRequisitionPageState extends State<AddRequisitionPage> {
   }
 }
 
-// ✅ FIXED: Complete rewrite with proper null safety
+// ... (The _AddItemDialog class remains exactly the same)
 class _AddItemDialog extends StatefulWidget {
   const _AddItemDialog();
 
@@ -203,19 +404,15 @@ class _AddItemDialog extends StatefulWidget {
 }
 
 class _AddItemDialogState extends State<_AddItemDialog> {
-  // State for the new 3-level selection
   final List<String> _mainCategories = ['Antivol', 'TPV', 'Compteur Client'];
-
   String? _selectedMainCategory;
   List<String> _subCategories = [];
   bool _isLoadingSubCategories = false;
-
   String? _selectedSubCategory;
   List<DocumentSnapshot> _products = [];
   bool _isLoadingProducts = false;
-
   DocumentSnapshot? _selectedProduct;
-  final _quantityController = TextEditingController(text: '1');
+  final _quantityController = TextEditingController(text: "1");
   final _dialogFormKey = GlobalKey<FormState>();
 
   @override
@@ -224,7 +421,6 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     super.dispose();
   }
 
-  // ✅ FIXED: Proper null handling for Firestore data
   Future<void> _fetchCategoriesForMainSection(String mainCategory) async {
     setState(() {
       _isLoadingSubCategories = true;
@@ -239,11 +435,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
           .collection('produits')
           .where('mainCategory', isEqualTo: mainCategory)
           .get();
-
       final categoriesSet = <String>{};
       for (var doc in snapshot.docs) {
-        // ✅ CRITICAL FIX: Safe null-aware access
-        final categoryValue = doc.data()['categorie'];
+        final categoryValue = doc.data()?['categorie'];
         if (categoryValue != null && categoryValue is String) {
           categoriesSet.add(categoryValue);
         }
@@ -261,9 +455,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingSubCategories = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     }
   }
@@ -274,14 +467,12 @@ class _AddItemDialogState extends State<_AddItemDialog> {
       _products = [];
       _selectedProduct = null;
     });
-
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('produits')
           .where('categorie', isEqualTo: category)
           .orderBy('nom')
           .get();
-
       if (mounted) {
         setState(() {
           _products = snapshot.docs;
@@ -291,9 +482,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingProducts = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     }
   }
@@ -301,94 +491,83 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text("Ajouter un Produit"),
+      title: const Text('Ajouter un Produit'),
       content: Form(
         key: _dialogFormKey,
-        child: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 1. Main Section Dropdown
-              DropdownButtonFormField<String>(
-                value: _selectedMainCategory,
-                items: _mainCategories.map((c) {
-                  return DropdownMenuItem(value: c, child: Text(c));
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      _selectedMainCategory = val;
-                    });
-                    _fetchCategoriesForMainSection(val);
-                  }
-                },
-                decoration: const InputDecoration(
-                  labelText: 'Section Principale',
-                  border: OutlineInputBorder(),
+        child: SingleChildScrollView(
+          child: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: _selectedMainCategory,
+                  items: _mainCategories
+                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _selectedMainCategory = val);
+                      _fetchCategoriesForMainSection(val);
+                    }
+                  },
+                  decoration: const InputDecoration(
+                    labelText: 'Section Principale',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => v == null ? 'Requis' : null,
                 ),
-                validator: (v) => v == null ? 'Requis' : null,
-              ),
-              const SizedBox(height: 16),
-
-              // 2. Sub-Category Dropdown
-              DropdownButtonFormField<String>(
-                value: _selectedSubCategory,
-                items: _subCategories.map((c) {
-                  return DropdownMenuItem(value: c, child: Text(c));
-                }).toList(),
-                onChanged: (_selectedMainCategory == null || _isLoadingSubCategories)
-                    ? null
-                    : (val) {
-                  if (val != null) {
-                    setState(() {
-                      _selectedSubCategory = val;
-                    });
-                    _fetchProductsForSubCategory(val);
-                  }
-                },
-                decoration: const InputDecoration(
-                  labelText: 'Catégorie',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _selectedSubCategory,
+                  items: _subCategories
+                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .toList(),
+                  onChanged: _selectedMainCategory == null || _isLoadingSubCategories
+                      ? null
+                      : (val) {
+                    if (val != null) {
+                      setState(() => _selectedSubCategory = val);
+                      _fetchProductsForSubCategory(val);
+                    }
+                  },
+                  decoration: const InputDecoration(
+                    labelText: 'Catégorie',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => v == null ? 'Requis' : null,
                 ),
-                validator: (v) => v == null ? 'Requis' : null,
-              ),
-              const SizedBox(height: 16),
-
-              // 3. Product Dropdown
-              DropdownButtonFormField<DocumentSnapshot>(
-                value: _selectedProduct,
-                items: _products.map((p) {
-                  return DropdownMenuItem(value: p, child: Text(p['nom']));
-                }).toList(),
-                onChanged: (_selectedSubCategory == null || _isLoadingProducts)
-                    ? null
-                    : (val) {
-                  setState(() {
-                    _selectedProduct = val;
-                  });
-                },
-                decoration: const InputDecoration(
-                  labelText: 'Produit',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<DocumentSnapshot>(
+                  value: _selectedProduct,
+                  items: _products
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p['nom'])))
+                      .toList(),
+                  onChanged: _selectedSubCategory == null || _isLoadingProducts
+                      ? null
+                      : (val) => setState(() => _selectedProduct = val),
+                  decoration: const InputDecoration(
+                    labelText: 'Produit',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => v == null ? 'Requis' : null,
                 ),
-                validator: (v) => v == null ? 'Requis' : null,
-              ),
-              const SizedBox(height: 16),
-
-              // 4. Quantity TextField
-              TextFormField(
-                controller: _quantityController,
-                decoration: const InputDecoration(
-                  labelText: 'Quantité',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _quantityController,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantité',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (v) {
+                    return (int.tryParse(v ?? '') ?? 0) <= 0
+                        ? 'Quantité requise'
+                        : null;
+                  },
                 ),
-                keyboardType: TextInputType.number,
-                validator: (v) {
-                  return (int.tryParse(v ?? '') ?? 0) <= 0 ? 'Quantité requise' : null;
-                },
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
