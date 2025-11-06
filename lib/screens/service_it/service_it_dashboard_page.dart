@@ -571,7 +571,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
         countStream: FirebaseFirestore.instance
             .collection('livraisons')
             .where('serviceType', isEqualTo: 'Service IT')
-            .where('status', isEqualTo: 'En Attente de Livraison')
+            .where('status', isEqualTo: 'À Préparer')
             .snapshots(),
       ),
       _ActionData(

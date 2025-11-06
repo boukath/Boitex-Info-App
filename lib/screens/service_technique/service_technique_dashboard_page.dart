@@ -591,7 +591,7 @@ class _ServiceTechniqueDashboardPageState
         countStream: FirebaseFirestore.instance
             .collection('livraisons')
             .where('serviceType', isEqualTo: 'Service Technique')
-            .where('status', isEqualTo: 'En Attente de Livraison')
+            .where('status', isEqualTo: 'À Préparer')
             .snapshots(),
       ),
 
