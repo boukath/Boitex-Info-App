@@ -405,7 +405,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ⭐️ ═══════════════════════════════════════════════════════════════
-  // ⭐️ MODIFIED SAVE FUNCTION (STEP 2C)
+  // ⭐️ THIS IS THE CORRECTED SAVE FUNCTION
   // ⭐️ ═══════════════════════════════════════════════════════════════
   Future<void> _saveReport() async {
     if (_isLoading) return;
@@ -444,53 +444,66 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // --- 3. CHECK STATUS & DECIDE WORKFLOW ---
+      // --- 3. BUILD THE DATA MAP (NOW USED BY BOTH WORKFLOWS) ---
+      // This map contains all the fields that need to be saved to Firestore.
+      final Map<String, dynamic> reportData = {
+        'managerName': _managerNameController.text.trim(),
+        'managerPhone': _managerPhoneController.text.trim(),
+        'managerEmail': _managerEmailController.text.trim(),
+        'diagnostic': _diagnosticController.text.trim(),
+        'workDone': _workDoneController.text.trim(),
+        'requestDescription': _problemReportController.text.trim(),
+        'signatureUrl': newSignatureUrl,
+        'status': _currentStatus,
+        'assignedTechnicians':
+        _selectedTechnicians.map((t) => t.displayName).toList(),
+        'assignedTechniciansIds': _selectedTechnicians.map((t) => t.uid).toList(),
+        'mediaUrls': uploadedMedia,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
 
-      // --- WORKFLOW A: FINALIZING (Terminé) ---
+      // Handle 'Clôturé' status (different from 'Terminé')
+      final prevStatus = (widget.interventionDoc.data() ?? {})['status'];
+      if (_currentStatus == 'Clôturé' && prevStatus != 'Clôturé') {
+        reportData['closedAt'] = FieldValue.serverTimestamp();
+      }
+
+      // --- 4. SAVE TO FIRESTORE (ALWAYS DO THIS) ---
+      // This is the step that was missing from the "Terminé" workflow.
+      await widget.interventionDoc.reference.update(reportData);
+
+      // Update local state (safe to do now)
+      setState(() {
+        _signatureImageUrl = newSignatureUrl;
+        _existingMediaUrls = uploadedMedia;
+        _mediaFilesToUpload.clear();
+      });
+
+      // --- 5. CHECK STATUS & RUN "TERMINÉ" WORKFLOW IF NEEDED ---
+      // Now that the data is saved, we can proceed with PDF/Email
       if (_currentStatus == 'Terminé') {
 
-        // Collect ALL data for the PDF service
-        final Map<String, dynamic> interventionData = {
-          // Existing data from document
-          'interventionCode': data['interventionCode'],
-          'clientName': data['clientName'],
-          'storeName': data['storeName'],
-          'storeLocation': data['storeLocation'],
-          'serviceType': data['serviceType'],
-          'createdByName': data['createdByName'],
-          'createdAt': data['createdAt'],
-          'interventionType': data['interventionType'],
-          'managerName': _managerNameController.text.trim(), // Use controller for managerName
-          'managerPhone': _managerPhoneController.text.trim(), // Use controller for managerPhone
+        // Build the data map for the PDF service.
+        // We merge the original document data (data) with our newly saved data (reportData)
+        // to ensure the PDF service has everything it needs.
+        final Map<String, dynamic> interventionDataForPdf = {
+          ...data, // Original document data
+          ...reportData, // Our newly saved data (overwrites fields)
 
-          // Updated data from controllers
-          'managerEmail': _managerEmailController.text.trim(),
-          'problemReport': _problemReportController.text.trim(), // ⭐️ Use new controller
-          'diagnostic': _diagnosticController.text.trim(),
-          'workDone': _workDoneController.text.trim(),
+          // The PDF service expects a specific technician format
+          'assignedTechnicians':
+          _selectedTechnicians.map((t) => {'name': t.displayName}).toList(),
 
-          // Data from this function
-          'clientSignatureUrl': newSignatureUrl, // Use new signature URL
-          'mediaUrls': uploadedMedia,
-
-          // Technician data (Format for PDF service)
-          'assignedTechnicians': _selectedTechnicians
-              .map((t) => {'name': t.displayName})
-              .toList(),
+          // Ensure keys are what the PDF service expects
+          'problemReport': _problemReportController.text.trim(),
+          'clientSignatureUrl': newSignatureUrl,
         };
 
-        // Call the service that does everything
+        // Call the service that does PDF/Email
         await InterventionPdfService.generateUploadAndFinalize(
-          interventionData: interventionData,
+          interventionData: interventionDataForPdf,
           interventionId: widget.interventionDoc.id,
         );
-
-        // Update local state
-        setState(() {
-          _signatureImageUrl = newSignatureUrl;
-          _existingMediaUrls = uploadedMedia;
-          _mediaFilesToUpload.clear();
-        });
 
         if (!mounted) return;
         scaffoldMessenger.showSnackBar(
@@ -499,44 +512,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             backgroundColor: Colors.green,
           ),
         );
-
-        // --- WORKFLOW B: SAVING (Not Terminé) ---
       } else {
-        // Just save the data, no PDF, no email
-        final Map<String, dynamic> reportData = {
-          'managerName': _managerNameController.text.trim(),
-          'managerPhone': _managerPhoneController.text.trim(),
-          'managerEmail': _managerEmailController.text.trim(),
-          'diagnostic': _diagnosticController.text.trim(),
-          'workDone': _workDoneController.text.trim(),
-          'requestDescription': _problemReportController.text.trim(), // ⭐️ Save problem report back to requestDescription
-          'signatureUrl': newSignatureUrl,
-          'status': _currentStatus, // e.g., "En cours", "En attente"
-          'assignedTechnicians': _selectedTechnicians
-              .map((t) => t.displayName)
-              .toList(),
-          'assignedTechniciansIds': _selectedTechnicians
-              .map((t) => t.uid)
-              .toList(),
-          'mediaUrls': uploadedMedia,
-          'updatedAt': FieldValue.serverTimestamp(),
-        };
-
-        // Handle 'Clôturé' status (different from 'Terminé')
-        final prevStatus = (widget.interventionDoc.data() ?? {})['status'];
-        if (_currentStatus == 'Clôturé' && prevStatus != 'Clôturé') {
-          reportData['closedAt'] = FieldValue.serverTimestamp();
-        }
-
-        await widget.interventionDoc.reference.update(reportData);
-
-        // Update local state
-        setState(() {
-          _signatureImageUrl = newSignatureUrl;
-          _existingMediaUrls = uploadedMedia;
-          _mediaFilesToUpload.clear();
-        });
-
+        // This is Workflow B (Not Terminé) - just show a success message
         if (!mounted) return;
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Rapport enregistré avec succès!')),
@@ -556,6 +533,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
     }
   }
+
 
   // ----------------------------------------------------------------------
   // PDF
