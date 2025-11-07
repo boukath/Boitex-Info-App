@@ -3,6 +3,7 @@
 import {onDocumentCreated, onDocumentUpdated} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin"; // ✅ ADDED for Firestore updates
 import * as functions from "firebase-functions"; // ✅ ADDED for logging
+import axios from "axios"; // ⭐️ --- ADDED: We need this to download the PDF ---
 
 // --- Core Services ---
 import {createActivityLog} from "../services/activity_log_service";
@@ -13,9 +14,11 @@ notifyServiceTechnique,
 createNotificationsForRoles,
 } from "../services/notification_service";
 
-// ✅ --- ADDED: Our 3 new automation services ---
-import {generateInterventionPdf} from "../services/pdf_service";
-import {uploadBufferToB2, b2Secrets} from "../services/b2_upload_service";
+// ✅ --- MODIFIED: Our 3 new automation services ---
+// ⭐️ --- REMOVED: We no longer generate the PDF on the server ---
+// import {generateInterventionPdf} from "../services/pdf_service";
+// ⭐️ --- REMOVED: We no longer need b2Secrets here ---
+// import {uploadBufferToB2, b2Secrets} from "../services/b2_upload_service";
 import {sendEmailWithAttachment, emailSecrets} from "../services/email_service";
 
 // --- Constants ---
@@ -121,14 +124,14 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
 
 
 //
-// ⭐️ ----- NEW AUTOMATION FUNCTION ----- ⭐️
+// ⭐️ ----- THIS IS THE MODIFIED AUTOMATION FUNCTION ----- ⭐️
 //
 export const onInterventionCompletedSendEmail_v2 = onDocumentUpdated(
   // 1. Define function trigger and secrets
   {
     document: "interventions/{interventionId}",
-    // This function needs access to ALL email and B2 secrets
-    secrets: [...emailSecrets, ...b2Secrets],
+    // We only need email secrets now, as the app handles the B2 upload.
+    secrets: [...emailSecrets],
   },
   async (event) => {
     if (!event.data) return null;
@@ -137,30 +140,44 @@ export const onInterventionCompletedSendEmail_v2 = onDocumentUpdated(
     const after = event.data.after.data();
     const docId = event.data.after.id;
 
-    // 2. CHECK 1: Only run if status just changed to "Terminé"
+    // 2. CHECK 1: Only run if status just changed to "Terminé" (This logic is unchanged)
     if (before.status === "Terminé" || after.status !== "Terminé") {
-      // Not the right time to run, so exit
       return null;
     }
 
-    functions.logger.info(`Starting PDF/Email process for intervention: ${docId}`);
+    functions.logger.info(`Starting Email process for intervention: ${docId}`);
 
     // 3. CHECK 2: Validate required data
     const clientEmail = after.managerEmail;
-    const signatureUrl = after.clientSignatureUrl;
     const interventionCode = after.interventionCode || docId;
+
+    // ⭐️ --- ADDED: We now get the pdfUrl FROM THE APP ---
+    const appPdfUrl = after.pdfUrl as string | undefined;
 
     if (!clientEmail) {
       functions.logger.warn(`Intervention ${docId} is 'Terminé' but has no 'managerEmail'. Skipping email.`);
       return null;
     }
 
-    if (!signatureUrl) {
-      functions.logger.warn(`Intervention ${docId} is 'Terminé' but has no 'clientSignatureUrl'. PDF will lack signature.`);
-      // We continue, but log the warning.
+    // ⭐️ --- ADDED: This is a critical check ---
+    if (!appPdfUrl) {
+      functions.logger.error(`Intervention ${docId} is 'Terminé' but the 'pdfUrl' is missing. App may have failed to upload it. Skipping email.`);
+      return null;
     }
 
+    // We no longer need to check for signatureUrl, as the app handles that.
+
     try {
+      // ⭐️ --- REPLACED: Instead of generating, we download ---
+      functions.logger.log(`Downloading PDF from ${appPdfUrl}...`);
+      const response = await axios.get(appPdfUrl, {
+        responseType: "arraybuffer", // Get the raw file data
+      });
+      const pdfBuffer = Buffer.from(response.data, "binary");
+      functions.logger.log(`Successfully downloaded ${pdfBuffer.length} bytes.`);
+
+      /* // ⭐️ --- REMOVED: All this logic is no longer needed ---
+
       // 4. STEP A: Generate the PDF in memory
       functions.logger.log(`Generating PDF for ${interventionCode}...`);
       const pdfBuffer = await generateInterventionPdf(after);
@@ -175,9 +192,9 @@ export const onInterventionCompletedSendEmail_v2 = onDocumentUpdated(
         pdfUrl: publicPdfUrl,
         pdfGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      functions.logger.log(`Saved PDF URL ${publicPdfUrl} back to document ${docId}.`);
+      */
 
-      // 7. STEP D: Send the email with the PDF attached
+      // 7. STEP D: Send the email with the DOWNLOADED PDF attached
       const subject = `Rapport d'Intervention Terminé: ${interventionCode}`;
       const htmlBody = `
         <p>Bonjour,</p>
@@ -196,18 +213,19 @@ export const onInterventionCompletedSendEmail_v2 = onDocumentUpdated(
         clientEmail,
         subject,
         htmlBody,
-        pdfBuffer, // Attach the buffer directly
+        pdfBuffer, // Attach the buffer we just downloaded
         `${interventionCode}.pdf` // The filename the client will see
       );
 
-      functions.logger.info(`✅ Successfully processed intervention ${docId}.`);
+      functions.logger.info(`✅ Successfully processed intervention email for ${docId}.`);
       return null;
 
     } catch (error) {
       functions.logger.error(`❌ FAILED to process intervention ${docId}:`, error);
-      // Optional: Update the doc with an error status
+
+      // We can still log an error to the document
       await admin.firestore().collection("interventions").doc(docId).update({
-        pdfGenerationError: error ? (error as Error).message : "Unknown error",
+        pdfEmailError: error ? (error as Error).message : "Unknown error",
       });
       return null;
     }

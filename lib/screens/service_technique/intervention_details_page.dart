@@ -60,6 +60,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   late final TextEditingController _managerEmailController; // ✅ ADDED
   late final TextEditingController _diagnosticController;
   late final TextEditingController _workDoneController;
+
+  // ⭐️ ADDED: Controller for 'Problem Report'
+  late final TextEditingController _problemReportController;
+
   late final SignatureController _signatureController;
 
   // State
@@ -75,6 +79,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   // ✅ 3. ADD AI STATE VARIABLES
   bool _isGeneratingDiagnostic = false;
   bool _isGeneratingWorkDone = false;
+
+  // ⭐️ ADDED: AI state for 'Problem Report'
+  bool _isGeneratingProblemReport = false;
 
 
   // Backblaze B2 helper function endpoint
@@ -127,6 +134,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _diagnosticController =
         TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
+
+    // ⭐️ ADDED: Initialize 'Problem Report' controller
+    // Use 'requestDescription' as the source for 'problemReport'
+    _problemReportController = TextEditingController(text: data['requestDescription'] ?? '');
+
     _signatureController = SignatureController();
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
@@ -231,8 +243,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() {
       if (aiContext == 'diagnostic') { // ✅ RENAMED
         _isGeneratingDiagnostic = true;
-      } else {
+      } else if (aiContext == 'workDone') {
         _isGeneratingWorkDone = true;
+      } else if (aiContext == 'problem_report') { // ⭐️ ADDED
+        _isGeneratingProblemReport = true;
       }
     });
 
@@ -263,8 +277,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         setState(() {
           if (aiContext == 'diagnostic') { // ✅ RENAMED
             _isGeneratingDiagnostic = false;
-          } else {
+          } else if (aiContext == 'workDone') {
             _isGeneratingWorkDone = false;
+          } else if (aiContext == 'problem_report') { // ⭐️ ADDED
+            _isGeneratingProblemReport = false;
           }
         });
       }
@@ -388,16 +404,19 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ⭐️ ═══════════════════════════════════════════════════════════════
+  // ⭐️ MODIFIED SAVE FUNCTION (STEP 2C)
+  // ⭐️ ═══════════════════════════════════════════════════════════════
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
 
-    // Capture context-dependent variables BEFORE async operations
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final data = widget.interventionDoc.data() ?? {};
 
     try {
-      // 1) Signature
+      // --- 1. UPLOAD SIGNATURE (Always do this) ---
       String? newSignatureUrl = _signatureImageUrl;
       if (_signatureController.isNotEmpty) {
         final png = await _signatureController.toPngBytes();
@@ -409,61 +428,123 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // 2) Media uploads to B2
-      final List<String> uploaded =
-      List<String>.from(_existingMediaUrls); // ✅ Null-safe
+      // --- 2. UPLOAD MEDIA (Always do this) ---
+      final List<String> uploadedMedia =
+      List<String>.from(_existingMediaUrls); // Start with existing
       for (final file in _mediaFilesToUpload) {
         final creds = await _getB2UploadCredentials();
         if (creds == null) {
           throw Exception('Impossible de récupérer les accès B2.');
         }
-
         final url = await _uploadFileToB2(file, creds);
         if (url != null) {
-          uploaded.add(url);
+          uploadedMedia.add(url);
         } else {
           debugPrint('Skipping file due to upload failure: ${file.name}');
         }
       }
 
-      // 3) Persist
-      // ✅ FIX #2: THIS IS THE SECOND PART OF THE FIX
-      // We now save two separate lists to match your database schema
-      final Map<String, dynamic> reportData = {
-        'managerName': _managerNameController.text.trim(),
-        'managerPhone': _managerPhoneController.text.trim(),
-        'managerEmail': _managerEmailController.text.trim(), // ✅ YOUR EMAIL FIELD
-        'diagnostic': _diagnosticController.text.trim(),
-        'workDone': _workDoneController.text.trim(),
-        'signatureUrl': newSignatureUrl,
-        'status': _currentStatus,
+      // --- 3. CHECK STATUS & DECIDE WORKFLOW ---
 
-        // ✅ FIX: Save just the names here
-        'assignedTechnicians': _selectedTechnicians
-            .map((t) => t.displayName)
-            .toList(),
+      // --- WORKFLOW A: FINALIZING (Terminé) ---
+      if (_currentStatus == 'Terminé') {
 
-        // ✅ FIX: Save just the UIDs here
-        'assignedTechniciansIds': _selectedTechnicians
-            .map((t) => t.uid)
-            .toList(),
+        // Collect ALL data for the PDF service
+        final Map<String, dynamic> interventionData = {
+          // Existing data from document
+          'interventionCode': data['interventionCode'],
+          'clientName': data['clientName'],
+          'storeName': data['storeName'],
+          'storeLocation': data['storeLocation'],
+          'serviceType': data['serviceType'],
+          'createdByName': data['createdByName'],
+          'createdAt': data['createdAt'],
+          'interventionType': data['interventionType'],
+          'managerName': _managerNameController.text.trim(), // Use controller for managerName
+          'managerPhone': _managerPhoneController.text.trim(), // Use controller for managerPhone
 
-        'mediaUrls': uploaded,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+          // Updated data from controllers
+          'managerEmail': _managerEmailController.text.trim(),
+          'problemReport': _problemReportController.text.trim(), // ⭐️ Use new controller
+          'diagnostic': _diagnosticController.text.trim(),
+          'workDone': _workDoneController.text.trim(),
 
-      final prevStatus = (widget.interventionDoc.data() ?? {})['status'];
-      if (_currentStatus == 'Clôturé' && prevStatus != 'Clôturé') {
-        reportData['closedAt'] = FieldValue.serverTimestamp();
+          // Data from this function
+          'clientSignatureUrl': newSignatureUrl, // Use new signature URL
+          'mediaUrls': uploadedMedia,
+
+          // Technician data (Format for PDF service)
+          'assignedTechnicians': _selectedTechnicians
+              .map((t) => {'name': t.displayName})
+              .toList(),
+        };
+
+        // Call the service that does everything
+        await InterventionPdfService.generateUploadAndFinalize(
+          interventionData: interventionData,
+          interventionId: widget.interventionDoc.id,
+        );
+
+        // Update local state
+        setState(() {
+          _signatureImageUrl = newSignatureUrl;
+          _existingMediaUrls = uploadedMedia;
+          _mediaFilesToUpload.clear();
+        });
+
+        if (!mounted) return;
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Rapport finalisé, PDF généré et email envoyé!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        // --- WORKFLOW B: SAVING (Not Terminé) ---
+      } else {
+        // Just save the data, no PDF, no email
+        final Map<String, dynamic> reportData = {
+          'managerName': _managerNameController.text.trim(),
+          'managerPhone': _managerPhoneController.text.trim(),
+          'managerEmail': _managerEmailController.text.trim(),
+          'diagnostic': _diagnosticController.text.trim(),
+          'workDone': _workDoneController.text.trim(),
+          'requestDescription': _problemReportController.text.trim(), // ⭐️ Save problem report back to requestDescription
+          'signatureUrl': newSignatureUrl,
+          'status': _currentStatus, // e.g., "En cours", "En attente"
+          'assignedTechnicians': _selectedTechnicians
+              .map((t) => t.displayName)
+              .toList(),
+          'assignedTechniciansIds': _selectedTechnicians
+              .map((t) => t.uid)
+              .toList(),
+          'mediaUrls': uploadedMedia,
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+
+        // Handle 'Clôturé' status (different from 'Terminé')
+        final prevStatus = (widget.interventionDoc.data() ?? {})['status'];
+        if (_currentStatus == 'Clôturé' && prevStatus != 'Clôturé') {
+          reportData['closedAt'] = FieldValue.serverTimestamp();
+        }
+
+        await widget.interventionDoc.reference.update(reportData);
+
+        // Update local state
+        setState(() {
+          _signatureImageUrl = newSignatureUrl;
+          _existingMediaUrls = uploadedMedia;
+          _mediaFilesToUpload.clear();
+        });
+
+        if (!mounted) return;
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Rapport enregistré avec succès!')),
+        );
       }
 
-      await widget.interventionDoc.reference.update(reportData);
+      navigator.pop(); // Go back in both cases
 
-      if (!mounted) return;
-      scaffoldMessenger.showSnackBar(
-        const SnackBar(content: Text('Rapport enregistré avec succès!')),
-      );
-      navigator.pop();
     } catch (e) {
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
@@ -483,14 +564,28 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.interventionDoc.data() ?? {};
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
-        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
-      }
 
-      final pdfData = {...data, 'signatureUrl': signatureBytes};
-      await InterventionPdfService.generateAndSharePdf(pdfData);
+      // ⭐️ --- START PDF DATA GATHERING ---
+      // Get the most up-to-date data from controllers
+      final Map<String, dynamic> currentData = {
+        ...data, // Start with existing data
+        'managerName': _managerNameController.text.trim(),
+        'managerPhone': _managerPhoneController.text.trim(),
+        'managerEmail': _managerEmailController.text.trim(),
+        'problemReport': _problemReportController.text.trim(), // ⭐️ Use controller
+        'diagnostic': _diagnosticController.text.trim(),
+        'workDone': _workDoneController.text.trim(),
+        'clientSignatureUrl': _signatureImageUrl, // Use the current URL
+        'assignedTechnicians': _selectedTechnicians
+            .map((t) => {'name': t.displayName})
+            .toList(),
+      };
+      // ⭐️ --- END PDF DATA GATHERING ---
+
+      // Note: The PDF service now fetches the signature image from the URL itself.
+      // We no longer need to pass bytes.
+      await InterventionPdfService.generateAndSharePdf(currentData);
+
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -505,14 +600,26 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.interventionDoc.data() ?? {};
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
-        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
-      }
 
-      final pdfData = {...data, 'signatureUrl': signatureBytes};
-      await InterventionPdfService.generateAndPrintPdf(pdfData);
+      // ⭐️ --- START PDF DATA GATHERING ---
+      // Get the most up-to-date data from controllers
+      final Map<String, dynamic> currentData = {
+        ...data, // Start with existing data
+        'managerName': _managerNameController.text.trim(),
+        'managerPhone': _managerPhoneController.text.trim(),
+        'managerEmail': _managerEmailController.text.trim(),
+        'problemReport': _problemReportController.text.trim(), // ⭐️ Use controller
+        'diagnostic': _diagnosticController.text.trim(),
+        'workDone': _workDoneController.text.trim(),
+        'clientSignatureUrl': _signatureImageUrl, // Use the current URL
+        'assignedTechnicians': _selectedTechnicians
+            .map((t) => {'name': t.displayName})
+            .toList(),
+      };
+      // ⭐️ --- END PDF DATA GATHERING ---
+
+      await InterventionPdfService.generateAndPrintPdf(currentData);
+
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -528,15 +635,26 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() => _isLoading = true);
     try {
       final data = widget.interventionDoc.data() ?? {};
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
-        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
-      }
 
-      final pdfData = {...data, 'signatureUrl': signatureBytes};
+      // ⭐️ --- START PDF DATA GATHERING ---
+      // Get the most up-to-date data from controllers
+      final Map<String, dynamic> currentData = {
+        ...data, // Start with existing data
+        'managerName': _managerNameController.text.trim(),
+        'managerPhone': _managerPhoneController.text.trim(),
+        'managerEmail': _managerEmailController.text.trim(),
+        'problemReport': _problemReportController.text.trim(), // ⭐️ Use controller
+        'diagnostic': _diagnosticController.text.trim(),
+        'workDone': _workDoneController.text.trim(),
+        'clientSignatureUrl': _signatureImageUrl, // Use the current URL
+        'assignedTechnicians': _selectedTechnicians
+            .map((t) => {'name': t.displayName})
+            .toList(),
+      };
+      // ⭐️ --- END PDF DATA GATHERING ---
+
       final Uint8List pdfBytes =
-      await InterventionPdfService.generatePdfBytes(pdfData);
+      await InterventionPdfService.generatePdfBytes(currentData);
 
       if (!mounted) return;
       Navigator.of(context).push(
@@ -564,6 +682,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _managerEmailController.dispose(); // ✅ ADDED
     _diagnosticController.dispose();
     _workDoneController.dispose();
+    _problemReportController.dispose(); // ⭐️ ADDED
     _signatureController.dispose();
     super.dispose();
   }
@@ -672,11 +791,15 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const SizedBox(height: 12),
             const Divider(),
             const SizedBox(height: 12),
+
+            // ⭐️ MODIFIED: This now points to the new controller
             const Text('Description du Problème:',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            // ✅ Use the correct field name 'requestDescription'
-            Text(data['requestDescription'] ?? 'Non spécifié'),
+            Text(_problemReportController.text.isEmpty
+                ? 'Non spécifié'
+                : _problemReportController.text),
+
 
             // ✅ --- NEW SECTION FOR INTERVENTION TYPE ---
             const SizedBox(height: 12),
@@ -721,7 +844,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             readOnly: isReadOnly,
             keyboardType: TextInputType.emailAddress,
             decoration: const InputDecoration(
-              labelText: 'Email du contact',
+              labelText: 'Email du contact (pour envoi PDF)',
               prefixIcon: Icon(Icons.email_outlined),
             ),
           ),
@@ -754,6 +877,41 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             ),
             dialogWidth: MediaQuery.of(context).size.width * 0.9,
           ),
+          const SizedBox(height: 24), // ⭐️ SPACER
+
+          // ⭐️ --- START PROBLEM REPORT AI FIELD ---
+          TextFormField(
+            controller: _problemReportController,
+            readOnly: isReadOnly,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Rapport de Problème (Client)',
+              alignLabelWithHint: true,
+              suffixIcon: isReadOnly
+                  ? null
+                  : Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: _isGeneratingProblemReport
+                    ? const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : IconButton(
+                  icon: Icon(
+                    Icons.auto_awesome, // "Magic" icon
+                    color: Colors.grey.shade600,
+                  ),
+                  tooltip: 'Améliorer le texte par IA',
+                  onPressed: () => _generateAiText(
+                    aiContext: 'problem_report', // ⭐️ Use new context
+                    controller: _problemReportController,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // ⭐️ --- END PROBLEM REPORT AI FIELD ---
+
           const SizedBox(height: 16),
 
           // --- ✅ START DIAGNOSTIC AI FIELD ---
@@ -762,7 +920,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             readOnly: isReadOnly,
             maxLines: 4,
             decoration: InputDecoration(
-              labelText: 'Diagnostique / Panne Signalée',
+              labelText: 'Diagnostique (Technicien)',
               alignLabelWithHint: true,
               suffixIcon: isReadOnly
                   ? null
@@ -878,11 +1036,21 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
+                // ⭐️ THIS IS THE MODIFIED FUNCTION CALL ⭐️
                 onPressed: _isLoading ? null : _saveReport,
+                style: ElevatedButton.styleFrom(
+                  // ⭐️ Make "Terminé" visually distinct
+                  backgroundColor: _currentStatus == 'Terminé'
+                      ? Colors.green[600]
+                      : const Color(0xFF667EEA),
+                ),
                 child: _isLoading
                     ? const CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 3)
-                    : const Text('Enregistrer le Rapport'),
+                // ⭐️ Change button text based on status
+                    : Text(_currentStatus == 'Terminé'
+                    ? 'Enregistrer, Finaliser et Envoyer Email'
+                    : 'Enregistrer le Rapport'),
               ),
             ),
         ],

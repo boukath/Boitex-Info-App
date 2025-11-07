@@ -14,6 +14,13 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart'; // ✅ ADDED: For Share and XFile
 
+// ⭐️ --- IMPORTS ADDED FOR STEP 2B ---
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
+// ⭐️ --- END OF ADDED IMPORTS ---
+
+
 class InterventionPdfService {
 
   // ═══════════════════════════════════════════════════════════════
@@ -41,6 +48,24 @@ class InterventionPdfService {
     final logo = pw.MemoryImage(
       (await rootBundle.load('assets/boitex_logo.png')).buffer.asUint8List(),
     );
+
+    // ⭐️ --- ADDED: Load network image for signature if it exists ---
+    pw.MemoryImage? signatureImage;
+    if (data['clientSignatureUrl'] != null && (data['clientSignatureUrl'] as String).isNotEmpty) {
+      try {
+        // We use 'http' to fetch the image bytes
+        final response = await http.get(Uri.parse(data['clientSignatureUrl']));
+        if (response.statusCode == 200) {
+          signatureImage = pw.MemoryImage(response.bodyBytes);
+        } else {
+          print('Failed to load signature image: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('Error fetching signature image: $e');
+      }
+    }
+    // ⭐️ --- END OF ADDED LOGIC ---
+
     final pageTheme = await _buildTheme();
 
     pdf.addPage(
@@ -49,7 +74,8 @@ class InterventionPdfService {
         header: (context) => _buildHeader(context, logo),
         footer: (context) => _buildFooter(context),
         build: (context) => [
-          _buildContent(context, data),
+          // ⭐️ --- MODIFIED: Pass the signature image to the content builder ---
+          _buildContent(context, data, signatureImage),
         ],
       ),
     );
@@ -63,6 +89,7 @@ class InterventionPdfService {
     return pw.PageTheme(
       pageFormat: PdfPageFormat.a4,
       theme: pw.ThemeData.withFont(
+        // Using Open Sans as a reliable default Google Font
         base: await PdfGoogleFonts.openSansRegular(),
         bold: await PdfGoogleFonts.openSansBold(),
         icons: await PdfGoogleFonts.materialIcons(),
@@ -132,10 +159,23 @@ class InterventionPdfService {
   // ═══════════════════════════════════════════════════════════════
   // CONTENT - All the Intervention Details
   // ═══════════════════════════════════════════════════════════════
-  static pw.Widget _buildContent(pw.Context context, Map<String, dynamic> data) {
+
+  // ⭐️ --- MODIFIED: Added 'signatureImage' parameter ---
+  static pw.Widget _buildContent(pw.Context context, Map<String, dynamic> data, pw.MemoryImage? signatureImage) {
     final interventionCode = data['interventionCode'] ?? 'N/A';
     final clientName = data['clientName'] ?? 'N/A';
-    final date = data['createdAt'] != null ? DateFormat('dd MMMM yyyy', 'fr_FR').format(data['createdAt'].toDate()) : 'N/A';
+
+    // Handle potential Timestamp from Firestore vs. DateTime from app
+    dynamic createdAtData = data['createdAt'];
+    String date = 'N/A';
+    if (createdAtData != null) {
+      if (createdAtData is Timestamp) {
+        date = DateFormat('dd MMMM yyyy', 'fr_FR').format(createdAtData.toDate());
+      } else if (createdAtData is DateTime) {
+        date = DateFormat('dd MMMM yyyy', 'fr_FR').format(createdAtData);
+      }
+    }
+
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -179,7 +219,9 @@ class InterventionPdfService {
           title: 'Analyse et Solution Technique',
           child: pw.Column(
             children: [
-              _buildInfoRow('Diagnostique / Panne Signalée', data['diagnostic']),
+              // ⭐️ --- MODIFIED: Use _buildInfoRow for rich text ---
+              _buildInfoRow('Rapport de Problème (Client)', data['problemReport']),
+              _buildInfoRow('Diagnostique (Technicien)', data['diagnostic']),
               _buildInfoRow('Travaux Effectués', data['workDone']),
             ],
           ),
@@ -197,16 +239,28 @@ class InterventionPdfService {
                   child: pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        pw.Text('Techniciens Assignés:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: primaryColor)),
+                        pw.Text('Technicien Intervenant:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: primaryColor)),
                         pw.SizedBox(height: 4),
+                        pw.Text('- ${data['createdByName'] ?? 'N/A'}', style: const pw.TextStyle(fontSize: 10)),
+
+                        // ⭐️ --- THIS BLOCK IS NOW FIXED ---
                         if (data['assignedTechnicians'] != null && (data['assignedTechnicians'] as List).isNotEmpty)
-                          ... (data['assignedTechnicians'] as List).map((tech) => pw.Text('- ${tech['name']}', style: const pw.TextStyle(fontSize: 10))).toList()
-                        else
-                          pw.Text('Aucun technicien assigné', style: const pw.TextStyle(fontSize: 10)),
+                          ... (data['assignedTechnicians'] as List)
+                          // 1. Filter the DATA (the maps) first
+                              .where((tech) {
+                            final String techName = tech['name'] ?? '';
+                            final String createdByName = data['createdByName'] ?? 'N/A';
+                            return techName.isNotEmpty && techName != createdByName;
+                          })
+                          // 2. Map the FILTERED data to widgets
+                              .map((tech) => pw.Text('- ${tech['name']}', style: const pw.TextStyle(fontSize: 10)))
+                              .toList()
+                        // ⭐️ --- END OF FIX ---
                       ]
                   )
               ),
-              if (data['signatureUrl'] != null)
+              // ⭐️ --- MODIFIED: Use the fetched signatureImage ---
+              if (signatureImage != null)
                 pw.Expanded(
                   flex: 3,
                   child: pw.Column(
@@ -221,10 +275,19 @@ class InterventionPdfService {
                           border: pw.Border.all(color: borderColor),
                           borderRadius: pw.BorderRadius.circular(5),
                         ),
-                        child: pw.Image(pw.MemoryImage(data['signatureUrl']), fit: pw.BoxFit.contain),
+                        // Use the signatureImage here
+                        child: pw.Image(signatureImage, fit: pw.BoxFit.contain),
                       ),
                     ],
                   ),
+                )
+              else
+                pw.Expanded(
+                    flex: 3,
+                    child: pw.Container(
+                        alignment: pw.Alignment.center,
+                        child: pw.Text('Aucune signature client fournie.', style: pw.TextStyle(fontSize: 10, color: secondaryColor, fontStyle: pw.FontStyle.italic))
+                    )
                 ),
             ],
           ),
@@ -268,16 +331,107 @@ class InterventionPdfService {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 4),
       child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start, // ⭐️ Use 'start' for multi-line text
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
           pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: secondaryColor, fontSize: 10)),
           pw.SizedBox(width: 10),
-          pw.Expanded(child: pw.Text(value ?? 'N/A', textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 10))),
+          // ⭐️ Use 'Expanded' and 'TextAlign.right' to handle long text wrapping
+          pw.Expanded(
+              child: pw.Text(
+                  (value == null || value.isEmpty) ? 'N/A' : value,
+                  textAlign: pw.TextAlign.right,
+                  style: const pw.TextStyle(fontSize: 10)
+              )
+          ),
         ],
       ),
     );
   }
 
+  // ⭐️ ═══════════════════════════════════════════════════════════════
+  // ⭐️ NEW FUNCTION: GENERATE, UPLOAD, AND FINALIZE (FROM STEP 2B)
+  // ⭐️ ═══════════════════════════════════════════════════════════════
+  static Future<void> generateUploadAndFinalize({
+    required Map<String, dynamic> interventionData,
+    required String interventionId,
+  }) async {
+
+    // --- 1. Generate the PDF bytes ---
+    print('Étape 1/4: Génération du PDF...');
+    // We pass the data to the PDF generator
+    final Uint8List pdfData = await generateInterventionPdf(interventionData);
+    print('PDF généré (${pdfData.lengthInBytes} bytes)');
+
+    // --- 2. Call Cloud Function to get B2 Upload URL ---
+    print('Étape 2/4: Appel de la fonction getB2UploadUrl...');
+    final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
+        .httpsCallable('getB2UploadUrl');
+
+    // ⭐️ --- MODIFICATION: Pass arguments to the callable function ---
+    final interventionCode = interventionData['interventionCode'] ?? interventionId;
+
+    final response = await callable.call({
+      'interventionId': interventionId,
+      'interventionCode': interventionCode,
+    });
+    // ⭐️ --- END OF MODIFICATION ---
+
+    final b2Creds = response.data as Map<String, dynamic>;
+
+    final String uploadUrl = b2Creds['uploadUrl'];
+    final String authToken = b2Creds['authorizationToken'];
+    final String b2FileName = b2Creds['b2FileName'];
+    final String publicPdfUrl = b2Creds['publicPdfUrl'];
+    print('Identifiants B2 reçus.');
+
+    // --- 3. Upload the PDF data to Backblaze B2 ---
+    print('Étape 3/4: Téléchargement vers Backblaze...');
+    final uploadResponse = await http.post(
+      Uri.parse(uploadUrl),
+      headers: {
+        'Authorization': authToken,
+        'X-Bz-File-Name': Uri.encodeComponent(b2FileName), // Ensure filename is URL-safe
+        'Content-Type': 'application/pdf',
+        'Content-Length': pdfData.lengthInBytes.toString(),
+        // 'do_not_verify' is simpler for client-side uploads
+        'X-Bz-Content-Sha1': 'do_not_verify',
+      },
+      body: pdfData,
+    );
+
+    if (uploadResponse.statusCode != 200) {
+      print('Échec du téléchargement B2: ${uploadResponse.body}');
+      throw Exception('Impossible de télécharger le PDF sur Backblaze.');
+    }
+
+    print('Téléchargement réussi. URL: $publicPdfUrl');
+
+    // --- 4. Finalize by updating Firestore ---
+    print('Étape 4/4: Finalisation du document Firestore...');
+    await FirebaseFirestore.instance
+        .collection('interventions')
+        .doc(interventionId)
+        .update({
+      // This triggers the email function!
+      'status': 'Terminé',
+
+      // The URL our cloud function will download
+      'pdfUrl': publicPdfUrl,
+
+      // --- IMPORTANT ---
+      // Also save all the data the PDF (and email) will need
+      'workDone': interventionData['workDone'],
+      'diagnostic': interventionData['diagnostic'],
+      'problemReport': interventionData['problemReport'],
+      'managerEmail': interventionData['managerEmail'],
+      'clientSignatureUrl': interventionData['clientSignatureUrl'],
+      'pdfGeneratedAt': FieldValue.serverTimestamp(),
+      // Add any other fields you just collected
+    });
+
+    print('✅ Intervention finalisée avec succès!');
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // SHARE FUNCTIONALITY

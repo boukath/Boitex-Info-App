@@ -4,9 +4,10 @@ import B2 from "backblaze-b2";
 import {defineSecret} from "firebase-functions/params";
 
 // 1. Define the secrets this file needs
-const backblazeKeyId = defineSecret("BACKBLAZE_KEY_ID");
-const backblazeAppKey = defineSecret("BACKBLAZE_APP_KEY");
-const backblazeBucketId = defineSecret("BACKBLAZE_BUCKET_ID");
+// ⭐️ --- MODIFICATION: Added 'export' to these 3 lines ---
+export const backblazeKeyId = defineSecret("BACKBLAZE_KEY_ID");
+export const backblazeAppKey = defineSecret("BACKBLAZE_APP_KEY");
+export const backblazeBucketId = defineSecret("BACKBLAZE_BUCKET_ID");
 
 /**
 * Uploads a file buffer (like a PDF) to Backblaze B2
