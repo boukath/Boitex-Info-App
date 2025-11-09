@@ -1,10 +1,15 @@
 // functions/src/intervention-handlers.ts
 
 import {onDocumentUpdated} from "firebase-functions/v2/firestore";
-import * as logger from "firebase-functions/logger"; // ✅ THIS IS THE FIX
+import * as logger from "firebase-functions/logger";
 import * as nodemailer from "nodemailer";
 import {defineSecret} from "firebase-functions/params";
 import { HttpsError } from "firebase-functions/v2/https";
+
+// ✅ --- NEW ---
+// Import our new PDF generator function
+import { generateInterventionPdf } from "./pdf-generator";
+// ✅ --- END NEW ---
 
 // --- 1. Define the secrets we just set ---
 const smtpHost = defineSecret("SMTP_HOST");
@@ -72,19 +77,16 @@ export const onInterventionTermine = onDocumentUpdated(
       logger.warn(
         `Invalid or missing managerEmail: '${managerEmail}'. Cannot send email.`
       );
-      // We don't throw an error, as the function did its job
-      // but the data was just missing.
       return;
     }
 
     logger.log(`Valid recipient email found: ${managerEmail}`);
 
     // --- 7. Configure Nodemailer (SMTP Transporter) ---
-    // We create the 'transporter' object that will send the email
     const transporter = nodemailer.createTransport({
       host: smtpHost.value(),
-      port: parseInt(smtpPort.value(), 10), // Convert port string to number
-      secure: parseInt(smtpPort.value(), 10) === 465, // `true` if port is 465 (SSL)
+      port: parseInt(smtpPort.value(), 10),
+      secure: parseInt(smtpPort.value(), 10) === 465,
       auth: {
         user: smtpUser.value(),
         pass: smtpPassword.value(),
@@ -92,7 +94,6 @@ export const onInterventionTermine = onDocumentUpdated(
     });
 
     // --- 8. Define Email Content ---
-    // Here you can customize the email subject and body.
     const subject = `Intervention Terminée: ${interventionCode}`;
     const body = `
       <p>Bonjour,</p>
@@ -101,6 +102,8 @@ export const onInterventionTermine = onDocumentUpdated(
       concernant le client <strong>${afterData?.clientName || "N/A"}</strong>
       au magasin <strong>${afterData?.storeName || "N/A"}</strong>
       est maintenant terminée.</p>
+
+      <p>Vous trouverez ci-joint le rapport d'intervention au format PDF.</p>
 
       <p><strong>Diagnostique:</strong><br/>
       ${afterData?.diagnostic || "Non spécifié"}</p>
@@ -112,25 +115,41 @@ export const onInterventionTermine = onDocumentUpdated(
       Le Service Technique Boitex Info</p>
     `;
 
-    const mailOptions = {
-      from: `"Boitex Info Service Technique" <${smtpUser.value()}>`,
-      to: managerEmail, // The email from the form field
-      subject: subject,
-      html: body,
-    };
-
     // --- 9. Send the Email ---
     try {
+      // ✅ --- NEW ---
+      // Generate the PDF buffer *before* sending the email
+      logger.log("Generating PDF report in memory...");
+      const pdfBuffer = await generateInterventionPdf(afterData);
+      logger.log("✅ PDF report generated successfully.");
+      // ✅ --- END NEW ---
+
+      // ✅ --- MODIFIED ---
+      // Add the 'attachments' array to the mail options
+      const mailOptions = {
+        from: `"Boitex Info Service Technique" <${smtpUser.value()}>`,
+        to: managerEmail,
+        subject: subject,
+        html: body,
+        attachments: [
+          {
+            filename: `Rapport-${interventionCode}.pdf`, // The name for the file
+            content: pdfBuffer,                           // The raw PDF data
+            contentType: "application/pdf",
+          },
+        ],
+      };
+      // ✅ --- END MODIFIED ---
+
       await transporter.sendMail(mailOptions);
-      logger.log(`✅ Email successfully sent to ${managerEmail}`);
+      logger.log(`✅ Email with PDF attachment successfully sent to ${managerEmail}`);
       return;
+
     } catch (error) {
       logger.error(`❌ Failed to send email to ${managerEmail}:`, error);
-      // We re-throw the error here so Firebase knows the function failed
-      // and can retry if necessary.
       throw new HttpsError(
         "internal",
-        "Failed to send email.",
+        "Failed to generate PDF or send email.",
         error
       );
     }
