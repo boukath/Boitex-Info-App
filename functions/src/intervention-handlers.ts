@@ -129,6 +129,7 @@ export const onInterventionTermine = onDocumentUpdated(
       const mailOptions = {
         from: `"Boitex Info Service Technique" <${smtpUser.value()}>`,
         to: managerEmail,
+        cc: "athmane-boukerdous@boitexinfo.com", // <-- ✅ YOUR ADDED LINE
         subject: subject,
         html: body,
         attachments: [
@@ -142,7 +143,8 @@ export const onInterventionTermine = onDocumentUpdated(
       // ✅ --- END MODIFIED ---
 
       await transporter.sendMail(mailOptions);
-      logger.log(`✅ Email with PDF attachment successfully sent to ${managerEmail}`);
+      // ✅ Updated log message to reflect the CC
+      logger.log(`✅ Email with PDF attachment successfully sent to ${managerEmail} and CC to athmane-boukerdous@boitexinfo.com`);
       return;
 
     } catch (error) {

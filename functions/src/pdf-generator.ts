@@ -5,16 +5,8 @@ import axios from "axios"; // To fetch images
 import * as logger from "firebase-functions/logger"; // For logging errors
 
 // --- 1. YOUR LOGO URL ---
-//
-// 🔴 IMPORTANT: For this design, you need a WHITE or transparent logo.
-// Your current blue logo will not look good on the blue header.
-// Please upload a white version of your logo and paste the URL here.
-//
-const LOGO_URL_WHITE = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png"; // <-- PASTE YOUR WHITE LOGO URL HERE
-//
-// If you only have the blue logo, use this URL and I will place it on a white header.
-// const LOGO_URL_BLUE = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
-
+const LOGO_URL_WHITE = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
+const WATERMARK_URL = "https://f003.backblazeb2.com/file/BoitexInfo/Boitex+logo/cache+technique.png";
 
 // --- Design Constants (Modern, Pro) ---
 const BRAND_COLOR = "#0D47A1"; // Your deep blue
@@ -24,7 +16,7 @@ const TEXT_COLOR = "#333333"; // Dark gray for content
 const LABEL_COLOR = "#666666"; // Lighter gray for labels
 const LIGHT_GRAY_BACKGROUND = "#F7F9FA"; // Very light gray for "cards"
 const LINE_COLOR = "#E0E0E0"; // Light divider line
-const MARGIN = 40; // A bit less margin for a more "full-page" feel
+const MARGIN = 40;
 
 /**
 * Fetches an image from a URL and returns it as a Buffer.
@@ -45,12 +37,7 @@ async function fetchImage(url: string): Promise<Buffer | null> {
   }
 }
 
-// ✅ --- FIX ---
-// Removed the unused 'formatDate' function
-// ✅ --- END FIX ---
-
 /**
- * ✅ --- NEW: MODERN HEADER ---
  * Draws a full-width blue bar with the logo and title.
  */
 async function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
@@ -87,7 +74,6 @@ async function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) 
 }
 
 /**
- * ✅ --- NEW: CLIENT INFO SECTION ---
  * A clean, two-column layout for client details.
  */
 function _buildClientInfo(doc: PDFKit.PDFDocument, data: any) {
@@ -128,14 +114,12 @@ function _buildClientInfo(doc: PDFKit.PDFDocument, data: any) {
 }
 
 /**
- * ✅ --- NEW: TECHNICAL REPORT SECTION ---
  * A clean "card" for all technical text.
  */
 function _buildTechnicalReport(doc: PDFKit.PDFDocument, data: any) {
   const startY = doc.y;
-
-  // --- Draw text first to measure height ---
-  const tempY = doc.y; // Save Y pos
+  const contentX = MARGIN + 20; // 20px left padding
+  const contentWidth = doc.page.width - MARGIN * 2 - 40; // 20px padding on each side
 
   // Helper to draw a text block
   const drawTextBlock = (label: string, text: string) => {
@@ -143,22 +127,29 @@ function _buildTechnicalReport(doc: PDFKit.PDFDocument, data: any) {
       .font("Helvetica-Bold")
       .fontSize(12)
       .fillColor(TITLE_COLOR)
-      .text(label, { lineGap: 5 }); // More space after label
+      .text(label, contentX, doc.y, { lineGap: 5, width: contentWidth }); // ✅ Set X and width
 
     doc
       .font("Helvetica")
       .fontSize(10)
       .fillColor(TEXT_COLOR)
-      .text(text || "Non spécifié", {
-        width: doc.page.width - MARGIN * 2 - 40, // 20px padding
+      .text(text || "Non spécifié", contentX, doc.y, { // ✅ Set X
+        width: contentWidth, // ✅ Set width
       });
     doc.moveDown(1.5); // More space between blocks
   };
 
+  // --- Draw text first to measure height ---
+  const tempY = doc.y; // Save Y pos
   doc.y = tempY + 20; // 20px top padding
+
+  // ✅ --- THIS IS THE FIX ---
+  // We call the helper function (which now includes X and Width)
+  // to measure the height correctly.
   drawTextBlock("Problème Rapporté (Client)", data.requestDescription);
   drawTextBlock("Diagnostic (Technicien)", data.diagnostic);
   drawTextBlock("Travaux Effectués", data.workDone);
+  // ✅ --- END FIX ---
 
   const endY = doc.y;
 
@@ -170,28 +161,56 @@ function _buildTechnicalReport(doc: PDFKit.PDFDocument, data: any) {
 
   // --- Redraw the text ON TOP of the card ---
   doc.y = tempY + 20; // 20px top padding
-  doc.x = MARGIN + 20; // 20px left padding
 
+  // ✅ --- THIS IS THE FIX ---
+  // Redraw the text exactly as before.
   drawTextBlock("Problème Rapporté (Client)", data.requestDescription);
   drawTextBlock("Diagnostic (Technicien)", data.diagnostic);
   drawTextBlock("Travaux Effectués", data.workDone);
+  // ✅ --- END FIX ---
 
   // Set Y cursor for next section
   doc.y = endY + 20;
 }
 
 /**
- * ✅ --- NEW: VALIDATION SECTION ---
  * A two-column section for technicians and the signature.
  */
-async function _buildValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuffer: Buffer | null) {
+async function _buildValidationSection(
+  doc: PDFKit.PDFDocument,
+  data: any,
+  signatureBuffer: Buffer | null,
+  watermarkBuffer: Buffer | null,
+) {
   doc.moveDown(2); // Add space
 
   const startY = doc.y;
   const col1X = MARGIN;
   const col2X = doc.page.width / 2 + 30;
+  const colWidth = doc.page.width / 2 - MARGIN - 30;
 
   // --- Column 1: Technicians ---
+
+  // Draw the watermark *behind* the text
+  if (watermarkBuffer) {
+    doc
+      .save()
+      // ✅ --- THIS IS THE FIX ---
+      .opacity(0.20) // Set opacity to 20% (was 10%)
+      // ✅ --- END FIX ---
+      .image(
+        watermarkBuffer,
+        col1X,
+        startY + 25,
+        {
+          fit: [colWidth, 100],
+          align: "center",
+          valign: "center",
+        }
+)
+.restore(); // Restore the state (back to 100% opacity)
+  }
+
   doc
     .font("Helvetica-Bold")
     .fontSize(12)
@@ -223,7 +242,7 @@ async function _buildValidationSection(doc: PDFKit.PDFDocument, data: any, signa
     .fillColor(TITLE_COLOR)
     .text("Validation Client", col2X, startY);
 
-  const sigBoxWidth = doc.page.width / 2 - MARGIN - 30;
+  const sigBoxWidth = colWidth;
   const sigBoxHeight = 100;
   const sigBoxY = startY + 25;
 
@@ -268,7 +287,6 @@ async function _buildValidationSection(doc: PDFKit.PDFDocument, data: any, signa
 }
 
 /**
- * ✅ --- NEW: MODERN FOOTER ---
  * A clean, single-line footer for every page.
  */
 function _buildFooter(doc: PDFKit.PDFDocument) {
@@ -329,17 +347,18 @@ export async function generateInterventionPdf(data: any): Promise<Buffer> {
   const buffers: Buffer[] = [];
   doc.on("data", buffers.push.bind(buffers));
 
-  // --- 1. Fetch Images ---
-  // 🔴 Use the new WHITE logo URL
-  const logoBuffer = await fetchImage(LOGO_URL_WHITE);
-  const signatureBuffer = await fetchImage(data.signatureUrl);
+  // --- 1. Fetch Images (in parallel) ---
+  const [logoBuffer, signatureBuffer, watermarkBuffer] = await Promise.all([
+    fetchImage(LOGO_URL_WHITE),
+    fetchImage(data.signatureUrl),
+    fetchImage(WATERMARK_URL),
+  ]);
 
   // --- 2. Build PDF Header ---
   await _buildHeader(doc, logoBuffer);
 
   // --- 3. Build PDF Body ---
-  // We set the horizontal margins for the body content here
-  doc.x = MARGIN;
+  doc.x = MARGIN; // Set default X margin for body
   _buildClientInfo(doc, data);
 
   // Draw a thin divider line
@@ -354,7 +373,8 @@ export async function generateInterventionPdf(data: any): Promise<Buffer> {
   doc.moveDown(2);
 
   _buildTechnicalReport(doc, data);
-  await _buildValidationSection(doc, data, signatureBuffer);
+
+  await _buildValidationSection(doc, data, signatureBuffer, watermarkBuffer);
 
   // --- 4. Build PDF Footer ---
   _buildFooter(doc);
