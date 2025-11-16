@@ -301,6 +301,184 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
+  // --- START: NEW QUICK-ADD DIALOGS ---
+
+  Future<void> _showAddClientDialog() async {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final newClientId = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ajouter un Nouveau Client'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nom du Client *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: phoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Téléphone (Optionnel)',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                try {
+                  // Create the client
+                  final docRef = await FirebaseFirestore.instance
+                      .collection('clients')
+                      .add({
+                    'name': nameController.text.trim(),
+                    'phone': phoneController.text.trim(),
+                    'createdAt': Timestamp.now(),
+                    'createdVia': 'sav_quick_add',
+                    // IMPORTANT: Add the serviceType so it appears in the dropdown query
+                    'services': [widget.serviceType],
+                  });
+                  // Return the new ID
+                  Navigator.pop(context, docRef.id);
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur: $e')),
+                    );
+                  }
+                }
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
+      ),
+    );
+
+    if (newClientId != null && mounted) {
+      // New client was added. Refetch the client list.
+      await _fetchClients();
+      // Auto-select the new client
+      setState(() {
+        _selectedClientId = newClientId;
+      });
+      // Auto-fetch stores for this new client
+      _fetchStoresForClient(newClientId);
+    }
+  }
+
+  Future<void> _showAddStoreDialog() async {
+    if (_selectedClientId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez d\'abord sélectionner un client')),
+      );
+      return;
+    }
+
+    final nameController = TextEditingController();
+    final locationController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final newStoreId = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ajouter un Nouveau Magasin'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nom du Magasin *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: locationController,
+                decoration: const InputDecoration(
+                  labelText: 'Emplacement *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                try {
+                  // Create the store
+                  final docRef = await FirebaseFirestore.instance
+                      .collection('clients')
+                      .doc(_selectedClientId!)
+                      .collection('stores')
+                      .add({
+                    'name': nameController.text.trim(),
+                    'location': locationController.text.trim(),
+                    'createdAt': Timestamp.now(),
+                    'createdVia': 'sav_quick_add',
+                  });
+                  // Return the new ID
+                  Navigator.pop(context, docRef.id);
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur: $e')),
+                    );
+                  }
+                }
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
+      ),
+    );
+
+    if (newStoreId != null && mounted) {
+      // New store was added. Refetch the store list for the current client.
+      await _fetchStoresForClient(_selectedClientId!);
+      // Auto-select the new store
+      setState(() {
+        _selectedStoreId = newStoreId;
+      });
+    }
+  }
+
+  // --- END: NEW QUICK-ADD DIALOGS ---
+
   // ✅ --- START: ADDED B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
@@ -516,58 +694,95 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                       fontWeight: FontWeight.bold,
                       color: primaryColor)),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedClientId,
-                items: _clients
-                    .map((doc) => DropdownMenuItem(
-                  value: doc.id,
-                  child: Text(doc['name']),
-                ))
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _selectedClientId = value;
-                      _fetchStoresForClient(value);
-                    });
-                  }
-                },
-                decoration: InputDecoration(
-                  labelText: 'Client',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: _isLoadingClients
-                      ? const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                      : const Icon(Icons.person_outline),
-                ),
-                validator: (v) => v == null ? 'Sélectionner un client' : null,
+              // --- MODIFIED: Wrapped in Row to add 'Add' button ---
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedClientId,
+                      items: _clients
+                          .map((doc) => DropdownMenuItem(
+                        value: doc.id,
+                        child: Text(doc['name']),
+                      ))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _selectedClientId = value;
+                            // Clear store selection when client changes
+                            _selectedStoreId = null;
+                            _stores = [];
+                            _fetchStoresForClient(value);
+                          });
+                        }
+                      },
+                      decoration: InputDecoration(
+                        labelText: 'Client',
+                        border: defaultBorder,
+                        focusedBorder: focusedBorder,
+                        prefixIcon: _isLoadingClients
+                            ? const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                            : const Icon(Icons.person_outline),
+                      ),
+                      validator: (v) => v == null ? 'Sélectionner un client' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle, size: 30),
+                    color: primaryColor,
+                    onPressed: _showAddClientDialog, // <-- Link to new function
+                    tooltip: 'Ajouter un nouveau client',
+                    padding: const EdgeInsets.only(top: 8), // Align with form field
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedStoreId,
-                items: _stores
-                    .map((doc) => DropdownMenuItem(
-                  value: doc.id,
-                  child: Text('${doc['name']} - ${doc['location']}'),
-                ))
-                    .toList(),
-                onChanged: _selectedClientId == null
-                    ? null
-                    : (v) => setState(() => _selectedStoreId = v),
-                decoration: InputDecoration(
-                  labelText: 'Magasin (Optionnel)',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: _isLoadingStores
-                      ? const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                      : const Icon(Icons.store_outlined),
-                ),
+              // --- MODIFIED: Wrapped in Row to add 'Add' button ---
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedStoreId,
+                      items: _stores
+                          .map((doc) => DropdownMenuItem(
+                        value: doc.id,
+                        child: Text('${doc['name']} - ${doc['location']}'),
+                      ))
+                          .toList(),
+                      onChanged: _selectedClientId == null
+                          ? null
+                          : (v) => setState(() => _selectedStoreId = v),
+                      decoration: InputDecoration(
+                        labelText: 'Magasin (Optionnel)',
+                        border: defaultBorder,
+                        focusedBorder: focusedBorder,
+                        filled: _selectedClientId == null, // Visual disable cue
+                        fillColor: _selectedClientId == null ? Colors.grey.shade200 : null,
+                        prefixIcon: _isLoadingStores
+                            ? const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                            : const Icon(Icons.store_outlined),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle, size: 30),
+                    color: _selectedClientId != null ? primaryColor : Colors.grey,
+                    onPressed: _selectedClientId != null ? _showAddStoreDialog : null, // <-- Link to new function
+                    tooltip: 'Ajouter un nouveau magasin',
+                    padding: const EdgeInsets.only(top: 8), // Align with form field
+                  ),
+                ],
               ),
 
               const SizedBox(height: 16),
@@ -848,6 +1063,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   onPressed: _isLoading ? null : _saveTicket,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
+                    foregroundColor: Colors.white, // Added for text color
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
