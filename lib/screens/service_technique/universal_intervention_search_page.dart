@@ -18,7 +18,7 @@ class UniversalInterventionSearchPage extends StatefulWidget {
 class _UniversalInterventionSearchPageState
     extends State<UniversalInterventionSearchPage> {
   String _searchQuery = '';
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _allInterventions = [];      // typed
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _allInterventions = []; // typed
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filteredInterventions = []; // typed
   bool _isLoading = true;
 
@@ -36,14 +36,16 @@ class _UniversalInterventionSearchPageState
     super.dispose();
   }
 
+  // ✅ 1. QUERY CHANGE: Fetch 'Terminé' & 'Clôturé', and order by status
   Future<void> _fetchAllInterventions() async {
     try {
       final QuerySnapshot<Map<String, dynamic>> snapshot =
       await FirebaseFirestore.instance
           .collection('interventions')
           .where('serviceType', isEqualTo: widget.serviceType)
-          .where('status', isEqualTo: 'Clôturé')
-          .orderBy('closedAt', descending: true)
+          .where('status', whereIn: ['Terminé', 'Clôturé']) // 👈 UPDATED
+          .orderBy('status') // 👈 UPDATED (Groups 'Clôturé' then 'Terminé')
+          .orderBy('closedAt', descending: true) // 👈 KEEPS secondary sort
           .get();
 
       setState(() {
@@ -121,23 +123,48 @@ class _UniversalInterventionSearchPageState
               child: ListView.builder(
                 itemCount: _filteredInterventions.length,
                 itemBuilder: (context, index) {
+                  // ✅ 2. UI LOGIC: Get status and set variables
                   final interventionDoc = _filteredInterventions[index];
                   final data = interventionDoc.data();
-                  final DateTime? closedDate =
-                  (data['closedAt'] as Timestamp?)?.toDate();
+                  final String status = data['status'] ?? 'N/A';
+
+                  // Define UI variables based on status
+                  final IconData iconData;
+                  final Color iconColor;
+                  final String subtitleText;
+
+                  if (status == 'Clôturé') {
+                    // --- UI for "Clôturé" (Green Icon) ---
+                    final DateTime? closedDate =
+                    (data['closedAt'] as Timestamp?)?.toDate();
+                    final String billingStatus =
+                        (data['billingStatus'] as String?) ?? 'N/A';
+
+                    iconData = Icons.check_circle;
+                    iconColor = Colors.green;
+                    subtitleText = 'Client: ${data['clientName']}\n'
+                        'Clôturée le: ${closedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(closedDate) : 'N/A'} ($billingStatus)';
+                  } else {
+                    // --- UI for "Terminé" (Yellow Icon) ---
+                    final DateTime? completedDate =
+                    (data['completedAt'] as Timestamp?)?.toDate();
+
+                    iconData = Icons.pending_actions; // Yellow "pending" icon
+                    iconColor = Colors.orange;
+                    subtitleText = 'Client: ${data['clientName']}\n'
+                        'Terminée le: ${completedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(completedDate) : 'N/A'} (En attente)';
+                  }
 
                   return Card(
-                    margin:
-                    const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                    margin: const EdgeInsets.symmetric(
+                        horizontal: 8.0, vertical: 4.0),
                     child: ListTile(
+                      leading: Icon(iconData, color: iconColor), // Dynamic icon
                       title: Text(
                         '${data['storeName']} - ${data['storeLocation']}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      subtitle: Text(
-                        'Client: ${data['clientName']}\n'
-                            'Clôturée le: ${closedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(closedDate) : 'N/A'}',
-                      ),
+                      subtitle: Text(subtitleText), // Dynamic subtitle
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () {
                         Navigator.of(context).push(

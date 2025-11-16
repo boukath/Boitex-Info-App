@@ -18,11 +18,13 @@ class InterventionHistoryListPage extends StatelessWidget {
         title: const Text('Historique des Interventions'),
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        // ✅ 1. QUERY CHANGE: Fetch 'Terminé' & 'Clôturé', and order by status
         stream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: serviceType)
-            .where('status', isEqualTo: 'Clôturé')
-            .orderBy('closedAt', descending: true)
+            .where('status', whereIn: ['Terminé', 'Clôturé']) // 👈 UPDATED
+            .orderBy('status') // 👈 UPDATED (Groups 'Clôturé' then 'Terminé')
+            .orderBy('closedAt', descending: true) // 👈 KEEPS secondary sort
             .snapshots(),
         builder: (context, AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -34,10 +36,11 @@ class InterventionHistoryListPage extends StatelessWidget {
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('Aucune intervention clôturée trouvée.'));
+            // Updated message to reflect new logic
+            return const Center(child: Text('Aucune intervention terminée ou clôturée trouvée.'));
           }
 
-          final docs = snapshot.data!.docs; // List<QueryDocumentSnapshot<Map<String, dynamic>>>
+          final docs = snapshot.data!.docs;
           final grouped = _groupInterventions(docs);
 
           return ListView.builder(
@@ -132,21 +135,45 @@ class InterventionHistoryListPage extends StatelessWidget {
     );
   }
 
+  // ✅ 2. UI CHANGE: This method is now updated with the new logic
   Widget _buildInterventionTile(
       BuildContext context,
       DocumentSnapshot<Map<String, dynamic>> interventionDoc,
       ) {
     final data = interventionDoc.data() ?? {};
-    final DateTime? closedDate = (data['closedAt'] as Timestamp?)?.toDate();
-    final String billingStatus = (data['billingStatus'] as String?) ?? 'N/A';
+    final String status = data['status'] ?? 'N/A'; // Get the status
+
+    // Define UI variables based on status
+    final IconData iconData;
+    final Color iconColor;
+    final String titleText;
+    final String subtitleText;
+
+    if (status == 'Clôturé') {
+      // --- UI for "Clôturé" (Green Icon) ---
+      final DateTime? closedDate = (data['closedAt'] as Timestamp?)?.toDate();
+      final String billingStatus = (data['billingStatus'] as String?) ?? 'N/A';
+
+      iconData = Icons.check_circle;
+      iconColor = Colors.green;
+      titleText = 'Clôturée le: ${closedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(closedDate) : 'N/A'}';
+      subtitleText = 'Statut: $billingStatus';
+    } else {
+      // --- UI for "Terminé" (Yellow Icon) ---
+      // Assumed 'Terminé'
+      final DateTime? completedDate = (data['completedAt'] as Timestamp?)?.toDate();
+
+      iconData = Icons.pending_actions; // Yellow "pending" icon
+      iconColor = Colors.orange;
+      titleText = 'Terminée le: ${completedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(completedDate) : 'N/A'}';
+      subtitleText = 'Statut: En attente de facturation'; // Clear message
+    }
 
     return ListTile(
       contentPadding: const EdgeInsets.only(left: 48.0, right: 16.0),
-      leading: const Icon(Icons.check_circle, color: Colors.green, size: 20),
-      title: Text(
-        'Clôturée le: ${closedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(closedDate) : 'N/A'}',
-      ),
-      subtitle: Text('Statut: $billingStatus'),
+      leading: Icon(iconData, color: iconColor, size: 20), // Use dynamic icon/color
+      title: Text(titleText), // Use dynamic title
+      subtitle: Text(subtitleText), // Use dynamic subtitle
       trailing: const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
       onTap: () {
         Navigator.of(context).push(

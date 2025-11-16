@@ -45,7 +45,7 @@ class InterventionHistoryClientsPage extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: serviceType)
-            .where('status', isEqualTo: 'Clôturé')
+            .where('status', whereIn: ['Terminé', 'Clôturé'])
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {

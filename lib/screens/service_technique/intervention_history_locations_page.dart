@@ -28,7 +28,7 @@ class InterventionHistoryLocationsPage extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: serviceType)
-            .where('status', isEqualTo: 'Clôturé')
+            .where('status', whereIn: ['Terminé', 'Clôturé'])
             .where('clientName', isEqualTo: clientName)
             .where('storeName', isEqualTo: storeName)
             .snapshots(),
