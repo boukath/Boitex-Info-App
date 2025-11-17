@@ -9,7 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:signature/signature.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
-import 'package:boitex_info_app/services/intervention_pdf_service.dart';
+// ❌ import 'package:boitex_info_app/services/intervention_pdf_service.dart'; // <-- 1. REMOVED THIS
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -25,6 +25,13 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 
 // ✅ 2. ADD IMPORT FOR CLOUD FUNCTIONS
 import 'package:cloud_functions/cloud_functions.dart';
+
+// ✅ --- 2. ADD IMPORTS FOR NEW PDF LOGIC ---
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+// ✅ --- 3. ADD IMPORT FOR FILE SAVER (DOWNLOAD) ---
+import 'package:file_saver/file_saver.dart';
+// ✅ --- END OF ADDED IMPORTS ---
 
 // ----------------------------------------------------------------------
 // Data model
@@ -209,7 +216,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // ✅ 4. AI HELPER FUNCTION (NOW FIXED)
+  // ✅ 4. AI HELPER FUNCTION (UNCHANGED)
   // ----------------------------------------------------------------------
 
   /// Reusable function to call our smart Cloud Function
@@ -272,7 +279,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // Data helpers
+  // Data helpers (UNCHANGED)
   // ----------------------------------------------------------------------
   Future<void> _fetchTechnicians() async {
     try {
@@ -387,14 +394,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ --- START: THIS IS THE CORRECTED FUNCTION ---
+  // ✅ --- START: _saveReport (UNCHANGED) ---
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
-
-    // --- ❌ DELETED STALE CONTEXT VARIABLES ---
-    // final scaffoldMessenger = ScaffoldMessenger.of(context);
-    // final navigator = Navigator.of(context);
 
     try {
       // 1) Signature
@@ -427,8 +430,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
 
       // 3) Persist
-      // ✅ FIX #2: THIS IS THE SECOND PART OF THE FIX
-      // We now save two separate lists to match your database schema
       final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
@@ -438,11 +439,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'signatureUrl': newSignatureUrl,
         'status': _currentStatus,
 
-        // ✅ FIX: Save just the names here
         'assignedTechnicians':
         _selectedTechnicians.map((t) => t.displayName).toList(),
 
-        // ✅ FIX: Save just the UIDs here
         'assignedTechniciansIds':
         _selectedTechnicians.map((t) => t.uid).toList(),
 
@@ -457,108 +456,183 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       await widget.interventionDoc.reference.update(reportData);
 
-      // ✅ --- FIX: Use context *after* await and *after* mounted check
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Rapport enregistré avec succès!')),
       );
       Navigator.of(context).pop();
-      // ✅ --- END OF FIX ---
 
     } catch (e) {
-      // ✅ --- FIX: Use context *after* await and *after* mounted check
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')),
       );
-      // ✅ --- END OF FIX ---
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
   }
-  // ✅ --- END: THIS IS THE CORRECTED FUNCTION ---
+  // ✅ --- END: _saveReport (UNCHANGED) ---
 
   // ----------------------------------------------------------------------
-  // PDF
+  // ✅ --- NEW FUNCTION FOR DOWNLOADING MEDIA (ADDED) ---
   // ----------------------------------------------------------------------
-  Future<void> _generateAndSharePdf() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = widget.interventionDoc.data() ?? {};
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
-        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
-      }
+  Future<void> _downloadMedia(String? url) async {
+    if (url == null || url.isEmpty) return;
+    if (_isLoading) return; // Don't allow download if another op is in progress
 
-      final pdfData = {...data, 'signatureUrl': signatureBytes};
-      await InterventionPdfService.generateAndSharePdf(pdfData);
-    } catch (e) {
+    setState(() => _isLoading = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Téléchargement en cours...')),
+    );
+
+    try {
+      // 1. Determine file name from URL
+      final String fileName = url.split('/').last.split('?').first; // Clean name
+
+      // 2. Fetch the file bytes
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) {
+        throw Exception('Échec du téléchargement du fichier: ${response.statusCode}');
+      }
+      final Uint8List fileBytes = response.bodyBytes;
+
+      // 3. Save the file using FileSaver
+      await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: fileBytes,
+        // ✅ --- THIS IS THE FIX ---
+        // We remove the 'mimeType' parameter entirely.
+        // mimeType: MimeType.unknown, // <-- REMOVED THIS LINE
+        // ✅ --- END OF FIX ---
+      );
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la génération du PDF : $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _generateAndPrintPdf() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = widget.interventionDoc.data() ?? {};
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
-        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
-      }
-
-      final pdfData = {...data, 'signatureUrl': signatureBytes};
-      await InterventionPdfService.generateAndPrintPdf(pdfData);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de l\'affichage du PDF : $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _generateAndShowPdfViewer() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = widget.interventionDoc.data() ?? {};
-      Uint8List? signatureBytes;
-      if (data['signatureUrl'] != null) {
-        final r = await http.get(Uri.parse(data['signatureUrl'] as String));
-        if (r.statusCode == 200) signatureBytes = r.bodyBytes;
-      }
-
-      final pdfData = {...data, 'signatureUrl': signatureBytes};
-      final Uint8List pdfBytes =
-      await InterventionPdfService.generatePdfBytes(pdfData);
-
-      if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => PdfViewerPage(
-            pdfBytes: pdfBytes,
-            title: data['interventionCode'] ?? 'Aperçu',
-          ),
+        SnackBar(
+          content: Text('Fichier enregistré: $fileName'),
+          backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la génération du PDF : $e')),
+        SnackBar(
+          content: Text('Erreur de téléchargement: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
+  // ----------------------------------------------------------------------
+  // ✅ --- END OF NEW FUNCTION ---
+  // ----------------------------------------------------------------------
+
+
+  // ----------------------------------------------------------------------
+  // ✅ --- PDF SECTION (UNCHANGED from previous step) ---
+  // ----------------------------------------------------------------------
+
+  /// Calls the backend to generate the PDF and returns the raw bytes.
+  Future<Uint8List?> _fetchPdfFromBackend() async {
+    if (_isLoading) return null;
+    setState(() => _isLoading = true);
+
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+      final callable = functions.httpsCallable('exportInterventionPdf');
+
+      final response = await callable.call<Map<String, dynamic>>(
+        {'interventionId': widget.interventionDoc.id},
+      );
+
+      final String base64String = response.data['pdfBase64'];
+      final Uint8List pdfBytes = base64.decode(base64String);
+      return pdfBytes;
+
+    } catch (e) {
+      if (!mounted) return null;
+      print('Error fetching PDF from backend: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors de la génération du PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return null;
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  /// Generates the Subject and Body for the share dialog.
+  Map<String, String> _generateShareContent() {
+    final data = widget.interventionDoc.data() ?? {};
+    final code = data['interventionCode'] ?? 'N/A';
+    final clientName = data['clientName'] ?? 'Client';
+    final date = DateFormat('dd MMMM yyyy', 'fr_FR').format(DateTime.now());
+
+    return {
+      'subject': '✅ Rapport d\'Intervention $code - $clientName',
+      'body': '''Bonjour,
+Veuillez trouver ci-joint le rapport détaillé de l'intervention technique $code.
+- Client: $clientName
+- Date: $date
+Cordialement,
+L'équipe BOITEX INFO'''
+    };
+  }
+
+  /// This function is called by the "Share" icon in the AppBar.
+  Future<void> _generateAndSharePdf() async {
+    final Uint8List? pdfBytes = await _fetchPdfFromBackend();
+    if (pdfBytes == null || !mounted) return;
+
+    final data = widget.interventionDoc.data() ?? {};
+    final fileName = 'Rapport-${data['interventionCode'] ?? 'N-A'}.pdf';
+    final content = _generateShareContent();
+
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/$fileName');
+    await file.writeAsBytes(pdfBytes);
+
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      subject: content['subject'],
+      text: content['body'],
+    );
+  }
+
+  /// This function is called by the "Preview" (eye) icon in the AppBar.
+  Future<void> _generateAndShowPdfViewer() async {
+    final Uint8List? pdfBytes = await _fetchPdfFromBackend();
+    if (pdfBytes == null || !mounted) return;
+
+    final data = widget.interventionDoc.data() ?? {};
+    final title = data['interventionCode'] ?? 'Aperçu';
+
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PdfViewerPage(
+          pdfBytes: pdfBytes,
+          title: title,
+        ),
+      ),
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // ✅ --- END OF PDF MODIFICATIONS ---
+  // ----------------------------------------------------------------------
+
 
   @override
   void dispose() {
@@ -572,13 +646,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // UI
+  // UI (UNCHANGED)
   // ----------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final data = widget.interventionDoc.data() ?? {};
 
-    // ✅ FIX: Safely access Timestamp fields, defaulting to current time if missing
     final createdAtTimestamp = data['createdAt'] as Timestamp?;
     final createdAt = createdAtTimestamp?.toDate() ?? DateTime.now();
 
@@ -639,7 +712,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 children: [
                   _buildSummaryCard(data, createdAt),
                   const SizedBox(height: 24),
-                  _buildReportForm(context), // ✅ THIS WIDGET IS NOW MODIFIED
+                  _buildReportForm(context),
                 ],
               ),
             ),
@@ -656,7 +729,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ FIX: Use 'createdByName' from data, which should be present
             Text(
               'Demandé par ${data['createdByName'] ?? 'Inconnu'}',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -677,23 +749,19 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             const Text('Description du Problème:',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            // ✅ Use the correct field name 'requestDescription'
             Text(data['requestDescription'] ?? 'Non spécifié'),
 
-            // ✅ --- NEW SECTION FOR INTERVENTION TYPE ---
             const SizedBox(height: 12),
             const Text('Type d\'Intervention:',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(data['interventionType'] ?? 'Non spécifié'),
-            // ✅ --- END OF NEW SECTION ---
           ],
         ),
       ),
     );
   }
 
-  // ✅ 5. THIS ENTIRE WIDGET IS UPDATED WITH AI BUTTONS (NOW FIXED)
   Widget _buildReportForm(BuildContext context) {
     return Form(
       child: Column(
@@ -716,7 +784,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             decoration: const InputDecoration(labelText: 'Téléphone du contact'),
           ),
           const SizedBox(height: 16),
-          // ✅ ADDED THIS BLOCK
           TextFormField(
             controller: _managerEmailController,
             readOnly: isReadOnly,
@@ -727,7 +794,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             ),
           ),
           const SizedBox(height: 16),
-          // ✅ END OF ADDED BLOCK
           MultiSelectDialogField<AppUser>(
             items: _allTechnicians
                 .map((t) => MultiSelectItem(t, t.displayName))
@@ -756,8 +822,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             dialogWidth: MediaQuery.of(context).size.width * 0.9,
           ),
           const SizedBox(height: 16),
-
-          // --- ✅ START DIAGNOSTIC AI FIELD ---
           TextFormField(
             controller: _diagnosticController,
             readOnly: isReadOnly,
@@ -781,18 +845,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                   ),
                   tooltip: 'Améliorer le texte par IA',
                   onPressed: () => _generateAiText(
-                    aiContext: 'diagnostic', // ✅ RENAMED
+                    aiContext: 'diagnostic',
                     controller: _diagnosticController,
                   ),
                 ),
               ),
             ),
           ),
-          // --- ✅ END DIAGNOSTIC AI FIELD ---
-
           const SizedBox(height: 16),
-
-          // --- ✅ START WORKDONE AI FIELD ---
           TextFormField(
             controller: _workDoneController,
             readOnly: isReadOnly,
@@ -816,15 +876,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                   ),
                   tooltip: 'Améliorer le texte par IA',
                   onPressed: () => _generateAiText(
-                    aiContext: 'workDone', // ✅ RENAMED
+                    aiContext: 'workDone',
                     controller: _workDoneController,
                   ),
                 ),
               ),
             ),
           ),
-          // --- ✅ END WORKDONE AI FIELD ---
-
           const SizedBox(height: 24),
           _buildMediaSection(), // Uses the modified thumbnail widget
           const SizedBox(height: 24),
@@ -935,6 +993,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
+  // ----------------------------------------------------------------------
+  // ✅ --- _buildMediaThumbnail (MODIFIED) ---
+  // ----------------------------------------------------------------------
   Widget _buildMediaThumbnail({String? url, XFile? file}) {
     final bool isVideo = (url != null && _isVideoPath(url)) ||
         (file != null && _isVideoPath(file.path));
@@ -1050,6 +1111,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
 
     return GestureDetector(
+      // --- THIS ONTAP REMAINS UNCHANGED ---
       onTap: () async {
         // Local media can't be previewed in viewer until uploaded
         if (url == null || url.isEmpty) {
@@ -1085,6 +1147,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           );
         }
       },
+      // ✅ --- START OF MODIFICATION: ADDED ONLONGPRESS ---
+      onLongPress: (file != null)
+          ? null // Don't allow download for local files not yet uploaded
+          : () => _downloadMedia(url),
+      // ✅ --- END OF MODIFICATION ---
+
       child: Container(
         width: 100,
         height: 100,

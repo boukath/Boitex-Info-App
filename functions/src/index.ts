@@ -11,6 +11,7 @@ import {defineSecret} from "firebase-functions/params";
 import {onRequest, onCall, HttpsError} from "firebase-functions/v2/https"; // ✅ MODIFIED
 import {onSchedule} from "firebase-functions/v2/scheduler";
 export { onInterventionTermine } from "./intervention-handlers";
+export * from "./callable-handlers";
 const backblazeKeyId = defineSecret("BACKBLAZE_KEY_ID");
 const backblazeAppKey = defineSecret("BACKBLAZE_APP_KEY");
 const backblazeBucketId = defineSecret("BACKBLAZE_BUCKET_ID");
