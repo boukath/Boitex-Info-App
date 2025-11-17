@@ -129,7 +129,11 @@ export const onInterventionTermine = onDocumentUpdated(
       const mailOptions = {
         from: `"Boitex Info Service Technique" <${smtpUser.value()}>`,
         to: managerEmail,
-        cc: "athmane-boukerdous@boitexinfo.com", // <-- ✅ YOUR ADDED LINE
+        cc: [
+          "athmane-boukerdous@boitexinfo.com",
+          "commercial@boitexinfo.com",
+          "khaled-mekideche@boitexinfo.com"
+        ],
         subject: subject,
         html: body,
         attachments: [
