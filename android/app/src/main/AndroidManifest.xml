@@ -14,6 +14,8 @@
     <!-- Wake lock permission for notifications -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+
     <application
         android:label="BoitexInfo"
         android:name="${applicationName}"

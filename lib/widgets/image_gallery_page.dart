@@ -1,17 +1,23 @@
 // lib/widgets/image_gallery_page.dart
 
+import 'dart:io'; // ✅ Required for File operations
 import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart'; // ✅ Required for temp storage
+import 'package:gal/gal.dart'; // ✅ Required for saving to Gallery
 
 class ImageGalleryPage extends StatefulWidget {
   final List<String> imageUrls;
   final int initialIndex;
+  final Function(String url)? onDelete; // Callback passing the deleted URL
 
   const ImageGalleryPage({
     super.key,
     required this.imageUrls,
     required this.initialIndex,
+    this.onDelete,
   });
 
   @override
@@ -21,11 +27,14 @@ class ImageGalleryPage extends StatefulWidget {
 class _ImageGalleryPageState extends State<ImageGalleryPage> {
   late PageController _pageController;
   late int _currentIndex;
+  late List<String> _images; // Local copy to handle deletions
+  bool _isDownloading = false;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _images = List.from(widget.imageUrls); // Copy the list
     _pageController = PageController(initialPage: widget.initialIndex);
   }
 
@@ -41,25 +50,140 @@ class _ImageGalleryPageState extends State<ImageGalleryPage> {
     });
   }
 
+  // ✅ UPDATED DOWNLOAD FUNCTION (Saves to Gallery)
+  Future<void> _downloadCurrentImage() async {
+    if (_isDownloading || _images.isEmpty) return;
+    setState(() => _isDownloading = true);
+
+    final url = _images[_currentIndex];
+
+    try {
+      // 1. Check/Request Permissions
+      if (!await Gal.requestAccess()) {
+        throw Exception('Permission refusée pour la galerie.');
+      }
+
+      // 2. Prepare temporary file path
+      final tempDir = await getTemporaryDirectory();
+      // Extract extension (e.g., .jpg)
+      final ext = url.split('.').last.split('?').first;
+      final fileName = 'image_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final path = '${tempDir.path}/$fileName';
+
+      // 3. Download bytes
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) {
+        throw Exception('Erreur serveur: ${response.statusCode}');
+      }
+
+      // 4. Write to temp file
+      final file = File(path);
+      await file.writeAsBytes(response.bodyBytes);
+
+      // 5. Save to Gallery using Gal
+      await Gal.putImage(path);
+
+      // 6. Cleanup temp file
+      await file.delete();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('✅ Photo enregistrée dans la Galerie !'),
+              backgroundColor: Colors.green
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Download error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
+    }
+  }
+
+  // ✅ DELETE FUNCTION
+  void _deleteCurrentImage() {
+    if (_images.isEmpty) return;
+    final urlToDelete = _images[_currentIndex];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer la photo ?'),
+        content: const Text('Cette action retirera la photo de l\'intervention.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () {
+              Navigator.of(ctx).pop(); // Close dialog
+
+              // 1. Notify Parent (InterventionDetailsPage) to update Firestore
+              if (widget.onDelete != null) {
+                widget.onDelete!(urlToDelete);
+              }
+
+              // 2. Update Local UI state for smooth transition
+              setState(() {
+                _images.removeAt(_currentIndex);
+                // Adjust index if we deleted the last item
+                if (_currentIndex >= _images.length) {
+                  _currentIndex = _images.isEmpty ? 0 : _images.length - 1;
+                }
+              });
+
+              // 3. Close gallery if empty
+              if (_images.isEmpty) {
+                Navigator.of(context).pop();
+              }
+            },
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_images.isEmpty) return const SizedBox.shrink();
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
-        // Show the current image count (e.g., "1 / 5")
         title: Text(
-          '${_currentIndex + 1} / ${widget.imageUrls.length}',
+          '${_currentIndex + 1} / ${_images.length}',
           style: const TextStyle(color: Colors.white),
         ),
+        actions: [
+          // ✅ Download Button
+          IconButton(
+            icon: _isDownloading
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Icon(Icons.download),
+            onPressed: _downloadCurrentImage,
+            tooltip: 'Télécharger',
+          ),
+          // ✅ Delete Button (Only if callback is provided)
+          if (widget.onDelete != null)
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.redAccent),
+              onPressed: _deleteCurrentImage,
+              tooltip: 'Supprimer',
+            ),
+        ],
       ),
       body: PhotoViewGallery.builder(
-        pageController: _pageController,
-        itemCount: widget.imageUrls.length,
-        onPageChanged: _onPageChanged,
-        builder: (context, index) {
-          final imageUrl = widget.imageUrls[index];
+        scrollPhysics: const BouncingScrollPhysics(),
+        builder: (BuildContext context, int index) {
+          final imageUrl = _images[index];
           return PhotoViewGalleryPageOptions(
             imageProvider: NetworkImage(imageUrl),
             initialScale: PhotoViewComputedScale.contained,
@@ -68,13 +192,13 @@ class _ImageGalleryPageState extends State<ImageGalleryPage> {
             heroAttributes: PhotoViewHeroAttributes(tag: imageUrl),
           );
         },
-        // Show a loading spinner while images are loading
+        itemCount: _images.length,
         loadingBuilder: (context, event) => const Center(
           child: CircularProgressIndicator(color: Colors.white),
         ),
-        backgroundDecoration: const BoxDecoration(
-          color: Colors.black,
-        ),
+        backgroundDecoration: const BoxDecoration(color: Colors.black),
+        pageController: _pageController,
+        onPageChanged: _onPageChanged,
       ),
     );
   }

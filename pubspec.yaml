@@ -52,6 +52,7 @@ dependencies:
   shimmer: ^3.0.0
   flutter_slidable: ^4.0.3
   uuid: ^4.4.0
+  gal: ^2.3.0
 
   # For iOS style icons
   cupertino_icons: ^1.0.2
