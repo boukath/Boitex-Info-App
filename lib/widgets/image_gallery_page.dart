@@ -1,12 +1,14 @@
 // lib/widgets/image_gallery_page.dart
 
-import 'dart:io'; // ✅ Required for File operations
+import 'dart:io'; // ✅ Required for File operations (Mobile)
+import 'package:flutter/foundation.dart'; // ✅ Required for kIsWeb check
 import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart'; // ✅ Required for temp storage
-import 'package:gal/gal.dart'; // ✅ Required for saving to Gallery
+import 'package:path_provider/path_provider.dart'; // ✅ Required for temp storage (Mobile)
+import 'package:gal/gal.dart'; // ✅ Required for saving to Gallery (Mobile)
+import 'package:file_saver/file_saver.dart'; // ✅ Required for Web Downloads
 
 class ImageGalleryPage extends StatefulWidget {
   final List<String> imageUrls;
@@ -50,7 +52,7 @@ class _ImageGalleryPageState extends State<ImageGalleryPage> {
     });
   }
 
-  // ✅ UPDATED DOWNLOAD FUNCTION (Saves to Gallery)
+  // ✅ UPDATED DOWNLOAD FUNCTION (WEB + MOBILE SUPPORT)
   Future<void> _downloadCurrentImage() async {
     if (_isDownloading || _images.isEmpty) return;
     setState(() => _isDownloading = true);
@@ -58,41 +60,62 @@ class _ImageGalleryPageState extends State<ImageGalleryPage> {
     final url = _images[_currentIndex];
 
     try {
-      // 1. Check/Request Permissions
-      if (!await Gal.requestAccess()) {
-        throw Exception('Permission refusée pour la galerie.');
-      }
+      // 1. Extract file info
+      // Clean the URL to get the extension (remove query params like ?alt=media)
+      final cleanUrl = url.split('?').first;
+      final ext = cleanUrl.split('.').last;
+      final fileName = 'image_${DateTime.now().millisecondsSinceEpoch}';
 
-      // 2. Prepare temporary file path
-      final tempDir = await getTemporaryDirectory();
-      // Extract extension (e.g., .jpg)
-      final ext = url.split('.').last.split('?').first;
-      final fileName = 'image_${DateTime.now().millisecondsSinceEpoch}.$ext';
-      final path = '${tempDir.path}/$fileName';
-
-      // 3. Download bytes
+      // 2. Download bytes (RAM) - Works on Web & Mobile
       final response = await http.get(Uri.parse(url));
       if (response.statusCode != 200) {
         throw Exception('Erreur serveur: ${response.statusCode}');
       }
 
-      // 4. Write to temp file
-      final file = File(path);
-      await file.writeAsBytes(response.bodyBytes);
-
-      // 5. Save to Gallery using Gal
-      await Gal.putImage(path);
-
-      // 6. Cleanup temp file
-      await file.delete();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('✅ Photo enregistrée dans la Galerie !'),
-              backgroundColor: Colors.green
-          ),
+      // ⭐️ 3. WEB LOGIC
+      if (kIsWeb) {
+        await FileSaver.instance.saveFile(
+          name: fileName,
+          bytes: response.bodyBytes,
+          ext: ext,
+          mimeType: MimeType.jpeg, // Generally safe for photos
         );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('✅ Téléchargement terminé (Web) !'),
+                backgroundColor: Colors.green),
+          );
+        }
+      }
+      // 📱 4. MOBILE LOGIC (Your original code)
+      else {
+        // Check Permissions
+        if (!await Gal.requestAccess()) {
+          throw Exception('Permission refusée pour la galerie.');
+        }
+
+        // Prepare path
+        final tempDir = await getTemporaryDirectory();
+        final path = '${tempDir.path}/$fileName.$ext';
+
+        // Write to disk
+        final file = File(path);
+        await file.writeAsBytes(response.bodyBytes);
+
+        // Save to Gallery
+        await Gal.putImage(path);
+
+        // Cleanup
+        await file.delete();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('✅ Photo enregistrée dans la Galerie !'),
+                backgroundColor: Colors.green),
+          );
+        }
       }
     } catch (e) {
       debugPrint('Download error: $e');
@@ -106,7 +129,7 @@ class _ImageGalleryPageState extends State<ImageGalleryPage> {
     }
   }
 
-  // ✅ DELETE FUNCTION
+  // ✅ DELETE FUNCTION (Unchanged)
   void _deleteCurrentImage() {
     if (_images.isEmpty) return;
     final urlToDelete = _images[_currentIndex];

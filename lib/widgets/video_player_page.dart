@@ -1,12 +1,14 @@
 // lib/widgets/video_player_page.dart
 
-import 'dart:io'; // ✅ Required for File operations
+import 'dart:io'; // ✅ Required for File operations (Mobile)
+import 'package:flutter/foundation.dart'; // ✅ Required for kIsWeb check
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart'; // ✅ Required for temp storage
-import 'package:gal/gal.dart'; // ✅ Required for saving to Gallery
+import 'package:path_provider/path_provider.dart'; // ✅ Required for temp storage (Mobile)
+import 'package:gal/gal.dart'; // ✅ Required for saving to Gallery (Mobile)
+import 'package:file_saver/file_saver.dart'; // ✅ Required for Web Downloads
 
 class VideoPlayerPage extends StatefulWidget {
   final String videoUrl;
@@ -78,47 +80,61 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
   }
 
-  // ✅ UPDATED DOWNLOAD FUNCTION (Saves to Gallery)
+  // ✅ UPDATED DOWNLOAD FUNCTION (WEB + MOBILE SUPPORT)
   Future<void> _downloadVideo() async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
 
     try {
-      // 1. Check/Request Permissions
-      if (!await Gal.requestAccess()) {
-        throw Exception('Permission refusée pour la galerie.');
-      }
+      // 1. Extract file info
+      final cleanUrl = widget.videoUrl.split('?').first;
+      final ext = cleanUrl.split('.').last; // e.g., 'mp4'
+      final fileName = 'video_${DateTime.now().millisecondsSinceEpoch}';
 
-      // 2. Prepare temporary file path
-      final tempDir = await getTemporaryDirectory();
-      // Extract extension or default to .mp4
-      final ext = widget.videoUrl.split('.').last.split('?').first;
-      final fileName = 'video_${DateTime.now().millisecondsSinceEpoch}.$ext';
-      final path = '${tempDir.path}/$fileName';
-
-      // 3. Download bytes
+      // 2. Download bytes (RAM)
       final response = await http.get(Uri.parse(widget.videoUrl));
       if (response.statusCode != 200) {
         throw Exception('Erreur serveur: ${response.statusCode}');
       }
 
-      // 4. Write to temp file
-      final file = File(path);
-      await file.writeAsBytes(response.bodyBytes);
-
-      // 5. Save to Gallery using Gal
-      await Gal.putVideo(path);
-
-      // 6. Cleanup temp file
-      await file.delete();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('✅ Vidéo enregistrée dans la Galerie !'),
-              backgroundColor: Colors.green
-          ),
+      // ⭐️ 3. WEB LOGIC
+      if (kIsWeb) {
+        await FileSaver.instance.saveFile(
+          name: fileName,
+          bytes: response.bodyBytes,
+          ext: ext,
+          mimeType: MimeType.mpeg, // Covers mp4 generally
         );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('✅ Vidéo téléchargée (Web) !'),
+                backgroundColor: Colors.green),
+          );
+        }
+      }
+      // 📱 4. MOBILE LOGIC (Your original code)
+      else {
+        if (!await Gal.requestAccess()) {
+          throw Exception('Permission refusée pour la galerie.');
+        }
+
+        final tempDir = await getTemporaryDirectory();
+        final path = '${tempDir.path}/$fileName.$ext';
+
+        final file = File(path);
+        await file.writeAsBytes(response.bodyBytes);
+
+        await Gal.putVideo(path);
+        await file.delete();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('✅ Vidéo enregistrée dans la Galerie !'),
+                backgroundColor: Colors.green),
+          );
+        }
       }
     } catch (e) {
       debugPrint('Download error: $e');
@@ -132,7 +148,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
   }
 
-  // ✅ DELETE FUNCTION
+  // ✅ DELETE FUNCTION (Unchanged)
   void _deleteVideo() {
     showDialog(
       context: context,
