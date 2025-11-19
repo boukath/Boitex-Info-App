@@ -764,6 +764,9 @@ L'équipe BOITEX INFO'''
   }
 
   Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
+    // Extract the phone number safely from the data map
+    final String? clientPhone = data['clientPhone'];
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -797,6 +800,42 @@ L'équipe BOITEX INFO'''
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(data['interventionType'] ?? 'Non spécifié'),
+
+            // ✅ ADDED: Dynamic Client Phone Field (Clickable)
+            if (clientPhone != null && clientPhone.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('Tél Client:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: () async {
+                  final Uri launchUri = Uri(
+                    scheme: 'tel',
+                    path: clientPhone,
+                  );
+                  // Check if the device can handle the call
+                  if (await canLaunchUrl(launchUri)) {
+                    await launchUrl(launchUri);
+                  }
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.phone, size: 18, color: Color(0xFF667EEA)),
+                    const SizedBox(width: 8),
+                    Text(
+                      clientPhone,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF667EEA), // Matches your app theme
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
