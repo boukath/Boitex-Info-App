@@ -2,10 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:boitex_info_app/models/sav_ticket.dart'; // Ensure this path is correct
+import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/services/activity_logger.dart';
 import 'package:intl/intl.dart';
-// import 'package:multi_select_flutter/multi_select_flutter.dart'; // Removed if _AddPartsDialog is separate
 import 'package:boitex_info_app/screens/service_technique/finalize_sav_return_page.dart';
 import 'dart:typed_data';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -63,14 +62,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         .listen((doc) {
       if (doc.exists && mounted) {
         setState(() {
-          // Update _currentTicket with the latest data from Firestore
           _currentTicket = SavTicket.fromFirestore(
               doc as DocumentSnapshot<Map<String, dynamic>>);
-          // Update the report controller only if the text differs
           if (_reportController.text != (_currentTicket.technicianReport ?? '')) {
             _reportController.text = _currentTicket.technicianReport ?? '';
           }
-          // Re-check stock if broken parts exist
           if (_currentTicket.brokenParts.isNotEmpty) {
             _checkStockForParts(_currentTicket.brokenParts);
           }
@@ -78,7 +74,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       }
     });
 
-    // Initial stock check
     if (_currentTicket.brokenParts.isNotEmpty) {
       _checkStockForParts(_currentTicket.brokenParts);
     }
@@ -90,7 +85,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     super.dispose();
   }
 
-  // --- Helper Functions (Unchanged from your original) ---
+  // --- Helper Functions ---
   bool _isVideoUrl(String url) {
     final lowercaseUrl = url.toLowerCase();
     return lowercaseUrl.endsWith('.mp4') ||
@@ -129,7 +124,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         }
       } catch (e) {
         print('Error checking stock for ${part.productId}: $e');
-        tempStatus[part.productId] = 0; // Assume 0 on error
+        tempStatus[part.productId] = 0;
       }
     }
     if (mounted) {
@@ -161,7 +156,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      // Construct filename for B2 using ticket code and timestamp
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileExtension = path.extension(file.path);
       final b2FileName =
@@ -177,13 +171,13 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         mimeType = 'video/mp4';
       } else if (lcFileName.endsWith('.mov')) {
         mimeType = 'video/quicktime';
-      } // Add more if needed
+      }
 
       final resp = await http.post(
         uploadUri,
         headers: {
           'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(b2FileName), // Use constructed name
+          'X-Bz-File-Name': Uri.encodeComponent(b2FileName),
           'Content-Type': mimeType ?? 'b2/x-auto',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': fileBytes.length.toString(),
@@ -194,7 +188,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       if (resp.statusCode == 200) {
         final body = json.decode(resp.body) as Map<String, dynamic>;
         final returnedFileName = body['fileName'] as String;
-        // Correctly encode the path segments
         final encodedPath = returnedFileName.split('/').map(Uri.encodeComponent).join('/');
         return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
       } else {
@@ -213,7 +206,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       allowMultiple: true,
     );
     if (result != null) {
-      const maxFileSize = 50 * 1024 * 1024; // 50 MB
+      const maxFileSize = 50 * 1024 * 1024;
       final validFiles = result.files.where((file) {
         if (file.path != null && File(file.path!).existsSync()) {
           final fileLength = File(file.path!).lengthSync();
@@ -256,30 +249,27 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           throw Exception('Impossible de récupérer les accès B2.');
         }
 
-        // Upload files concurrently
         final uploadFutures = _technicianMediaToUpload.map((file) =>
             _uploadFileToB2(file, b2Credentials)
         ).toList();
 
         final results = await Future.wait(uploadFutures);
-        newMediaUrls = results.whereType<String>().toList(); // Filter out nulls (failed uploads)
+        newMediaUrls = results.whereType<String>().toList();
 
         if (newMediaUrls.length != _technicianMediaToUpload.length && mounted) {
-          // Inform user if some uploads failed
           scaffoldMessenger.showSnackBar(
             const SnackBar(content: Text('Certains médias n\'ont pas pu être uploadés.'), backgroundColor: Colors.orange),
           );
         }
       }
 
-      // Combine existing URLs with newly uploaded URLs
       final combinedMediaUrls = List<String>.from(_currentTicket.itemPhotoUrls)..addAll(newMediaUrls);
 
       final updateData = {
         'status': newStatus,
         'technicianReport': _reportController.text.trim(),
         'brokenParts': _currentTicket.brokenParts.map((p) => p.toJson()).toList(),
-        'itemPhotoUrls': combinedMediaUrls, // Update with combined list
+        'itemPhotoUrls': combinedMediaUrls,
       };
 
       await FirebaseFirestore.instance
@@ -289,13 +279,13 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
 
       await ActivityLogger.logActivity(
         message: "Statut SAV ${_currentTicket.savCode} -> '$newStatus'. ${newMediaUrls.isNotEmpty ? '${newMediaUrls.length} média(s) ajouté(s).' : ''}",
-        interventionId: _currentTicket.id, // Using ticket ID as reference
+        interventionId: _currentTicket.id,
         category: 'SAV',
       );
 
       if (mounted) {
         setState(() {
-          _technicianMediaToUpload.clear(); // Clear the list after successful processing
+          _technicianMediaToUpload.clear();
         });
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Ticket mis à jour.'), backgroundColor: Colors.green),
@@ -322,18 +312,15 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     );
 
     if (selectedProducts != null) {
-      // Map selected products to BrokenPart objects
       final newParts = selectedProducts.map((doc) {
-        final data = doc.data() as Map<String, dynamic>?; // Cast data
+        final data = doc.data() as Map<String, dynamic>?;
         return BrokenPart(
           productId: doc.id,
-          productName: data?['nom'] as String? ?? 'Nom Inconnu', // Safe access
-          status: 'À Remplacer', // Default status for newly added parts
+          productName: data?['nom'] as String? ?? 'Nom Inconnu',
+          status: 'À Remplacer',
         );
       }).toList();
 
-      // Update the state with the new list of parts
-      // This part only updates the local state, Firestore update happens in _updateTicket
       setState(() {
         _currentTicket = SavTicket(
           id: _currentTicket.id,
@@ -352,55 +339,42 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           itemPhotoUrls: _currentTicket.itemPhotoUrls,
           storeManagerName: _currentTicket.storeManagerName,
           storeManagerSignatureUrl: _currentTicket.storeManagerSignatureUrl,
-          status: _currentTicket.status, // Keep current status
-          technicianReport: _reportController.text, // Use current report text
+          status: _currentTicket.status,
+          technicianReport: _reportController.text,
           createdBy: _currentTicket.createdBy,
           createdAt: _currentTicket.createdAt,
-          brokenParts: newParts, // <- Use the new list here
-          // Keep existing return fields (important!)
-          billingStatus: _currentTicket.billingStatus,
-          invoiceUrl: _currentTicket.invoiceUrl,
+          brokenParts: newParts,
+          billingStatus: _currentTicket.billingStatus, // Keeping value for model integrity
+          invoiceUrl: _currentTicket.invoiceUrl, // Keeping value for model integrity
           returnClientName: _currentTicket.returnClientName,
           returnSignatureUrl: _currentTicket.returnSignatureUrl,
           returnPhotoUrl: _currentTicket.returnPhotoUrl,
-          // NOTE: returnClientPhone and returnClientEmail are NOT included
-          // because they are not in the SavTicket model provided
         );
       });
 
-
-      // Refresh stock status for the new parts list
       _checkStockForParts(newParts);
-
-      // Save the ticket changes (including the updated parts list) to Firestore
-      // Pass the current status so it doesn't revert
       _updateTicket(_currentTicket.status);
     }
   }
 
-  // Modified _openMedia to handle the single return media URL correctly
   void _openMedia(String url) {
-    // Check if the URL matches the specific returnPhotoUrl
     if (url == _currentTicket.returnPhotoUrl) {
       if (_isVideoUrl(url)) {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (context) => VideoPlayerPage(videoUrl: url),
         ));
       } else {
-        // It's the return photo, show it in the gallery by itself
         Navigator.of(context).push(MaterialPageRoute(
           builder: (context) => ImageGalleryPage(imageUrls: [url], initialIndex: 0),
         ));
       }
     }
-    // Check if the URL is part of the initial item photos/videos
     else if (_currentTicket.itemPhotoUrls.contains(url)) {
       if (_isVideoUrl(url)) {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (context) => VideoPlayerPage(videoUrl: url),
         ));
       } else {
-        // It's an initial image, show it within the gallery of initial images
         final imageLinks = _currentTicket.itemPhotoUrls.where((link) => !_isVideoUrl(link)).toList();
         final initialIndex = imageLinks.indexOf(url);
         if (imageLinks.isNotEmpty) {
@@ -412,25 +386,20 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         }
       }
     }
-    // If the URL doesn't match return or initial photos, do nothing (or log error)
     else {
       print("Error: URL $url not found in ticket media.");
     }
   }
-  // --- END Helper Functions ---
 
-
-  // ✅ --- START: ADDED WIDGET TO SHOW RETURN DETAILS ---
   Widget _buildReturnDetailsCard() {
-    // Only build this card if the status is 'Retourné' and relevant data exists
     if (_currentTicket.status != 'Retourné' || _currentTicket.returnClientName == null) {
-      return const SizedBox.shrink(); // Return empty space if not applicable
+      return const SizedBox.shrink();
     }
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 4,
-      margin: const EdgeInsets.only(top: 16.0), // Space above the card
+      margin: const EdgeInsets.only(top: 16.0),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -438,33 +407,29 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           children: [
             Text(
               'Preuve de Retour Client',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.green), // Distinct color
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.green),
             ),
             const Divider(height: 20),
 
-            // Display return information using the existing helper row widget
             _buildInfoRow('Client (Réception):', _currentTicket.returnClientName ?? 'N/A'),
-
-            // NOTE: Phone and Email are NOT displayed as they are not in the model
 
             const SizedBox(height: 16),
 
-            // --- Display Signature ---
             const Text('Signature Client:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             if (_currentTicket.returnSignatureUrl != null)
               Container(
-                height: 100, // Fixed height for signature display
+                height: 100,
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey.shade300),
                   borderRadius: BorderRadius.circular(8),
-                  color: Colors.grey.shade100, // Light background
+                  color: Colors.grey.shade100,
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
                     _currentTicket.returnSignatureUrl!,
-                    fit: BoxFit.contain, // Ensure signature fits
+                    fit: BoxFit.contain,
                     loadingBuilder: (context, child, progress) =>
                     progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                     errorBuilder: (context, error, stackTrace) =>
@@ -477,11 +442,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
 
             const SizedBox(height: 16),
 
-            // --- Display Media Proof ---
             const Text('Photo/Vidéo de Preuve:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             if (_currentTicket.returnPhotoUrl != null)
-            // Reuse the existing thumbnail widget for consistency
               _buildMediaThumbnail(url: _currentTicket.returnPhotoUrl!)
             else
               const Text('Média non disponible.', style: TextStyle(color: Colors.grey)),
@@ -490,7 +453,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       ),
     );
   }
-  // ✅ --- END: ADDED WIDGET ---
 
 
   @override
@@ -500,33 +462,29 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         title: Text(_currentTicket.savCode),
         backgroundColor: Colors.orange,
       ),
-      body: SingleChildScrollView( // Makes the whole page scrollable
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoCard(), // Basic ticket info
+            _buildInfoCard(),
             const SizedBox(height: 16),
 
-            // Section for INITIAL photos/videos added during ticket creation
             if (_currentTicket.itemPhotoUrls.isNotEmpty) ...[
-              _buildMediaSection(), // Shows existing media from itemPhotoUrls
+              _buildMediaSection(),
               const SizedBox(height: 16),
             ],
 
-            _buildTechnicianSection(), // Section for technician report, status, parts, and adding NEW media
+            _buildTechnicianSection(),
 
-            // ✅ --- THIS IS THE ADDED CALL ---
-            _buildReturnDetailsCard(), // Display the return proof card if applicable
-            // ✅ --- END OF ADDED CALL ---
+            _buildReturnDetailsCard(),
 
-            const SizedBox(height: 24), // Spacing before the finalize button
+            const SizedBox(height: 24),
 
-            // Button to navigate to the finalize return page (only if status allows)
             if (_currentTicket.status == 'Approuvé - Prêt pour retour')
-              Center( // Center the button
+              Center(
                 child: SizedBox(
-                  width: double.infinity, // Make button take full width
+                  width: double.infinity,
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.inventory_outlined),
                     label: const Text('Finaliser le Retour'),
@@ -552,7 +510,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     );
   }
 
-  // --- Widget Building Methods (Unchanged from your original) ---
   Widget _buildInfoCard() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -576,9 +533,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             ),
             const Divider(height: 20),
             _buildInfoRow('Statut Actuel:', _currentTicket.status, isStatus: true),
-            if (_currentTicket.billingStatus != null) _buildInfoRow('Facturation:', _currentTicket.billingStatus!),
+            // ✅ REMOVED: Billing info display
             _buildInfoRow('Date de création:', DateFormat('dd MMM yyyy, HH:mm', 'fr_FR').format(_currentTicket.createdAt)),
-            _buildInfoRow('Créé par:', _currentTicket.createdBy), // Added Created By for context
+            _buildInfoRow('Créé par:', _currentTicket.createdBy),
           ],
         ),
       ),
@@ -586,13 +543,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 
   Widget _buildMediaSection() {
-    // Filter out the returnPhotoUrl if it exists in itemPhotoUrls (shouldn't happen, but defensive)
     final initialMedia = _currentTicket.itemPhotoUrls
         .where((url) => url != _currentTicket.returnPhotoUrl)
         .toList();
 
     if (initialMedia.isEmpty) {
-      // Return an empty SizedBox if there's no initial media to show
       return const SizedBox.shrink();
     }
 
@@ -606,9 +561,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           children: [
             Text('Photos/Vidéos (Initiales)', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.orange)),
             const Divider(height: 20),
-            Wrap( // Use Wrap for layout
-              spacing: 8.0, // Horizontal space
-              runSpacing: 8.0, // Vertical space
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
               children: initialMedia.map((url) => _buildMediaThumbnail(url: url)).toList(),
             ),
           ],
@@ -621,50 +576,47 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     bool isVideo = (url != null && _isVideoUrl(url)) || (file != null && _isVideoPath(file.path));
     Widget mediaContent;
 
-    // Build content based on whether it's a local file or a network URL
-    if (file != null) { // --- Local File Preview ---
+    if (file != null) {
       mediaContent = isVideo
-          ? FutureBuilder<Uint8List?>( // Thumbnail for local video
+          ? FutureBuilder<Uint8List?>(
         future: VideoThumbnail.thumbnailData(video: file.path, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
           return snapshot.hasData && snapshot.data != null
               ? Stack(fit: StackFit.expand, children: [ Image.memory(snapshot.data!, fit: BoxFit.cover), const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30))])
-              : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey)); // Placeholder if thumbnail fails
+              : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey));
         },
       )
-          : Image.file(file, fit: BoxFit.cover); // Direct display for local image
-    } else if (url != null) { // --- Network Media Preview ---
+          : Image.file(file, fit: BoxFit.cover);
+    } else if (url != null) {
       mediaContent = isVideo
-          ? FutureBuilder<Uint8List?>( // Thumbnail for network video
-        future: VideoThumbnail.thumbnailData(video: url, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25, headers: {}), // Added empty headers map
+          ? FutureBuilder<Uint8List?>(
+        future: VideoThumbnail.thumbnailData(video: url, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25, headers: {}),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
           return snapshot.hasData && snapshot.data != null
               ? Stack(fit: StackFit.expand, children: [ Image.memory(snapshot.data!, fit: BoxFit.cover), const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30))])
-              : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey)); // Placeholder
+              : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey));
         },
       )
-          : Image.network( // Direct display for network image
+          : Image.network(
         url,
         fit: BoxFit.cover,
         loadingBuilder: (context, child, progress) => progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
         errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.broken_image_outlined, color: Colors.grey)),
       );
-    } else { // Should not happen if called correctly
+    } else {
       mediaContent = const Center(child: Icon(Icons.error_outline, color: Colors.red));
     }
 
-    // Wrap content in GestureDetector for opening media, container for styling
     return GestureDetector(
-      // Ensure onTap uses the non-null url if available
       onTap: url != null ? () => _openMedia(url) : null,
       child: Container(
         width: 80, height: 80,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.grey.shade300),
-          color: Colors.grey.shade100, // Background color
+          color: Colors.grey.shade100,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
@@ -675,7 +627,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 
   Widget _buildTechnicianSection() {
-    bool isReadOnly = _currentTicket.status == 'Retourné'; // Simplified read-only check
+    bool isReadOnly = _currentTicket.status == 'Retourné';
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -683,30 +635,28 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch, // Make children stretch
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Section Technicien', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.orange)),
             const Divider(height: 20),
 
-            // Status Dropdown
             DropdownButtonFormField<String>(
               value: _statusOptions.contains(_currentTicket.status) ? _currentTicket.status : null,
               items: _statusOptions.map((status) => DropdownMenuItem(value: status, child: Text(status))).toList(),
-              onChanged: isReadOnly ? null : (value) { // Disable if read-only
+              onChanged: isReadOnly ? null : (value) {
                 if (value != null && value != _currentTicket.status) {
-                  _updateTicket(value); // Update status (and potentially other fields)
+                  _updateTicket(value);
                 }
               },
               decoration: InputDecoration(
                 labelText: 'Changer le statut',
                 border: const OutlineInputBorder(),
-                filled: isReadOnly, // Visually indicate if disabled
+                filled: isReadOnly,
                 fillColor: isReadOnly ? Colors.grey[200] : null,
               ),
             ),
             const SizedBox(height: 16),
 
-            // Technician Report Text Field
             TextFormField(
               controller: _reportController,
               readOnly: isReadOnly,
@@ -718,12 +668,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                 fillColor: isReadOnly ? Colors.grey[200] : null,
               ),
               maxLines: 5,
-              minLines: 3, // Ensure minimum height
+              minLines: 3,
             ),
             const SizedBox(height: 16),
 
-            // --- Technician Media Upload UI ---
-            if (!isReadOnly) ...[ // Only show if not read-only
+            if (!isReadOnly) ...[
               OutlinedButton.icon(
                 onPressed: _pickTechnicianMedia,
                 icon: const Icon(Icons.add_photo_alternate_outlined),
@@ -736,7 +685,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
               ),
               const SizedBox(height: 8),
 
-              // Preview for newly added (but not yet uploaded) media
               if (_technicianMediaToUpload.isNotEmpty)
                 Container(
                   height: 100,
@@ -751,8 +699,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                         child: Stack(
                           alignment: Alignment.topRight,
                           children: [
-                            _buildMediaThumbnail(file: file), // Build preview
-                            // Remove Button overlay
+                            _buildMediaThumbnail(file: file),
                             InkWell(
                               onTap: () {
                                 setState(() {
@@ -775,9 +722,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                   ),
                 ),
             ],
-            // --- END Technician Media Upload UI ---
 
-            // Button to Add/Edit Broken Parts
             if (!isReadOnly) ... [
               OutlinedButton.icon(
                 onPressed: _showAddPartsDialog,
@@ -792,13 +737,12 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
               const SizedBox(height: 16),
             ],
 
-            // Display List of Broken Parts
             if (_currentTicket.brokenParts.isNotEmpty) ...[
               const Text('Pièces Défectueuses:', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               ListView.builder(
-                shrinkWrap: true, // Important inside SingleChildScrollView
-                physics: const NeverScrollableScrollPhysics(), // Disable internal scrolling
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 itemCount: _currentTicket.brokenParts.length,
                 itemBuilder: (context, index) {
                   final part = _currentTicket.brokenParts[index];
@@ -807,30 +751,29 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                   final stockColor = stock == null ? Colors.grey : (stock > 0 ? Colors.green : Colors.red);
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
-                    dense: true, // Make list items more compact
+                    dense: true,
                     leading: Icon(Icons.build_circle_outlined, color: Colors.grey[600]),
                     title: Text(part.productName),
                     trailing: Text('Stock: $stockText', style: TextStyle(color: stockColor, fontWeight: FontWeight.bold)),
                   );
                 },
               ),
-              const SizedBox(height: 16), // Spacing after parts list
+              const SizedBox(height: 16),
             ],
 
-            // Save Button (only if not read-only)
             if (!isReadOnly)
               ElevatedButton.icon(
-                onPressed: _isUpdating ? null : () => _updateTicket(_currentTicket.status), // Pass current status
+                onPressed: _isUpdating ? null : () => _updateTicket(_currentTicket.status),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   textStyle: const TextStyle(fontSize: 16),
                 ),
-                icon: _isUpdating ? Container() : const Icon(Icons.save_outlined), // Hide icon when loading
+                icon: _isUpdating ? Container() : const Icon(Icons.save_outlined),
                 label: _isUpdating
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                    : const Text('Enregistrer Modifications'), // Updated text
+                    : const Text('Enregistrer Modifications'),
               ),
           ],
         ),
@@ -839,7 +782,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 
   Widget _buildInfoRow(String label, String value, {bool isStatus = false}) {
-    // Determine color for status
     Color valueColor = Colors.black87;
     FontWeight valueWeight = FontWeight.normal;
     if (isStatus) {
@@ -867,11 +809,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       ),
     );
   }
-// --- END Widget Building Methods ---
 }
 
-
-// --- Add Parts Dialog (Separate Widget - Unchanged from your original) ---
+// --- Add Parts Dialog (Kept as is) ---
 class _AddPartsDialog extends StatefulWidget {
   final List<String> initialSelected;
   const _AddPartsDialog({required this.initialSelected});
@@ -886,12 +826,12 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
   String? _selectedCategory;
   bool _isLoadingProducts = true;
   late List<DocumentSnapshot> _selectedParts;
-  String _searchQuery = ''; // For filtering products within a category
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _selectedParts = []; // Initialize empty
+    _selectedParts = [];
     _fetchAllProducts();
   }
 
@@ -906,10 +846,8 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
       if (mounted) {
         setState(() {
           _allProducts = snapshot.docs;
-          // Pre-select items based on initialSelected
           _selectedParts.addAll(_allProducts.where((p) => widget.initialSelected.contains(p.id)));
           _isLoadingProducts = false;
-          // If a category was selected before reloading, re-apply filter
           if (_selectedCategory != null) {
             _filterProductsByCategory(_selectedCategory!);
           }
@@ -934,7 +872,6 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
         final data = doc.data() as Map<String, dynamic>?;
         final bool categoryMatch = data?['categorie'] == category;
         if (!categoryMatch) return false;
-        // Check search query against name or reference
         final name = (data?['nom'] as String? ?? '').toLowerCase();
         final reference = (data?['reference'] as String? ?? '').toLowerCase();
         return name.contains(query) || reference.contains(query);
@@ -944,31 +881,29 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // Get unique categories and sort them
     final categories = _allProducts
         .map((doc) => (doc.data() as Map<String, dynamic>?)?['categorie'] as String?)
-        .where((c) => c != null && c.isNotEmpty) // Filter out null/empty
+        .where((c) => c != null && c.isNotEmpty)
         .toSet()
         .toList()
       ..sort();
 
     return AlertDialog(
       title: const Text('Ajouter/Modifier Pièces'),
-      contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 0), // Adjust padding
+      contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       content: SizedBox(
-        width: double.maxFinite, // Use max width
-        height: MediaQuery.of(context).size.height * 0.7, // Increase height
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Category Dropdown
             DropdownButtonFormField<String>(
               value: _selectedCategory,
               hint: const Text('Sélectionner une catégorie'),
               isExpanded: true,
               onChanged: (value) {
                 if (value != null) {
-                  _searchQuery = ''; // Reset search on category change
+                  _searchQuery = '';
                   _filterProductsByCategory(value);
                 }
               },
@@ -977,7 +912,6 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
             ),
             const SizedBox(height: 8),
 
-            // Search Field (Visible only when category selected)
             if (_selectedCategory != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
@@ -990,13 +924,12 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
                   ),
                   onChanged: (value) {
                     _searchQuery = value;
-                    _filterProductsByCategory(_selectedCategory!); // Re-filter
+                    _filterProductsByCategory(_selectedCategory!);
                   },
                 ),
               ),
 
 
-            // Product List
             Expanded(
               child: _isLoadingProducts
                   ? const Center(child: CircularProgressIndicator())
@@ -1004,7 +937,7 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
                   ? const Center(child: Text('Sélectionnez une catégorie.'))
                   : _productsForCategory.isEmpty
                   ? Center(child: Text(_searchQuery.isEmpty ? 'Aucun produit trouvé.' : 'Aucun produit correspondant au filtre.'))
-                  : ListView.builder( // Use ListView for scrollable list
+                  : ListView.builder(
                 itemCount: _productsForCategory.length,
                 itemBuilder: (context, index) {
                   final product = _productsForCategory[index];
@@ -1020,7 +953,6 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
                     onChanged: (bool? selected) {
                       setState(() {
                         if (selected == true) {
-                          // Add only if not already present
                           if (!_selectedParts.any((p) => p.id == product.id)) {
                             _selectedParts.add(product);
                           }
@@ -1029,7 +961,7 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
                         }
                       });
                     },
-                    controlAffinity: ListTileControlAffinity.leading, // Checkbox on left
+                    controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
                   );
                 },
@@ -1041,11 +973,11 @@ class _AddPartsDialogState extends State<_AddPartsDialog> {
       actions: [
         TextButton(
           child: const Text('ANNULER'),
-          onPressed: () => Navigator.of(context).pop(), // Pop without returning data
+          onPressed: () => Navigator.of(context).pop(),
         ),
         ElevatedButton(
           child: const Text('CONFIRMER'),
-          onPressed: () => Navigator.of(context).pop(_selectedParts), // Pop returning selected parts
+          onPressed: () => Navigator.of(context).pop(_selectedParts),
         ),
       ],
     );

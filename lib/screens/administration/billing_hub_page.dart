@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/administration/billing_decision_page.dart';
-import 'package:boitex_info_app/screens/administration/sav_billing_decision_page.dart';
-import 'package:boitex_info_app/models/sav_ticket.dart';
 
 // ✅ FIXED: Converted to StatefulWidget to allow refreshing the list
 class BillingHubPage extends StatefulWidget {
@@ -18,19 +16,12 @@ class BillingHubPage extends StatefulWidget {
 class _BillingHubPageState extends State<BillingHubPage> {
   // ✅ FIXED: Replaced StreamBuilder with a Future to correctly combine two separate queries.
   Future<List<DocumentSnapshot>> _fetchPendingItems() async {
-    final interventionsFuture = FirebaseFirestore.instance
+    final interventionsSnapshot = await FirebaseFirestore.instance
         .collection('interventions')
         .where('status', isEqualTo: 'Terminé')
         .get();
 
-    final savTicketsFuture = FirebaseFirestore.instance
-        .collection('sav_tickets')
-        .where('status', isEqualTo: 'Terminé')
-        .get();
-
-    final results = await Future.wait([interventionsFuture, savTicketsFuture]);
-
-    final allDocs = [...results[0].docs, ...results[1].docs];
+    final allDocs = interventionsSnapshot.docs;
 
     // ✅ FIXED: Sort by date. Handle potential nulls in 'interventionDate' or 'createdAt'.
     allDocs.sort((a, b) {
@@ -107,13 +98,10 @@ class _BillingHubPageState extends State<BillingHubPage> {
                 );
               }
 
-              // Determine if it's an intervention or SAV ticket
+              // Determine if it's an intervention (SAV removed)
               if (data.containsKey('serviceType')) {
                 // This is an Intervention
                 return _buildInterventionTile(context, doc);
-              } else if (data.containsKey('savCode')) {
-                // This is an SAV Ticket
-                return _buildSavTicketTile(context, doc);
               }
 
               // Fallback for an unknown document type
@@ -175,37 +163,6 @@ class _BillingHubPageState extends State<BillingHubPage> {
             MaterialPageRoute(
                 builder: (context) =>
                     BillingDecisionPage(interventionDoc: doc)),
-          )
-              .then((_) => setState(() {})); // Refresh the list on return
-        },
-      ),
-    );
-  }
-
-  Widget _buildSavTicketTile(BuildContext context, DocumentSnapshot doc) {
-    final ticket =
-    SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
-
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Colors.orange,
-          foregroundColor: Colors.white,
-          child: Icon(Icons.support_agent_outlined),
-        ),
-        title: Text(ticket.savCode,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(
-          '${ticket.clientName}\n${ticket.productName}',
-        ),
-        trailing: Text(DateFormat('dd/MM/yy').format(ticket.createdAt)),
-        onTap: () {
-          Navigator.of(context)
-              .push(
-            MaterialPageRoute(
-                builder: (context) => SavBillingDecisionPage(ticket: ticket)),
           )
               .then((_) => setState(() {})); // Refresh the list on return
         },
