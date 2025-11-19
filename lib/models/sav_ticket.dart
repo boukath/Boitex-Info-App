@@ -40,6 +40,7 @@ class SavTicket {
   final String problemDescription;
   final List<String> itemPhotoUrls;
   final String storeManagerName;
+  final String? storeManagerEmail; // ✅ ADDED: Email field
   final String storeManagerSignatureUrl;
   final String status;
   final String? technicianReport;
@@ -71,6 +72,7 @@ class SavTicket {
     required this.problemDescription,
     required this.itemPhotoUrls,
     required this.storeManagerName,
+    this.storeManagerEmail, // ✅ ADDED: Constructor parameter
     required this.storeManagerSignatureUrl,
     required this.status,
     this.technicianReport,
@@ -101,6 +103,7 @@ class SavTicket {
       'problemDescription': problemDescription,
       'itemPhotoUrls': itemPhotoUrls,
       'storeManagerName': storeManagerName,
+      'storeManagerEmail': storeManagerEmail, // ✅ ADDED: To JSON
       'storeManagerSignatureUrl': storeManagerSignatureUrl,
       'status': status,
       'technicianReport': technicianReport,
@@ -142,6 +145,7 @@ class SavTicket {
       problemDescription: data['problemDescription'] as String,
       itemPhotoUrls: List<String>.from(data['itemPhotoUrls'] ?? []),
       storeManagerName: data['storeManagerName'] as String,
+      storeManagerEmail: data['storeManagerEmail'] as String?, // ✅ ADDED: From Firestore
       storeManagerSignatureUrl: data['storeManagerSignatureUrl'] as String,
       status: data['status'] as String,
       technicianReport: data['technicianReport'] as String?,

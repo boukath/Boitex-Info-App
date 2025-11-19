@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart'; // Still needed for signature
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
@@ -13,10 +13,24 @@ import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:video_thumbnail/video_thumbnail.dart';
-import 'package:http/http.dart' as http; // ✅ ADDED for B2
-import 'package:crypto/crypto.dart';      // ✅ ADDED for B2
-import 'dart:convert';                   // ✅ ADDED for B2
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
 
+// ✅ Helper class for batch items
+class TicketItem {
+  final String productId;
+  final String productName;
+  final String serialNumber;
+  final String problemDescription;
+
+  TicketItem({
+    required this.productId,
+    required this.productName,
+    required this.serialNumber,
+    required this.problemDescription,
+  });
+}
 
 class UserViewModel {
   final String id;
@@ -34,6 +48,7 @@ class AddSavTicketPage extends StatefulWidget {
 
 class _AddSavTicketPageState extends State<AddSavTicketPage> {
   final _formKey = GlobalKey<FormState>();
+  final _itemFormKey = GlobalKey<FormState>(); // ✅ Key for the item entry part
 
   // Clients and stores
   List<QueryDocumentSnapshot> _clients = [];
@@ -61,6 +76,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   // Form controllers
   final _serialNumberController = TextEditingController();
   final _managerNameController = TextEditingController();
+  final _managerEmailController = TextEditingController();
   final _problemDescriptionController = TextEditingController();
   DateTime? _pickupDate;
   final SignatureController _signatureController = SignatureController(
@@ -71,10 +87,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   List<File> _pickedMediaFiles = [];
   bool _isLoading = false;
 
-  // ✅ ADDED B2 Cloud Function URL constant
+  // ✅ List to store multiple items
+  List<TicketItem> _addedItems = [];
+
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
-
 
   @override
   void initState() {
@@ -87,12 +104,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   void dispose() {
     _serialNumberController.dispose();
     _managerNameController.dispose();
+    _managerEmailController.dispose();
     _problemDescriptionController.dispose();
     _signatureController.dispose();
     super.dispose();
   }
 
-  // Helper function for checking video type by path extension
   bool _isVideoPath(String filePath) {
     final p = filePath.toLowerCase();
     return p.endsWith('.mp4') ||
@@ -100,7 +117,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         p.endsWith('.avi') ||
         p.endsWith('.mkv');
   }
-
 
   Future<void> _fetchClients() async {
     try {
@@ -293,7 +309,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       if (rejectedCount > 0 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$rejectedCount fichier(s) dépassent la limite de 50 Mo.'),
+            content:
+            Text('$rejectedCount fichier(s) dépassent la limite de 50 Mo.'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -302,7 +319,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
 
   // --- START: NEW QUICK-ADD DIALOGS ---
-
   Future<void> _showAddClientDialog() async {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
@@ -347,7 +363,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
             onPressed: () async {
               if (formKey.currentState!.validate()) {
                 try {
-                  // Create the client
                   final docRef = await FirebaseFirestore.instance
                       .collection('clients')
                       .add({
@@ -355,10 +370,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     'phone': phoneController.text.trim(),
                     'createdAt': Timestamp.now(),
                     'createdVia': 'sav_quick_add',
-                    // IMPORTANT: Add the serviceType so it appears in the dropdown query
                     'services': [widget.serviceType],
                   });
-                  // Return the new ID
                   Navigator.pop(context, docRef.id);
                 } catch (e) {
                   if (mounted) {
@@ -376,13 +389,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     );
 
     if (newClientId != null && mounted) {
-      // New client was added. Refetch the client list.
       await _fetchClients();
-      // Auto-select the new client
       setState(() {
         _selectedClientId = newClientId;
       });
-      // Auto-fetch stores for this new client
       _fetchStoresForClient(newClientId);
     }
   }
@@ -390,7 +400,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   Future<void> _showAddStoreDialog() async {
     if (_selectedClientId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez d\'abord sélectionner un client')),
+        const SnackBar(
+            content: Text('Veuillez d\'abord sélectionner un client')),
       );
       return;
     }
@@ -439,7 +450,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
             onPressed: () async {
               if (formKey.currentState!.validate()) {
                 try {
-                  // Create the store
                   final docRef = await FirebaseFirestore.instance
                       .collection('clients')
                       .doc(_selectedClientId!)
@@ -450,7 +460,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     'createdAt': Timestamp.now(),
                     'createdVia': 'sav_quick_add',
                   });
-                  // Return the new ID
                   Navigator.pop(context, docRef.id);
                 } catch (e) {
                   if (mounted) {
@@ -468,18 +477,15 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     );
 
     if (newStoreId != null && mounted) {
-      // New store was added. Refetch the store list for the current client.
       await _fetchStoresForClient(_selectedClientId!);
-      // Auto-select the new store
       setState(() {
         _selectedStoreId = newStoreId;
       });
     }
   }
-
   // --- END: NEW QUICK-ADD DIALOGS ---
 
-  // ✅ --- START: ADDED B2 HELPER FUNCTIONS ---
+  // ✅ --- START: B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response =
@@ -502,11 +508,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final fileName = path.basename(file.path); // Use path.basename
+      final fileName = path.basename(file.path);
 
-      // Determine mime type (optional but helpful)
       String? mimeType;
-      if (fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')) {
+      if (fileName.toLowerCase().endsWith('.jpg') ||
+          fileName.toLowerCase().endsWith('.jpeg')) {
         mimeType = 'image/jpeg';
       } else if (fileName.toLowerCase().endsWith('.png')) {
         mimeType = 'image/png';
@@ -515,14 +521,13 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       } else if (fileName.toLowerCase().endsWith('.mov')) {
         mimeType = 'video/quicktime';
       }
-      // Add more mime types if needed
 
       final resp = await http.post(
         uploadUri,
         headers: {
           'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName), // Use Uri.encodeComponent for safety
-          'Content-Type': mimeType ?? 'b2/x-auto', // Provide mime type or default
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': mimeType ?? 'b2/x-auto',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': fileBytes.length.toString(),
         },
@@ -531,7 +536,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
       if (resp.statusCode == 200) {
         final body = json.decode(resp.body) as Map<String, dynamic>;
-        // Correctly encode each part of the path
         final encodedPath = (body['fileName'] as String)
             .split('/')
             .map(Uri.encodeComponent)
@@ -546,110 +550,164 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       return null;
     }
   }
-  // ✅ --- END: ADDED B2 HELPER FUNCTIONS ---
+  // ✅ --- END: B2 HELPER FUNCTIONS ---
 
-  // ✅ MODIFIED to use B2 for media uploads
+  // ✅ NEW: Add item to list
+  void _addItemToList() {
+    if (_itemFormKey.currentState!.validate()) {
+      // Find product name
+      final prodDoc =
+      _products.firstWhere((doc) => doc.id == _selectedProductId);
+
+      setState(() {
+        _addedItems.add(TicketItem(
+          productId: _selectedProductId!,
+          productName: prodDoc['nom'],
+          serialNumber: _serialNumberController.text,
+          problemDescription: _problemDescriptionController.text,
+        ));
+
+        // Clear ONLY item specific fields
+        _serialNumberController.clear();
+        _problemDescriptionController.clear();
+        _selectedProductId = null;
+        // Optional: Clear categories if you want users to re-select
+        // _selectedSubCategory = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Produit ajouté à la liste!')),
+      );
+    }
+  }
+
+  // ✅ NEW: Remove item from list
+  void _removeItemFromList(int index) {
+    setState(() {
+      _addedItems.removeAt(index);
+    });
+  }
+
+  // ✅ MODIFIED: Save batch tickets
   Future<void> _saveTicket() async {
-    if (!_formKey.currentState!.validate()) return;
+    // Basic validation
+    if (_selectedClientId == null || _managerNameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez remplir les infos client/gérant.')),
+      );
+      return;
+    }
+
+    if (_addedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ajoutez au moins un produit à la liste.')),
+      );
+      return;
+    }
+
     if (_signatureController.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Signature requise.')),
       );
       return;
     }
-    setState(() => _isLoading = true);
 
+    setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
     try {
-      // --- 1. Generate Ticket Code ---
+      final clientDoc =
+      _clients.firstWhere((doc) => doc.id == _selectedClientId);
+
+      String? storeName;
+      if (_selectedStoreId != null) {
+        final storeDoc =
+        _stores.firstWhere((doc) => doc.id == _selectedStoreId);
+        storeName = '${storeDoc['name']} - ${storeDoc['location']}';
+      }
+
+      // --- 1. Reserve Block of Codes ---
       final year = DateTime.now().year;
       final counterRef = FirebaseFirestore.instance
           .collection('counters')
           .doc('sav_tickets_$year');
-      final newCode = await FirebaseFirestore.instance.runTransaction(
-            (tx) async {
-          final snap = await tx.get(counterRef);
-          final current = (snap.data()?['count'] as int?) ?? 0;
-          final next = current + 1;
-          tx.set(counterRef, {'count': next}, SetOptions(merge: true));
-          return 'SAV-$next/$year';
-        },
-      );
 
-      // --- 2. Upload Signature (Firebase Storage) ---
+      final int startCount = await FirebaseFirestore.instance.runTransaction((tx) async {
+        final snap = await tx.get(counterRef);
+        final current = (snap.data()?['count'] as int?) ?? 0;
+        final batchSize = _addedItems.length;
+        final nextEnd = current + batchSize;
+        tx.set(counterRef, {'count': nextEnd}, SetOptions(merge: true));
+        return current + 1; // Return the first number of the reserved block
+      });
+
+      // --- 2. Upload Shared Assets (Signature & Media) ---
+      // We use the FIRST code for the signature filename, or a unique ID
+      final sigCode = 'BATCH-${startCount}_$year';
+
       final Uint8List? sigData = await _signatureController.toPngBytes();
       if (sigData == null) throw Exception("Impossible de générer la signature.");
-      final sigRef = FirebaseStorage.instance
-          .ref('sav_signatures/$newCode.png');
+      final sigRef =
+      FirebaseStorage.instance.ref('sav_signatures/$sigCode.png');
       await sigRef.putData(sigData);
       final sigUrl = await sigRef.getDownloadURL();
 
-      // --- 3. Upload Media (Backblaze B2) ---
+      // Upload Media
       List<String> mediaUrls = [];
-      // Get B2 credentials ONCE before the loop
-      final b2Credentials = await _getB2UploadCredentials();
-      if (b2Credentials == null) {
-        throw Exception('Impossible de récupérer les accès B2.');
-      }
-
-      for (var file in _pickedMediaFiles) {
-        // Use the B2 upload function
-        final downloadUrl = await _uploadFileToB2(file, b2Credentials);
-        if (downloadUrl != null) {
-          mediaUrls.add(downloadUrl);
-        } else {
-          // Optionally notify user about failed upload for this file
-          debugPrint('Skipping file due to B2 upload failure: ${path.basename(file.path)}');
+      if (_pickedMediaFiles.isNotEmpty) {
+        final b2Credentials = await _getB2UploadCredentials();
+        if (b2Credentials != null) {
+          for (var file in _pickedMediaFiles) {
+            final downloadUrl = await _uploadFileToB2(file, b2Credentials);
+            if (downloadUrl != null) {
+              mediaUrls.add(downloadUrl);
+            }
+          }
         }
       }
 
-      // --- 4. Prepare Firestore Data ---
-      final clientDoc = _clients
-          .firstWhere((doc) => doc.id == _selectedClientId);
-      final prodDoc = _products
-          .firstWhere((doc) => doc.id == _selectedProductId);
+      // --- 3. Batch Write to Firestore ---
+      final batch = FirebaseFirestore.instance.batch();
+      final ticketsCollection = FirebaseFirestore.instance.collection('sav_tickets');
 
-      String? storeName;
-      if (_selectedStoreId != null) {
-        final storeDoc = _stores
-            .firstWhere((doc) => doc.id == _selectedStoreId);
-        storeName = '${storeDoc['name']} - ${storeDoc['location']}';
+      for (int i = 0; i < _addedItems.length; i++) {
+        final item = _addedItems[i];
+        final currentCodeNumber = startCount + i;
+        final codeStr = 'SAV-$currentCodeNumber/$year';
+
+        final ticket = SavTicket(
+          serviceType: widget.serviceType,
+          savCode: codeStr,
+          clientId: _selectedClientId!,
+          clientName: clientDoc['name'],
+          storeId: _selectedStoreId,
+          storeName: storeName,
+          pickupDate: _pickupDate ?? DateTime.now(),
+          pickupTechnicianIds: _selectedTechnicians.map((u) => u.id).toList(),
+          pickupTechnicianNames: _selectedTechnicians.map((u) => u.name).toList(),
+          productName: item.productName,          // From Item
+          serialNumber: item.serialNumber,        // From Item
+          problemDescription: item.problemDescription, // From Item
+          itemPhotoUrls: mediaUrls, // Shared media
+          storeManagerName: _managerNameController.text,
+          storeManagerEmail: _managerEmailController.text.trim().isEmpty ? null : _managerEmailController.text.trim(),
+          storeManagerSignatureUrl: sigUrl, // Shared signature
+          status: 'Nouveau',
+          createdBy: 'Current User',
+          createdAt: DateTime.now(),
+        );
+
+        final newDocRef = ticketsCollection.doc(); // Auto ID
+        batch.set(newDocRef, ticket.toJson());
       }
 
-      final ticket = SavTicket(
-        serviceType: widget.serviceType,
-        savCode: newCode,
-        clientId: _selectedClientId!,
-        clientName: clientDoc['name'],
-        storeId: _selectedStoreId,
-        storeName: storeName,
-        pickupDate: _pickupDate ?? DateTime.now(),
-        pickupTechnicianIds:
-        _selectedTechnicians.map((u) => u.id).toList(),
-        pickupTechnicianNames:
-        _selectedTechnicians.map((u) => u.name).toList(),
-        productName: prodDoc['nom'],
-        serialNumber: _serialNumberController.text,
-        problemDescription: _problemDescriptionController.text,
-        itemPhotoUrls: mediaUrls, // Still using 'itemPhotoUrls' field name
-        storeManagerName: _managerNameController.text,
-        storeManagerSignatureUrl: sigUrl,
-        status: 'Nouveau',
-        createdBy: 'Current User', // TODO: Replace
-        createdAt: DateTime.now(),
-      );
+      await batch.commit();
 
-      // --- 5. Save to Firestore ---
-      await FirebaseFirestore.instance
-          .collection('sav_tickets')
-          .add(ticket.toJson());
-
-      // --- 6. Success Feedback & Navigation ---
+      // --- 4. Success ---
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
-        const SnackBar(content: Text('Ticket créé!')),
+        SnackBar(content: Text('${_addedItems.length} Tickets créés avec succès!')),
       );
       navigator.pop();
 
@@ -662,7 +720,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -688,13 +745,13 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // --- HEADER INFO ---
               const Text('Informations Client',
                   style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: primaryColor)),
               const SizedBox(height: 16),
-              // --- MODIFIED: Wrapped in Row to add 'Add' button ---
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -711,7 +768,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                         if (value != null) {
                           setState(() {
                             _selectedClientId = value;
-                            // Clear store selection when client changes
                             _selectedStoreId = null;
                             _stores = [];
                             _fetchStoresForClient(value);
@@ -729,21 +785,21 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                         )
                             : const Icon(Icons.person_outline),
                       ),
-                      validator: (v) => v == null ? 'Sélectionner un client' : null,
+                      validator: (v) =>
+                      v == null ? 'Sélectionner un client' : null,
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.add_circle, size: 30),
                     color: primaryColor,
-                    onPressed: _showAddClientDialog, // <-- Link to new function
+                    onPressed: _showAddClientDialog,
                     tooltip: 'Ajouter un nouveau client',
-                    padding: const EdgeInsets.only(top: 8), // Align with form field
+                    padding: const EdgeInsets.only(top: 8),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-              // --- MODIFIED: Wrapped in Row to add 'Add' button ---
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -753,7 +809,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                       items: _stores
                           .map((doc) => DropdownMenuItem(
                         value: doc.id,
-                        child: Text('${doc['name']} - ${doc['location']}'),
+                        child:
+                        Text('${doc['name']} - ${doc['location']}'),
                       ))
                           .toList(),
                       onChanged: _selectedClientId == null
@@ -763,8 +820,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                         labelText: 'Magasin (Optionnel)',
                         border: defaultBorder,
                         focusedBorder: focusedBorder,
-                        filled: _selectedClientId == null, // Visual disable cue
-                        fillColor: _selectedClientId == null ? Colors.grey.shade200 : null,
+                        filled: _selectedClientId == null,
+                        fillColor: _selectedClientId == null
+                            ? Colors.grey.shade200
+                            : null,
                         prefixIcon: _isLoadingStores
                             ? const Padding(
                           padding: EdgeInsets.all(8),
@@ -777,14 +836,15 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.add_circle, size: 30),
-                    color: _selectedClientId != null ? primaryColor : Colors.grey,
-                    onPressed: _selectedClientId != null ? _showAddStoreDialog : null, // <-- Link to new function
+                    color:
+                    _selectedClientId != null ? primaryColor : Colors.grey,
+                    onPressed:
+                    _selectedClientId != null ? _showAddStoreDialog : null,
                     tooltip: 'Ajouter un nouveau magasin',
-                    padding: const EdgeInsets.only(top: 8), // Align with form field
+                    padding: const EdgeInsets.only(top: 8),
                   ),
                 ],
               ),
-
               const SizedBox(height: 16),
               TextFormField(
                 controller: _managerNameController,
@@ -796,6 +856,18 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 ),
                 validator: (v) =>
                 v == null || v.isEmpty ? 'Entrer le nom' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _managerEmailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'Email du Gérant (Optionnel)',
+                  hintText: 'pour recevoir le rapport PDF',
+                  border: defaultBorder,
+                  focusedBorder: focusedBorder,
+                  prefixIcon: const Icon(Icons.alternate_email_rounded),
+                ),
               ),
 
               const Divider(height: 40),
@@ -816,7 +888,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   ),
                   child: Text(_pickupDate == null
                       ? 'Sélectionner une date'
-                      : DateFormat('dd MMMM yyyy', 'fr_FR').format(_pickupDate!)),
+                      : DateFormat('dd MMMM yyyy', 'fr_FR')
+                      .format(_pickupDate!)),
                 ),
               ),
               const SizedBox(height: 16),
@@ -842,138 +915,229 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               ),
 
               const Divider(height: 40),
-              const Text('Informations Produit',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor)),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedMainCategory,
-                items: _mainCategories
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) {
-                    setState(() {
-                      _selectedMainCategory = v;
-                      _fetchCategoriesForMainSection(v);
-                    });
-                  }
-                },
-                decoration: InputDecoration(
-                  labelText: 'Section Principale',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: const Icon(Icons.category_outlined),
-                ),
-                validator: (v) =>
-                v == null ? 'Sélectionner une section' : null,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedSubCategory,
-                items: _subCategories
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                    .toList(),
-                onChanged: _selectedMainCategory == null || _isLoadingSubCategories
-                    ? null
-                    : (v) {
-                  if (v != null) {
-                    setState(() {
-                      _selectedSubCategory = v;
-                      _fetchProductsForSubCategory(v);
-                    });
-                  }
-                },
-                decoration: InputDecoration(
-                  labelText: 'Catégorie',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: _isLoadingSubCategories
-                      ? const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                      : const Icon(Icons.dashboard_customize_outlined),
-                ),
-                validator: (v) => v == null ? 'Sélectionner une catégorie' : null,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedProductId,
-                items: _products
-                    .map((doc) => DropdownMenuItem(
-                  value: doc.id,
-                  child: Text(doc['nom']),
-                ))
-                    .toList(),
-                onChanged: _selectedSubCategory == null || _isLoadingProducts
-                    ? null
-                    : (v) => setState(() => _selectedProductId = v),
-                decoration: InputDecoration(
-                  labelText: 'Produit',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: _isLoadingProducts
-                      ? const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                      : const Icon(Icons.inventory_2_outlined),
-                ),
-                hint: !_isLoadingProducts &&
-                    _selectedSubCategory != null &&
-                    _products.isEmpty
-                    ? const Text('Aucun produit')
-                    : null,
-                validator: (v) => v == null ? 'Sélectionner un produit' : null,
-              ),
 
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _serialNumberController,
-                decoration: InputDecoration(
-                  labelText: 'Numéro de Série',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: const Icon(Icons.qr_code_2_outlined),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.qr_code_scanner),
-                    onPressed: _openScanner,
-                    color: primaryColor,
+              // --- ✅ NEW ITEMS LIST SECTION ---
+              if (_addedItems.isNotEmpty) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Appareils à récupérer',
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue)),
+                    Chip(
+                      label: Text('${_addedItems.length}',
+                          style: const TextStyle(color: Colors.white)),
+                      backgroundColor: Colors.blue,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _addedItems.length,
+                  itemBuilder: (context, index) {
+                    final item = _addedItems[index];
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.blue.shade100,
+                          child: const Icon(Icons.devices, color: Colors.blue),
+                        ),
+                        title: Text(item.productName,
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(
+                            'S/N: ${item.serialNumber}\nPanne: ${item.problemDescription}'),
+                        isThreeLine: true,
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: () => _removeItemFromList(index),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(height: 30),
+              ],
+
+              // --- ✅ ENTRY FORM FOR NEW ITEM ---
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Form(
+                  key: _itemFormKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Ajouter un Appareil',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87)),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: _selectedMainCategory,
+                        items: _mainCategories
+                            .map((c) =>
+                            DropdownMenuItem(value: c, child: Text(c)))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) {
+                            setState(() {
+                              _selectedMainCategory = v;
+                              _fetchCategoriesForMainSection(v);
+                            });
+                          }
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Section Principale',
+                          border: defaultBorder,
+                          focusedBorder: focusedBorder,
+                          prefixIcon: const Icon(Icons.category_outlined),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        validator: (v) =>
+                        v == null ? 'Requis' : null,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _selectedSubCategory,
+                        items: _subCategories
+                            .map((c) =>
+                            DropdownMenuItem(value: c, child: Text(c)))
+                            .toList(),
+                        onChanged: _selectedMainCategory == null ||
+                            _isLoadingSubCategories
+                            ? null
+                            : (v) {
+                          if (v != null) {
+                            setState(() {
+                              _selectedSubCategory = v;
+                              _fetchProductsForSubCategory(v);
+                            });
+                          }
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Catégorie',
+                          border: defaultBorder,
+                          focusedBorder: focusedBorder,
+                          prefixIcon: _isLoadingSubCategories
+                              ? const Padding(
+                            padding: EdgeInsets.all(8),
+                            child:
+                            CircularProgressIndicator(strokeWidth: 2),
+                          )
+                              : const Icon(Icons.dashboard_customize_outlined),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        validator: (v) =>
+                        v == null ? 'Requis' : null,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _selectedProductId,
+                        items: _products
+                            .map((doc) => DropdownMenuItem(
+                          value: doc.id,
+                          child: Text(doc['nom']),
+                        ))
+                            .toList(),
+                        onChanged:
+                        _selectedSubCategory == null || _isLoadingProducts
+                            ? null
+                            : (v) => setState(() => _selectedProductId = v),
+                        decoration: InputDecoration(
+                          labelText: 'Produit',
+                          border: defaultBorder,
+                          focusedBorder: focusedBorder,
+                          prefixIcon: _isLoadingProducts
+                              ? const Padding(
+                            padding: EdgeInsets.all(8),
+                            child:
+                            CircularProgressIndicator(strokeWidth: 2),
+                          )
+                              : const Icon(Icons.inventory_2_outlined),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        validator: (v) =>
+                        v == null ? 'Requis' : null,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _serialNumberController,
+                        decoration: InputDecoration(
+                          labelText: 'Numéro de Série',
+                          border: defaultBorder,
+                          focusedBorder: focusedBorder,
+                          prefixIcon: const Icon(Icons.qr_code_2_outlined),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.qr_code_scanner),
+                            onPressed: _openScanner,
+                            color: primaryColor,
+                          ),
+                        ),
+                        validator: (v) =>
+                        v == null || v.isEmpty ? 'Requis' : null,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _problemDescriptionController,
+                        decoration: InputDecoration(
+                            labelText: 'Description du Problème',
+                            border: defaultBorder,
+                            focusedBorder: focusedBorder,
+                            prefixIcon: const Icon(Icons.report_problem_outlined),
+                            alignLabelWithHint: true),
+                        maxLines: 2,
+                        validator: (v) =>
+                        v == null || v.isEmpty ? 'Requis' : null,
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _addItemToList,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.grey.shade200,
+                            foregroundColor: Colors.black87,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(color: Colors.grey.shade400)),
+                          ),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Ajouter cet appareil à la liste'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                validator: (v) => v == null || v.isEmpty
-                    ? 'Entrer le numéro de série'
-                    : null,
               ),
 
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _problemDescriptionController,
-                decoration: InputDecoration(
-                    labelText: 'Description du Problème',
-                    border: defaultBorder,
-                    focusedBorder: focusedBorder,
-                    prefixIcon: const Icon(Icons.report_problem_outlined),
-                    alignLabelWithHint: true),
-                maxLines: 4,
-                validator: (v) =>
-                v == null || v.isEmpty ? 'Décrire le problème' : null,
-              ),
-
-              const SizedBox(height: 16),
+              const Divider(height: 40),
               OutlinedButton.icon(
                 onPressed: _pickMediaFiles,
                 icon: const Icon(Icons.perm_media_outlined),
-                label:
-                Text('Ajouter Photos/Vidéos (${_pickedMediaFiles.length})'),
+                label: Text(
+                    'Ajouter Photos/Vidéos (Lot complet) (${_pickedMediaFiles.length})'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: primaryColor,
                   side: const BorderSide(color: primaryColor),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
               ),
 
@@ -1004,19 +1168,30 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                 quality: 30,
                               ),
                               builder: (context, snapshot) {
-                                if (snapshot.connectionState == ConnectionState.waiting) {
-                                  return const Center(child: CircularProgressIndicator());
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
                                 }
-                                if (snapshot.hasData && snapshot.data != null) {
+                                if (snapshot.hasData &&
+                                    snapshot.data != null) {
                                   return Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      Image.memory(snapshot.data!, fit: BoxFit.cover),
-                                      const Center(child: Icon(Icons.play_circle_fill_outlined, color: Colors.white70, size: 30)),
+                                      Image.memory(snapshot.data!,
+                                          fit: BoxFit.cover),
+                                      const Center(
+                                          child: Icon(
+                                              Icons
+                                                  .play_circle_fill_outlined,
+                                              color: Colors.white70,
+                                              size: 30)),
                                     ],
                                   );
                                 }
-                                return const Center(child: Icon(Icons.videocam_outlined, size: 40, color: Colors.black54));
+                                return const Center(
+                                    child: Icon(Icons.videocam_outlined,
+                                        size: 40, color: Colors.black54));
                               },
                             )
                                 : Image.file(file, fit: BoxFit.cover),
@@ -1042,7 +1217,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 16),
               Container(
                 height: 150,
@@ -1055,7 +1229,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   backgroundColor: Colors.grey[200]!,
                 ),
               ),
-
               const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
@@ -1063,15 +1236,24 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   onPressed: _isLoading ? null : _saveTicket,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
-                    foregroundColor: Colors.white, // Added for text color
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
-                  icon: _isLoading ? Container() : const Icon(Icons.save_alt_outlined),
+                  icon: _isLoading
+                      ? Container()
+                      : const Icon(Icons.save_alt_outlined),
                   label: _isLoading
-                      ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3,))
-                      : const Text('Créer le Ticket SAV'),
+                      ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 3,
+                      ))
+                      : Text(
+                      'Créer ${_addedItems.isEmpty ? "" : _addedItems.length} Tickets SAV'),
                 ),
               ),
             ],
