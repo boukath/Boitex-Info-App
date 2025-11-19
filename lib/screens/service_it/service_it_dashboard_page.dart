@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+// ✅ ADDED: To detect Web platform for resizing
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
@@ -246,7 +248,8 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 20,
           crossAxisSpacing: 20,
-          childAspectRatio: 1.0,
+          // ✅ ADAPTED FOR WEB: Changed aspect ratio to 1.3 to fit bigger text/icons better
+          childAspectRatio: 1.3,
           children: _buildQuickActions(context), // Uses your builder
         ),
       ],
@@ -739,17 +742,21 @@ class _ActionCard extends StatelessWidget {
                                   offset: const Offset(0, 8)),
                             ],
                           ),
-                          child: Icon(icon, color: Colors.white, size: 28),
+                          // ✅✅✅ MODIFIED: BIGGER ICON ON WEB
+                          child: Icon(icon,
+                              color: Colors.white, size: kIsWeb ? 48 : 28),
                         ),
 
                         // ===== START OF ALIGNMENT FIX =====
                         Container(
-                          height: 44.0,
+                          // ✅✅✅ MODIFIED: BIGGER CONTAINER HEIGHT ON WEB
+                          height: kIsWeb ? 60.0 : 44.0,
                           alignment: Alignment.center,
                           child: Text(
                             label,
-                            style: const TextStyle(
-                              fontSize: 13,
+                            style: TextStyle(
+                              // ✅✅✅ MODIFIED: BIGGER FONT ON WEB
+                              fontSize: kIsWeb ? 18 : 13,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
                               letterSpacing: 0.3,

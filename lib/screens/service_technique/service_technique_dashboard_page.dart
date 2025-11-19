@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+// ✅ ADDED: To detect Web platform for resizing
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
@@ -58,7 +60,8 @@ class _ServiceTechniqueDashboardPageState
     _fadeAnimation =
         CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
     _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+        .animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
     _controller.forward();
   }
 
@@ -253,8 +256,10 @@ class _ServiceTechniqueDashboardPageState
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 20,
           crossAxisSpacing: 20,
-          childAspectRatio: 1.0,
-          children: _buildQuickActions(context), // Uses your quick actions builder
+          // ✅ ADAPTED FOR WEB: Changed aspect ratio to 1.3 to fit bigger text/icons better
+          childAspectRatio: 1.3,
+          children:
+          _buildQuickActions(context), // Uses your quick actions builder
         ),
       ],
     );
@@ -292,8 +297,8 @@ class _ServiceTechniqueDashboardPageState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildGlassCard(
-                            child:
-                            _buildActionsGrid(context)), // Uses your mobile actions grid
+                            child: _buildActionsGrid(
+                                context)), // Uses your mobile actions grid
                         // ✅ REMOVED: Stats Section and SizedBox
                         const SizedBox(height: 100),
                       ],
@@ -437,7 +442,10 @@ class _ServiceTechniqueDashboardPageState
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.1)],
+          colors: [
+            Colors.white.withOpacity(0.2),
+            Colors.white.withOpacity(0.1)
+          ],
         ),
         borderRadius: BorderRadius.circular(32),
         border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
@@ -477,7 +485,8 @@ class _ServiceTechniqueDashboardPageState
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
           childAspectRatio: 0.90,
-          children: _buildQuickActions(context), // Uses your quick actions builder
+          children:
+          _buildQuickActions(context), // Uses your quick actions builder
         ),
       ],
     );
@@ -523,8 +532,7 @@ class _ServiceTechniqueDashboardPageState
         countStream: FirebaseFirestore.instance
             .collection('installations')
             .where('serviceType', isEqualTo: 'Service Technique')
-            .where('status', whereIn: ['Nouveau', 'Planifiée'])
-            .snapshots(),
+            .where('status', whereIn: ['Nouveau', 'Planifiée']).snapshots(),
       ),
       _ActionData(
         'Tickets SAV',
@@ -678,8 +686,7 @@ class _ServiceTechniqueDashboardPageState
           icon: action.icon,
           color: action.color,
           onTap: action.onTap,
-          countStream: action
-              .countStream, // ✅ Pass the stream to the card
+          countStream: action.countStream, // ✅ Pass the stream to the card
         ),
       );
     }).toList();
@@ -729,8 +736,7 @@ class _ActionCard extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: countStream,
       builder: (context, snapshot) {
-        final int count =
-        snapshot.hasData ? snapshot.data!.docs.length : 0;
+        final int count = snapshot.hasData ? snapshot.data!.docs.length : 0;
 
         // Stack to overlay the badge
         return Stack(
@@ -780,7 +786,9 @@ class _ActionCard extends StatelessWidget {
                                   offset: const Offset(0, 8)),
                             ],
                           ),
-                          child: Icon(icon, color: Colors.white, size: 28),
+                          // ✅✅✅ MODIFIED: BIGGER ICON ON WEB
+                          child: Icon(icon,
+                              color: Colors.white, size: kIsWeb ? 48 : 28),
                         ),
 
                         // ===== START OF FIX =====
@@ -788,18 +796,18 @@ class _ActionCard extends StatelessWidget {
                         // to ensure a fixed height for the text area.
 
                         Container(
-                          // Fixed height to accommodate 2 lines + padding
-                          // (fontSize 13 * ~1.25 height * 2 lines) = ~33.0
-                          // We add 10 for the top padding, so ~44.0 total.
-                          height: 44.0,
-                          alignment: Alignment.center, // Center the text (1 or 2 lines)
+                          // ✅✅✅ MODIFIED: BIGGER CONTAINER HEIGHT ON WEB
+                          height: kIsWeb ? 60.0 : 44.0,
+                          alignment: Alignment
+                              .center, // Center the text (1 or 2 lines)
                           child: Text(
                             label,
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
+                            style: TextStyle(
+                              // ✅✅✅ MODIFIED: BIGGER FONT ON WEB
+                              fontSize: kIsWeb ? 18 : 13,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
                               letterSpacing: 0.3,
