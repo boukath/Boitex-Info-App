@@ -1,9 +1,7 @@
-// lib/screens/service_technique/universal_intervention_search_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-
+import 'package:google_fonts/google_fonts.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 
 class UniversalInterventionSearchPage extends StatefulWidget {
@@ -17,170 +15,207 @@ class UniversalInterventionSearchPage extends StatefulWidget {
 
 class _UniversalInterventionSearchPageState
     extends State<UniversalInterventionSearchPage> {
-  String _searchQuery = '';
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _allInterventions = []; // typed
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filteredInterventions = []; // typed
-  bool _isLoading = true;
-
   final TextEditingController _searchController = TextEditingController();
+  List<QueryDocumentSnapshot> _interventions = [];
+  bool _isLoading = false;
+  String _searchFilter = 'clientName'; // Default search field
 
   @override
   void initState() {
     super.initState();
-    _fetchAllInterventions();
+    _loadRecentInterventions();
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  // ✅ 1. QUERY CHANGE: Fetch 'Terminé' & 'Clôturé', and order by status
-  Future<void> _fetchAllInterventions() async {
+  // ✅ SAFETY FIX: Only load the last 20 items initially
+  Future<void> _loadRecentInterventions() async {
+    setState(() => _isLoading = true);
     try {
-      final QuerySnapshot<Map<String, dynamic>> snapshot =
-      await FirebaseFirestore.instance
+      final snapshot = await FirebaseFirestore.instance
           .collection('interventions')
           .where('serviceType', isEqualTo: widget.serviceType)
-          .where('status', whereIn: ['Terminé', 'Clôturé']) // 👈 UPDATED
-          .orderBy('status') // 👈 UPDATED (Groups 'Clôturé' then 'Terminé')
-          .orderBy('closedAt', descending: true) // 👈 KEEPS secondary sort
+          .orderBy('createdAt', descending: true)
+          .limit(20)
           .get();
 
       setState(() {
-        _allInterventions = snapshot.docs;
-        _filteredInterventions = _allInterventions;
+        _interventions = snapshot.docs;
         _isLoading = false;
       });
     } catch (e) {
+      print('Error loading recent: $e');
       setState(() => _isLoading = false);
-      debugPrint("Error fetching interventions: $e");
     }
   }
 
-  void _filterInterventions(String query) {
-    final lowerCaseQuery = query.toLowerCase();
+  // ✅ PERFORMANCE FIX: Search using Firestore Queries, not client-side loops
+  Future<void> _performSearch(String query) async {
+    if (query.trim().isEmpty) {
+      _loadRecentInterventions();
+      return;
+    }
 
-    setState(() {
-      _searchQuery = query;
-      _filteredInterventions = _allInterventions.where((doc) {
-        final data = doc.data();
-        final clientName = (data['clientName'] as String? ?? '').toLowerCase();
-        final storeName = (data['storeName'] as String? ?? '').toLowerCase();
-        final storeLocation =
-        (data['storeLocation'] as String? ?? '').toLowerCase();
-        final interventionCode =
-        (data['interventionCode'] as String? ?? '').toLowerCase();
+    setState(() => _isLoading = true);
+    try {
+      // Note: This performs a prefix search (e.g., "Zar" finds "Zara")
+      // Ideally, ensure you have Firestore Indexes created for these queries.
+      final snapshot = await FirebaseFirestore.instance
+          .collection('interventions')
+          .where('serviceType', isEqualTo: widget.serviceType)
+          .where(_searchFilter, isGreaterThanOrEqualTo: query)
+          .where(_searchFilter, isLessThan: '${query}z')
+          .limit(50) // Safety limit
+          .get();
 
-        return clientName.contains(lowerCaseQuery) ||
-            storeName.contains(lowerCaseQuery) ||
-            storeLocation.contains(lowerCaseQuery) ||
-            interventionCode.contains(lowerCaseQuery);
-      }).toList();
-    });
+      setState(() {
+        _interventions = snapshot.docs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Search Error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur de recherche: ${e.toString()}')),
+      );
+      setState(() => _isLoading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: const Text("Recherche d'Intervention"),
+        title: Text('Recherche Globale', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black87),
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextField(
-              controller: _searchController,
-              autofocus: true,
-              onChanged: _filterInterventions,
-              decoration: InputDecoration(
-                labelText: 'Rechercher (Client, Magasin, Code...)',
-                prefixIcon: const Icon(Icons.search),
-                border: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(12.0)),
+          // --- Search Bar Section ---
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    // Search Filter Dropdown
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _searchFilter,
+                          items: const [
+                            DropdownMenuItem(value: 'clientName', child: Text('Client')),
+                            DropdownMenuItem(value: 'storeName', child: Text('Magasin')),
+                            DropdownMenuItem(value: 'code', child: Text('Code')),
+                          ],
+                          onChanged: (val) => setState(() => _searchFilter = val!),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    // Search Input
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Rechercher...',
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(30),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.search),
+                            onPressed: () => _performSearch(_searchController.text),
+                          ),
+                        ),
+                        onSubmitted: _performSearch,
+                      ),
+                    ),
+                  ],
                 ),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    _filterInterventions('');
-                  },
-                )
-                    : null,
-              ),
+              ],
             ),
           ),
-          if (_isLoading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
-          else if (_filteredInterventions.isEmpty && _searchQuery.isNotEmpty)
-            const Expanded(
-                child: Center(child: Text('Aucune intervention trouvée.')))
-          else
-            Expanded(
-              child: ListView.builder(
-                itemCount: _filteredInterventions.length,
-                itemBuilder: (context, index) {
-                  // ✅ 2. UI LOGIC: Get status and set variables
-                  final interventionDoc = _filteredInterventions[index];
-                  final data = interventionDoc.data();
-                  final String status = data['status'] ?? 'N/A';
 
-                  // Define UI variables based on status
-                  final IconData iconData;
-                  final Color iconColor;
-                  final String subtitleText;
+          // --- Results List ---
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _interventions.isEmpty
+                ? Center(
+              child: Text(
+                'Aucun résultat trouvé',
+                style: GoogleFonts.poppins(color: Colors.grey),
+              ),
+            )
+                : ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: _interventions.length,
+              itemBuilder: (context, index) {
+                final data = _interventions[index].data() as Map<String, dynamic>;
+                return _buildInterventionCard(context, _interventions[index], data);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                  if (status == 'Clôturé') {
-                    // --- UI for "Clôturé" (Green Icon) ---
-                    final DateTime? closedDate =
-                    (data['closedAt'] as Timestamp?)?.toDate();
-                    final String billingStatus =
-                        (data['billingStatus'] as String?) ?? 'N/A';
+  Widget _buildInterventionCard(
+      BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data) {
+    final status = data['status'] ?? 'N/A';
+    final isClosed = status == 'Clôturé';
+    final date = (data['createdAt'] as Timestamp?)?.toDate();
 
-                    iconData = Icons.check_circle;
-                    iconColor = Colors.green;
-                    subtitleText = 'Client: ${data['clientName']}\n'
-                        'Clôturée le: ${closedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(closedDate) : 'N/A'} ($billingStatus)';
-                  } else {
-                    // --- UI for "Terminé" (Yellow Icon) ---
-                    final DateTime? completedDate =
-                    (data['completedAt'] as Timestamp?)?.toDate();
-
-                    iconData = Icons.pending_actions; // Yellow "pending" icon
-                    iconColor = Colors.orange;
-                    subtitleText = 'Client: ${data['clientName']}\n'
-                        'Terminée le: ${completedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(completedDate) : 'N/A'} (En attente)';
-                  }
-
-                  return Card(
-                    margin: const EdgeInsets.symmetric(
-                        horizontal: 8.0, vertical: 4.0),
-                    child: ListTile(
-                      leading: Icon(iconData, color: iconColor), // Dynamic icon
-                      title: Text(
-                        '${data['storeName']} - ${data['storeLocation']}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(subtitleText), // Dynamic subtitle
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => InterventionDetailsPage(
-                              interventionDoc: interventionDoc,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: CircleAvatar(
+          backgroundColor: isClosed ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+          child: Icon(
+            isClosed ? Icons.check_circle : Icons.pending,
+            color: isClosed ? Colors.green : Colors.orange,
+          ),
+        ),
+        title: Text(
+          data['storeName'] ?? 'Magasin Inconnu',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${data['clientName']} - ${data['storeLocation'] ?? ''}'),
+            if (date != null)
+              Text(
+                DateFormat('dd MMM yyyy').format(date),
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+          ],
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => InterventionDetailsPage(
+                // ✅ FIX: Explicitly cast the doc to the required type
+                interventionDoc: doc as DocumentSnapshot<Map<String, dynamic>>,
               ),
             ),
-        ],
+          );
+        },
       ),
     );
   }

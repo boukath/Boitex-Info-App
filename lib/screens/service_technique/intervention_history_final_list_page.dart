@@ -1,76 +1,89 @@
-// lib/screens/service_technique/intervention_history_final_list_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-
+import 'package:google_fonts/google_fonts.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 
 class InterventionHistoryFinalListPage extends StatelessWidget {
   final String serviceType;
   final String clientName;
   final String storeName;
-  final String locationName;
+  // ✅ REMOVED: final String locationName;
 
   const InterventionHistoryFinalListPage({
     super.key,
     required this.serviceType,
     required this.clientName,
     required this.storeName,
-    required this.locationName,
+    // ✅ REMOVED: required this.locationName,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: Text(locationName),
+        // ✅ FIXED: Title is now the Store Name (e.g., "Nike Garden City")
+        title: Text(storeName, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black87),
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>( // typed stream
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: serviceType)
-        // ✅ 1. QUERY CHANGE: Now fetches both 'Terminé' and 'Clôturé'
             .where('status', whereIn: ['Terminé', 'Clôturé'])
             .where('clientName', isEqualTo: clientName)
             .where('storeName', isEqualTo: storeName)
-            .where('storeLocation', isEqualTo: locationName)
-        // ✅ 2. QUERY CHANGE: Sort by status first, then by date
-            .orderBy('status') // Groups 'Clôturé' then 'Terminé' (alphabetical)
-            .orderBy('closedAt', descending: true) // Sorts within those groups
+        // ✅ FIXED: REMOVED .where('storeLocation', ...)
+        // This ensures we see ALL tickets for this store, regardless of location field.
+            .orderBy('status') // Groups 'Clôturé' and 'Terminé'
+            .orderBy('closedAt', descending: true) // Sort by date
             .snapshots(),
-        builder: (context, AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
+        builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (snapshot.hasError) {
-            return const Center(child: Text('Une erreur est survenue.'));
+            // Helpful for debugging if indexes are missing
+            print(snapshot.error);
+            return const Center(child: Text('Erreur de chargement (Vérifiez les index Firestore)'));
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('Aucune intervention trouvée pour cet emplacement.'));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.folder_off_outlined, size: 64, color: Colors.grey.shade400),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Aucune intervention trouvée\npour ce magasin.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            );
           }
 
-          final interventionDocs = snapshot.data!.docs;
+          final docs = snapshot.data!.docs;
+
           return ListView.builder(
-            padding: const EdgeInsets.all(8.0),
-            itemCount: interventionDocs.length,
+            padding: const EdgeInsets.all(12),
+            itemCount: docs.length,
             itemBuilder: (context, index) {
-              final interventionDoc = interventionDocs[index];
+              final interventionDoc = docs[index];
               final data = interventionDoc.data();
 
-              // ✅ 3. UI LOGIC: Get the status to decide the UI
-              final String status = data['status'] ?? 'N/A';
+              // --- Determine Status UI ---
+              IconData iconData;
+              Color iconColor;
+              String titleText;
+              String subtitleText;
 
-              // Define UI variables based on status
-              final IconData iconData;
-              final Color iconColor;
-              final String titleText;
-              final String subtitleText;
-
-              if (status == 'Clôturé') {
-                // --- UI for "Clôturé" (Green Icon) ---
+              if (data['status'] == 'Clôturé') {
                 final DateTime? closedDate = (data['closedAt'] as Timestamp?)?.toDate();
                 final String billingStatus = (data['billingStatus'] as String?) ?? 'N/A';
 
@@ -79,37 +92,56 @@ class InterventionHistoryFinalListPage extends StatelessWidget {
                 titleText = 'Clôturée le: ${closedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(closedDate) : 'N/A'}';
                 subtitleText = 'Statut: $billingStatus';
               } else {
-                // --- UI for "Terminé" (Yellow Icon) ---
-                // Use 'completedAt' as 'closedAt' might be null
+                // Terminé
                 final DateTime? completedDate = (data['completedAt'] as Timestamp?)?.toDate();
 
-                iconData = Icons.pending_actions; // Yellow "pending" icon
+                iconData = Icons.pending_actions;
                 iconColor = Colors.orange;
                 titleText = 'Terminée le: ${completedDate != null ? DateFormat('dd MMM yyyy', 'fr_FR').format(completedDate) : 'N/A'}';
-                subtitleText = 'Statut: En attente de facturation'; // Clear message
+                subtitleText = 'En attente de facturation';
               }
 
+              // Additional Info (Code, Specific Location if available)
+              final String code = data['code'] ?? 'Sans code';
+              final String specificLoc = data['storeLocation'] ?? '';
+
               return Card(
-                margin: const EdgeInsets.symmetric(vertical: 6.0),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+                color: Colors.white,
+                margin: const EdgeInsets.only(bottom: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.grey.shade200),
+                ),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.all(16.0),
-                  // ✅ 4. UI LOGIC: Use dynamic icon and color
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   leading: CircleAvatar(
                     backgroundColor: iconColor.withOpacity(0.1),
-                    child: Icon(iconData, color: iconColor),
+                    child: Icon(iconData, color: iconColor, size: 22),
                   ),
-                  // ✅ 5. UI LOGIC: Use dynamic titles
                   title: Text(
                     titleText,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
                   ),
-                  subtitle: Text(subtitleText),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(subtitleText, style: GoogleFonts.poppins(fontSize: 13)),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Code: $code ${specificLoc.isNotEmpty ? "• $specificLoc" : ""}',
+                        style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
                   trailing: const Icon(Icons.chevron_right, color: Colors.grey),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => InterventionDetailsPage(interventionDoc: interventionDoc),
+                        builder: (context) => InterventionDetailsPage(
+                          // Casting to correct type as requested previously
+                          interventionDoc: interventionDoc as DocumentSnapshot<Map<String, dynamic>>,
+                        ),
                       ),
                     );
                   },

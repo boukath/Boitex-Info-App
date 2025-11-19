@@ -4,12 +4,13 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+// ✅ ADDED: Required for kIsWeb check
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:signature/signature.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+// ❌ REMOVED: import 'package:firebase_storage/firebase_storage.dart'; // Not needed for B2 signatures
 import 'package:multi_select_flutter/multi_select_flutter.dart';
-// ❌ import 'package:boitex_info_app/services/intervention_pdf_service.dart'; // <-- 1. REMOVED THIS
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -20,18 +21,17 @@ import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
 
-// ✅ 1. ADD THIS IMPORT AT THE TOP OF THE FILE
+// ✅ Video Thumbnails
 import 'package:video_thumbnail/video_thumbnail.dart';
 
-// ✅ 2. ADD IMPORT FOR CLOUD FUNCTIONS
+// ✅ Cloud Functions
 import 'package:cloud_functions/cloud_functions.dart';
 
-// ✅ --- 2. ADD IMPORTS FOR NEW PDF LOGIC ---
+// ✅ PDF & Sharing
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-// ✅ --- 3. ADD IMPORT FOR FILE SAVER (DOWNLOAD) ---
 import 'package:file_saver/file_saver.dart';
-// ✅ --- END OF ADDED IMPORTS ---
+import 'package:printing/printing.dart'; // ✅ For Web Preview
 
 // ----------------------------------------------------------------------
 // Data model
@@ -64,7 +64,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   // Controllers
   late final TextEditingController _managerNameController;
   late final TextEditingController _managerPhoneController;
-  late final TextEditingController _managerEmailController; // ✅ ADDED
+  late final TextEditingController _managerEmailController;
   late final TextEditingController _diagnosticController;
   late final TextEditingController _workDoneController;
   late final SignatureController _signatureController;
@@ -77,9 +77,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   bool _isLoading = false;
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _mediaFilesToUpload = [];
-  List<String> _existingMediaUrls = []; // ✅ Null-safe list
+  List<String> _existingMediaUrls = [];
 
-  // ✅ 3. ADD AI STATE VARIABLES
+  // AI State
   bool _isGeneratingDiagnostic = false;
   bool _isGeneratingWorkDone = false;
 
@@ -90,7 +90,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   // File size limit (50MB in bytes)
   static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
 
-  // Status options derived from current doc (✅ FIXED: Include 'Nouvelle Demande')
+  // Status options
   List<String> get statusOptions {
     final current =
         (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
@@ -98,7 +98,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       return ['Clôturé', 'Facturé'];
     }
 
-    // ✅ FIX: Include 'Nouvelle Demande' for new interventions; add current if missing
     List<String> baseOptions = [
       'Nouvelle Demande',
       'Nouveau',
@@ -108,7 +107,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     ];
     final Set<String> optionsSet = Set<String>.from(baseOptions);
     if (!optionsSet.contains(current)) {
-      optionsSet.add(current); // Dynamic fallback
+      optionsSet.add(current);
     }
     return optionsSet.toList();
   }
@@ -129,7 +128,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _managerPhoneController =
         TextEditingController(text: data['managerPhone'] ?? '');
     _managerEmailController =
-        TextEditingController(text: data['managerEmail'] ?? ''); // ✅ ADDED
+        TextEditingController(text: data['managerEmail'] ?? '');
     _diagnosticController =
         TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
@@ -137,18 +136,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
 
-    // ✅ FIX: Null-safe media load from creation (via add_intervention_page.dart)
     final mediaList = data['mediaUrls'] as List?;
     _existingMediaUrls = mediaList != null ? List<String>.from(mediaList) : [];
 
-    // ✅ FIX #1: THIS IS THE FIRST PART OF THE FIX
-    // We now read the correct field 'assignedTechniciansIds' which is a List<String>
     _fetchTechnicians().then((_) {
-      // ✅ FIX: Read from 'assignedTechniciansIds' which is a List<String>
       final List<dynamic> assignedIds =
-      List.from(data['assignedTechniciansIds'] ?? const []); // <-- Read the ID list
+      List.from(data['assignedTechniciansIds'] ?? const []);
       _selectedTechnicians = _allTechnicians.where((tech) {
-        // ✅ FIX: Check if the tech's UID is in the list of strings
         return assignedIds.any((id) => (id is String && id == tech.uid));
       }).toList();
       if (mounted) setState(() {});
@@ -156,7 +150,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // Theme to match Stock/Product pages
+  // Theme
   // ----------------------------------------------------------------------
   ThemeData _interventionTheme(BuildContext context) {
     final base = Theme.of(context);
@@ -216,12 +210,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // ✅ 4. AI HELPER FUNCTION (UNCHANGED)
+  // AI Function
   // ----------------------------------------------------------------------
-
-  /// Reusable function to call our smart Cloud Function
   Future<void> _generateAiText({
-    required String aiContext, // ✅ RENAMED: 'diagnostic' or 'workDone'
+    required String aiContext,
     required TextEditingController controller,
   }) async {
     final rawNotes = controller.text;
@@ -233,10 +225,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       return;
     }
 
-    // Set loading state
     setState(() {
       if (aiContext == 'diagnostic') {
-        // ✅ RENAMED
         _isGeneratingDiagnostic = true;
       } else {
         _isGeneratingWorkDone = true;
@@ -253,10 +243,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       final result = await callable.call<String>({
         'rawNotes': rawNotes,
-        'context': aiContext, // ✅ RENAMED: Pass the correct context!
+        'context': aiContext,
       });
 
-      // Update the specific controller
       controller.text = result.data;
     } catch (e) {
       if (!mounted) return;
@@ -264,11 +253,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         SnackBar(content: Text('Erreur de génération AI: $e')),
       );
     } finally {
-      // Unset loading state
       if (mounted) {
         setState(() {
           if (aiContext == 'diagnostic') {
-            // ✅ RENAMED
             _isGeneratingDiagnostic = false;
           } else {
             _isGeneratingWorkDone = false;
@@ -279,7 +266,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // Data helpers (UNCHANGED)
+  // Data helpers
   // ----------------------------------------------------------------------
   Future<void> _fetchTechnicians() async {
     try {
@@ -297,7 +284,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // Helper function for checking video type
   bool _isVideoPath(String path) {
     final p = path.toLowerCase();
     return p.endsWith('.mp4') ||
@@ -306,7 +292,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         p.endsWith('.mkv');
   }
 
-  // Pick media with file size check
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
     if (pickedFiles.isEmpty) return;
@@ -342,6 +327,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ----------------------------------------------------------------------
+  // B2 Upload Logic
+  // ----------------------------------------------------------------------
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response =
@@ -358,6 +346,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // Upload XFile (Media)
   Future<String?> _uploadFileToB2(
       XFile file, Map<String, dynamic> b2Creds) async {
     try {
@@ -394,33 +383,75 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ --- START: _saveReport (UNCHANGED) ---
+  // ✅ NEW: Upload Raw Bytes (Signatures)
+  Future<String?> _uploadBytesToB2(
+      Uint8List data, String fileName, Map<String, dynamic> b2Creds) async {
+    try {
+      final sha1Hash = sha1.convert(data).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': 'image/png', // Signatures are PNG
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': data.length.toString(),
+        },
+        body: data,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        final encodedPath = (body['fileName'] as String)
+            .split('/')
+            .map(Uri.encodeComponent)
+            .join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload bytes to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading bytes to B2: $e');
+      return null;
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // Save Report (UPDATED FOR B2 SIGNATURE)
+  // ----------------------------------------------------------------------
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
 
     try {
-      // 1) Signature
+      // 1) Get B2 Credentials FIRST (Needed for both media and signature)
+      final creds = await _getB2UploadCredentials();
+      if (creds == null) {
+        throw Exception('Impossible de récupérer les accès B2.');
+      }
+
+      // 2) Upload Signature to B2 (if exists)
       String? newSignatureUrl = _signatureImageUrl;
       if (_signatureController.isNotEmpty) {
         final png = await _signatureController.toPngBytes();
         if (png != null) {
-          final ref = FirebaseStorage.instance.ref().child(
-              'signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png');
-          final snap = await ref.putData(png).whenComplete(() {});
-          newSignatureUrl = await snap.ref.getDownloadURL();
+          // Generate a unique filename for the signature
+          final String fileName = 'signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png';
+
+          final url = await _uploadBytesToB2(png, fileName, creds);
+          if (url != null) {
+            newSignatureUrl = url;
+          } else {
+            throw Exception('Échec du téléchargement de la signature sur B2.');
+          }
         }
       }
 
-      // 2) Media uploads to B2
-      final List<String> uploaded =
-      List<String>.from(_existingMediaUrls); // ✅ Null-safe
+      // 3) Upload Media to B2
+      final List<String> uploaded = List<String>.from(_existingMediaUrls);
       for (final file in _mediaFilesToUpload) {
-        final creds = await _getB2UploadCredentials();
-        if (creds == null) {
-          throw Exception('Impossible de récupérer les accès B2.');
-        }
-
         final url = await _uploadFileToB2(file, creds);
         if (url != null) {
           uploaded.add(url);
@@ -429,22 +460,19 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // 3) Persist
+      // 4) Persist Data to Firestore
       final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
-        'managerEmail': _managerEmailController.text.trim(), // ✅ YOUR EMAIL FIELD
+        'managerEmail': _managerEmailController.text.trim(),
         'diagnostic': _diagnosticController.text.trim(),
         'workDone': _workDoneController.text.trim(),
-        'signatureUrl': newSignatureUrl,
+        'signatureUrl': newSignatureUrl, // Now a B2 URL
         'status': _currentStatus,
-
         'assignedTechnicians':
         _selectedTechnicians.map((t) => t.displayName).toList(),
-
         'assignedTechniciansIds':
         _selectedTechnicians.map((t) => t.uid).toList(),
-
         'mediaUrls': uploaded,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -473,14 +501,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
     }
   }
-  // ✅ --- END: _saveReport (UNCHANGED) ---
 
   // ----------------------------------------------------------------------
-  // ✅ --- NEW FUNCTION FOR DOWNLOADING MEDIA (ADDED) ---
+  // Download Logic
   // ----------------------------------------------------------------------
   Future<void> _downloadMedia(String? url) async {
     if (url == null || url.isEmpty) return;
-    if (_isLoading) return; // Don't allow download if another op is in progress
+    if (_isLoading) return;
 
     setState(() => _isLoading = true);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -488,24 +515,16 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
 
     try {
-      // 1. Determine file name from URL
-      final String fileName = url.split('/').last.split('?').first; // Clean name
-
-      // 2. Fetch the file bytes
+      final String fileName = url.split('/').last.split('?').first;
       final response = await http.get(Uri.parse(url));
       if (response.statusCode != 200) {
-        throw Exception('Échec du téléchargement du fichier: ${response.statusCode}');
+        throw Exception('Échec du téléchargement: ${response.statusCode}');
       }
       final Uint8List fileBytes = response.bodyBytes;
 
-      // 3. Save the file using FileSaver
       await FileSaver.instance.saveFile(
         name: fileName,
         bytes: fileBytes,
-        // ✅ --- THIS IS THE FIX ---
-        // We remove the 'mimeType' parameter entirely.
-        // mimeType: MimeType.unknown, // <-- REMOVED THIS LINE
-        // ✅ --- END OF FIX ---
       );
 
       if (!mounted) return;
@@ -529,16 +548,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
     }
   }
-  // ----------------------------------------------------------------------
-  // ✅ --- END OF NEW FUNCTION ---
-  // ----------------------------------------------------------------------
-
 
   // ----------------------------------------------------------------------
-  // ✅ --- PDF SECTION (UNCHANGED from previous step) ---
+  // PDF Logic
   // ----------------------------------------------------------------------
-
-  /// Calls the backend to generate the PDF and returns the raw bytes.
   Future<Uint8List?> _fetchPdfFromBackend() async {
     if (_isLoading) return null;
     setState(() => _isLoading = true);
@@ -572,7 +585,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  /// Generates the Subject and Body for the share dialog.
   Map<String, String> _generateShareContent() {
     final data = widget.interventionDoc.data() ?? {};
     final code = data['interventionCode'] ?? 'N/A';
@@ -590,13 +602,40 @@ L'équipe BOITEX INFO'''
     };
   }
 
-  /// This function is called by the "Share" icon in the AppBar.
   Future<void> _generateAndSharePdf() async {
     final Uint8List? pdfBytes = await _fetchPdfFromBackend();
     if (pdfBytes == null || !mounted) return;
 
     final data = widget.interventionDoc.data() ?? {};
-    final fileName = 'Rapport-${data['interventionCode'] ?? 'N-A'}.pdf';
+    final baseFileName = 'Rapport-${data['interventionCode'] ?? 'N-A'}';
+
+    // ✅ WEB LOGIC
+    if (kIsWeb) {
+      try {
+        await FileSaver.instance.saveFile(
+          name: baseFileName,
+          bytes: pdfBytes,
+          ext: 'pdf',
+          mimeType: MimeType.pdf,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('PDF téléchargé avec succès!')),
+          );
+        }
+      } catch (e) {
+        print('Web Download Error: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur de téléchargement: $e')),
+          );
+        }
+      }
+      return;
+    }
+
+    // 📱 MOBILE LOGIC
+    final fileName = '$baseFileName.pdf';
     final content = _generateShareContent();
 
     final tempDir = await getTemporaryDirectory();
@@ -610,13 +649,21 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  /// This function is called by the "Preview" (eye) icon in the AppBar.
   Future<void> _generateAndShowPdfViewer() async {
     final Uint8List? pdfBytes = await _fetchPdfFromBackend();
     if (pdfBytes == null || !mounted) return;
 
     final data = widget.interventionDoc.data() ?? {};
     final title = data['interventionCode'] ?? 'Aperçu';
+
+    // ✅ WEB PREVIEW FIX
+    if (kIsWeb) {
+      await Printing.layoutPdf(
+        onLayout: (_) => pdfBytes,
+        name: 'Rapport-$title.pdf',
+      );
+      return;
+    }
 
     if (!mounted) return;
     Navigator.of(context).push(
@@ -629,16 +676,11 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  // ----------------------------------------------------------------------
-  // ✅ --- END OF PDF MODIFICATIONS ---
-  // ----------------------------------------------------------------------
-
-
   @override
   void dispose() {
     _managerNameController.dispose();
     _managerPhoneController.dispose();
-    _managerEmailController.dispose(); // ✅ ADDED
+    _managerEmailController.dispose();
     _diagnosticController.dispose();
     _workDoneController.dispose();
     _signatureController.dispose();
@@ -646,12 +688,11 @@ L'équipe BOITEX INFO'''
   }
 
   // ----------------------------------------------------------------------
-  // UI (UNCHANGED)
+  // UI
   // ----------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final data = widget.interventionDoc.data() ?? {};
-
     final createdAtTimestamp = data['createdAt'] as Timestamp?;
     final createdAt = createdAtTimestamp?.toDate() ?? DateTime.now();
 
@@ -815,7 +856,7 @@ L'équipe BOITEX INFO'''
               },
             ),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC), // Match TextFormField
+              color: const Color(0xFFF8FAFC),
               border: Border.all(color: Colors.grey.shade200, width: 1),
               borderRadius: BorderRadius.circular(20),
             ),
@@ -840,7 +881,7 @@ L'équipe BOITEX INFO'''
                 )
                     : IconButton(
                   icon: Icon(
-                    Icons.auto_awesome, // "Magic" icon
+                    Icons.auto_awesome,
                     color: Colors.grey.shade600,
                   ),
                   tooltip: 'Améliorer le texte par IA',
@@ -871,7 +912,7 @@ L'équipe BOITEX INFO'''
                 )
                     : IconButton(
                   icon: Icon(
-                    Icons.auto_awesome, // "Magic" icon
+                    Icons.auto_awesome,
                     color: Colors.grey.shade600,
                   ),
                   tooltip: 'Améliorer le texte par IA',
@@ -884,7 +925,7 @@ L'équipe BOITEX INFO'''
             ),
           ),
           const SizedBox(height: 24),
-          _buildMediaSection(), // Uses the modified thumbnail widget
+          _buildMediaSection(),
           const SizedBox(height: 24),
           const Text('Signature du Client',
               style: TextStyle(fontWeight: FontWeight.bold)),
@@ -895,7 +936,7 @@ L'équipe BOITEX INFO'''
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.grey.shade300),
                 borderRadius: BorderRadius.circular(20),
-                color: const Color(0xFFF1F5F9), // Match empty signature bg
+                color: const Color(0xFFF1F5F9),
               ),
               child: Center(
                   child: Image.network(_signatureImageUrl!,
@@ -959,7 +1000,7 @@ L'équipe BOITEX INFO'''
         if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
           const Text('Aucun fichier ajouté.',
               style: TextStyle(color: Colors.grey)),
-        // Existing (uploaded) media
+        // Existing
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -967,7 +1008,7 @@ L'équipe BOITEX INFO'''
               .map((url) => _buildMediaThumbnail(url: url))
               .toList(),
         ),
-        // Pending (local) media
+        // Pending
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -983,7 +1024,7 @@ L'équipe BOITEX INFO'''
               label: const Text('Ajouter Photos/Vidéos'),
               onPressed: _pickMedia,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white, // Different style
+                backgroundColor: Colors.white,
                 foregroundColor: const Color(0xFF667EEA),
                 side: const BorderSide(color: Color(0xFF667EEA)),
               ),
@@ -993,9 +1034,6 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  // ----------------------------------------------------------------------
-  // ✅ --- _buildMediaThumbnail (MODIFIED) ---
-  // ----------------------------------------------------------------------
   Widget _buildMediaThumbnail({String? url, XFile? file}) {
     final bool isVideo = (url != null && _isVideoPath(url)) ||
         (file != null && _isVideoPath(file.path));
@@ -1004,7 +1042,7 @@ L'équipe BOITEX INFO'''
 
     Widget content;
     if (file != null) {
-      // Local not-yet-uploaded file
+      // Local
       if (isVideo) {
         content = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
@@ -1029,16 +1067,14 @@ L'équipe BOITEX INFO'''
                 ),
               );
             }
-
             return const Center(
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
-        // Local Image/Document
         content = ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: isPdf // Check if local file is PDF
+          child: isPdf
               ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
               : Image.file(
             File(file.path),
@@ -1053,7 +1089,7 @@ L'équipe BOITEX INFO'''
         );
       }
     } else if (url != null && url.isNotEmpty) {
-      // Existing URL
+      // Existing
       if (isPdf) {
         content = const Center(
             child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
@@ -1081,13 +1117,11 @@ L'équipe BOITEX INFO'''
                 ),
               );
             }
-
             return const Center(
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
-        // Network Image (No change)
         content = Hero(
           tag: url,
           child: ClipRRect(
@@ -1111,9 +1145,7 @@ L'équipe BOITEX INFO'''
     }
 
     return GestureDetector(
-      // --- THIS ONTAP REMAINS UNCHANGED ---
       onTap: () async {
-        // Local media can't be previewed in viewer until uploaded
         if (url == null || url.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1124,16 +1156,15 @@ L'équipe BOITEX INFO'''
         }
 
         if (isPdf) {
-          // Handle PDF view: launch external viewer for network files
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
         } else if (isVideo) {
           Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)),
           );
         } else {
-          // Image viewer
           final images = _existingMediaUrls
-              .where((u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
+              .where((u) =>
+          !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
               .toList();
           if (images.isEmpty) return;
           final initial = images.indexOf(url);
@@ -1147,12 +1178,9 @@ L'équipe BOITEX INFO'''
           );
         }
       },
-      // ✅ --- START OF MODIFICATION: ADDED ONLONGPRESS ---
       onLongPress: (file != null)
-          ? null // Don't allow download for local files not yet uploaded
+          ? null
           : () => _downloadMedia(url),
-      // ✅ --- END OF MODIFICATION ---
-
       child: Container(
         width: 100,
         height: 100,
@@ -1165,13 +1193,11 @@ L'équipe BOITEX INFO'''
           clipBehavior: Clip.none,
           children: [
             Positioned.fill(child: content),
-            // Video/PDF icon overlay
-            if (isVideo && !isPdf) // Show play icon only for video
+            if (isVideo && !isPdf)
               const Center(
-                child:
-                Icon(Icons.play_circle_fill, color: Colors.white, size: 30),
+                child: Icon(Icons.play_circle_fill,
+                    color: Colors.white, size: 30),
               ),
-            // Remove button for local pending file
             if (!isReadOnly && file != null)
               Positioned(
                 top: -10,
@@ -1182,7 +1208,6 @@ L'équipe BOITEX INFO'''
                       setState(() => _mediaFilesToUpload.remove(file)),
                 ),
               ),
-            // Remove button for existing URL
             if (!isReadOnly && url != null)
               Positioned(
                 top: -10,
