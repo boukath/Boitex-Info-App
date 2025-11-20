@@ -43,7 +43,7 @@ class AddSavTicketPage extends StatefulWidget {
   const AddSavTicketPage({super.key, required this.serviceType});
 
   @override
-  State createState() => _AddSavTicketPageState();
+  State<AddSavTicketPage> createState() => _AddSavTicketPageState();
 }
 
 class _AddSavTicketPageState extends State<AddSavTicketPage> {
@@ -259,15 +259,17 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
+  // ✅ FIXED: Removed double Navigator.pop() to prevent closing the add page
   Future<void> _openScanner() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ScannerPage(
           onScan: (result) {
+            // Only update the UI. Do NOT call Navigator.pop here.
+            // ScannerPage handles the pop internally.
             setState(() {
               _serialNumberController.text = result;
             });
-            Navigator.of(context).pop(result);
           },
         ),
       ),
