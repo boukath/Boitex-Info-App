@@ -10,7 +10,7 @@ import 'dart:typed_data';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
-import 'dart:io';
+import 'dart:io'; // Needed for mobile File access
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
@@ -19,6 +19,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'package:file_saver/file_saver.dart'; // ✅ ADDED: For Web Downloads
 
 class SavTicketDetailsPage extends StatefulWidget {
   final SavTicket ticket;
@@ -34,7 +36,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   bool _isUpdating = false;
   Map<String, int> _stockStatus = {};
 
-  List<File> _technicianMediaToUpload = [];
+  List<PlatformFile> _technicianMediaToUpload = [];
 
   final List<String> _statusOptions = [
     'Nouveau',
@@ -49,7 +51,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
-
   @override
   void initState() {
     super.initState();
@@ -57,7 +58,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     _reportController =
         TextEditingController(text: _currentTicket.technicianReport ?? '');
 
-    // Listen for real-time updates to the ticket
+    // Listen for real-time updates
     FirebaseFirestore.instance
         .collection('sav_tickets')
         .doc(widget.ticket.id)
@@ -97,12 +98,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         lowercaseUrl.endsWith('.mkv');
   }
 
-  bool _isVideoPath(String filePath) {
-    final p = filePath.toLowerCase();
-    return p.endsWith('.mp4') ||
-        p.endsWith('.mov') ||
-        p.endsWith('.avi') ||
-        p.endsWith('.mkv');
+  bool _isVideoFile(PlatformFile file) {
+    final extension = file.extension?.toLowerCase() ?? '';
+    return ['mp4', 'mov', 'avi', 'mkv'].contains(extension);
   }
 
   Future<void> _checkStockForParts(List<BrokenPart> parts) async {
@@ -154,13 +152,33 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 
   Future<String?> _uploadFileToB2(
-      File file, Map<String, dynamic> b2Creds) async {
+      PlatformFile file, Map<String, dynamic> b2Creds) async {
     try {
-      final fileBytes = await file.readAsBytes();
+      Uint8List fileBytes;
+      String fileName;
+
+      if (kIsWeb) {
+        // On Web, we use bytes directly
+        if (file.bytes != null) {
+          fileBytes = file.bytes!;
+          fileName = file.name;
+        } else {
+          throw Exception("Web upload failed: File bytes are null");
+        }
+      } else {
+        // On Mobile, we read from path
+        if (file.path != null) {
+          fileBytes = await File(file.path!).readAsBytes();
+          fileName = path.basename(file.path!);
+        } else {
+          throw Exception("Mobile upload failed: File path is null");
+        }
+      }
+
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileExtension = path.extension(file.path);
+      final fileExtension = path.extension(fileName);
       final b2FileName =
           'sav_tickets_media/${_currentTicket.savCode}/tech_upload_$timestamp$fileExtension';
 
@@ -207,26 +225,24 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.media,
       allowMultiple: true,
+      withData: true, // Important for Web!
     );
+
     if (result != null) {
       const maxFileSize = 50 * 1024 * 1024;
       final validFiles = result.files.where((file) {
-        if (file.path != null && File(file.path!).existsSync()) {
-          final fileLength = File(file.path!).lengthSync();
-          if (fileLength <= maxFileSize) {
-            return true;
-          } else {
-            print('File rejected (size > 50MB): ${file.name}');
-            return false;
-          }
+        if (file.size <= maxFileSize) {
+          return true;
+        } else {
+          print('File rejected (size > 50MB): ${file.name}');
+          return false;
         }
-        return false;
       }).toList();
 
       final rejectedCount = result.files.length - validFiles.length;
 
       setState(() {
-        _technicianMediaToUpload.addAll(validFiles.map((f) => File(f.path!)));
+        _technicianMediaToUpload.addAll(validFiles);
       });
 
       if (rejectedCount > 0 && mounted) {
@@ -347,8 +363,8 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           createdBy: _currentTicket.createdBy,
           createdAt: _currentTicket.createdAt,
           brokenParts: newParts,
-          billingStatus: _currentTicket.billingStatus, // Keeping value for model integrity
-          invoiceUrl: _currentTicket.invoiceUrl, // Keeping value for model integrity
+          billingStatus: _currentTicket.billingStatus,
+          invoiceUrl: _currentTicket.invoiceUrl,
           returnClientName: _currentTicket.returnClientName,
           returnSignatureUrl: _currentTicket.returnSignatureUrl,
           returnPhotoUrl: _currentTicket.returnPhotoUrl,
@@ -394,55 +410,56 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     }
   }
 
-  // ✅ FIXED: Handles generating, downloading, and opening the PDF
+  // ✅ UPDATED: Download on Web, View on Mobile
   Future<void> _downloadPdf(String type) async {
     try {
-      // 1. Show loading indicator
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => const Center(child: CircularProgressIndicator()),
       );
 
-      // 2. Call the Cloud Function (✅ Explicitly europe-west1)
+      // Call Cloud Function
       final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('downloadSavPdf')
           .call({
         'ticketId': widget.ticket.id,
-        'type': type, // 'deposit' or 'return'
+        'type': type,
       });
 
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading
-      }
+      if (mounted) Navigator.of(context).pop(); // Close loading
 
-      // 3. Safe Data Parsing & Sanitize Filename
+      // Parse Data
       final rawData = result.data;
-      if (rawData == null) {
-        throw Exception("Le serveur a renvoyé une réponse vide.");
-      }
-
-      // Convert generic Map to Map<String, dynamic> safely
+      if (rawData == null) throw Exception("Réponse vide.");
       final Map<String, dynamic> data = Map<String, dynamic>.from(rawData as Map);
 
       final String? base64Pdf = data['pdfBase64'];
-      if (base64Pdf == null || base64Pdf.isEmpty) {
-        throw Exception("Données PDF invalides.");
-      }
-
-      String filename = data['filename'] ?? 'document.pdf';
-      // ✅ CRITICAL FIX: Sanitize filename to replace slashes with underscores
-      // This prevents "PathNotFoundException" when SAV code contains "/"
-      filename = filename.replaceAll(RegExp(r'[/\\]'), '_');
+      if (base64Pdf == null || base64Pdf.isEmpty) throw Exception("PDF invalide.");
 
       final Uint8List bytes = base64Decode(base64Pdf);
+      String filename = data['filename'] ?? 'document.pdf';
+      filename = filename.replaceAll(RegExp(r'[/\\]'), '_'); // Sanitize
 
-      // 4. Save File Locally
+      // 🌍 WEB: Direct Download
+      if (kIsWeb) {
+        await FileSaver.instance.saveFile(
+          name: filename.replaceAll('.pdf', ''), // FileSaver adds ext automatically in some versions
+          bytes: bytes,
+          ext: 'pdf',
+          mimeType: MimeType.pdf,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Téléchargement lancé...'), backgroundColor: Colors.green),
+        );
+        return; // Stop here
+      }
+
+      // 📱 MOBILE: Save and Open Viewer
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$filename');
       await file.writeAsBytes(bytes);
 
-      // 5. Open Viewer
       if (mounted) {
         Navigator.push(
           context,
@@ -455,21 +472,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         );
       }
     } catch (e) {
-      // Handle Errors
       if (mounted) {
-        // Close loader if it's possibly still open (safe check)
-        if (Navigator.canPop(context)) {
-          // We popped earlier, but if error happened during call, we might need to ensure logic
-        }
-
+        if (Navigator.canPop(context)) Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur : $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
-        debugPrint("PDF Download Error Details: $e");
       }
     }
   }
@@ -493,11 +500,8 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
               style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.green),
             ),
             const Divider(height: 20),
-
             _buildInfoRow('Client (Réception):', _currentTicket.returnClientName ?? 'N/A'),
-
             const SizedBox(height: 16),
-
             const Text('Signature Client:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             if (_currentTicket.returnSignatureUrl != null)
@@ -513,18 +517,13 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                   child: Image.network(
                     _currentTicket.returnSignatureUrl!,
                     fit: BoxFit.contain,
-                    loadingBuilder: (context, child, progress) =>
-                    progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                    errorBuilder: (context, error, stackTrace) =>
-                    const Center(child: Icon(Icons.error_outline, color: Colors.red)),
+                    loadingBuilder: (context, child, progress) => progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                   ),
                 ),
               )
             else
               const Text('Signature non disponible.', style: TextStyle(color: Colors.grey)),
-
             const SizedBox(height: 16),
-
             const Text('Photo/Vidéo de Preuve:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             if (_currentTicket.returnPhotoUrl != null)
@@ -545,21 +544,17 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         title: Text(_currentTicket.savCode),
         backgroundColor: Colors.orange,
         actions: [
-          // ✅ 📄 Button 1: Décharge (Always available)
           IconButton(
             icon: const Icon(Icons.description_outlined),
             tooltip: 'Télécharger la Décharge',
             onPressed: () => _downloadPdf('deposit'),
           ),
-
-          // ✅ ↩️ Button 2: Restitution (Only if returned)
           if (_currentTicket.status == "Retourné")
             IconButton(
               icon: const Icon(Icons.assignment_return_outlined),
               tooltip: 'Télécharger le Bon de Restitution',
               onPressed: () => _downloadPdf('return'),
             ),
-
           const SizedBox(width: 8),
         ],
       ),
@@ -634,7 +629,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             ),
             const Divider(height: 20),
             _buildInfoRow('Statut Actuel:', _currentTicket.status, isStatus: true),
-            // ✅ REMOVED: Billing info display
             _buildInfoRow('Date de création:', DateFormat('dd MMM yyyy, HH:mm', 'fr_FR').format(_currentTicket.createdAt)),
             _buildInfoRow('Créé par:', _currentTicket.createdBy),
           ],
@@ -673,39 +667,61 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     );
   }
 
-  Widget _buildMediaThumbnail({String? url, File? file}) {
-    bool isVideo = (url != null && _isVideoUrl(url)) || (file != null && _isVideoPath(file.path));
+  Widget _buildMediaThumbnail({String? url, PlatformFile? file}) {
+    bool isVideo = false;
     Widget mediaContent;
 
     if (file != null) {
-      mediaContent = isVideo
-          ? FutureBuilder<Uint8List?>(
-        future: VideoThumbnail.thumbnailData(video: file.path, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-          return snapshot.hasData && snapshot.data != null
-              ? Stack(fit: StackFit.expand, children: [ Image.memory(snapshot.data!, fit: BoxFit.cover), const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30))])
-              : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey));
-        },
-      )
-          : Image.file(file, fit: BoxFit.cover);
+      isVideo = _isVideoFile(file);
+      if (isVideo && kIsWeb) {
+        mediaContent = Container(
+          color: Colors.black12,
+          child: const Center(child: Icon(Icons.movie, size: 40, color: Colors.grey)),
+        );
+      } else if (isVideo) {
+        mediaContent = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(video: file.path!, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+            return snapshot.hasData && snapshot.data != null
+                ? Stack(fit: StackFit.expand, children: [ Image.memory(snapshot.data!, fit: BoxFit.cover), const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30))])
+                : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey));
+          },
+        );
+      } else {
+        if (kIsWeb) {
+          mediaContent = file.bytes != null
+              ? Image.memory(file.bytes!, fit: BoxFit.cover)
+              : const Center(child: Icon(Icons.broken_image));
+        } else {
+          mediaContent = Image.file(File(file.path!), fit: BoxFit.cover);
+        }
+      }
     } else if (url != null) {
-      mediaContent = isVideo
-          ? FutureBuilder<Uint8List?>(
-        future: VideoThumbnail.thumbnailData(video: url, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25, headers: {}),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-          return snapshot.hasData && snapshot.data != null
-              ? Stack(fit: StackFit.expand, children: [ Image.memory(snapshot.data!, fit: BoxFit.cover), const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30))])
-              : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey));
-        },
-      )
-          : Image.network(
-        url,
-        fit: BoxFit.cover,
-        loadingBuilder: (context, child, progress) => progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-        errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.broken_image_outlined, color: Colors.grey)),
-      );
+      isVideo = _isVideoUrl(url);
+      if (isVideo && kIsWeb) {
+        mediaContent = Container(
+          color: Colors.black,
+          child: const Center(child: Icon(Icons.play_circle_outline, color: Colors.white, size: 40)),
+        );
+      } else {
+        mediaContent = isVideo
+            ? FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(video: url, imageFormat: ImageFormat.JPEG, maxWidth: 80, quality: 25, headers: {}),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+            return snapshot.hasData && snapshot.data != null
+                ? Stack(fit: StackFit.expand, children: [ Image.memory(snapshot.data!, fit: BoxFit.cover), const Center(child: Icon(Icons.play_circle_fill, color: Colors.white70, size: 30))])
+                : const Center(child: Icon(Icons.videocam_off_outlined, color: Colors.grey));
+          },
+        )
+            : Image.network(
+          url,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, progress) => progress == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.broken_image_outlined, color: Colors.grey)),
+        );
+      }
     } else {
       mediaContent = const Center(child: Icon(Icons.error_outline, color: Colors.red));
     }
@@ -749,7 +765,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                   _updateTicket(value);
                 }
               },
-              isExpanded: true, // ✅ ADDED: Fixes RenderFlex overflow
+              isExpanded: true,
               decoration: InputDecoration(
                 labelText: 'Changer le statut',
                 border: const OutlineInputBorder(),
