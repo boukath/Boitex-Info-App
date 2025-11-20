@@ -6,6 +6,9 @@ import * as functions from "firebase-functions";
 import axios from "axios";
 import { defineSecret } from "firebase-functions/params";
 import { generateInterventionPdf } from "./pdf-generator"; // Import your PDF utility
+// ✅ ADDED: Imports for SAV PDF Generators
+import { generateSavDechargePdf } from "./sav-pdf-generator";
+import { generateSavReturnPdf } from "./sav-return-pdf-generator";
 
 // --- Secrets and Constants ---
 const groqApiKey = defineSecret("GROQ_API_KEY");
@@ -147,6 +150,62 @@ export const exportInterventionPdf = onCall(
       functions.logger.error(`❌ Failed to generate PDF for ${interventionId}:`, error);
       if (error instanceof HttpsError) throw error;
       throw new HttpsError("internal", "Failed to generate PDF.", error);
+    }
+  }
+);
+
+// ------------------------------------------------------------------
+// 3. SAV PDF DOWNLOADER (Universal)
+// ------------------------------------------------------------------
+/**
+ * Generates a SAV Ticket PDF (Décharge or Restitution) on demand
+ * and returns it as a Base64 string for mobile download.
+ */
+export const downloadSavPdf = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    const { ticketId, type } = request.data;
+
+    // 1. Validation
+    if (!ticketId || !type) {
+      throw new HttpsError("invalid-argument", "Missing ticketId or type (deposit/return).");
+    }
+
+    // 2. Fetch Ticket Data
+    const docRef = admin.firestore().collection("sav_tickets").doc(ticketId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      throw new HttpsError("not-found", "Ticket not found.");
+    }
+
+    const data = docSnap.data();
+
+    try {
+      let pdfBuffer: Buffer;
+
+      // 3. Generate Requested PDF
+      if (type === "deposit") {
+        pdfBuffer = await generateSavDechargePdf(data);
+      } else if (type === "return") {
+        // Check if actually returned
+        if (data?.status !== "Retourné") {
+          throw new HttpsError("failed-precondition", "Cannot download return receipt: Ticket is not closed/returned.");
+        }
+        pdfBuffer = await generateSavReturnPdf(data);
+      } else {
+        throw new HttpsError("invalid-argument", "Invalid PDF type.");
+      }
+
+      // 4. Return as Base64 (Standard for mobile file transfer)
+      return {
+        filename: `SAV-${data?.savCode}-${type}.pdf`,
+        pdfBase64: pdfBuffer.toString("base64"),
+      };
+
+    } catch (error) {
+      functions.logger.error("PDF Generation Error", error);
+      throw new HttpsError("internal", "Failed to generate PDF.");
     }
   }
 );

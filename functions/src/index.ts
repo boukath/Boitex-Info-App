@@ -13,6 +13,7 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 export { onInterventionTermine } from "./intervention-handlers";
 export { onSavTicketCreated } from "./sav-handlers";
 export { onSavTicketReturned } from "./sav-return-handlers";
+export { downloadSavPdf } from "./callable-handlers";
 export * from "./callable-handlers";
 const backblazeKeyId = defineSecret("BACKBLAZE_KEY_ID");
 const backblazeAppKey = defineSecret("BACKBLAZE_APP_KEY");

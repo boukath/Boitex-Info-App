@@ -16,6 +16,9 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'package:path/path.dart' as path;
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 
 class SavTicketDetailsPage extends StatefulWidget {
   final SavTicket ticket;
@@ -391,6 +394,86 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     }
   }
 
+  // ✅ FIXED: Handles generating, downloading, and opening the PDF
+  Future<void> _downloadPdf(String type) async {
+    try {
+      // 1. Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // 2. Call the Cloud Function (✅ Explicitly europe-west1)
+      final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('downloadSavPdf')
+          .call({
+        'ticketId': widget.ticket.id,
+        'type': type, // 'deposit' or 'return'
+      });
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading
+      }
+
+      // 3. Safe Data Parsing & Sanitize Filename
+      final rawData = result.data;
+      if (rawData == null) {
+        throw Exception("Le serveur a renvoyé une réponse vide.");
+      }
+
+      // Convert generic Map to Map<String, dynamic> safely
+      final Map<String, dynamic> data = Map<String, dynamic>.from(rawData as Map);
+
+      final String? base64Pdf = data['pdfBase64'];
+      if (base64Pdf == null || base64Pdf.isEmpty) {
+        throw Exception("Données PDF invalides.");
+      }
+
+      String filename = data['filename'] ?? 'document.pdf';
+      // ✅ CRITICAL FIX: Sanitize filename to replace slashes with underscores
+      // This prevents "PathNotFoundException" when SAV code contains "/"
+      filename = filename.replaceAll(RegExp(r'[/\\]'), '_');
+
+      final Uint8List bytes = base64Decode(base64Pdf);
+
+      // 4. Save File Locally
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$filename');
+      await file.writeAsBytes(bytes);
+
+      // 5. Open Viewer
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PdfViewerPage(
+              pdfBytes: bytes,
+              title: type == 'deposit' ? "Décharge SAV" : "Bon de Restitution",
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // Handle Errors
+      if (mounted) {
+        // Close loader if it's possibly still open (safe check)
+        if (Navigator.canPop(context)) {
+          // We popped earlier, but if error happened during call, we might need to ensure logic
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur : $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        debugPrint("PDF Download Error Details: $e");
+      }
+    }
+  }
+
   Widget _buildReturnDetailsCard() {
     if (_currentTicket.status != 'Retourné' || _currentTicket.returnClientName == null) {
       return const SizedBox.shrink();
@@ -461,6 +544,24 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       appBar: AppBar(
         title: Text(_currentTicket.savCode),
         backgroundColor: Colors.orange,
+        actions: [
+          // ✅ 📄 Button 1: Décharge (Always available)
+          IconButton(
+            icon: const Icon(Icons.description_outlined),
+            tooltip: 'Télécharger la Décharge',
+            onPressed: () => _downloadPdf('deposit'),
+          ),
+
+          // ✅ ↩️ Button 2: Restitution (Only if returned)
+          if (_currentTicket.status == "Retourné")
+            IconButton(
+              icon: const Icon(Icons.assignment_return_outlined),
+              tooltip: 'Télécharger le Bon de Restitution',
+              onPressed: () => _downloadPdf('return'),
+            ),
+
+          const SizedBox(width: 8),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -648,6 +749,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
                   _updateTicket(value);
                 }
               },
+              isExpanded: true, // ✅ ADDED: Fixes RenderFlex overflow
               decoration: InputDecoration(
                 labelText: 'Changer le statut',
                 border: const OutlineInputBorder(),
