@@ -204,13 +204,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     }
   }
 
-  // This function is kept but ignored in the new save logic
-  String _generateInstallationCode() {
-    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final uniquePart = timestamp.substring(timestamp.length - 6).toUpperCase();
-    return 'INS-$uniquePart';
-  }
-
   Future<void> _pickFile() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -294,7 +287,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // -----------------------------------------------------------------
-  // ⭐️ FIXED: _saveInstallation using Transaction & Counter
+  // ⭐️ FIXED: _saveInstallation (With Image/Category Enrichment)
   // -----------------------------------------------------------------
   Future<void> _saveInstallation() async {
     if (!_formKey.currentState!.validate()) {
@@ -328,38 +321,89 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       return;
     }
 
-    String? preliminaryFileUrl;
-    String? preliminaryFileName;
+    // ✅ FIX 1: PREPARE COUNTER REFERENCES
+    final currentYear = DateTime.now().year.toString();
+    final counterRef = FirebaseFirestore.instance
+        .collection('counters')
+        .doc('installation_counter_$currentYear'); // Dedicated counter for installations
+    final installationRef = FirebaseFirestore.instance.collection('installations').doc();
 
     try {
-      // 1. Upload File first if exists (using a temporary ID for the filename)
-      // We do this outside the transaction to avoid slow HTTP calls blocking the DB.
-      if (_pickedFile != null) {
-        final tempId = DateTime.now().millisecondsSinceEpoch.toString();
-        preliminaryFileUrl = await _uploadFileToB2('TEMP_$tempId');
+      // 1. Upload File (if any)
+      String? preliminaryFileUrl;
+      String? preliminaryFileName;
 
+      // We generate a temporary ID just for the filename, the real ID comes later
+      final tempId = DateTime.now().millisecondsSinceEpoch.toString();
+
+      if (_pickedFile != null) {
+        preliminaryFileUrl = await _uploadFileToB2(tempId);
         if (preliminaryFileUrl != null) {
           preliminaryFileName = _pickedFileName;
         } else {
-          // Stop save process if upload failed
           setState(() => _isLoading = false);
-          return;
+          return; // Stop if upload fails
         }
       }
 
-      // 2. Prepare User & Product Data
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final createdByName = userDoc.data()?['displayName'] ?? 'N/A';
 
-      final productsToSave = _selectedProducts.map((p) {
-        return {
-          'productName': p.productName,
+      // 🔹 A: PREPARE "ENRICHED" PRODUCTS (The Plan)
+      // ✅ FIXED: We fetch the missing data (Image, Category) from Firestore directly
+      List<Map<String, dynamic>> enrichedProducts = [];
+
+      for (var p in _selectedProducts) {
+        String category = 'Autre';
+        String? imageUrl;
+        String reference = p.partNumber; // Default from model
+        String brand = p.marque;         // Default from model
+
+        try {
+          // Fetch fresh data from Firestore to ensure we have Image and Category
+          final doc = await FirebaseFirestore.instance.collection('produits').doc(p.productId).get();
+          if (doc.exists) {
+            final data = doc.data()!;
+            category = data['categorie'] ?? data['category'] ?? 'Autre';
+
+            // Handle image array
+            final List<dynamic>? images = data['imageUrls'];
+            if (images != null && images.isNotEmpty) {
+              imageUrl = images.first as String;
+            }
+
+            // Update ref/brand if available (better source of truth)
+            reference = data['reference'] ?? reference;
+            brand = data['marque'] ?? brand;
+          }
+        } catch (e) {
+          print("Error fetching product details for ${p.productName}: $e");
+        }
+
+        enrichedProducts.add({
           'productId': p.productId,
+          'productName': p.productName,
+          'reference': reference,
+          'marque': brand,
+          'category': category,
+          'image': imageUrl, // ✅ Now populated!
           'quantity': p.quantity,
           'serialNumbers': [],
+        });
+      }
+
+      // 🔹 B: PREPARE "SYSTEMS" (The Execution Checklist)
+      // We use the enriched list so the Technician also sees images
+      final systems = enrichedProducts.map((p) {
+        return {
+          'id': p['productId'],
+          'name': p['productName'],
+          'reference': p['reference'],
+          'marque': p['marque'],
+          'category': p['category'],
+          'image': p['image'],
+          'quantity': p['quantity'],
+          'serialNumbers': List<String>.filled(p['quantity'] as int, ''), // Empty slots for scanning
         };
       }).toList();
 
@@ -367,13 +411,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           .map((user) => {'uid': user.uid, 'displayName': user.displayName})
           .toList();
 
-      // 3. Run Firestore Transaction
-      final counterRef = FirebaseFirestore.instance
-          .collection('counters')
-          .doc('installation_counter_2025'); // ⭐️ USING SPECIFIC COUNTER
-
-      final installationRef = FirebaseFirestore.instance.collection('installations').doc();
-
+      // ✅ FIX 2: USE TRANSACTION
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final counterDoc = await transaction.get(counterRef);
 
@@ -386,12 +424,11 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         }
 
         // Format: INST-1/2025
-        final String installationCode = 'INST-$newCount/2025';
+        final String installationCode = 'INST-$newCount/$currentYear';
 
-        // Create the Installation Document
+        // Write the Installation
         transaction.set(installationRef, {
-          // Key Info
-          'installationCode': installationCode, // ⭐️ SAVED SEQUENTIAL CODE
+          'installationCode': installationCode, // ✅ SAVED HERE
           'clientName': _selectedClient!.name,
           'clientId': _selectedClient!.id,
           'clientPhone': _clientPhoneController.text.trim(),
@@ -401,21 +438,18 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'storeLocation': _selectedStore!.location,
           'initialRequest': _requestController.text.trim(),
           'serviceType': widget.serviceType,
-
-          // Preliminary file details
           'preliminaryFileUrl': preliminaryFileUrl,
           'preliminaryFileName': preliminaryFileName,
-
-          // Status & Timestamps
           'status': 'À Planifier',
           'createdAt': Timestamp.now(),
           'createdById': user.uid,
           'createdByName': createdByName,
-
-          // Default empty fields
           'installationDate': null,
           'assignedTechnicians': techniciansToSave,
-          'orderedProducts': productsToSave,
+
+          'orderedProducts': enrichedProducts, // 🔹 The Full Plan (With Images)
+          'systems': systems,                  // 🔹 The Checklist
+
           'mediaUrls': [],
           'technicalEvaluation': [],
           'itEvaluation': [],
@@ -427,26 +461,18 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nouvelle installation créée avec succès.'),
-            backgroundColor: Colors.green,
-          ),
+          const SnackBar(content: Text('Installation créée avec succès.'), backgroundColor: Colors.green),
         );
         Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de la création: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
   // -----------------------------------------------------------------

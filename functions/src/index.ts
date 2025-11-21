@@ -11,6 +11,7 @@ import {defineSecret} from "firebase-functions/params";
 import {onRequest, onCall, HttpsError} from "firebase-functions/v2/https"; // ✅ MODIFIED
 import {onSchedule} from "firebase-functions/v2/scheduler";
 export { onInstallationTermine } from "./installation-handlers";
+export { createLivraisonFromInstallation } from "./installation-delivery-handler";
 export { onInterventionTermine } from "./intervention-handlers";
 export { onSavTicketCreated } from "./sav-handlers";
 export { onSavTicketReturned } from "./sav-return-handlers";
