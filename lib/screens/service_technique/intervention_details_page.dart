@@ -9,7 +9,6 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:signature/signature.dart';
-// ❌ REMOVED: import 'package:firebase_storage/firebase_storage.dart'; // Not needed for B2 signatures
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -31,7 +30,12 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_saver/file_saver.dart';
-import 'package:printing/printing.dart'; // ✅ For Web Preview
+import 'package:printing/printing.dart';
+
+// ✅ Global Search Page for System Selection
+import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
+// ✅ Product Scanner Page
+import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 
 // ----------------------------------------------------------------------
 // Data model
@@ -67,6 +71,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   late final TextEditingController _managerEmailController;
   late final TextEditingController _diagnosticController;
   late final TextEditingController _workDoneController;
+  late final TextEditingController _systemConfigController;
   late final SignatureController _signatureController;
 
   // State
@@ -78,6 +83,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _mediaFilesToUpload = [];
   List<String> _existingMediaUrls = [];
+
+  // ✅ UPGRADED: List of Selected Systems (Multi-Product Support)
+  List<Map<String, dynamic>> _selectedSystems = [];
+
+  // ✅ NEW: Suggested Systems List (from History)
+  List<Map<String, dynamic>>? _suggestedSystemsFromHistory;
+  String? _suggestedConfigFromHistory;
 
   // AI State
   bool _isGeneratingDiagnostic = false;
@@ -132,9 +144,38 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _diagnosticController =
         TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
+    _systemConfigController = TextEditingController(text: data['systemConfiguration'] ?? '');
+
     _signatureController = SignatureController();
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
+
+    // ✅ DATA MIGRATION: Handle old single-product vs new multi-product-quantity
+    if (data['systems'] != null) {
+      _selectedSystems = List<Map<String, dynamic>>.from(data['systems']);
+      // Ensure quantity and serialNumbers list exists for migrated data
+      for (var system in _selectedSystems) {
+        if (system['quantity'] == null) system['quantity'] = 1;
+        if (system['serialNumbers'] == null) {
+          // Migrate old single serial to list
+          String? oldSn = system['serialNumber'];
+          int qty = system['quantity'] ?? 1;
+          List<String> snList = List.filled(qty, '');
+          if (oldSn != null && oldSn.isNotEmpty) snList[0] = oldSn;
+          system['serialNumbers'] = snList;
+        }
+      }
+    } else if (data['systemId'] != null) {
+      // Backward compatibility
+      _selectedSystems.add({
+        'id': data['systemId'],
+        'name': data['systemName'],
+        'reference': data['systemReference'],
+        'image': data['systemImage'],
+        'quantity': 1,
+        'serialNumbers': [data['serialNumber'] ?? ''],
+      });
+    }
 
     final mediaList = data['mediaUrls'] as List?;
     _existingMediaUrls = mediaList != null ? List<String>.from(mediaList) : [];
@@ -147,6 +188,334 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }).toList();
       if (mounted) setState(() {});
     });
+
+    // Check history for auto-suggestion if list is empty
+    if (_selectedSystems.isEmpty) {
+      _checkForPreviousSystem();
+    }
+  }
+
+  // ✅ UPGRADED: History Logic for Multiple Systems
+  Future<void> _checkForPreviousSystem() async {
+    final data = widget.interventionDoc.data();
+    if (data == null) return;
+
+    final String? storeId = data['storeId'];
+    if (storeId == null) return;
+
+    try {
+      // Look for *any* previous intervention with systems
+      final query = await FirebaseFirestore.instance
+          .collection('interventions')
+          .where('storeId', isEqualTo: storeId)
+          .orderBy('createdAt', descending: true)
+          .limit(5) // Check last 5 to find one with systems
+          .get();
+
+      for (var doc in query.docs) {
+        if (doc.id == widget.interventionDoc.id) continue; // Skip self
+
+        final prevData = doc.data();
+        List<Map<String, dynamic>> foundSystems = [];
+
+        // Check for new list format
+        if (prevData['systems'] != null) {
+          foundSystems = List<Map<String, dynamic>>.from(prevData['systems']);
+        }
+        // Check for legacy single format
+        else if (prevData['systemId'] != null) {
+          foundSystems.add({
+            'id': prevData['systemId'],
+            'name': prevData['systemName'],
+            'reference': prevData['systemReference'],
+            'image': prevData['systemImage'],
+            'quantity': 1,
+            'serialNumbers': [prevData['serialNumber'] ?? ''],
+          });
+        }
+
+        if (foundSystems.isNotEmpty) {
+          if (mounted) {
+            setState(() {
+              _suggestedSystemsFromHistory = foundSystems;
+              _suggestedConfigFromHistory = prevData['systemConfiguration'];
+            });
+          }
+          return; // Found most recent valid entry, stop looking
+        }
+      }
+    } catch (e) {
+      debugPrint('History check failed: $e');
+    }
+  }
+
+  // ✅ NEW: Apply ALL suggested systems
+  void _applySuggestion() {
+    if (_suggestedSystemsFromHistory != null) {
+      setState(() {
+        // Reset quantities to 1 and clear serials for new intervention
+        _selectedSystems = _suggestedSystemsFromHistory!.map((s) {
+          var newMap = Map<String, dynamic>.from(s);
+          newMap['quantity'] = 1; // Reset quantity
+          newMap['serialNumbers'] = ['']; // Reset serials
+          return newMap;
+        }).toList();
+
+        if (_systemConfigController.text.isEmpty && _suggestedConfigFromHistory != null) {
+          _systemConfigController.text = _suggestedConfigFromHistory!;
+        }
+
+        _suggestedSystemsFromHistory = null; // Hide banner
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Systèmes ajoutés. Veuillez vérifier les quantités.'), backgroundColor: Colors.green),
+      );
+    }
+  }
+
+  // ✅ NEW: Helper to ask for quantity
+  Future<int> _requestQuantity() async {
+    int qty = 1;
+    await showDialog(
+      context: context,
+      barrierDismissible: false, // Force selection
+      builder: (ctx) => AlertDialog(
+        title: const Text("Quantité", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Combien d'unités pour ce produit ?"),
+            const SizedBox(height: 16),
+            TextFormField(
+              autofocus: true,
+              initialValue: "1",
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF667EEA)),
+              decoration: InputDecoration(
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              onChanged: (v) => qty = int.tryParse(v) ?? 1,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+    return qty > 0 ? qty : 1;
+  }
+
+  // ✅ UPGRADED: Select + Quantity
+  Future<void> _selectSystem() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const GlobalProductSearchPage(isSelectionMode: true),
+      ),
+    );
+
+    if (result != null && result is DocumentSnapshot) {
+      final data = result.data() as Map<String, dynamic>;
+      final images = (data['imageUrls'] as List?)?.cast<String>() ?? [];
+
+      // Ask for Quantity
+      int qty = await _requestQuantity();
+
+      setState(() {
+        _selectedSystems.add({
+          'id': result.id,
+          'name': data['nom'] ?? 'Produit sans nom',
+          'reference': data['reference'] ?? 'Ref: N/A',
+          'image': images.isNotEmpty ? images.first : null,
+          'quantity': qty,
+          'serialNumbers': List<String>.filled(qty, ''), // Empty slots
+        });
+      });
+    }
+  }
+
+  // ✅ UPGRADED: Scan + Quantity
+  Future<void> _scanSystem() async {
+    final String? scannedCode = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProductScannerPage()),
+    );
+
+    if (scannedCode == null) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final query = await FirebaseFirestore.instance
+          .collection('produits')
+          .where('reference', isEqualTo: scannedCode)
+          .limit(1)
+          .get();
+
+      if (query.docs.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Aucun produit trouvé avec le code: $scannedCode'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final doc = query.docs.first;
+      final data = doc.data();
+      final images = (data['imageUrls'] as List?)?.cast<String>() ?? [];
+
+      setState(() => _isLoading = false); // Stop loading before dialog
+
+      // Ask for Quantity
+      int qty = await _requestQuantity();
+
+      setState(() {
+        _selectedSystems.add({
+          'id': doc.id,
+          'name': data['nom'] ?? 'Produit sans nom',
+          'reference': data['reference'] ?? scannedCode,
+          'image': images.isNotEmpty ? images.first : null,
+          'quantity': qty,
+          'serialNumbers': List<String>.filled(qty, ''),
+        });
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${data['nom']} ajouté (x$qty)'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de scan: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // ✅ NEW: Remove a system from list
+  void _removeSystem(int index) {
+    setState(() {
+      _selectedSystems.removeAt(index);
+    });
+  }
+
+  // ✅ NEW: Multi-Serial Number Management Dialog
+  Future<void> _manageSerialNumbers(int index) async {
+    final system = _selectedSystems[index];
+    final int qty = system['quantity'] ?? 1;
+    // Create a local copy of the list to edit
+    List<String> currentSerials = List.from(system['serialNumbers'] ?? List.filled(qty, ''));
+
+    // Ensure list size matches quantity (in case quantity logic changed)
+    if (currentSerials.length != qty) {
+      if (currentSerials.length < qty) {
+        currentSerials.addAll(List.filled(qty - currentSerials.length, ''));
+      } else {
+        currentSerials = currentSerials.sublist(0, qty);
+      }
+    }
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+            builder: (context, setStateDialog) {
+              return AlertDialog(
+                title: Text("S/N ($qty articles)", style: const TextStyle(fontWeight: FontWeight.bold)),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  height: 300, // Fixed height for scrollable list
+                  child: Column(
+                    children: [
+                      const Text("Scannez ou saisissez les numéros pour chaque unité.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: qty,
+                          itemBuilder: (context, i) {
+                            final controller = TextEditingController(text: currentSerials[i]);
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Row(
+                                children: [
+                                  Text("#${i + 1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextFormField(
+                                      controller: controller,
+                                      decoration: InputDecoration(
+                                        hintText: "Numéro de série",
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      onChanged: (val) => currentSerials[i] = val,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF667EEA)),
+                                    onPressed: () async {
+                                      final scanned = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => const ProductScannerPage()),
+                                      );
+                                      if (scanned != null) {
+                                        setStateDialog(() {
+                                          currentSerials[i] = scanned;
+                                          controller.text = scanned; // Update field UI
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text("Annuler"),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedSystems[index]['serialNumbers'] = currentSerials;
+                      });
+                      Navigator.pop(ctx);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF667EEA),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text("Enregistrer"),
+                  ),
+                ],
+              );
+            }
+        );
+      },
+    );
   }
 
   // ----------------------------------------------------------------------
@@ -383,7 +752,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Upload Raw Bytes (Signatures)
+  // Upload Raw Bytes (Signatures)
   Future<String?> _uploadBytesToB2(
       Uint8List data, String fileName, Map<String, dynamic> b2Creds) async {
     try {
@@ -419,27 +788,25 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // Save Report (UPDATED FOR B2 SIGNATURE)
+  // Save Report (UPDATED FOR MULTIPLE SYSTEMS)
   // ----------------------------------------------------------------------
   Future<void> _saveReport() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
 
     try {
-      // 1) Get B2 Credentials FIRST (Needed for both media and signature)
+      // 1) Get B2 Credentials
       final creds = await _getB2UploadCredentials();
       if (creds == null) {
         throw Exception('Impossible de récupérer les accès B2.');
       }
 
-      // 2) Upload Signature to B2 (if exists)
+      // 2) Upload Signature
       String? newSignatureUrl = _signatureImageUrl;
       if (_signatureController.isNotEmpty) {
         final png = await _signatureController.toPngBytes();
         if (png != null) {
-          // Generate a unique filename for the signature
           final String fileName = 'signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png';
-
           final url = await _uploadBytesToB2(png, fileName, creds);
           if (url != null) {
             newSignatureUrl = url;
@@ -449,7 +816,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // 3) Upload Media to B2
+      // 3) Upload Media
       final List<String> uploaded = List<String>.from(_existingMediaUrls);
       for (final file in _mediaFilesToUpload) {
         final url = await _uploadFileToB2(file, creds);
@@ -460,15 +827,25 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // 4) Persist Data to Firestore
+      // 4) Persist Data
       final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
         'managerEmail': _managerEmailController.text.trim(),
         'diagnostic': _diagnosticController.text.trim(),
         'workDone': _workDoneController.text.trim(),
-        'signatureUrl': newSignatureUrl, // Now a B2 URL
+        'signatureUrl': newSignatureUrl,
         'status': _currentStatus,
+
+        // ✅ SAVE SYSTEMS LIST WITH QUANTITY & SERIALS
+        'systems': _selectedSystems,
+        // Keep legacy fields for older app versions if needed (uses the first system)
+        'systemId': _selectedSystems.isNotEmpty ? _selectedSystems.first['id'] : null,
+        'systemName': _selectedSystems.isNotEmpty ? _selectedSystems.first['name'] : null,
+        'systemReference': _selectedSystems.isNotEmpty ? _selectedSystems.first['reference'] : null,
+        'systemImage': _selectedSystems.isNotEmpty ? _selectedSystems.first['image'] : null,
+
+        'systemConfiguration': _systemConfigController.text.trim(),
         'assignedTechnicians':
         _selectedTechnicians.map((t) => t.displayName).toList(),
         'assignedTechniciansIds':
@@ -683,6 +1060,7 @@ L'équipe BOITEX INFO'''
     _managerEmailController.dispose();
     _diagnosticController.dispose();
     _workDoneController.dispose();
+    _systemConfigController.dispose();
     _signatureController.dispose();
     super.dispose();
   }
@@ -751,6 +1129,49 @@ L'équipe BOITEX INFO'''
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Suggestion Banner (if found)
+                  if (_suggestedSystemsFromHistory != null && _selectedSystems.isEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFF10B981)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.history, color: Color(0xFF10B981)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  "Systèmes détectés (Historique)",
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF047857),
+                                  ),
+                                ),
+                                Text(
+                                  "${_suggestedSystemsFromHistory!.length} produit(s) trouvés",
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _applySuggestion,
+                            child: const Text(
+                              "IMPORTER",
+                              style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   _buildSummaryCard(data, createdAt),
                   const SizedBox(height: 24),
                   _buildReportForm(context),
@@ -764,7 +1185,6 @@ L'équipe BOITEX INFO'''
   }
 
   Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
-    // Extract the phone number safely from the data map
     final String? clientPhone = data['clientPhone'];
 
     return Card(
@@ -801,7 +1221,6 @@ L'équipe BOITEX INFO'''
             const SizedBox(height: 4),
             Text(data['interventionType'] ?? 'Non spécifié'),
 
-            // ✅ ADDED: Dynamic Client Phone Field (Clickable)
             if (clientPhone != null && clientPhone.isNotEmpty) ...[
               const SizedBox(height: 12),
               const Text('Tél Client:',
@@ -813,7 +1232,6 @@ L'équipe BOITEX INFO'''
                     scheme: 'tel',
                     path: clientPhone,
                   );
-                  // Check if the device can handle the call
                   if (await canLaunchUrl(launchUri)) {
                     await launchUrl(launchUri);
                   }
@@ -828,7 +1246,7 @@ L'équipe BOITEX INFO'''
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF667EEA), // Matches your app theme
+                        color: Color(0xFF667EEA),
                         decoration: TextDecoration.underline,
                       ),
                     ),
@@ -842,6 +1260,219 @@ L'équipe BOITEX INFO'''
     );
   }
 
+  // ✅ UPGRADED: System Section with Quantity & Serials
+  Widget _buildSystemSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              "Systèmes / Équipements",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            if (!isReadOnly)
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF667EEA).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text(
+                  "${_selectedSystems.length} produit(s)",
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF667EEA), fontWeight: FontWeight.bold),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // LIST OF SYSTEMS
+        if (_selectedSystems.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: const Center(
+              child: Text("Aucun système sélectionné", style: TextStyle(color: Colors.grey)),
+            ),
+          )
+        else
+          ..._selectedSystems.asMap().entries.map((entry) {
+            final index = entry.key;
+            final system = entry.value;
+            final int qty = system['quantity'] ?? 1;
+            final List<String> serials = List<String>.from(system['serialNumbers'] ?? []);
+            final int scannedCount = serials.where((s) => s.isNotEmpty).length;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(8),
+                leading: Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: system['image'] != null
+                      ? ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(
+                      system['image'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (c, e, s) => const Icon(Icons.inventory_2, color: Colors.grey),
+                    ),
+                  )
+                      : const Icon(Icons.inventory_2, color: Color(0xFF667EEA)),
+                ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        system['name'] ?? 'Système',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                    // ✅ Quantity Chip
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Text(
+                        "x$qty",
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      system['reference'] ?? '',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    // ✅ UPGRADED: Serial Number Manager
+                    InkWell(
+                      onTap: isReadOnly ? null : () => _manageSerialNumbers(index),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.qr_code, size: 14, color: Colors.blue.shade700),
+                            const SizedBox(width: 6),
+                            Text(
+                              // Smart label
+                              qty > 1
+                                  ? "S/N: $scannedCount/$qty scannés"
+                                  : (scannedCount > 0 ? "S/N: ${serials[0]}" : "Ajouter S/N"),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue.shade700,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                trailing: isReadOnly
+                    ? null
+                    : IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () => _removeSystem(index),
+                ),
+              ),
+            );
+          }).toList(),
+
+        const SizedBox(height: 8),
+
+        // ADD BUTTONS
+        if (!isReadOnly)
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text("Ajouter (Recherche)"),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: Color(0xFF667EEA)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _selectSystem,
+                ),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                  side: const BorderSide(color: Colors.black87),
+                  foregroundColor: Colors.black87,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _scanSystem,
+                child: const Icon(Icons.qr_code_scanner_rounded),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _buildConfigSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Configuration / Paramétrage",
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _systemConfigController,
+          readOnly: isReadOnly,
+          maxLines: 5,
+          decoration: InputDecoration(
+            hintText: "Saisir la configuration...",
+            alignLabelWithHint: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildReportForm(BuildContext context) {
     return Form(
       child: Column(
@@ -849,6 +1480,13 @@ L'équipe BOITEX INFO'''
         children: [
           const Text("Rapport d'Intervention",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+
+          const SizedBox(height: 16),
+          _buildSystemSection(),
+
+          const SizedBox(height: 16),
+          _buildConfigSection(),
+
           const SizedBox(height: 16),
           TextFormField(
             controller: _managerNameController,

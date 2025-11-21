@@ -5,7 +5,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/administration/product_details_page.dart';
 
 class GlobalProductSearchPage extends StatefulWidget {
-  const GlobalProductSearchPage({super.key});
+  // ✅ NEW: Flag to control selection mode
+  final bool isSelectionMode;
+
+  const GlobalProductSearchPage({
+    super.key,
+    // ✅ NEW: Default to false so it works as a normal search page unless specified
+    this.isSelectionMode = false,
+  });
 
   @override
   State<GlobalProductSearchPage> createState() => _GlobalProductSearchPageState();
@@ -58,6 +65,7 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
       final queryLower = query.toLowerCase();
 
       // Fetch all products
+      // Note: For production with many items, consider Algolia or a specific Firestore search index
       final snapshot = await FirebaseFirestore.instance
           .collection('produits')
           .get();
@@ -120,8 +128,12 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // ✅ NEW: Change background slightly if in selection mode to indicate context
+      backgroundColor: widget.isSelectionMode ? Colors.grey[50] : null,
       body: Container(
-        decoration: BoxDecoration(
+        decoration: widget.isSelectionMode
+            ? null // Use simple background for selection mode
+            : BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -181,8 +193,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
+              children: [
+                const Text(
                   'Recherche',
                   style: TextStyle(
                     color: Colors.white70,
@@ -190,10 +202,11 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
-                  'Globale',
-                  style: TextStyle(
+                  // ✅ NEW: Dynamic title based on mode
+                  widget.isSelectionMode ? 'Sélectionner Produit' : 'Globale',
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -352,7 +365,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
             ),
             const SizedBox(height: 24),
             Text(
-              'Rechercher un produit',
+              // ✅ NEW: Context aware text
+              widget.isSelectionMode ? 'Sélectionnez un système' : 'Rechercher un produit',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -526,13 +540,20 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
+          // ✅ NEW: OnTap logic to handle Selection vs View Details
           onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ProductDetailsPage(productDoc: productDoc),
-              ),
-            );
+            if (widget.isSelectionMode) {
+              // Return the selected document to the previous screen
+              Navigator.pop(context, productDoc);
+            } else {
+              // Normal behavior: Go to details
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ProductDetailsPage(productDoc: productDoc),
+                ),
+              );
+            }
           },
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -672,16 +693,20 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                     ],
                   ),
                 ),
+                // ✅ NEW: Visual indicator for selection mode
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: categoryColor.withOpacity(0.1),
+                    color: widget.isSelectionMode
+                        ? const Color(0xFF10B981).withOpacity(0.1)
+                        : categoryColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
-                    Icons.arrow_forward_ios_rounded,
+                    // Show "Plus" icon if selecting, "Arrow" if viewing details
+                    widget.isSelectionMode ? Icons.add_circle_outline_rounded : Icons.arrow_forward_ios_rounded,
                     size: 18,
-                    color: categoryColor,
+                    color: widget.isSelectionMode ? const Color(0xFF10B981) : categoryColor,
                   ),
                 ),
               ],
