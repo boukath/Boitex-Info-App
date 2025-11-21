@@ -3,6 +3,7 @@
 import {onDocumentUpdated} from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as nodemailer from "nodemailer";
+import * as admin from "firebase-admin"; // ✅ ADDED: Required for database writes
 import {defineSecret} from "firebase-functions/params";
 import { HttpsError } from "firebase-functions/v2/https";
 
@@ -30,6 +31,113 @@ function isValidEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }
+
+// ✅ ---------------------------------------------------------
+// ✅ NEW: Inventory Synchronization Logic
+// ✅ ---------------------------------------------------------
+const syncInterventionToInventory = async (interventionId: string, data: any) => {
+  const db = admin.firestore();
+  const clientId = data.clientId;
+  const storeId = data.storeId;
+  const systems = data.systems; // The list from your App
+
+  // 1. Basic Validation
+  if (!clientId || !storeId || !systems || !Array.isArray(systems) || systems.length === 0) {
+    logger.log(`ℹ️ Inventory Sync: Skipping ${interventionId} (No systems data or missing IDs).`);
+    return;
+  }
+
+  logger.log(`🔄 Starting Inventory Sync for Store: ${storeId} | Found ${systems.length} product groups.`);
+
+  // Reference to the store's equipment collection
+  const inventoryRef = db
+    .collection("clients")
+    .doc(clientId)
+    .collection("stores")
+    .doc(storeId)
+    .collection("materiel_installe");
+
+  const batch = db.batch();
+  let opCount = 0;
+
+  // 2. Loop through each Product Group
+  for (const item of systems) {
+    // Get the list of serials.
+    let serials: string[] = item.serialNumbers || [];
+
+    // Loop through every serial number provided
+    for (const sn of serials) {
+      // Skip empty serial numbers
+      if (!sn || sn.trim() === "") continue;
+
+      // 3. Check if this specific asset (S/N) already exists in this store
+      const snapshot = await inventoryRef.where("serialNumber", "==", sn).limit(1).get();
+
+      let assetRef;
+      let assetData;
+
+      if (!snapshot.empty) {
+        // 🟢 CASE A: UPDATE (Maintenance)
+        // The asset is already there. We just update its heartbeat.
+        const doc = snapshot.docs[0];
+        assetRef = doc.ref;
+
+        assetData = {
+          lastInterventionId: interventionId,
+          lastInterventionDate: admin.firestore.FieldValue.serverTimestamp(),
+          status: "Opérationnel", // Confirmed working during intervention
+
+          // ✅ FIXED: Update brand and category if changed
+          name: item.name || doc.data().name,
+          marque: item.marque || doc.data().marque,
+          reference: item.reference || doc.data().reference,
+          categorie: item.category || doc.data().categorie,
+          imageUrl: item.image || doc.data().imageUrl,
+        };
+        batch.update(assetRef, assetData);
+      } else {
+        // 🔵 CASE B: INSERT (New Installation or Discovery)
+        // This S/N was not in the database. Create it.
+        assetRef = inventoryRef.doc();
+
+        assetData = {
+          // Standard Fields
+          name: item.name || "Équipement Inconnu",
+          // ✅ FIXED: Saving brand and category on creation
+          marque: item.marque || "Non spécifiée",
+          reference: item.reference || "N/A",
+          serialNumber: sn,
+          categorie: item.category || "Autre",
+
+          // Lifecycle Fields
+          installDate: admin.firestore.FieldValue.serverTimestamp(),
+          status: "Installé",
+          imageUrl: item.image || null,
+
+          // Traceability
+          source: "Intervention Audit",
+          firstSeenInterventionId: interventionId,
+          lastInterventionId: interventionId,
+          lastInterventionDate: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        batch.set(assetRef, assetData);
+      }
+      opCount++;
+    }
+  }
+
+  // 4. Commit the changes
+  if (opCount > 0) {
+    await batch.commit();
+    logger.log(`✅ Inventory Sync Complete: ${opCount} assets processed for Store ${storeId}.`);
+  } else {
+    logger.log("ℹ️ Inventory Sync: No valid serial numbers found to sync.");
+  }
+};
+// ✅ ---------------------------------------------------------
+// ✅ END NEW LOGIC
+// ✅ ---------------------------------------------------------
+
 
 // --- 2. Create the function trigger ---
 export const onInterventionTermine = onDocumentUpdated(
@@ -68,7 +176,20 @@ export const onInterventionTermine = onDocumentUpdated(
       return;
     }
 
-    logger.log("Status changed to 'Terminé'. Preparing to send email...");
+    logger.log("Status changed to 'Terminé'. Starting post-completion tasks...");
+
+    // ✅ ---------------------------------------------------------
+    // ✅ INTEGRATION: Call Inventory Sync
+    // ✅ ---------------------------------------------------------
+    try {
+      await syncInterventionToInventory(event.params.interventionId, afterData);
+    } catch (error) {
+      // Log error but DO NOT stop execution. We still want to send the email.
+      logger.error("❌ Error syncing inventory:", error);
+    }
+    // ✅ ---------------------------------------------------------
+
+    logger.log("Preparing to send email...");
 
     // --- 6. Email Validation Logic ---
     const managerEmail = afterData?.managerEmail;
