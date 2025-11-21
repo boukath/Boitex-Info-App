@@ -19,6 +19,10 @@ import 'package:crypto/crypto.dart';
 // ✅ 1. ADD THIS IMPORT AT THE TOP OF THE FILE
 import 'package:video_thumbnail/video_thumbnail.dart';
 
+// ✅ NEW IMPORTS FOR PRODUCT SEARCH & SCAN
+import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
+import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
+
 class InstallationReportPage extends StatefulWidget {
   final String installationId;
   const InstallationReportPage({super.key, required this.installationId});
@@ -37,6 +41,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   final ImagePicker _picker = ImagePicker();
   List<XFile> _mediaFilesToUpload = [];
   List<String> _existingMediaUrls = [];
+
+  // ✅ NEW: Fulfillment State
+  List<Map<String, dynamic>> _installedSystems = [];
 
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 2,
@@ -77,6 +84,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           _notesController.text = data['notes'] ?? '';
           _existingMediaUrls =
           List<String>.from(data['mediaUrls'] ?? data['photoUrls'] ?? []);
+
+          // ✅ LOAD EXISTING SYSTEMS
+          if (data['systems'] != null) {
+            _installedSystems = List<Map<String, dynamic>>.from(data['systems']);
+          }
+
           _isLoadingData = false;
         });
       } else {
@@ -95,6 +108,175 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
+  }
+
+  // ------------------------------------------------------------------------
+  // ✅ SECTION: PRODUCT & SERIAL NUMBER LOGIC (Ported from Intervention)
+  // ------------------------------------------------------------------------
+
+  Future<int> _requestQuantity() async {
+    int qty = 1;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Quantité Installée"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Combien d'unités avez-vous installé ?"),
+            const SizedBox(height: 16),
+            TextFormField(
+              autofocus: true,
+              initialValue: "1",
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF667EEA)),
+              decoration: InputDecoration(
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              onChanged: (v) => qty = int.tryParse(v) ?? 1,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK")),
+        ],
+      ),
+    );
+    return qty > 0 ? qty : 1;
+  }
+
+  Future<void> _addProduct(bool isScan) async {
+    Map<String, dynamic>? productData;
+    String? productId;
+
+    if (isScan) {
+      final code = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
+      if (code == null) return;
+
+      // Fetch by reference
+      final query = await FirebaseFirestore.instance.collection('produits').where('reference', isEqualTo: code).limit(1).get();
+      if (query.docs.isNotEmpty) {
+        productData = query.docs.first.data();
+        productId = query.docs.first.id;
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Produit introuvable: $code")));
+        return;
+      }
+    } else {
+      final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const GlobalProductSearchPage(isSelectionMode: true)));
+      if (result != null && result is DocumentSnapshot) {
+        productData = result.data() as Map<String, dynamic>;
+        productId = result.id;
+      }
+    }
+
+    if (productData != null && mounted) {
+      int qty = await _requestQuantity();
+      final images = (productData['imageUrls'] as List?)?.cast<String>() ?? [];
+
+      setState(() {
+        _installedSystems.add({
+          'id': productId,
+          'name': productData!['nom'] ?? 'Produit',
+          'reference': productData['reference'] ?? 'N/A',
+          'marque': productData['marque'],
+          'category': productData['categorie'],
+          'image': images.isNotEmpty ? images.first : null,
+          'quantity': qty,
+          'serialNumbers': List<String>.filled(qty, ''), // Prepare slots
+        });
+      });
+    }
+  }
+
+  Future<void> _manageSerialNumbers(int index) async {
+    final system = _installedSystems[index];
+    final int qty = system['quantity'] ?? 1;
+    List<String> currentSerials = List.from(system['serialNumbers'] ?? List.filled(qty, ''));
+
+    // Adjust list size if quantity changed
+    if (currentSerials.length != qty) {
+      if (currentSerials.length < qty) {
+        currentSerials.addAll(List.filled(qty - currentSerials.length, ''));
+      } else {
+        currentSerials = currentSerials.sublist(0, qty);
+      }
+    }
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (context, setStateDialog) {
+          return AlertDialog(
+            title: Text("S/N (${system['name']})"),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 300,
+              child: Column(
+                children: [
+                  const Text("Scannez les numéros de série installés.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: qty,
+                      itemBuilder: (context, i) {
+                        final controller = TextEditingController(text: currentSerials[i]);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Row(
+                            children: [
+                              Text("#${i + 1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: controller,
+                                  decoration: InputDecoration(
+                                    hintText: "Scanner ou saisir S/N",
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  onChanged: (val) => currentSerials[i] = val,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF667EEA)),
+                                onPressed: () async {
+                                  final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
+                                  if (scanned != null) {
+                                    setStateDialog(() {
+                                      currentSerials[i] = scanned;
+                                      controller.text = scanned;
+                                    });
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() => _installedSystems[index]['serialNumbers'] = currentSerials);
+                  Navigator.pop(ctx);
+                },
+                child: const Text("Valider"),
+              ),
+            ],
+          );
+        });
+      },
+    );
   }
 
   // Pick media with file size check
@@ -193,6 +375,13 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
   Future<void> _saveReport() async {
     if (_isSaving) return;
+
+    // ✅ Validation: Ensure products are added before finishing
+    if (_installedSystems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez ajouter au moins un équipement installé."), backgroundColor: Colors.red));
+      return;
+    }
+
     setState(() {
       _isSaving = true;
     });
@@ -235,12 +424,16 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         'signatureUrl': signatureUrl,
         'mediaUrls': uploadedMediaUrls,
         'photoUrls': FieldValue.delete(),
+
+        // ✅ SAVE SYSTEMS TO TRIGGER BACKEND SYNC
+        'systems': _installedSystems,
+
         'completedAt': FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Rapport enregistré avec succès!')));
+          const SnackBar(content: Text('Rapport enregistré et inventaire mis à jour !')));
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
@@ -271,6 +464,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rapport d\'Installation'),
+        backgroundColor: const Color(0xFF667EEA),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -280,6 +474,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             Text(clientName,
                 style: Theme.of(context).textTheme.headlineSmall),
             Text(storeName, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 24),
+
+            // ✅ FULFILLMENT UI
+            _buildSystemsList(isReadOnly),
+
             const SizedBox(height: 24),
             TextField(
               controller: _notesController,
@@ -330,6 +529,87 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           ],
         ),
       ),
+    );
+  }
+
+  // ✅ NEW WIDGET: SYSTEMS LIST UI
+  Widget _buildSystemsList(bool isReadOnly) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("Matériel Installé", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            if (!isReadOnly)
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner, color: Colors.black87),
+                    onPressed: () => _addProduct(true),
+                    tooltip: "Scanner produit",
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.search, color: Color(0xFF667EEA)),
+                    onPressed: () => _addProduct(false),
+                    tooltip: "Chercher catalogue",
+                  ),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_installedSystems.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade100),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.inventory_2_outlined, size: 40, color: Colors.blue),
+                const SizedBox(height: 8),
+                const Text("Aucun équipement ajouté.", style: TextStyle(color: Colors.blue)),
+                if (!isReadOnly)
+                  const Text("Utilisez les boutons ci-dessus pour ajouter le matériel.", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          )
+        else
+          ..._installedSystems.asMap().entries.map((entry) {
+            final index = entry.key;
+            final system = entry.value;
+            final qty = system['quantity'];
+            final serials = (system['serialNumbers'] as List).where((s) => s.toString().isNotEmpty).length;
+            final isComplete = serials == qty;
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: CircleAvatar(
+                  backgroundColor: isComplete ? Colors.green.shade100 : Colors.orange.shade100,
+                  child: Icon(isComplete ? Icons.check : Icons.priority_high, color: isComplete ? Colors.green : Colors.orange),
+                ),
+                title: Text(system['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Qté: $qty | S/N Scannés: $serials/$qty"),
+                    if (!isComplete)
+                      Text("Manque ${qty - serials} S/N", style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                trailing: isReadOnly ? null : IconButton(icon: const Icon(Icons.delete, color: Colors.grey), onPressed: () => setState(() => _installedSystems.removeAt(index))),
+                onTap: isReadOnly ? null : () => _manageSerialNumbers(index),
+              ),
+            );
+          }).toList(),
+      ],
     );
   }
 
@@ -427,7 +707,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     }
   }
 
-  // ✅ 2. THIS IS THE MODIFIED THUMBNAIL WIDGET
+  // ✅ 2. THIS IS THE MODIFIED THUMBNAIL WIDGET (Updated for Video)
   Widget _buildMediaThumbnail({
     String? url,
     XFile? file,
