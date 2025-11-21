@@ -171,6 +171,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'id': data['systemId'],
         'name': data['systemName'],
         'reference': data['systemReference'],
+        'marque': data['marque'],
+        'category': data['category'],
         'image': data['systemImage'],
         'quantity': 1,
         'serialNumbers': [data['serialNumber'] ?? ''],
@@ -228,6 +230,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             'id': prevData['systemId'],
             'name': prevData['systemName'],
             'reference': prevData['systemReference'],
+            'marque': prevData['marque'],
+            'category': prevData['category'],
             'image': prevData['systemImage'],
             'quantity': 1,
             'serialNumbers': [prevData['serialNumber'] ?? ''],
@@ -312,7 +316,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     return qty > 0 ? qty : 1;
   }
 
-  // ✅ UPGRADED: Select + Quantity
+  // ✅ UPGRADED: Select + Quantity + Marque/Category Capture
   Future<void> _selectSystem() async {
     final result = await Navigator.push(
       context,
@@ -333,6 +337,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'id': result.id,
           'name': data['nom'] ?? 'Produit sans nom',
           'reference': data['reference'] ?? 'Ref: N/A',
+          'marque': data['marque'],
+          'category': data['categorie'],
           'image': images.isNotEmpty ? images.first : null,
           'quantity': qty,
           'serialNumbers': List<String>.filled(qty, ''), // Empty slots
@@ -341,7 +347,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ UPGRADED: Scan + Quantity
+  // ✅ UPGRADED: Scan + Quantity + Marque/Category Capture
   Future<void> _scanSystem() async {
     final String? scannedCode = await Navigator.push(
       context,
@@ -384,6 +390,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'id': doc.id,
           'name': data['nom'] ?? 'Produit sans nom',
           'reference': data['reference'] ?? scannedCode,
+          'marque': data['marque'],
+          'category': data['categorie'],
           'image': images.isNotEmpty ? images.first : null,
           'quantity': qty,
           'serialNumbers': List<String>.filled(qty, ''),
@@ -411,6 +419,168 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   void _removeSystem(int index) {
     setState(() {
       _selectedSystems.removeAt(index);
+    });
+  }
+
+  // ✅ NEW: Pick from Store Inventory (The "Pro" Feature)
+  Future<void> _pickFromStoreInventory() async {
+    final data = widget.interventionDoc.data();
+    if (data == null) return;
+
+    final String? clientId = data['clientId'];
+    final String? storeId = data['storeId'];
+
+    if (clientId == null || storeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur: Données client/magasin manquantes.')));
+      return;
+    }
+
+    // Show Modal
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.store, color: Color(0xFF667EEA)),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text("Inventaire du Magasin", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+
+                // List
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('clients')
+                        .doc(clientId)
+                        .collection('stores')
+                        .doc(storeId)
+                        .collection('materiel_installe')
+                        .orderBy('name')
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return const Center(child: Text("Aucun équipement trouvé dans ce magasin.", style: TextStyle(color: Colors.grey)));
+                      }
+
+                      final assets = snapshot.data!.docs;
+
+                      return StatefulBuilder(
+                        builder: (context, setStateList) {
+                          return ListView.builder(
+                            controller: scrollController,
+                            itemCount: assets.length,
+                            itemBuilder: (context, index) {
+                              final asset = assets[index].data() as Map<String, dynamic>;
+                              final String name = asset['name'] ?? 'Inconnu';
+                              final String serial = asset['serialNumber'] ?? 'N/A';
+                              final String reference = asset['reference'] ?? '';
+                              final String? image = asset['imageUrl'];
+
+                              return ListTile(
+                                leading: Container(
+                                  width: 48, height: 48,
+                                  decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                                  child: image != null
+                                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(image, fit: BoxFit.cover))
+                                      : const Icon(Icons.inventory_2, size: 24, color: Colors.grey),
+                                ),
+                                title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                subtitle: Text("S/N: $serial ${reference.isNotEmpty ? ' | $reference' : ''}", style: const TextStyle(fontSize: 12)),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.add_circle_outline, color: Color(0xFF667EEA)),
+                                  onPressed: () {
+                                    _addFromInventory(asset);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('$name ajouté'), duration: const Duration(milliseconds: 800), behavior: SnackBarBehavior.floating),
+                                    );
+                                  },
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ✅ NEW: Logic to merge inventory item into the report list
+  void _addFromInventory(Map<String, dynamic> asset) {
+    setState(() {
+      final String reference = asset['reference'] ?? 'N/A';
+      final String name = asset['name'] ?? 'Produit Inconnu';
+      final String serial = asset['serialNumber'] ?? '';
+      final String marque = asset['marque'] ?? 'Non spécifiée';
+      final String category = asset['categorie'] ?? 'N/A';
+
+      // Smart Grouping: Check if we already have a line item for this Product Reference
+      int existingIndex = _selectedSystems.indexWhere((s) =>
+      s['name'] == name && s['reference'] == reference);
+
+      if (existingIndex != -1) {
+        // Update existing line
+        var existing = _selectedSystems[existingIndex];
+        int newQty = (existing['quantity'] ?? 1) + 1;
+        List<String> serials = List<String>.from(existing['serialNumbers'] ?? []);
+
+        // Append serial
+        if (serials.length < newQty) {
+          serials.add(serial);
+        } else {
+          // Try to fill empty slot
+          int emptyIndex = serials.indexOf('');
+          if (emptyIndex != -1) {
+            serials[emptyIndex] = serial;
+          } else {
+            serials.add(serial);
+          }
+        }
+
+        _selectedSystems[existingIndex]['quantity'] = newQty;
+        _selectedSystems[existingIndex]['serialNumbers'] = serials;
+      } else {
+        // Create new line
+        _selectedSystems.add({
+          'id': null, // It's from inventory
+          'name': name,
+          'reference': reference,
+          'marque': marque,
+          'category': category,
+          'image': asset['imageUrl'],
+          'quantity': 1,
+          'serialNumbers': [serial],
+        });
+      }
     });
   }
 
@@ -792,6 +962,21 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   // ----------------------------------------------------------------------
   Future<void> _saveReport() async {
     if (_isLoading) return;
+
+    // Smart Validation: Enforce products for "Terminé"
+    if (_currentStatus == 'Terminé') {
+      if (_selectedSystems.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⛔️ Impossible de terminer : Veuillez ajouter au moins un produit/système.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -1280,7 +1465,7 @@ L'équipe BOITEX INFO'''
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Text(
-                  "${_selectedSystems.length} produit(s)",
+                  "${_selectedSystems.length} ajouté(s)",
                   style: const TextStyle(fontSize: 12, color: Color(0xFF667EEA), fontWeight: FontWeight.bold),
                 ),
               ),
@@ -1416,10 +1601,25 @@ L'équipe BOITEX INFO'''
         if (!isReadOnly)
           Row(
             children: [
+              // ✅ NEW: STORE INVENTORY BUTTON
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.store),
+                  label: const Text("Inventaire Magasin"),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: Color(0xFF10B981)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _pickFromStoreInventory,
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Search Button
               Expanded(
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.search_rounded),
-                  label: const Text("Ajouter (Recherche)"),
+                  label: const Text("Catalogue"),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     side: const BorderSide(color: Color(0xFF667EEA)),
@@ -1428,10 +1628,11 @@ L'équipe BOITEX INFO'''
                   onPressed: _selectSystem,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
+              // Scan Button
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                   side: const BorderSide(color: Colors.black87),
                   foregroundColor: Colors.black87,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1445,6 +1646,7 @@ L'équipe BOITEX INFO'''
     );
   }
 
+  // ✅ MODIFIED: Removed chips as requested
   Widget _buildConfigSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1454,6 +1656,7 @@ L'équipe BOITEX INFO'''
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
         ),
         const SizedBox(height: 8),
+        // Chips removed here
         TextFormField(
           controller: _systemConfigController,
           readOnly: isReadOnly,
