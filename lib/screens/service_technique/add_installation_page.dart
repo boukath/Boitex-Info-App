@@ -204,6 +204,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     }
   }
 
+  // This function is kept but ignored in the new save logic
   String _generateInstallationCode() {
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
     final uniquePart = timestamp.substring(timestamp.length - 6).toUpperCase();
@@ -293,7 +294,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // -----------------------------------------------------------------
-  // VVV THIS FUNCTION IS MODIFIED VVV
+  // ⭐️ FIXED: _saveInstallation using Transaction & Counter
   // -----------------------------------------------------------------
   Future<void> _saveInstallation() async {
     if (!_formKey.currentState!.validate()) {
@@ -331,11 +332,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     String? preliminaryFileName;
 
     try {
-      final installationCode = _generateInstallationCode();
-
-      // ✅ USE NEW B2 UPLOAD METHOD
+      // 1. Upload File first if exists (using a temporary ID for the filename)
+      // We do this outside the transaction to avoid slow HTTP calls blocking the DB.
       if (_pickedFile != null) {
-        preliminaryFileUrl = await _uploadFileToB2(installationCode);
+        final tempId = DateTime.now().millisecondsSinceEpoch.toString();
+        preliminaryFileUrl = await _uploadFileToB2('TEMP_$tempId');
+
         if (preliminaryFileUrl != null) {
           preliminaryFileName = _pickedFileName;
         } else {
@@ -345,6 +347,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         }
       }
 
+      // 2. Prepare User & Product Data
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -364,36 +367,62 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           .map((user) => {'uid': user.uid, 'displayName': user.displayName})
           .toList();
 
-      await FirebaseFirestore.instance.collection('installations').add({
-        // Key Info
-        'installationCode': installationCode,
-        'clientName': _selectedClient!.name,
-        'clientId': _selectedClient!.id,
-        'clientPhone': _clientPhoneController.text.trim(),
-        'contactName': _contactNameController.text.trim(),
-        'storeName': _selectedStore!.name,
-        'storeId': _selectedStore!.id,
-        'storeLocation': _selectedStore!.location,
-        'initialRequest': _requestController.text.trim(),
-        'serviceType': widget.serviceType,
+      // 3. Run Firestore Transaction
+      final counterRef = FirebaseFirestore.instance
+          .collection('counters')
+          .doc('installation_counter_2025'); // ⭐️ USING SPECIFIC COUNTER
 
-        // Preliminary file details
-        'preliminaryFileUrl': preliminaryFileUrl,
-        'preliminaryFileName': preliminaryFileName,
+      final installationRef = FirebaseFirestore.instance.collection('installations').doc();
 
-        // Status & Timestamps
-        'status': 'À Planifier', // Default status
-        'createdAt': Timestamp.now(),
-        'createdById': user.uid,
-        'createdByName': createdByName,
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final counterDoc = await transaction.get(counterRef);
 
-        // Default empty fields
-        'installationDate': null,
-        'assignedTechnicians': techniciansToSave,
-        'orderedProducts': productsToSave,
-        'mediaUrls': [],
-        'technicalEvaluation': [],
-        'itEvaluation': [],
+        int newCount = 1;
+        if (counterDoc.exists) {
+          final data = counterDoc.data();
+          if (data != null && data.containsKey('count')) {
+            newCount = data['count'] + 1;
+          }
+        }
+
+        // Format: INST-1/2025
+        final String installationCode = 'INST-$newCount/2025';
+
+        // Create the Installation Document
+        transaction.set(installationRef, {
+          // Key Info
+          'installationCode': installationCode, // ⭐️ SAVED SEQUENTIAL CODE
+          'clientName': _selectedClient!.name,
+          'clientId': _selectedClient!.id,
+          'clientPhone': _clientPhoneController.text.trim(),
+          'contactName': _contactNameController.text.trim(),
+          'storeName': _selectedStore!.name,
+          'storeId': _selectedStore!.id,
+          'storeLocation': _selectedStore!.location,
+          'initialRequest': _requestController.text.trim(),
+          'serviceType': widget.serviceType,
+
+          // Preliminary file details
+          'preliminaryFileUrl': preliminaryFileUrl,
+          'preliminaryFileName': preliminaryFileName,
+
+          // Status & Timestamps
+          'status': 'À Planifier',
+          'createdAt': Timestamp.now(),
+          'createdById': user.uid,
+          'createdByName': createdByName,
+
+          // Default empty fields
+          'installationDate': null,
+          'assignedTechnicians': techniciansToSave,
+          'orderedProducts': productsToSave,
+          'mediaUrls': [],
+          'technicalEvaluation': [],
+          'itEvaluation': [],
+        });
+
+        // Update the Counter
+        transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
       });
 
       if (mounted) {
@@ -421,7 +450,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     }
   }
   // -----------------------------------------------------------------
-  // ^^^ THIS FUNCTION IS MODIFIED ^^^
+  // ^^^ END FIXED FUNCTION ^^^
   // -----------------------------------------------------------------
 
   /// Shows a dialog to add a new client
