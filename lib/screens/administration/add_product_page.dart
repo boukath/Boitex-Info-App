@@ -1,4 +1,8 @@
-import 'dart:io';
+// lib/screens/administration/add_product_page.dart
+
+import 'dart:io'; // Needed for mobile File access
+import 'package:flutter/foundation.dart'; // ✅ ADDED: For kIsWeb check
+import 'dart:typed_data'; // ✅ ADDED: For Uint8List
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
@@ -35,12 +39,13 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   String? _selectedSubcategory;
 
   // Image related state
-  final List<File> _selectedImages = [];
+  // ✅ MODIFIED: Use XFile for cross-platform compatibility (Web & Mobile)
+  final List<XFile> _selectedImages = [];
   final List<String> _existingImageUrls = [];
   final ImagePicker _picker = ImagePicker();
 
-  // ✅ ADDED: PDF related state
-  final List<File> _selectedPdfs = [];
+  // ✅ MODIFIED: Use PlatformFile for cross-platform PDF handling
+  final List<PlatformFile> _selectedPdfs = [];
   final List<Map<String, String>> _existingPdfData = []; // Store name and URL
 
   late AnimationController _animationController;
@@ -115,8 +120,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     super.dispose();
   }
 
-  // --- Image Picking (Keep existing logic) ---
-  Future<void> _pickImageFromCamera() async { /* ... Keep existing ... */
+  // --- Image Picking (Updated for Web) ---
+  Future<void> _pickImageFromCamera() async {
     try {
       final XFile? photo = await _picker.pickImage(
         source: ImageSource.camera,
@@ -126,11 +131,12 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       );
 
       if (photo != null) {
-        final file = File(photo.path);
+        // ✅ WEB FIX: Use asynchronous length() method
+        final length = await photo.length();
         const maxFileSize = 50 * 1024 * 1024; // 50 MB
-        if (file.lengthSync() <= maxFileSize) {
+        if (length <= maxFileSize) {
           setState(() {
-            _selectedImages.add(file);
+            _selectedImages.add(photo); // Add XFile directly
           });
         } else if (mounted) {
           _showErrorSnackBar('L\'image dépasse la limite de 50 Mo.');
@@ -143,7 +149,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     }
   }
 
-  Future<void> _pickImageFromGallery() async { /* ... Keep existing ... */
+  Future<void> _pickImageFromGallery() async {
     try {
       final List<XFile> images = await _picker.pickMultiImage(
         imageQuality: 85,
@@ -153,13 +159,14 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
 
       if (images.isNotEmpty) {
         const maxFileSize = 50 * 1024 * 1024; // 50 MB
-        final validFiles = <File>[];
+        final validFiles = <XFile>[]; // Store XFiles
         int rejectedCount = 0;
 
         for (var xFile in images) {
-          final file = File(xFile.path);
-          if (file.existsSync() && file.lengthSync() <= maxFileSize) {
-            validFiles.add(file);
+          // ✅ WEB FIX: Use asynchronous length() method
+          final length = await xFile.length();
+          if (length <= maxFileSize) {
+            validFiles.add(xFile);
           } else {
             rejectedCount++;
           }
@@ -299,30 +306,27 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // --- ✅ ADDED: PDF Picking Logic ---
+  // --- ✅ MODIFIED: PDF Picking Logic (Web Compatible) ---
   Future<void> _pickPdf() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
-        allowMultiple: true, // Allow selecting multiple PDFs at once
+        allowMultiple: true,
+        withData: true, // Important for Web to populate 'bytes'
       );
 
       if (result != null && result.files.isNotEmpty) {
         const maxFileSize = 50 * 1024 * 1024; // 50 MB
-        final validFiles = <File>[];
+        final validFiles = <PlatformFile>[];
         int rejectedCount = 0;
 
         for (var platformFile in result.files) {
-          if (platformFile.path != null) {
-            final file = File(platformFile.path!);
-            if (file.existsSync() && file.lengthSync() <= maxFileSize) {
-              validFiles.add(file);
-            } else {
-              rejectedCount++;
-            }
+          // Use 'size' property which exists on PlatformFile
+          if (platformFile.size <= maxFileSize) {
+            validFiles.add(platformFile);
           } else {
-            rejectedCount++; // Handle case where path is null
+            rejectedCount++;
           }
         }
 
@@ -341,8 +345,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     }
   }
 
-  // --- B2 Helper Functions (Keep existing) ---
-  Future<Map<String, dynamic>?> _getB2UploadCredentials() async { /* ... Keep existing ... */
+  // --- B2 Helper Functions ---
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
       if (response.statusCode == 200) {
@@ -358,28 +362,26 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   }
 
 
-  // ✅ MODIFIED: Generalized B2 Upload Helper
+  // ✅ MODIFIED: Generalized B2 Upload Helper to use Bytes (Web Compatible)
   Future<String?> _uploadSingleFileToB2({
-    required File file,
+    required Uint8List fileBytes, // Pass bytes directly
+    required String fileName,     // Pass filename directly
     required Map<String, dynamic> b2Creds,
-    required String b2FileName, // The full desired path in B2
+    required String b2FileName,
   }) async {
     try {
-      final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
-      final String originalFileName = path.basename(file.path);
 
       // Determine mime type
       String mimeType = 'b2/x-auto'; // Default
-      final String extension = path.extension(originalFileName).toLowerCase();
+      final String extension = path.extension(fileName).toLowerCase();
       if (extension == '.jpg' || extension == '.jpeg') {
         mimeType = 'image/jpeg';
       } else if (extension == '.png') {
         mimeType = 'image/png';
       } else if (extension == '.pdf') {
-        mimeType = 'application/pdf'; // Added PDF MIME type
+        mimeType = 'application/pdf';
       }
-      // Add more if needed
 
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
       final resp = await http.post(
@@ -399,30 +401,34 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
         return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
       } else {
-        debugPrint('Failed to upload file ($originalFileName) to B2: ${resp.body}');
+        debugPrint('Failed to upload file ($fileName) to B2: ${resp.body}');
         return null;
       }
     } catch (e) {
-      debugPrint('Error uploading file (${path.basename(file.path)}) to B2: $e');
+      debugPrint('Error uploading file ($fileName) to B2: $e');
       return null;
     }
   }
 
 
-  // ✅ MODIFIED: Renamed and kept logic for images
+  // ✅ MODIFIED: Logic to handle XFile upload (Web & Mobile)
   Future<List<String>> _uploadImagesToB2(String productId, Map<String, dynamic> b2Credentials) async {
     final List<String> uploadedUrls = [];
     if (_selectedImages.isEmpty) return uploadedUrls;
 
     try {
       for (int i = 0; i < _selectedImages.length; i++) {
-        final file = _selectedImages[i];
-        final originalFileName = path.basename(file.path);
+        final xfile = _selectedImages[i];
+        // Get bytes safely on all platforms
+        final fileBytes = await xfile.readAsBytes();
+        final originalFileName = xfile.name; // Use .name property of XFile
+
         // Use 'images' subfolder
         final String b2FileName = 'products/$productId/images/${DateTime.now().millisecondsSinceEpoch}_$i\_$originalFileName';
 
         final downloadUrl = await _uploadSingleFileToB2(
-          file: file,
+          fileBytes: fileBytes,
+          fileName: originalFileName,
           b2Creds: b2Credentials,
           b2FileName: b2FileName,
         );
@@ -430,7 +436,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         if (downloadUrl != null) {
           uploadedUrls.add(downloadUrl);
         } else {
-          debugPrint('Failed to upload image: ${path.basename(file.path)}');
+          debugPrint('Failed to upload image: $originalFileName');
         }
       }
       return uploadedUrls;
@@ -440,31 +446,49 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     }
   }
 
-  // ✅ ADDED: New function to upload PDFs to B2
+  // ✅ MODIFIED: Logic to handle PlatformFile upload (Web & Mobile)
   Future<List<Map<String, String>>> _uploadPdfsToB2(String productId, Map<String, dynamic> b2Credentials) async {
     final List<Map<String, String>> uploadedPdfData = [];
     if (_selectedPdfs.isEmpty) return uploadedPdfData;
 
     try {
       for (int i = 0; i < _selectedPdfs.length; i++) {
-        final file = _selectedPdfs[i];
-        final originalFileName = path.basename(file.path);
+        final platformFile = _selectedPdfs[i];
+        final originalFileName = platformFile.name;
+
+        // Extract bytes depending on platform
+        Uint8List? fileBytes;
+        if (kIsWeb) {
+          fileBytes = platformFile.bytes; // Bytes are populated on Web
+        } else {
+          // On Mobile, read from path
+          if (platformFile.path != null) {
+            fileBytes = await File(platformFile.path!).readAsBytes();
+          }
+        }
+
+        if (fileBytes == null) {
+          debugPrint('Error: Could not read bytes for PDF $originalFileName');
+          continue;
+        }
+
         // Use 'manuals' subfolder
         final String b2FileName = 'products/$productId/manuals/${DateTime.now().millisecondsSinceEpoch}_$i\_$originalFileName';
 
         final downloadUrl = await _uploadSingleFileToB2(
-          file: file,
+          fileBytes: fileBytes,
+          fileName: originalFileName,
           b2Creds: b2Credentials,
           b2FileName: b2FileName,
         );
 
         if (downloadUrl != null) {
           uploadedPdfData.add({
-            'fileName': originalFileName, // Store original name
+            'fileName': originalFileName,
             'fileUrl': downloadUrl,
           });
         } else {
-          debugPrint('Failed to upload PDF: ${path.basename(file.path)}');
+          debugPrint('Failed to upload PDF: $originalFileName');
         }
       }
       return uploadedPdfData;
@@ -475,7 +499,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   }
 
   // --- Remove Functions ---
-  void _removeImage(int index, {bool isExisting = false}) { /* ... Keep existing ... */
+  void _removeImage(int index, {bool isExisting = false}) {
     setState(() {
       if (isExisting) {
         _existingImageUrls.removeAt(index);
@@ -485,7 +509,6 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     });
   }
 
-  // ✅ ADDED: Function to remove PDFs
   void _removePdf(int index, {bool isExisting = false}) {
     setState(() {
       if (isExisting) {
@@ -496,8 +519,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     });
   }
 
-  // --- Barcode Scan (Keep existing) ---
-  Future<void> _scanBarcode() async { /* ... Keep existing ... */
+  // --- Barcode Scan ---
+  Future<void> _scanBarcode() async {
     final scannedCode = await Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (context) => const BarcodeScannerPage()),
@@ -508,8 +531,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   }
 
 
-  // --- Category Extraction (Keep existing) ---
-  List<String> _extractUniqueCategories(QuerySnapshot snapshot, String mainCat) { /* ... Keep existing ... */
+  // --- Category Extraction ---
+  List<String> _extractUniqueCategories(QuerySnapshot snapshot, String mainCat) {
     final categories = <String>{};
 
     for (var doc in snapshot.docs) {
@@ -526,8 +549,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     return list;
   }
 
-  // --- Snackbars (Keep existing) ---
-  void _showErrorSnackBar(String message) { /* ... Keep existing ... */
+  // --- Snackbars ---
+  void _showErrorSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -545,7 +568,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-  void _showSuccessSnackBar(String message) { /* ... Keep existing ... */
+  void _showSuccessSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -564,7 +587,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // ✅ MODIFIED: _saveProduct to handle both Images and PDFs
+  // ✅ MODIFIED: _saveProduct to use new upload functions
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) return;
     if (_mainCategory == null) {
@@ -605,7 +628,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
           ? <String>[]
           : tagsInput.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
 
-      // Upload Images and PDFs in parallel (optional but faster)
+      // Upload Images and PDFs in parallel
       final imageUploadFuture = _uploadImagesToB2(productId, b2Credentials);
       final pdfUploadFuture = _uploadPdfsToB2(productId, b2Credentials);
 
@@ -657,7 +680,6 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        // ... (Keep existing decoration) ...
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -768,7 +790,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   }
 
   // --- Keep existing build methods for AppBar, LoadingState, Category Sections, TextField, SaveButton ---
-  Widget _buildAppBar() { /* ... Keep existing ... */
+  Widget _buildAppBar() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -827,7 +849,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-  Widget _buildLoadingState() { /* ... Keep existing ... */
+  Widget _buildLoadingState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -868,7 +890,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-  Widget _buildMainCategorySection() { /* ... Keep existing ... */
+  Widget _buildMainCategorySection() {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -986,7 +1008,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-  Widget _buildSubcategorySection() { /* ... Keep existing ... */
+  Widget _buildSubcategorySection() {
     if (_mainCategory == null) {
       return Container(
         padding: const EdgeInsets.all(20),
@@ -1164,7 +1186,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       },
     );
   }
-  Widget _buildTextField({ /* ... Keep existing ... */
+  Widget _buildTextField({
     required TextEditingController controller,
     required String label,
     required IconData icon,
@@ -1246,7 +1268,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-  Widget _buildSaveButton() { /* ... Keep existing ... */
+  Widget _buildSaveButton() {
     return Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -1290,8 +1312,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // --- Photos Section (Keep existing) ---
-  Widget _buildPhotosSection() { /* ... Keep existing ... */
+  // --- Photos Section ---
+  Widget _buildPhotosSection() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1459,9 +1481,11 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
-  Widget _buildImageThumbnail({ /* ... Keep existing ... */
+
+  // ✅ MODIFIED: Updated thumbnail to handle XFile correctly on Web
+  Widget _buildImageThumbnail({
     String? imageUrl,
-    File? imageFile,
+    XFile? imageFile, // Changed from File to XFile
     required VoidCallback onRemove,
   }) {
     return Stack(
@@ -1499,7 +1523,10 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                 );
               },
             )
-                : Image.file(imageFile!, fit: BoxFit.cover),
+            // ✅ WEB FIX: Handle XFile display safely
+                : (kIsWeb
+                ? Image.network(imageFile!.path, fit: BoxFit.cover)
+                : Image.file(File(imageFile!.path), fit: BoxFit.cover)),
           ),
         ),
         Positioned(
@@ -1530,7 +1557,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // ✅ --- START: NEW WIDGETS FOR MANUALS SECTION ---
+  // ✅ --- NEW WIDGETS FOR MANUALS SECTION ---
   Widget _buildManualsSection() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1688,7 +1715,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                     runSpacing: 12,
                     children: List.generate(_selectedPdfs.length, (index) {
                       return _buildPdfChip(
-                        fileName: path.basename(_selectedPdfs[index].path),
+                        fileName: path.basename(_selectedPdfs[index].name), // use .name for PlatformFile
                         onRemove: () => _removePdf(index),
                       );
                     }),
