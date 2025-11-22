@@ -3,17 +3,39 @@
 import {onDocumentUpdated} from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
+import * as nodemailer from "nodemailer"; // ✅ Added for Email
+import {defineSecret} from "firebase-functions/params"; // ✅ Added for Secrets
+import {HttpsError} from "firebase-functions/v2/https"; // ✅ Added for Error handling
+
+// ✅ Import the specific PDF generator for Installations
+import { generateInstallationPdf } from "./installation-pdf-generator";
+
+// ✅ Define Secrets
+const smtpHost = defineSecret("SMTP_HOST");
+const smtpPort = defineSecret("SMTP_PORT");
+const smtpUser = defineSecret("SMTP_USER");
+const smtpPassword = defineSecret("SMTP_PASSWORD");
+
+/**
+ * Helper: Validate email format
+ * (Added to support the fallback logic)
+ */
+function isValidEmail(email: string): boolean {
+  if (!email || typeof email !== "string") return false;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
 
 // ✅ 1. THE SYNC LOGIC (Adapted for Installations)
 // This reads the "systems" array you just saved in the App and upserts it to Inventory.
 const syncInstallationToInventory = async (installationId: string, data: any) => {
-const db = admin.firestore();
-const clientId = data.clientId;
-const storeId = data.storeId;
-const systems = data.systems;
+  const db = admin.firestore();
+  const clientId = data.clientId;
+  const storeId = data.storeId;
+  const systems = data.systems;
 
-// Basic Validation
-if (!clientId || !storeId || !systems || !Array.isArray(systems) || systems.length === 0) {
+  // Basic Validation
+  if (!clientId || !storeId || !systems || !Array.isArray(systems) || systems.length === 0) {
     logger.log(`ℹ️ Inventory Sync: Skipping Installation ${installationId} (No systems data).`);
     return;
   }
@@ -106,6 +128,7 @@ export const onInstallationTermine = onDocumentUpdated(
   {
     document: "installations/{installationId}",
     region: "europe-west1",
+    secrets: [smtpHost, smtpPort, smtpUser, smtpPassword], // ✅ Added Secrets
   },
   async (event) => {
     if (!event.data) return;
@@ -114,10 +137,81 @@ export const onInstallationTermine = onDocumentUpdated(
     const after = event.data.after.data();
 
     // Only run if status CHANGED to "Terminée"
-    // This prevents it from running on every little edit
     if (before?.status !== "Terminée" && after?.status === "Terminée") {
       const installationId = event.params.installationId;
-      await syncInstallationToInventory(installationId, after);
+      
+      // --- 1. Run Inventory Sync (Preserved) ---
+      // We wrap it in try/catch to ensure the email still sends even if sync hits a snag
+      try {
+        await syncInstallationToInventory(installationId, after);
+      } catch (error) {
+        logger.error("❌ Inventory sync failed, but continuing with email:", error);
+      }
+
+      // --- 2. Run Email & PDF Logic (Upgraded) ---
+      logger.log(`🚀 Processing Completion for Installation: ${after.installationCode}`);
+
+      // Prepare Recipients (with Fallback)
+      let mainRecipient = after.managerEmail;
+      if (!isValidEmail(mainRecipient)) {
+         logger.warn(`⚠️ Invalid or missing client email. Defaulting to internal admin.`);
+         mainRecipient = "athmane-boukerdous@boitexinfo.com";
+      } else {
+         logger.log(`📧 Sending to client: ${mainRecipient}`);
+      }
+
+      const ccList = [
+          "athmane-boukerdous@boitexinfo.com",
+      ];
+
+      // Generate PDF
+      logger.log("📄 Generating Installation PDF in memory...");
+      let pdfBuffer: Buffer;
+      try {
+          pdfBuffer = await generateInstallationPdf(after);
+      } catch (e) {
+          logger.error("❌ PDF Generation Failed", e);
+          return; // Stop if PDF fails to avoid sending broken emails
+      }
+
+      // Configure Transporter
+      const transporter = nodemailer.createTransport({
+        host: smtpHost.value(),
+        port: parseInt(smtpPort.value(), 10),
+        secure: parseInt(smtpPort.value(), 10) === 465,
+        auth: { user: smtpUser.value(), pass: smtpPassword.value() },
+      });
+
+      const mailOptions = {
+        from: `"Boitex Info Installation" <${smtpUser.value()}>`,
+        to: mainRecipient,
+        cc: ccList,
+        subject: `Rapport d'Installation: ${after.installationCode || "N/A"}`,
+        html: `
+          <p>Bonjour,</p>
+          <p>L'installation <strong>${after.installationCode || "N/A"}</strong> 
+          pour le client <strong>${after.clientName || "Client"}</strong> 
+          au magasin <strong>${after.storeName || "Magasin"}</strong> 
+          est maintenant terminée.</p>
+          
+          <p>Vous trouverez ci-joint le rapport détaillé incluant les numéros de série des équipements installés.</p>
+          
+          <p>Cordialement,<br>L'équipe Technique Boitex Info</p>
+        `,
+        attachments: [{
+          filename: `Installation-${after.installationCode || "Rapport"}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        }]
+      };
+
+      try {
+          await transporter.sendMail(mailOptions);
+          logger.log(`✅ Email successfully sent to ${mainRecipient} (CC: ${ccList.length})`);
+      } catch (e) {
+          logger.error("❌ Error sending email:", e);
+          throw new HttpsError("internal", "Email sending failed");
+      }
     }
   }
 );
