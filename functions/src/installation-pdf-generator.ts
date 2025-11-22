@@ -6,7 +6,6 @@ import * as logger from "firebase-functions/logger";
 
 // --- 1. CONSTANTS & STYLING ---
 const LOGO_URL_WHITE = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
-// Using the "cache technique" image for the company stamp
 const CACHE_URL = "https://f003.backblazeb2.com/file/BoitexInfo/Boitex+logo/cache+technique.png";
 
 const BRAND_COLOR = "#0D47A1"; // Deep blue
@@ -35,7 +34,7 @@ async function fetchImage(url: string): Promise<Buffer | null> {
 export async function generateInstallationPdf(data: any): Promise<Buffer> {
   const doc = new PDFDocument({
     size: "A4",
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    margins: { top: 0, bottom: 0, left: 0, right: 0 }, // Custom margins
     bufferPages: true,
   });
 
@@ -43,42 +42,19 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
   doc.on("data", buffers.push.bind(buffers));
 
   // --- A. PRELOAD IMAGES ---
-  // We don't need techSigBuffer anymore based on your request.
-  // We load CACHE_URL for the technician side.
   const [logoBuffer, clientSigBuffer, cacheBuffer] = await Promise.all([
     fetchImage(LOGO_URL_WHITE),
-    data.clientSignatureUrl ? fetchImage(data.clientSignatureUrl) : Promise.resolve(null),
+    data.signatureUrl ? fetchImage(data.signatureUrl) : Promise.resolve(null),
     fetchImage(CACHE_URL),
   ]);
 
   // --- B. BUILD DOCUMENT ---
 
-  // 1. Header (Updated: Big Logo, No Text on right)
-  _buildHeader(doc, logoBuffer);
+  // 1. Header (Big Blue Bar with Logo Left / Title Right)
+  _buildHeader(doc, logoBuffer, data);
 
-  // 2. Title & Meta Data
-  doc.x = MARGIN;
-  doc.moveDown(2);
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(22)
-    .fillColor(BRAND_COLOR)
-    .text("RAPPORT D'INSTALLATION", { align: "center" });
-
-  doc.moveDown(0.5);
-
-  const installCode = data.installationCode || "N/A";
-  const dateStr = data.createdAt
-    ? new Date(data.createdAt.toDate()).toLocaleDateString("fr-FR")
-    : new Date().toLocaleDateString("fr-FR");
-
-  doc
-    .fontSize(10)
-    .fillColor(TEXT_COLOR)
-    .text(`Réf: ${installCode}  |  Date: ${dateStr}`, { align: "center" });
-
-  doc.moveDown(2);
+  // 2. Reset Position (Move down to avoid overlap)
+  doc.y = 140;
 
   // 3. Client Info Box
   _buildClientInfo(doc, data);
@@ -90,15 +66,15 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
 
   doc.moveDown(2);
 
-  // 5. ✅ NEW: Technician Notes Section
-  if (data.notes && data.notes.isNotEmpty) {
+  // 5. Technician Notes Section (if any)
+  if (data.notes && data.notes.length > 0) {
       _buildNotesSection(doc, data.notes);
       doc.moveDown(2);
   }
 
-  // 6. Signatures (Updated Logic)
-  // Check page break
-  if (doc.y > 600) doc.addPage();
+  // 6. Signatures
+  // Check page break (ensure signatures aren't cut off)
+  if (doc.y > 650) doc.addPage();
 
   _buildSignatureSection(doc, data, clientSigBuffer, cacheBuffer);
 
@@ -116,46 +92,87 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
 // 🛠️ PRIVATE HELPER FUNCTIONS
 // ==========================================================
 
-function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
-  // Blue background header
+function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null, data: any) {
+  // 1. Blue background header
   doc
-    .rect(0, 0, doc.page.width, 100) // Increased height for bigger logo
+    .rect(0, 0, doc.page.width, 110) // Taller header
     .fillColor(BRAND_COLOR)
     .fill();
 
-  // Logo - ✅ Much Bigger and vertically centered in the new 100px header
+  // 2. Logo (Left Side)
   if (logoBuffer) {
-    doc.image(logoBuffer, MARGIN, 10, { height: 80 });
+    // Vertically centered in the 110px header
+    doc.image(logoBuffer, MARGIN, 25, { height: 60 });
   }
 
-  // ✅ Removed "BOITEX INFO" and "Systèmes Antivol..." text as requested
+  // 3. Title & Meta (Right Side)
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(18)
+    .fillColor("white")
+    .text("RAPPORT D'INSTALLATION", doc.page.width - MARGIN - 300, 35, {
+      width: 300,
+      align: "right",
+    });
+
+  // Reference & Date (Smaller, under title)
+  const installCode = data.installationCode || "REF-N/A";
+  const dateStr = data.createdAt
+    ? new Date(data.createdAt.toDate()).toLocaleDateString("fr-FR")
+    : new Date().toLocaleDateString("fr-FR");
+
+  doc
+    .font("Helvetica")
+    .fontSize(10)
+    .opacity(0.9)
+    .text(`Réf: ${installCode}  |  Date: ${dateStr}`, doc.page.width - MARGIN - 300, 60, {
+      width: 300,
+      align: "right",
+    });
+
+  doc.opacity(1); // Reset opacity
 }
 
 function _buildClientInfo(doc: PDFKit.PDFDocument, data: any) {
   const startY = doc.y;
 
-  // Draw Gray Background Box
+  // Section Title
   doc
-    .rect(MARGIN, startY, doc.page.width - MARGIN * 2, 65)
+    .font("Helvetica-Bold")
+    .fontSize(12)
+    .fillColor(BRAND_COLOR)
+    .text("INFORMATIONS CLIENT", MARGIN, startY);
+
+  doc.moveDown(0.5);
+
+  // Draw Gray Background Box
+  const boxTop = doc.y;
+  doc
+    .rect(MARGIN, boxTop, doc.page.width - MARGIN * 2, 60)
     .fillAndStroke(LIGHT_GRAY_BACKGROUND, LINE_COLOR);
 
   doc.fillColor(TEXT_COLOR).fontSize(10);
 
-  // Row 1: Client & Magasin
-  const textY = startY + 15;
+  const textY = boxTop + 15;
 
-  // Client
-  doc.font("Helvetica").text("CLIENT:", MARGIN + 20, textY, { continued: true });
-  doc.font("Helvetica-Bold").text(`  ${data.clientName || "N/A"}`);
+  // Column 1: Client & Address
+  doc.font("Helvetica").text("CLIENT:", MARGIN + 20, textY);
+  doc.font("Helvetica-Bold").text(data.clientName || "N/A", MARGIN + 80, textY);
 
-  // Store (Right aligned manually)
-  doc.font("Helvetica").text("MAGASIN:", 300, textY, { continued: true });
-  doc.font("Helvetica-Bold").text(`  ${data.storeName || "N/A"}`);
+  doc.font("Helvetica").text("ADRESSE:", MARGIN + 20, textY + 20);
+  // Combine store location or address
+  const address = data.storeLocation || data.address || "Non spécifiée";
+  doc.font("Helvetica-Bold").text(address, MARGIN + 80, textY + 20, { width: 200, height: 20, ellipsis: true });
 
-  // Row 2: Address
-  doc.moveDown(1.5);
-  doc.font("Helvetica").text("ADRESSE:", MARGIN + 20, doc.y, { continued: true });
-  doc.font("Helvetica-Bold").text(`  ${data.storeLocation || data.address || "Non spécifiée"}`);
+  // Column 2: Magasin & Phone (Right side of box)
+  const col2X = 320;
+  doc.font("Helvetica").text("MAGASIN:", col2X, textY);
+  doc.font("Helvetica-Bold").text(data.storeName || "N/A", col2X + 60, textY);
+
+  if (data.clientPhone) {
+      doc.font("Helvetica").text("TÉL:", col2X, textY + 20);
+      doc.font("Helvetica-Bold").text(data.clientPhone, col2X + 60, textY + 20);
+  }
 }
 
 function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
@@ -166,24 +183,29 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
   const wName = 140;
   const wDetails = 100;
   const wQty = 50;
-  const wSerial = 220; // Wide column for serials
+  const wSerial = 220;
 
-  // -- Header --
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(BRAND_COLOR);
+  // -- Table Header --
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(9)
+    .fillColor(BRAND_COLOR);
+
   doc.text("PRODUIT", startX + 5, currentY);
   doc.text("MARQUE / RÉF", startX + wName + 5, currentY);
   doc.text("QTÉ", startX + wName + wDetails, currentY, { width: wQty, align: "center" });
   doc.text("NUMÉROS DE SÉRIE", startX + wName + wDetails + wQty + 10, currentY);
 
+  // Header Line
   currentY += 15;
-  doc.moveTo(startX, currentY).lineTo(doc.page.width - MARGIN, currentY).strokeColor(BRAND_COLOR).stroke();
+  doc.moveTo(startX, currentY).lineTo(doc.page.width - MARGIN, currentY).strokeColor(BRAND_COLOR).lineWidth(1.5).stroke();
   currentY += 10;
 
-  // -- Body --
+  // -- Table Body --
   doc.font("Helvetica").fontSize(9).fillColor(TEXT_COLOR);
 
   if (!systems || systems.length === 0) {
-    doc.text("Aucun équipement enregistré.", startX, currentY);
+    doc.text("Aucun équipement enregistré pour cette installation.", startX, currentY);
     return;
   }
 
@@ -205,18 +227,18 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
         qty = 1;
     }
 
-    // Calculate Row Height (Text Wrapping)
+    // Calculate Row Height
     const serialHeight = doc.heightOfString(serials, { width: wSerial });
     const nameHeight = doc.heightOfString(name, { width: wName });
-    const rowHeight = Math.max(serialHeight, nameHeight, 30) + 10;
+    const rowHeight = Math.max(serialHeight, nameHeight, 30) + 15;
 
     // Page Break Check
-    if (currentY + rowHeight > 750) {
+    if (currentY + rowHeight > 720) {
       doc.addPage();
-      currentY = MARGIN;
+      currentY = MARGIN + 40; // Give some space on new page
     }
 
-    // Zebra Striping
+    // Zebra Striping (Light Gray Background)
     if (index % 2 === 0) {
       doc
         .rect(startX, currentY - 5, doc.page.width - MARGIN * 2, rowHeight)
@@ -225,7 +247,7 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
       doc.fillColor(TEXT_COLOR);
     }
 
-    // Draw Content
+    // Content
     doc.text(name, startX + 5, currentY, { width: wName - 10 });
     doc.text(details, startX + wName + 5, currentY, { width: wDetails - 10 });
     doc.text(qty.toString(), startX + wName + wDetails, currentY, { width: wQty, align: "center" });
@@ -233,17 +255,16 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
 
     currentY += rowHeight;
 
-    // Divider
+    // Thin Divider
     doc.moveTo(startX, currentY).lineTo(doc.page.width - MARGIN, currentY).strokeColor(LINE_COLOR).lineWidth(0.5).stroke();
     currentY += 10;
   });
 
-  doc.y = currentY; // Update cursor
+  doc.y = currentY; // Update global cursor
 }
 
-// ✅ NEW: Notes Section
 function _buildNotesSection(doc: PDFKit.PDFDocument, notes: string) {
-    doc.font("Helvetica-Bold").fontSize(12).fillColor(BRAND_COLOR);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(BRAND_COLOR);
     doc.text("NOTES / TRAVAUX EFFECTUÉS:", MARGIN, doc.y);
     doc.moveDown(0.5);
 
@@ -257,17 +278,14 @@ function _buildSignatureSection(
   clientSig: Buffer | null,
   cache: Buffer | null
 ) {
-  const startY = doc.y;
+  const startY = doc.y + 20; // Extra spacing
 
-  // Labels
+  // -- 1. Technician Side (Left) --
   doc.font("Helvetica-Bold").fontSize(10).fillColor(BRAND_COLOR);
-  doc.text("Technicien(s) Boitex Info", MARGIN, startY);
-  doc.text("Signature Client", 350, startY);
+  doc.text("TECHNICIEN(S) BOITEX INFO", MARGIN, startY);
 
-  const sigY = startY + 20;
+  const sigY = startY + 25;
 
-  // --- 1. LEFT SIDE: Technicians & Cache ---
-  // A. List Technician Names
   if (data.assignedTechnicians && Array.isArray(data.assignedTechnicians)) {
       doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR);
       const names = data.assignedTechnicians
@@ -276,24 +294,32 @@ function _buildSignatureSection(
 
       doc.text(names, MARGIN, sigY);
 
-      // Move down based on number of names to put cache under them
+      // Place Cache (Stamp) under names
       const namesHeight = doc.heightOfString(names, { width: 200 });
-      // B. Draw Cache (Stamp) Under Names
       if (cache) {
-          doc.image(cache, MARGIN, sigY + namesHeight + 5, { width: 100 });
+          doc.image(cache, MARGIN, sigY + namesHeight + 10, { width: 100 });
       }
-
   } else {
-      // Fallback if no technicians assigned
+      // Fallback
+      doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR).text("Service Technique", MARGIN, sigY);
       if (cache) {
-          doc.image(cache, MARGIN, sigY, { width: 100 });
+          doc.image(cache, MARGIN, sigY + 20, { width: 100 });
       }
   }
 
-  // --- 2. RIGHT SIDE: Client Signature ---
+  // -- 2. Client Side (Right) --
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(BRAND_COLOR);
+  doc.text("SIGNATURE CLIENT", 350, startY);
+
   if (clientSig) {
     doc.image(clientSig, 350, sigY, { fit: [150, 80] });
   } else {
     doc.fontSize(9).fillColor(LINE_COLOR).text("(Non signé)", 350, sigY + 30);
   }
+
+  // ✅ NEW: Add Client Name under the signature area
+  // We position it below the signature image area (80px high)
+  const clientNameY = sigY + 90;
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(TEXT_COLOR);
+  doc.text(data.clientName || "", 350, clientNameY);
 }
