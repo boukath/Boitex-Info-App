@@ -20,6 +20,37 @@ class StoreEquipmentPage extends StatelessWidget {
     required this.storeName,
   });
 
+  // ✅ SMART FIX: Helper to get the real name if the saved name is generic
+  Future<String> _resolveProductName(Map<String, dynamic> data) async {
+    String currentName = data['nom'] ?? data['name'] ?? 'Produit Inconnu';
+    String? productId = data['productId'] ?? data['id'];
+
+    // List of generic names to detect (Case insensitive check can be added if needed)
+    const List<String> genericNames = [
+      'Produit Inconnu',
+      'Equipment Inconnu',
+      'N/A',
+      'Matériel'
+    ];
+
+    // If name is generic AND we have a product ID, fetch the real name
+    if (genericNames.contains(currentName) && productId != null && productId.isNotEmpty) {
+      try {
+        final productDoc = await FirebaseFirestore.instance
+            .collection('produits')
+            .doc(productId)
+            .get(); //
+
+        if (productDoc.exists) {
+          return productDoc.data()?['nom'] ?? currentName;
+        }
+      } catch (e) {
+        print('Error resolving name: $e');
+      }
+    }
+    return currentName;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -42,153 +73,184 @@ class StoreEquipmentPage extends StatelessWidget {
             .collection('stores')
             .doc(storeId)
             .collection('materiel_installe')
-            .orderBy('lastInterventionDate', descending: true)
+            .orderBy('installDate', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
           if (snapshot.hasError) {
             return Center(child: Text('Erreur: ${snapshot.error}'));
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return _buildEmptyState(context);
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
           }
 
           final docs = snapshot.data!.docs;
 
+          if (docs.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  Text('Aucun équipement installé', style: TextStyle(color: Colors.grey.shade600)),
+                ],
+              ),
+            );
+          }
+
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final data = docs[index].data() as Map<String, dynamic>;
-              final docId = docs[index].id;
-              return _buildAssetCard(context, data, docId);
+              final id = docs[index].id;
+
+              // Extract basic data for display
+              final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
+              final Timestamp? lastSeen = data['lastInterventionDate'] as Timestamp?;
+              final Timestamp? installDate = data['installDate'] as Timestamp?;
+              final String? imageUrl = data['image'];
+
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StoreEquipmentDetailsPage(
+                        clientId: clientId,
+                        storeId: storeId,
+                        equipmentId: id,
+                      ),
+                    ),
+                  );
+                },
+                child: Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Image
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            image: imageUrl != null
+                                ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover)
+                                : null,
+                          ),
+                          child: imageUrl == null
+                              ? const Icon(Icons.devices_other, color: Colors.grey)
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+
+                        // Content with FutureBuilder for Name Resolution
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // ✅ UPDATED: Use FutureBuilder to get the REAL name
+                              FutureBuilder<String>(
+                                  future: _resolveProductName(data), //
+                                  initialData: data['nom'] ?? 'Chargement...',
+                                  builder: (context, nameSnapshot) {
+                                    return Text(
+                                      nameSnapshot.data ?? 'Équipement',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Color(0xFF1E293B),
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    );
+                                  }
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(4)
+                                ),
+                                child: Text(
+                                  "S/N: $serial",
+                                  style: TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 11,
+                                      color: Colors.blue.shade800,
+                                      fontWeight: FontWeight.w600
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  if (lastSeen != null)
+                                    _buildInfoTag(
+                                        Icons.history,
+                                        "Vu ${timeago.format(lastSeen.toDate(), locale: 'fr_short')}",
+                                        Colors.grey.shade600
+                                    ),
+                                  const SizedBox(width: 12),
+                                  if (installDate != null)
+                                    _buildInfoTag(
+                                        Icons.calendar_today,
+                                        DateFormat('yyyy').format(installDate.toDate()),
+                                        Colors.grey.shade600
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Padding(
+                            padding: EdgeInsets.only(top: 24, left: 8),
+                            child: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey)
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
             },
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: const Color(0xFF667EEA),
+        child: const Icon(Icons.add),
         onPressed: () {
-          Navigator.of(context).push(
+          Navigator.push(
+            context,
             MaterialPageRoute(
-              builder: (context) => AddStoreEquipmentPage(
+              builder: (_) => AddStoreEquipmentPage(
                 clientId: clientId,
                 storeId: storeId,
               ),
             ),
           );
         },
-        backgroundColor: const Color(0xFF667EEA),
-        icon: const Icon(Icons.add),
-        label: const Text('Ajout Manuel'),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          Text(
-            "Aucun équipement recensé",
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "Effectuez une intervention pour\ndétecter automatiquement le matériel.",
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAssetCard(BuildContext context, Map<String, dynamic> data, String docId) {
-    final String name = data['name'] ?? 'Équipement Inconnu';
-    final String serial = data['serialNumber'] ?? 'N/A';
-    final String? imageUrl = data['imageUrl'];
-    final Timestamp? lastSeen = data['lastInterventionDate'] as Timestamp?;
-    final Timestamp? installDate = data['installDate'] as Timestamp?;
-    final bool isRecent = lastSeen != null && DateTime.now().difference(lastSeen.toDate()).inDays < 30;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          // ✅ UPGRADED: Opens the new Details Page
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => StoreEquipmentDetailsPage(
-                  clientId: clientId,
-                  storeId: storeId,
-                  equipmentId: docId,
-                ),
-              ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 70, height: 70,
-                  decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
-                  child: imageUrl != null
-                      ? ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(imageUrl, fit: BoxFit.cover))
-                      : const Icon(Icons.qr_code_2, size: 32, color: Color(0xFF667EEA)),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                          Container(width: 8, height: 8, decoration: BoxDecoration(color: isRecent ? Colors.green : Colors.orange, shape: BoxShape.circle)),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
-                        child: Text("S/N: $serial", style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.blue.shade800, fontWeight: FontWeight.w600)),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          if (lastSeen != null) _buildInfoTag(Icons.history, "Vu ${timeago.format(lastSeen.toDate(), locale: 'fr_short')}", Colors.grey.shade600),
-                          const SizedBox(width: 12),
-                          if (installDate != null) _buildInfoTag(Icons.calendar_today, DateFormat('yyyy').format(installDate.toDate()), Colors.grey.shade600),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Padding(padding: EdgeInsets.only(top: 24, left: 8), child: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey)),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
 
   Widget _buildInfoTag(IconData icon, String text, Color color) {
-    return Row(children: [Icon(icon, size: 12, color: color), const SizedBox(width: 4), Text(text, style: TextStyle(fontSize: 11, color: color))]);
+    return Row(
+      children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 4),
+        Text(text, style: TextStyle(fontSize: 11, color: color)),
+      ],
+    );
   }
 }

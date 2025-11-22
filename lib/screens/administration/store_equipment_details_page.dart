@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/administration/add_store_equipment_page.dart';
 
-class StoreEquipmentDetailsPage extends StatelessWidget {
+class StoreEquipmentDetailsPage extends StatefulWidget {
   final String clientId;
   final String storeId;
   final String equipmentId;
@@ -16,6 +16,12 @@ class StoreEquipmentDetailsPage extends StatelessWidget {
     required this.storeId,
     required this.equipmentId,
   });
+
+  @override
+  State<StoreEquipmentDetailsPage> createState() => _StoreEquipmentDetailsPageState();
+}
+
+class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
 
   // ✅ FEATURE: One-tap Installation Date Update
   Future<void> _updateInstallationDate(BuildContext context, DateTime? currentDate) async {
@@ -30,220 +36,216 @@ class StoreEquipmentDetailsPage extends StatelessWidget {
     if (picked != null && picked != currentDate) {
       await FirebaseFirestore.instance
           .collection('clients')
-          .doc(clientId)
+          .doc(widget.clientId)
           .collection('stores')
-          .doc(storeId)
+          .doc(widget.storeId)
           .collection('materiel_installe')
-          .doc(equipmentId)
+          .doc(widget.equipmentId)
           .update({
         'installDate': Timestamp.fromDate(picked),
       });
 
-      if(context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("Date d'installation mise à jour avec succès"),
-              backgroundColor: Colors.green
-          ),
+          const SnackBar(content: Text('Date d\'installation mise à jour')),
         );
       }
     }
   }
 
+  // ✅ NEW: Helper to fetch product details if missing in inventory
+  Future<Map<String, dynamic>> _enrichProductData(Map<String, dynamic> inventoryData) async {
+    // If we already have the data, just return it
+    if (inventoryData['marque'] != null && inventoryData['marque'] != 'N/A') {
+      return inventoryData;
+    }
+
+    // If we have a Product ID, try to fetch the original catalog data
+    String? productId = inventoryData['productId'] ?? inventoryData['id'];
+    if (productId != null && productId.isNotEmpty) {
+      try {
+        final productDoc = await FirebaseFirestore.instance.collection('produits').doc(productId).get();
+        if (productDoc.exists) {
+          final productData = productDoc.data()!;
+          // Merge the missing fields into our display data
+          return {
+            ...inventoryData,
+            'marque': productData['marque'] ?? 'N/A',
+            'reference': productData['reference'] ?? 'N/A',
+            'categorie': productData['categorie'] ?? 'N/A',
+            'image': productData['imageUrls'] is List && (productData['imageUrls'] as List).isNotEmpty
+                ? (productData['imageUrls'] as List).first
+                : inventoryData['image'],
+          };
+        }
+      } catch (e) {
+        print("Error fetching product details: $e");
+      }
+    }
+    return inventoryData;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text('Détails Équipement'),
+        backgroundColor: const Color(0xFF667EEA),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: () {
+              // Navigation logic to edit page can go here if needed
+            },
+          )
+        ],
+      ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
             .collection('clients')
-            .doc(clientId)
+            .doc(widget.clientId)
             .collection('stores')
-            .doc(storeId)
+            .doc(widget.storeId)
             .collection('materiel_installe')
-            .doc(equipmentId)
+            .doc(widget.equipmentId)
             .snapshots(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) return const Center(child: Text('Erreur de chargement'));
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+
           if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text("Équipement introuvable"));
+            return const Center(child: Text('Équipement introuvable'));
           }
 
           final data = snapshot.data!.data() as Map<String, dynamic>;
 
-          // ✅ UPDATED: Data Mapping based on your request
-          // We check both the new French keys and fallback to English keys if data is old
-          final String nom = data['nom'] ?? data['name'] ?? 'Produit Inconnu';
-          final String marque = data['marque'] ?? 'Non spécifiée';
-          final String reference = data['reference'] ?? 'N/A';
-          final String categorie = data['categorie'] ?? data['category'] ?? 'N/A';
+          // ✅ USE FUTURE BUILDER TO ENRICH DATA IF MISSING
+          return FutureBuilder<Map<String, dynamic>>(
+              future: _enrichProductData(data),
+              builder: (context, enrichedSnapshot) {
 
-          final String serial = data['serialNumber'] ?? 'N/A';
-          final String? imageUrl = data['imageUrl'];
-          final Timestamp? installDateTs = data['installDate'] as Timestamp?;
-          final DateTime? installDate = installDateTs?.toDate();
-          final String status = data['status'] ?? 'Inconnu';
+                // Use enriched data if available, otherwise fallback to basic data
+                final displayData = enrichedSnapshot.data ?? data;
 
-          return CustomScrollView(
-            slivers: [
-              // 1. Hero Header
-              SliverAppBar(
-                expandedHeight: 250.0,
-                pinned: true,
-                flexibleSpace: FlexibleSpaceBar(
-                  title: Text(
-                    nom,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      shadows: [Shadow(blurRadius: 4, color: Colors.black54)],
-                    ),
-                  ),
-                  background: imageUrl != null
-                      ? Image.network(imageUrl, fit: BoxFit.cover)
-                      : Container(
-                    color: const Color(0xFF667EEA),
-                    child: const Center(child: Icon(Icons.inventory_2, size: 64, color: Colors.white30)),
-                  ),
-                ),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.edit),
-                    tooltip: "Modifier tout",
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => AddStoreEquipmentPage(
-                            clientId: clientId,
-                            storeId: storeId,
-                            equipmentId: equipmentId,
-                            initialData: data,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
+                final nom = displayData['nom'] ?? displayData['name'] ?? 'Inconnu';
+                final marque = displayData['marque'] ?? 'N/A';
+                final reference = displayData['reference'] ?? 'N/A';
+                final categorie = displayData['categorie'] ?? displayData['category'] ?? 'N/A';
+                final serial = displayData['serialNumber'] ?? displayData['serial'] ?? 'Non spécifié';
+                final installDate = displayData['installDate'] as Timestamp?;
+                final imageUrl = displayData['image'];
 
-              // 2. Content Body
-              SliverToBoxAdapter(
-                child: Padding(
+                return SingleChildScrollView(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Status Badge
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: status == 'Opérationnel' ? Colors.green.shade100 : Colors.orange.shade100,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            status.toUpperCase(),
-                            style: TextStyle(
-                              color: status == 'Opérationnel' ? Colors.green.shade800 : Colors.orange.shade800,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // --- IDENTITY CARD ---
-                      const Text("IDENTIFICATION", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade200),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 4))],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-                              child: const Icon(Icons.qr_code, color: Color(0xFF667EEA)),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text("Numéro de Série", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                                  Text(serial, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                                ],
+                      // Header Card with Image and Basic Info
+                      Card(
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(8),
+                                  image: imageUrl != null
+                                      ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover)
+                                      : null,
+                                ),
+                                child: imageUrl == null
+                                    ? const Icon(Icons.devices_other, size: 40, color: Colors.grey)
+                                    : null,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      nom,
+                                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        "S/N: $serial",
+                                        style: TextStyle(
+                                          color: Colors.blue.shade800,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'monospace',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
 
-                      // --- LIFECYCLE (Editable Date) ---
-                      const Text("CYCLE DE VIE", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Color(0xFFEFF6FF),
-                            child: Icon(Icons.calendar_today, color: Color(0xFF667EEA)),
+                      // Details Section
+                      const Text("Informations Techniques", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            children: [
+                              _buildDetailRow("Nom", nom),
+                              const Divider(),
+                              _buildDetailRow("Marque", marque),
+                              const Divider(),
+                              _buildDetailRow("Référence", reference),
+                              const Divider(),
+                              _buildDetailRow("Catégorie", categorie),
+                              const Divider(),
+                              _buildDetailRow("Source Données", displayData['source'] ?? 'Automatique'),
+                            ],
                           ),
-                          title: const Text("Date d'Installation"),
+                        ),
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // Installation Date Section
+                      const Text("Installation & Maintenance", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: ListTile(
+                          leading: const Icon(Icons.calendar_today, color: Color(0xFF667EEA)),
+                          title: const Text("Date d'installation"),
                           subtitle: Text(
                             installDate != null
-                                ? DateFormat('dd MMMM yyyy', 'fr_FR').format(installDate)
-                                : "Non définie (Touchez pour ajouter)",
-                            style: TextStyle(
-                              color: installDate == null ? Colors.red : Colors.black87,
-                              fontWeight: installDate == null ? FontWeight.bold : FontWeight.normal,
-                            ),
+                                ? DateFormat('dd MMMM yyyy', 'fr_FR').format(installDate.toDate())
+                                : "Non définie",
                           ),
-                          trailing: const Icon(Icons.edit, color: Colors.grey, size: 20),
-                          onTap: () => _updateInstallationDate(context, installDate),
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      // --- TECHNICAL SPECS ---
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
-                        child: Column(
-                          children: [
-                            // ✅ UPDATED: Using correct field names
-                            _buildDetailRow("Nom", nom),
-                            const Divider(),
-                            _buildDetailRow("Marque", marque),
-                            const Divider(),
-                            _buildDetailRow("Référence", reference),
-                            const Divider(),
-                            _buildDetailRow("Catégorie", categorie),
-                            const Divider(),
-                            _buildDetailRow("Source Données", data['source'] ?? 'Manuel'),
-                          ],
+                          trailing: const Icon(Icons.edit, size: 20, color: Colors.grey),
+                          onTap: () => _updateInstallationDate(context, installDate?.toDate()),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-            ],
+                );
+              }
           );
         },
       ),
