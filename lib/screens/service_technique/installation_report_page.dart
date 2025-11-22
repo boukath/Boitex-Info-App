@@ -16,10 +16,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 
-// ✅ 1. ADD THIS IMPORT AT THE TOP OF THE FILE
 import 'package:video_thumbnail/video_thumbnail.dart';
 
-// ✅ NEW IMPORTS FOR PRODUCT SEARCH & SCAN
+// Imports for product search & scan
 import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 
@@ -37,12 +36,13 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   bool _isSaving = false;
 
   final _notesController = TextEditingController();
+  final _emailController = TextEditingController();
 
   final ImagePicker _picker = ImagePicker();
   List<XFile> _mediaFilesToUpload = [];
   List<String> _existingMediaUrls = [];
 
-  // ✅ NEW: Fulfillment State
+  // Fulfillment State
   List<Map<String, dynamic>> _installedSystems = [];
 
   final SignatureController _signatureController = SignatureController(
@@ -66,6 +66,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   @override
   void dispose() {
     _notesController.dispose();
+    _emailController.dispose();
     _signatureController.dispose();
     super.dispose();
   }
@@ -79,31 +80,50 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
       if (snapshot.exists) {
         final data = snapshot.data() as Map<String, dynamic>;
+
+        List<Map<String, dynamic>> initialSystems = [];
+
+        // ✅ LOGIC: Load existing work OR pre-fill from Order
+        if (data['systems'] != null && (data['systems'] as List).isNotEmpty) {
+          // 1. If we already saved work, load it
+          initialSystems = List<Map<String, dynamic>>.from(data['systems']);
+        } else if (data['orderedProducts'] != null) {
+          // 2. If new report, pre-fill with Ordered Products
+          final orders = List<Map<String, dynamic>>.from(data['orderedProducts']);
+
+          initialSystems = orders.map((o) {
+            final int qty = o['quantity'] is int ? o['quantity'] : int.tryParse(o['quantity'].toString()) ?? 1;
+            return {
+              'id': o['productId'] ?? o['id'] ?? '',
+              'name': o['productName'] ?? o['name'] ?? 'Produit Inconnu',
+              'reference': o['reference'] ?? 'N/A',
+              'marque': o['brand'] ?? o['marque'] ?? 'N/A',
+              'category': o['category'] ?? 'N/A',
+              'image': o['imageUrl'] ?? o['image'],
+              'quantity': qty,
+              // Initialize empty serial number slots
+              'serialNumbers': List<String>.filled(qty, ''),
+            };
+          }).toList();
+        }
+
         setState(() {
           _installationDoc = snapshot;
           _notesController.text = data['notes'] ?? '';
+          _emailController.text = data['clientEmail'] ?? '';
           _existingMediaUrls =
           List<String>.from(data['mediaUrls'] ?? data['photoUrls'] ?? []);
-
-          // ✅ LOAD EXISTING SYSTEMS
-          if (data['systems'] != null) {
-            _installedSystems = List<Map<String, dynamic>>.from(data['systems']);
-          }
-
+          _installedSystems = initialSystems;
           _isLoadingData = false;
         });
       } else {
-        setState(() {
-          _isLoadingData = false;
-        });
+        setState(() => _isLoadingData = false);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Installation non trouvée.')));
       }
     } catch (e) {
-      setState(() {
-        _isLoadingData = false;
-      });
+      setState(() => _isLoadingData = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Erreur: $e')));
@@ -111,7 +131,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   }
 
   // ------------------------------------------------------------------------
-  // ✅ SECTION: PRODUCT & SERIAL NUMBER LOGIC (Ported from Intervention)
+  // SECTION: PRODUCT & SERIAL NUMBER LOGIC
   // ------------------------------------------------------------------------
 
   Future<int> _requestQuantity() async {
@@ -187,7 +207,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           'category': productData['categorie'],
           'image': images.isNotEmpty ? images.first : null,
           'quantity': qty,
-          'serialNumbers': List<String>.filled(qty, ''), // Prepare slots
+          'serialNumbers': List<String>.filled(qty, ''),
         });
       });
     }
@@ -218,7 +238,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               height: 300,
               child: Column(
                 children: [
-                  const Text("Scannez les numéros de série installés.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const Text("Saisissez ou scannez les numéros de série.", style: TextStyle(fontSize: 12, color: Colors.grey)),
                   const SizedBox(height: 12),
                   Expanded(
                     child: ListView.builder(
@@ -235,24 +255,24 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                                 child: TextFormField(
                                   controller: controller,
                                   decoration: InputDecoration(
-                                    hintText: "Scanner ou saisir S/N",
+                                    hintText: "Écrire ou Scan S/N",
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    suffixIcon: IconButton(
+                                      icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF667EEA)),
+                                      onPressed: () async {
+                                        final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
+                                        if (scanned != null) {
+                                          setStateDialog(() {
+                                            currentSerials[i] = scanned;
+                                            controller.text = scanned;
+                                          });
+                                        }
+                                      },
+                                    ),
                                   ),
                                   onChanged: (val) => currentSerials[i] = val,
                                 ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF667EEA)),
-                                onPressed: () async {
-                                  final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
-                                  if (scanned != null) {
-                                    setStateDialog(() {
-                                      currentSerials[i] = scanned;
-                                      controller.text = scanned;
-                                    });
-                                  }
-                                },
                               ),
                             ],
                           ),
@@ -289,7 +309,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
     for (final file in pickedFiles) {
       final int fileSize = await file.length();
-      final bool isVideo = _isVideoUrl(file.name); // Using helper function
+      final bool isVideo = _isVideoUrl(file.name);
 
       if (isVideo && fileSize > _maxFileSizeInBytes) {
         rejectedFiles.add(
@@ -376,7 +396,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   Future<void> _saveReport() async {
     if (_isSaving) return;
 
-    // ✅ Validation: Ensure products are added before finishing
     if (_installedSystems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez ajouter au moins un équipement installé."), backgroundColor: Colors.red));
       return;
@@ -421,13 +440,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           .update({
         'status': 'Terminée',
         'notes': _notesController.text,
+        'clientEmail': _emailController.text.trim(),
         'signatureUrl': signatureUrl,
         'mediaUrls': uploadedMediaUrls,
         'photoUrls': FieldValue.delete(),
-
-        // ✅ SAVE SYSTEMS TO TRIGGER BACKEND SYNC
         'systems': _installedSystems,
-
         'completedAt': FieldValue.serverTimestamp(),
       });
 
@@ -476,7 +493,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             Text(storeName, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 24),
 
-            // ✅ FULFILLMENT UI
+            // ✅ FULFILLMENT UI (Includes pre-filled Ordered Products)
             _buildSystemsList(isReadOnly),
 
             const SizedBox(height: 24),
@@ -491,9 +508,23 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             ),
             const SizedBox(height: 24),
 
-            _buildMediaSection(isReadOnly), // Uses the modified thumbnail widget
+            _buildMediaSection(isReadOnly),
 
             const SizedBox(height: 24),
+
+            TextField(
+              controller: _emailController,
+              readOnly: isReadOnly,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email du Client (pour envoi du rapport)',
+                prefixIcon: Icon(Icons.email),
+                border: OutlineInputBorder(),
+                hintText: 'client@example.com',
+              ),
+            ),
+            const SizedBox(height: 24),
+
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -532,7 +563,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     );
   }
 
-  // ✅ NEW WIDGET: SYSTEMS LIST UI
+  // ✅ SYSTEMS LIST UI (Handles Adding/Removing/Scanning)
   Widget _buildSystemsList(bool isReadOnly) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -540,7 +571,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("Matériel Installé", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text("Matériel Installé (Vérification)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             if (!isReadOnly)
               Row(
                 children: [
@@ -572,9 +603,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               children: [
                 const Icon(Icons.inventory_2_outlined, size: 40, color: Colors.blue),
                 const SizedBox(height: 8),
-                const Text("Aucun équipement ajouté.", style: TextStyle(color: Colors.blue)),
+                const Text("Liste vide.", style: TextStyle(color: Colors.blue)),
                 if (!isReadOnly)
-                  const Text("Utilisez les boutons ci-dessus pour ajouter le matériel.", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const Text("Ajoutez des produits ou vérifiez la commande.", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
               ],
             ),
           )
@@ -593,18 +624,22 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 leading: CircleAvatar(
                   backgroundColor: isComplete ? Colors.green.shade100 : Colors.orange.shade100,
-                  child: Icon(isComplete ? Icons.check : Icons.priority_high, color: isComplete ? Colors.green : Colors.orange),
+                  child: Icon(isComplete ? Icons.check : Icons.qr_code, color: isComplete ? Colors.green : Colors.orange),
                 ),
                 title: Text(system['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("Qté: $qty | S/N Scannés: $serials/$qty"),
+                    Text("Reference: ${system['reference'] ?? 'N/A'}"),
+                    const SizedBox(height: 4),
+                    Text("Qté: $qty | S/N Scannés: $serials/$qty", style: TextStyle(color: isComplete ? Colors.green : Colors.black87)),
                     if (!isComplete)
-                      Text("Manque ${qty - serials} S/N", style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
+                      const Text("Touchez pour scanner les S/N", style: TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold)),
                   ],
                 ),
+                // ✅ Permission to remove material
                 trailing: isReadOnly ? null : IconButton(icon: const Icon(Icons.delete, color: Colors.grey), onPressed: () => setState(() => _installedSystems.removeAt(index))),
+                // ✅ Permission to check/scan material
                 onTap: isReadOnly ? null : () => _manageSerialNumbers(index),
               ),
             );
@@ -707,7 +742,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     }
   }
 
-  // ✅ 2. THIS IS THE MODIFIED THUMBNAIL WIDGET (Updated for Video)
   Widget _buildMediaThumbnail({
     String? url,
     XFile? file,
@@ -718,9 +752,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     Widget mediaContent;
 
     if (file != null) {
-      // New file (XFile)
       if (isVideo) {
-        // --- START NEW LOGIC FOR LOCAL VIDEO ---
         mediaContent = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
             video: file.path,
@@ -734,7 +766,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             }
             if (snapshot.hasData && snapshot.data != null) {
               return ClipRRect(
-                borderRadius: BorderRadius.circular(11), // Match image border radius
+                borderRadius: BorderRadius.circular(11),
                 child: Image.memory(
                   snapshot.data!,
                   width: 100,
@@ -743,14 +775,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                 ),
               );
             }
-            // Fallback icon
             return const Center(
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
-        // --- END NEW LOGIC FOR LOCAL VIDEO ---
       } else {
-        // Local Image
         mediaContent = ClipRRect(
           borderRadius: BorderRadius.circular(11),
           child: Image.file(File(file.path),
@@ -758,9 +787,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         );
       }
     } else if (url != null && url.isNotEmpty) {
-      // Existing file (URL)
       if (isVideo) {
-        // --- START NEW LOGIC FOR NETWORK VIDEO ---
         mediaContent = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
             video: url,
@@ -783,14 +810,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                 ),
               );
             }
-            // Fallback icon
             return const Center(
                 child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
-        // --- END NEW LOGIC FOR NETWORK VIDEO ---
       } else {
-        // Network Image
         mediaContent = Hero(
           tag: url,
           child: ClipRRect(
@@ -814,7 +838,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       mediaContent = const Icon(Icons.image_not_supported, color: Colors.grey);
     }
 
-    // --- NO CHANGES to the GestureDetector or Container below ---
     return GestureDetector(
       onTap: (onTap != null)
           ? onTap
@@ -836,9 +859,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           color: Colors.grey.shade200,
         ),
         child: Stack(
-          clipBehavior: Clip.none, // Allow overflow for the remove button
+          clipBehavior: Clip.none,
           children: [
-            mediaContent, // This is now the FutureBuilder for videos
+            mediaContent,
             if (!isReadOnly && file != null)
               Positioned(
                 top: -10,
@@ -871,7 +894,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     );
   }
 
-  // Widget to handle signature display
   Widget _buildSignatureSection(bool isReadOnly, String? signatureUrl) {
     if (isReadOnly && signatureUrl != null) {
       return Container(
@@ -902,5 +924,4 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       );
     }
   }
-// --- END: MEDIA SECTION WIDGETS ---
 }
