@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:flutter_slidable/flutter_slidable.dart'; // ✅ IMPORTANT: Import Slidable
 import 'package:boitex_info_app/screens/administration/add_store_equipment_page.dart';
 import 'package:boitex_info_app/screens/administration/store_equipment_details_page.dart';
-// ✅ ADDED: Import to allow editing the store
 import 'package:boitex_info_app/screens/administration/add_store_page.dart';
 
 class StoreEquipmentPage extends StatelessWidget {
@@ -50,6 +50,67 @@ class StoreEquipmentPage extends StatelessWidget {
     return currentName;
   }
 
+  // ✅ NEW: Function to delete equipment
+  Future<void> _deleteEquipment(BuildContext context, String equipmentId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmer la suppression'),
+        content: const Text('Voulez-vous vraiment supprimer cet équipement du magasin ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('clients')
+            .doc(clientId)
+            .collection('stores')
+            .doc(storeId)
+            .collection('materiel_installe')
+            .doc(equipmentId)
+            .delete();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Équipement supprimé')),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur lors de la suppression: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  // ✅ NEW: Function to edit equipment
+  void _editEquipment(BuildContext context, String equipmentId, Map<String, dynamic> data) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddStoreEquipmentPage(
+          clientId: clientId,
+          storeId: storeId,
+          equipmentId: equipmentId,
+          initialData: data, // Pass existing data to populate the form
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -64,13 +125,11 @@ class StoreEquipmentPage extends StatelessWidget {
         ),
         backgroundColor: const Color(0xFF667EEA),
         elevation: 0,
-        // ✅ ADDED: Edit button to modify Store Details (since we skip the details page)
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_location_alt_outlined),
             tooltip: 'Modifier le Magasin',
             onPressed: () {
-              // Fetch current store data to pass to edit page
               FirebaseFirestore.instance
                   .collection('clients')
                   .doc(clientId)
@@ -139,112 +198,142 @@ class StoreEquipmentPage extends StatelessWidget {
               final Timestamp? installDate = data['installDate'] as Timestamp?;
               final String? imageUrl = data['image'];
 
-              return GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => StoreEquipmentDetailsPage(
-                        clientId: clientId,
-                        storeId: storeId,
-                        equipmentId: id,
-                      ),
+              // ✅ WRAPPED CARD IN SLIDABLE FOR SWIPE ACTIONS
+              return Slidable(
+                key: ValueKey(id),
+                startActionPane: ActionPane(
+                  motion: const ScrollMotion(),
+                  children: [
+                    SlidableAction(
+                      onPressed: (context) => _editEquipment(context, id, data),
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      icon: Icons.edit,
+                      label: 'Modifier',
+                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
                     ),
-                  );
-                },
-                child: Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.grey.shade200),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Image
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            image: imageUrl != null
-                                ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover)
+                  ],
+                ),
+                endActionPane: ActionPane(
+                  motion: const ScrollMotion(),
+                  children: [
+                    SlidableAction(
+                      onPressed: (context) => _deleteEquipment(context, id),
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      icon: Icons.delete,
+                      label: 'Supprimer',
+                      borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
+                    ),
+                  ],
+                ),
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StoreEquipmentDetailsPage(
+                          clientId: clientId,
+                          storeId: storeId,
+                          equipmentId: id,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Image
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              image: imageUrl != null
+                                  ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover)
+                                  : null,
+                            ),
+                            child: imageUrl == null
+                                ? const Icon(Icons.devices_other, color: Colors.grey)
                                 : null,
                           ),
-                          child: imageUrl == null
-                              ? const Icon(Icons.devices_other, color: Colors.grey)
-                              : null,
-                        ),
-                        const SizedBox(width: 16),
+                          const SizedBox(width: 16),
 
-                        // Content with FutureBuilder for Name Resolution
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              FutureBuilder<String>(
-                                  future: _resolveProductName(data),
-                                  initialData: data['nom'] ?? 'Chargement...',
-                                  builder: (context, nameSnapshot) {
-                                    return Text(
-                                      nameSnapshot.data ?? 'Équipement',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                        color: Color(0xFF1E293B),
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    );
-                                  }
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                    color: Colors.blue.shade50,
-                                    borderRadius: BorderRadius.circular(4)
+                          // Content
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                FutureBuilder<String>(
+                                    future: _resolveProductName(data),
+                                    initialData: data['nom'] ?? 'Chargement...',
+                                    builder: (context, nameSnapshot) {
+                                      return Text(
+                                        nameSnapshot.data ?? 'Équipement',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color: Color(0xFF1E293B),
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      );
+                                    }
                                 ),
-                                child: Text(
-                                  "S/N: $serial",
-                                  style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 11,
-                                      color: Colors.blue.shade800,
-                                      fontWeight: FontWeight.w600
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(4)
+                                  ),
+                                  child: Text(
+                                    "S/N: $serial",
+                                    style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                        color: Colors.blue.shade800,
+                                        fontWeight: FontWeight.w600
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  if (lastSeen != null)
-                                    _buildInfoTag(
-                                        Icons.history,
-                                        "Vu ${timeago.format(lastSeen.toDate(), locale: 'fr_short')}",
-                                        Colors.grey.shade600
-                                    ),
-                                  const SizedBox(width: 12),
-                                  if (installDate != null)
-                                    _buildInfoTag(
-                                        Icons.calendar_today,
-                                        DateFormat('yyyy').format(installDate.toDate()),
-                                        Colors.grey.shade600
-                                    ),
-                                ],
-                              ),
-                            ],
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    if (lastSeen != null)
+                                      _buildInfoTag(
+                                          Icons.history,
+                                          "Vu ${timeago.format(lastSeen.toDate(), locale: 'fr_short')}",
+                                          Colors.grey.shade600
+                                      ),
+                                    const SizedBox(width: 12),
+                                    if (installDate != null)
+                                      _buildInfoTag(
+                                          Icons.calendar_today,
+                                          DateFormat('yyyy').format(installDate.toDate()),
+                                          Colors.grey.shade600
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const Padding(
-                            padding: EdgeInsets.only(top: 24, left: 8),
-                            child: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey)
-                        ),
-                      ],
+                          const Padding(
+                              padding: EdgeInsets.only(top: 24, left: 8),
+                              child: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey)
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

@@ -35,31 +35,53 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
   late bool _isEditMode;
 
   // Form state variables
-  ProductSelection? _selectedProduct; // Holds the chosen product
-  String? _partNumber; // The reference number (also stored in _selectedProduct now)
+  ProductSelection? _selectedProduct;
   final _serialNumberController = TextEditingController();
   DateTime? _installationDate;
+
+  // ✅ NEW: Variables to hold rich data fetched from DB
+  String? _richCategory;
+  String? _richReference;
+  String? _richImage;
+  String? _richMarque;
 
   @override
   void initState() {
     super.initState();
     _isEditMode = widget.equipmentId != null;
+    // Default date to today if adding new
+    _installationDate = DateTime.now();
 
     if (_isEditMode && widget.initialData != null) {
-      // Pre-fill form for editing
-      _partNumber = widget.initialData!['partNumber']; // Get part number first
-      _selectedProduct = ProductSelection(
-        productId: widget.initialData!['productId'] ?? '',
-        productName: widget.initialData!['productName'] ?? '',
-        // ✅ CORRECTION 1: Provide the required partNumber
-        partNumber: _partNumber ?? 'N/A', // Use fetched partNumber or fallback
-        marque: widget.initialData!['marque'] ?? '', // Assuming 'marque' is saved too
-        quantity: 1,
-        serialNumbers: List<String>.from(widget.initialData!['serialNumbers'] ?? []),
-      );
-      _serialNumberController.text = widget.initialData!['serialNumber'] ?? '';
-      final timestamp = widget.initialData!['installationDate'] as Timestamp?;
-      _installationDate = timestamp?.toDate();
+      _populateFormForEdit();
+    }
+  }
+
+  void _populateFormForEdit() {
+    final data = widget.initialData!;
+
+    // Populate local rich variables from existing data
+    _richCategory = data['categorie'] ?? data['category'];
+    _richReference = data['reference'] ?? data['partNumber'];
+    _richMarque = data['marque'];
+    _richImage = data['image'];
+
+    // Populate Product Data
+    _selectedProduct = ProductSelection(
+      productId: data['productId'] ?? '',
+      productName: data['productName'] ?? data['nom'] ?? 'Produit Inconnu',
+      partNumber: _richReference ?? 'N/A',
+      marque: _richMarque ?? 'N/A',
+      quantity: 1,
+      serialNumbers: List<String>.from(data['serialNumbers'] ?? []),
+    );
+
+    // Populate Serial
+    _serialNumberController.text = data['serialNumber'] ?? data['serial'] ?? '';
+
+    final Timestamp? timestamp = data['installDate'] ?? data['installationDate'];
+    if (timestamp != null) {
+      _installationDate = timestamp.toDate();
     }
   }
 
@@ -69,13 +91,47 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
     super.dispose();
   }
 
+  // ✅ NEW: Helper to fetch full details when a product is selected
+  Future<void> _fetchFullProductDetails(String productId) async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('produits').doc(productId).get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        setState(() {
+          _richMarque = data['marque']; // Ensure we get the canonical brand
+          _richCategory = data['categorie'] ?? data['category']; // Get category
+          _richReference = data['reference'] ?? data['partNumber']; // Get reference
+
+          // Handle image
+          if (data['imageUrls'] is List && (data['imageUrls'] as List).isNotEmpty) {
+            _richImage = (data['imageUrls'] as List).first;
+          } else {
+            _richImage = data['image'];
+          }
+
+          // Update visual selection if needed (optional, but keeps UI in sync)
+          if (_selectedProduct != null) {
+            _selectedProduct = ProductSelection(
+                productId: _selectedProduct!.productId,
+                productName: data['nom'] ?? _selectedProduct!.productName,
+                partNumber: _richReference ?? _selectedProduct!.partNumber,
+                marque: _richMarque ?? _selectedProduct!.marque,
+                quantity: 1,
+                serialNumbers: []
+            );
+          }
+        });
+      }
+    } catch (e) {
+      print("Error fetching product details: $e");
+    }
+  }
+
   Future<void> _selectProduct() async {
     final List<ProductSelection>? result = await showDialog<List<ProductSelection>>(
       context: context,
       builder: (_) => ProductSelectorDialog(
         initialProducts: _selectedProduct != null ? [_selectedProduct!] : [],
-        // Assuming ProductSelectorDialog handles single selection logic
-        // and returns a ProductSelection object including partNumber and marque
       ),
     );
 
@@ -83,20 +139,25 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
       final selected = result.first;
       setState(() {
         _selectedProduct = selected;
-        // ✅ Update _partNumber from the selected product object
-        _partNumber = selected.partNumber;
-        // Optionally clear serial number when product changes
-        // _serialNumberController.clear();
+        // Reset rich variables until fetched
+        _richCategory = null;
+        _richImage = null;
+        _richReference = selected.partNumber;
+        _richMarque = selected.marque;
       });
-      // No need to fetch again if the dialog returns the full ProductSelection object
+
+      // ✅ Trigger fetch immediately
+      await _fetchFullProductDetails(selected.productId);
     }
   }
-
 
   Future<void> _scanSerialNumber() async {
     if (_selectedProduct == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez d\'abord sélectionner un produit.'), backgroundColor: Colors.orange),
+        const SnackBar(
+            content: Text('Veuillez d\'abord sélectionner un produit.'),
+            backgroundColor: Colors.orange
+        ),
       );
       return;
     }
@@ -104,7 +165,6 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
     final String? scannedValue = await showDialog<String>(
       context: context,
       builder: (_) => SerialNumberScannerDialog(
-        // Pass a copy with quantity 1 for single scan
         productSelection: _selectedProduct!.copyWith(quantity: 1),
       ),
     );
@@ -115,7 +175,6 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
       });
     }
   }
-
 
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
@@ -133,154 +192,248 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
   }
 
   Future<void> _saveEquipment() async {
-    if (_formKey.currentState!.validate()) {
-      if (_selectedProduct == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez sélectionner un produit'), backgroundColor: Colors.orange),
-        );
-        return;
+    if (!_formKey.currentState!.validate()) return;
+
+    if (_selectedProduct == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Veuillez sélectionner un produit'),
+            backgroundColor: Colors.redAccent
+        ),
+      );
+      return;
+    }
+
+    if (_installationDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Veuillez choisir une date'),
+            backgroundColor: Colors.redAccent
+        ),
+      );
+      return;
+    }
+
+    setState(() { _isLoading = true; });
+
+    // ✅ FIXED: Use the fetched rich data and correct keys
+    final dataToSave = {
+      'productId': _selectedProduct!.productId,
+      'productName': _selectedProduct!.productName,
+      'nom': _selectedProduct!.productName,
+      // Save BOTH keys to be safe
+      'partNumber': _richReference ?? _selectedProduct!.partNumber,
+      'reference': _richReference ?? _selectedProduct!.partNumber,
+      'marque': _richMarque ?? _selectedProduct!.marque,
+      'categorie': _richCategory ?? 'N/A', // ✅ Saving Category now
+      'category': _richCategory ?? 'N/A',  // ✅ Saving backup key
+      'serialNumber': _serialNumberController.text.trim(),
+      'serial': _serialNumberController.text.trim(),
+      'installDate': Timestamp.fromDate(_installationDate!),
+      'image': _richImage, // ✅ Saving Image URL
+    };
+
+    try {
+      final collectionRef = FirebaseFirestore.instance
+          .collection('clients')
+          .doc(widget.clientId)
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('materiel_installe');
+
+      if (_isEditMode) {
+        await collectionRef.doc(widget.equipmentId!).update(dataToSave);
+      } else {
+        await collectionRef.add(dataToSave);
       }
-      if (_installationDate == null) {
+
+      if (mounted) {
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez sélectionner une date d\'installation'), backgroundColor: Colors.orange),
+          SnackBar(content: Text(_isEditMode ? 'Matériel mis à jour' : 'Matériel ajouté')),
         );
-        return;
       }
-
-      setState(() { _isLoading = true; });
-
-      final dataToSave = {
-        'productId': _selectedProduct!.productId,
-        'productName': _selectedProduct!.productName,
-        // ✅ Use partNumber from the ProductSelection object
-        'partNumber': _selectedProduct!.partNumber,
-        'marque': _selectedProduct!.marque, // Also save marque
-        'serialNumber': _serialNumberController.text.trim(),
-        'installationDate': Timestamp.fromDate(_installationDate!),
-        // Save the single serial number in an array for consistency?
-        'serialNumbers': [_serialNumberController.text.trim()],
-      };
-
-      try {
-        final collectionRef = FirebaseFirestore.instance
-            .collection('clients')
-            .doc(widget.clientId)
-            .collection('stores')
-            .doc(widget.storeId)
-            .collection('materiel_installe');
-
-        if (_isEditMode) {
-          await collectionRef.doc(widget.equipmentId!).update(dataToSave);
-        } else {
-          await collectionRef.add(dataToSave);
-        }
-
-        if (mounted) {
-          Navigator.of(context).pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_isEditMode ? 'Matériel mis à jour' : 'Matériel ajouté')),
-          );
-        }
-      } catch (e) {
-        print("Erreur sauvegarde matériel: $e");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() { _isLoading = false; });
-        }
+    } catch (e) {
+      print("Erreur sauvegarde matériel: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() { _isLoading = false; });
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Colors.blueGrey;
-    final inputDecoration = InputDecoration(
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-    );
+    const primaryColor = Color(0xFF667EEA);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: Text(_isEditMode ? 'Modifier Matériel' : 'Ajouter Matériel'),
+        backgroundColor: primaryColor,
+        elevation: 0,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
-          child: ListView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- Product Selection ---
-              const Text('Produit Installé', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              // --- Product Selection Card ---
+              const Text(
+                  'INFORMATION PRODUIT',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)
+              ),
               const SizedBox(height: 8),
               Card(
-                child: ListTile(
-                  leading: const Icon(Icons.category_outlined, color: primaryColor),
-                  title: Text(_selectedProduct?.productName ?? 'Sélectionner un produit'),
-                  // ✅ Display partNumber from the ProductSelection object
-                  subtitle: _selectedProduct?.partNumber != null ? Text('Réf: ${_selectedProduct!.partNumber}') : null,
-                  trailing: const Icon(Icons.arrow_drop_down),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
+                child: InkWell(
                   onTap: _selectProduct,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        // ✅ Improved: Show fetched image if available
+                        Container(
+                          width: 50, height: 50,
+                          padding: _richImage == null ? const EdgeInsets.all(12) : null,
+                          decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              image: _richImage != null
+                                  ? DecorationImage(image: NetworkImage(_richImage!), fit: BoxFit.cover)
+                                  : null
+                          ),
+                          child: _richImage == null
+                              ? Icon(Icons.inventory_2, color: primaryColor)
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _selectedProduct?.productName ?? 'Sélectionner un produit',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: _selectedProduct != null ? Colors.black87 : Colors.grey,
+                                ),
+                              ),
+                              if (_selectedProduct != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Réf: ${_richReference ?? _selectedProduct!.partNumber} • ${_richMarque ?? _selectedProduct!.marque}',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                ),
+                                if (_richCategory != null)
+                                  Text(
+                                    'Catégorie: $_richCategory',
+                                    style: TextStyle(fontSize: 12, color: primaryColor),
+                                  ),
+                              ]
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
 
-              // --- Serial Number ---
+              const SizedBox(height: 24),
+
+              const Text(
+                  'DÉTAILS INSTALLATION',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)
+              ),
+              const SizedBox(height: 8),
+
               TextFormField(
                 controller: _serialNumberController,
-                decoration: inputDecoration.copyWith(
-                  labelText: 'Numéro de Série',
+                decoration: InputDecoration(
+                  labelText: 'Numéro de Série (S/N)',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
                   suffixIcon: IconButton(
-                    icon: const Icon(Icons.qr_code_scanner),
-                    tooltip: 'Scanner N° Série',
+                    icon: const Icon(Icons.qr_code_scanner, color: primaryColor),
                     onPressed: _scanSerialNumber,
                   ),
                 ),
-                validator: (value) {
-                  return null;
-                },
               ),
               const SizedBox(height: 16),
 
-              // --- Installation Date ---
               InkWell(
                 onTap: () => _selectDate(context),
-                child: InputDecorator(
-                  decoration: inputDecoration.copyWith(
-                    labelText: "Date d'installation",
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: <Widget>[
-                      Text(
-                        _installationDate == null
-                            ? 'Sélectionner une date'
-                            : DateFormat('dd MMMM yyyy', 'fr_FR').format(_installationDate!),
-                      ),
+                    children: [
                       const Icon(Icons.calendar_today, color: Colors.grey),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Date d\'installation', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          Text(
+                            _installationDate == null
+                                ? 'Sélectionner une date'
+                                : DateFormat('dd MMMM yyyy', 'fr_FR').format(_installationDate!),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
               ),
+
               const SizedBox(height: 32),
 
-              // --- Save Button ---
-              ElevatedButton.icon(
-                icon: Icon(_isEditMode ? Icons.save : Icons.add_circle_outline),
-                label: Text(_isEditMode ? 'Enregistrer Modifications' : 'Ajouter le Matériel'),
-                onPressed: _isLoading ? null : _saveEquipment,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              SizedBox(
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _saveEquipment,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : Text(
+                    _isEditMode ? 'ENREGISTRER' : 'AJOUTER AU MAGASIN',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                 ),
               ),
-              if (_isLoading) const Padding(padding: EdgeInsets.only(top: 16), child: Center(child: CircularProgressIndicator())),
             ],
           ),
         ),
@@ -289,15 +442,14 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
   }
 }
 
-// Helper extension to easily create a copy with modified quantity
+// Helper extension
 extension ProductSelectionCopy on ProductSelection {
   ProductSelection copyWith({int? quantity}) {
-    // ✅ CORRECTION 2: Provide the required partNumber when copying
     return ProductSelection(
       productId: productId,
       productName: productName,
-      partNumber: partNumber, // Include partNumber
-      marque: marque,       // Include marque
+      partNumber: partNumber,
+      marque: marque,
       quantity: quantity ?? this.quantity,
       serialNumbers: List.from(serialNumbers),
     );

@@ -23,7 +23,6 @@ class StoreEquipmentDetailsPage extends StatefulWidget {
 
 class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
 
-  // ✅ FEATURE: One-tap Installation Date Update
   Future<void> _updateInstallationDate(BuildContext context, DateTime? currentDate) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -53,21 +52,64 @@ class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
     }
   }
 
-  // ✅ NEW: Helper to fetch product details if missing in inventory
+  // ✅ NEW: Function to delete equipment from details page
+  Future<void> _deleteEquipment() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmer la suppression'),
+        content: const Text('Voulez-vous vraiment supprimer cet équipement ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('clients')
+            .doc(widget.clientId)
+            .collection('stores')
+            .doc(widget.storeId)
+            .collection('materiel_installe')
+            .doc(widget.equipmentId)
+            .delete();
+
+        if (mounted) {
+          Navigator.pop(context); // Return to list
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Équipement supprimé')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> _enrichProductData(Map<String, dynamic> inventoryData) async {
-    // If we already have the data, just return it
     if (inventoryData['marque'] != null && inventoryData['marque'] != 'N/A') {
       return inventoryData;
     }
 
-    // If we have a Product ID, try to fetch the original catalog data
     String? productId = inventoryData['productId'] ?? inventoryData['id'];
     if (productId != null && productId.isNotEmpty) {
       try {
         final productDoc = await FirebaseFirestore.instance.collection('produits').doc(productId).get();
         if (productDoc.exists) {
           final productData = productDoc.data()!;
-          // Merge the missing fields into our display data
           return {
             ...inventoryData,
             'marque': productData['marque'] ?? 'N/A',
@@ -92,12 +134,43 @@ class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
         title: const Text('Détails Équipement'),
         backgroundColor: const Color(0xFF667EEA),
         actions: [
+          // ✅ UPDATED: Edit Button Logic
           IconButton(
             icon: const Icon(Icons.edit),
+            tooltip: 'Modifier',
             onPressed: () {
-              // Navigation logic to edit page can go here if needed
+              // Fetch current data then navigate
+              FirebaseFirestore.instance
+                  .collection('clients')
+                  .doc(widget.clientId)
+                  .collection('stores')
+                  .doc(widget.storeId)
+                  .collection('materiel_installe')
+                  .doc(widget.equipmentId)
+                  .get()
+                  .then((doc) {
+                if (doc.exists && context.mounted) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AddStoreEquipmentPage(
+                        clientId: widget.clientId,
+                        storeId: widget.storeId,
+                        equipmentId: widget.equipmentId,
+                        initialData: doc.data(), // Pass data for editing
+                      ),
+                    ),
+                  );
+                }
+              });
             },
-          )
+          ),
+          // ✅ ADDED: Delete Button
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Supprimer',
+            onPressed: _deleteEquipment,
+          ),
         ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
@@ -116,17 +189,15 @@ class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
           }
 
           if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text('Équipement introuvable'));
+            return const Center(child: Text('Équipement introuvable (peut-être supprimé)'));
           }
 
           final data = snapshot.data!.data() as Map<String, dynamic>;
 
-          // ✅ USE FUTURE BUILDER TO ENRICH DATA IF MISSING
           return FutureBuilder<Map<String, dynamic>>(
               future: _enrichProductData(data),
               builder: (context, enrichedSnapshot) {
 
-                // Use enriched data if available, otherwise fallback to basic data
                 final displayData = enrichedSnapshot.data ?? data;
 
                 final nom = displayData['nom'] ?? displayData['name'] ?? 'Inconnu';
@@ -142,7 +213,6 @@ class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Header Card with Image and Basic Info
                       Card(
                         elevation: 4,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -198,7 +268,6 @@ class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
                       ),
                       const SizedBox(height: 24),
 
-                      // Details Section
                       const Text("Informations Techniques", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
                       Card(
@@ -224,7 +293,6 @@ class _StoreEquipmentDetailsPageState extends State<StoreEquipmentDetailsPage> {
 
                       const SizedBox(height: 24),
 
-                      // Installation Date Section
                       const Text("Installation & Maintenance", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
                       Card(
