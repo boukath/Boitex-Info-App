@@ -153,7 +153,8 @@ export const onInstallationTermine = onDocumentUpdated(
       logger.log(`🚀 Processing Completion for Installation: ${after.installationCode}`);
 
       // Prepare Recipients (with Fallback)
-      let mainRecipient = after.managerEmail;
+      // ✅ FIX: Use 'clientEmail' instead of 'managerEmail'
+      let mainRecipient = after.clientEmail;
       if (!isValidEmail(mainRecipient)) {
          logger.warn(`⚠️ Invalid or missing client email. Defaulting to internal admin.`);
          mainRecipient = "athmane-boukerdous@boitexinfo.com";
