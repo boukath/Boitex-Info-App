@@ -5,8 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:boitex_info_app/screens/administration/add_store_equipment_page.dart';
-// ✅ NEW: Import the details page
 import 'package:boitex_info_app/screens/administration/store_equipment_details_page.dart';
+// ✅ ADDED: Import to allow editing the store
+import 'package:boitex_info_app/screens/administration/add_store_page.dart';
 
 class StoreEquipmentPage extends StatelessWidget {
   final String clientId;
@@ -20,12 +21,11 @@ class StoreEquipmentPage extends StatelessWidget {
     required this.storeName,
   });
 
-  // ✅ SMART FIX: Helper to get the real name if the saved name is generic
+  // Helper to get the real name if the saved name is generic
   Future<String> _resolveProductName(Map<String, dynamic> data) async {
     String currentName = data['nom'] ?? data['name'] ?? 'Produit Inconnu';
     String? productId = data['productId'] ?? data['id'];
 
-    // List of generic names to detect (Case insensitive check can be added if needed)
     const List<String> genericNames = [
       'Produit Inconnu',
       'Equipment Inconnu',
@@ -33,13 +33,12 @@ class StoreEquipmentPage extends StatelessWidget {
       'Matériel'
     ];
 
-    // If name is generic AND we have a product ID, fetch the real name
     if (genericNames.contains(currentName) && productId != null && productId.isNotEmpty) {
       try {
         final productDoc = await FirebaseFirestore.instance
             .collection('produits')
             .doc(productId)
-            .get(); //
+            .get();
 
         if (productDoc.exists) {
           return productDoc.data()?['nom'] ?? currentName;
@@ -65,6 +64,36 @@ class StoreEquipmentPage extends StatelessWidget {
         ),
         backgroundColor: const Color(0xFF667EEA),
         elevation: 0,
+        // ✅ ADDED: Edit button to modify Store Details (since we skip the details page)
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_location_alt_outlined),
+            tooltip: 'Modifier le Magasin',
+            onPressed: () {
+              // Fetch current store data to pass to edit page
+              FirebaseFirestore.instance
+                  .collection('clients')
+                  .doc(clientId)
+                  .collection('stores')
+                  .doc(storeId)
+                  .get()
+                  .then((doc) {
+                if (doc.exists && context.mounted) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AddStorePage(
+                        clientId: clientId,
+                        storeId: storeId,
+                        initialData: doc.data(),
+                      ),
+                    ),
+                  );
+                }
+              });
+            },
+          ),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -105,7 +134,6 @@ class StoreEquipmentPage extends StatelessWidget {
               final data = docs[index].data() as Map<String, dynamic>;
               final id = docs[index].id;
 
-              // Extract basic data for display
               final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
               final Timestamp? lastSeen = data['lastInterventionDate'] as Timestamp?;
               final Timestamp? installDate = data['installDate'] as Timestamp?;
@@ -158,9 +186,8 @@ class StoreEquipmentPage extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ✅ UPDATED: Use FutureBuilder to get the REAL name
                               FutureBuilder<String>(
-                                  future: _resolveProductName(data), //
+                                  future: _resolveProductName(data),
                                   initialData: data['nom'] ?? 'Chargement...',
                                   builder: (context, nameSnapshot) {
                                     return Text(
