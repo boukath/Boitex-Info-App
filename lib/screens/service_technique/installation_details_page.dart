@@ -1,4 +1,5 @@
 // lib/screens/service_technique/installation_details_page.dart
+import 'package:flutter/foundation.dart'; // ✅ Added for kIsWeb
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -9,9 +10,17 @@ import 'package:boitex_info_app/services/installation_pdf_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-// Imports for the image and video viewer pages
+// ✅ Cloud PDF Generation Imports
+import 'dart:convert';
+import 'dart:io';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:file_saver/file_saver.dart'; // ✅ Added for Web Download
+
+// ✅ Viewers
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart'; // ✅ Added PDF Viewer
 
 class AppUser {
   final String uid;
@@ -58,18 +67,17 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   Future<void> _fetchTechnicians() async {
     try {
-      // ✅ MODIFIED: List includes ALL managerial roles and technicians EXCEPT PDG
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .where('role', whereIn: [
-        UserRoles.admin, // Admin
-        UserRoles.responsableAdministratif, // Responsable Administratif
-        UserRoles.responsableCommercial, // Responsable Commercial
-        UserRoles.responsableTechnique, // Responsable Technique
-        UserRoles.responsableIT, // Responsable IT
-        UserRoles.chefDeProjet, // Chef de Projet
-        UserRoles.technicienST, // Technicien ST
-        UserRoles.technicienIT // Technicien IT
+        UserRoles.admin,
+        UserRoles.responsableAdministratif,
+        UserRoles.responsableCommercial,
+        UserRoles.responsableTechnique,
+        UserRoles.responsableIT,
+        UserRoles.chefDeProjet,
+        UserRoles.technicienST,
+        UserRoles.technicienIT
       ]).get();
 
       final allTechnicians = snapshot.docs
@@ -85,7 +93,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   Future<void> _saveSchedule() async {
-    // This function is from our previous change (technician is optional)
     if (_scheduledDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Veuillez sélectionner une date.')));
@@ -101,8 +108,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           .doc(widget.installationDoc.id)
           .update({
         'installationDate': Timestamp.fromDate(_scheduledDate!),
-        'assignedTechnicians':
-        techniciansToSave, // This will save an empty list if none are selected
+        'assignedTechnicians': techniciansToSave,
         'status': 'Planifiée',
       });
       if (mounted)
@@ -126,8 +132,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           title: const Text('Planifier l\'Installation'),
           content: SingleChildScrollView(
             child: Column(
-              mainAxisSize:
-              MainAxisSize.min, // ✅ FIXED: Removed redundant 'MainAxisSize.'
+              mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
                   title: Text(tempDate == null
@@ -155,7 +160,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                       .toList(),
                   initialValue: tempTechnicians,
                   title: const Text("Sélectionner Techniciens"),
-                  buttonText: const Text("Assigner à (Optionnel)"), // Text updated
+                  buttonText: const Text("Assigner à (Optionnel)"),
                   decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey.shade600),
                       borderRadius: BorderRadius.circular(8)),
@@ -187,78 +192,146 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // PDF GENERATION METHODS
-  Future<void> _generateAndDownloadPDF() async {
+  // ----------------------------------------------------------------
+  // ✅ NEW: ROBUST PDF LOGIC (WEB & MOBILE SAFE)
+  // ----------------------------------------------------------------
+
+  /// Fetches the PDF bytes from the Cloud Function.
+  /// Returns a Map with 'bytes' (Uint8List) and 'filename' (String).
+  Future<Map<String, dynamic>?> _fetchPdfBytes() async {
     setState(() => _isLoading = true);
     try {
-      final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile = await InstallationPdfService.generateInstallationReport(
-          installationData: data);
+      final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('getInstallationPdf')
+          .call({'installationId': widget.installationDoc.id});
+
+      final data = result.data as Map<dynamic, dynamic>;
+      final String base64Pdf = data['pdfBase64'];
+      final String filename = data['filename'];
+
+      // Decode base64 to bytes
+      final bytes = base64Decode(base64Pdf);
+
+      return {'bytes': bytes, 'filename': filename};
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('PDF généré!\n${pdfFile.path}'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3)),
+          SnackBar(content: Text('Erreur PDF Cloud: $e'), backgroundColor: Colors.red),
         );
       }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      return null;
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  /// Helper to save bytes to a local file (MOBILE ONLY)
+  Future<File> _saveFileForMobile(Uint8List bytes, String filename) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/$filename');
+    await file.writeAsBytes(bytes);
+    return file;
+  }
+
+  // ✅ Button 1: Generate PDF (Smart Action)
+  Future<void> _generateAndDownloadPDF() async {
+    // 1. Fetch Data
+    final pdfData = await _fetchPdfBytes();
+    if (pdfData == null) return; // Error handled in fetch
+
+    final bytes = pdfData['bytes'] as Uint8List;
+    final filename = pdfData['filename'] as String;
+
+    if (kIsWeb) {
+      // 🌍 WEB: Download directly using FileSaver
+      await FileSaver.instance.saveFile(
+        name: filename.replaceAll('.pdf', ''), // FileSaver adds extension automatically sometimes
+        bytes: bytes,
+        ext: 'pdf',
+        mimeType: MimeType.pdf,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Téléchargement démarré...'), backgroundColor: Colors.green),
+        );
+      }
+    } else {
+      // 📱 MOBILE: Open in PDF Viewer
+      // We don't strictly need to save to file for the viewer, but it's good practice
+      // For now, pass bytes directly to viewer page
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PdfViewerPage(
+            pdfBytes: bytes,
+            title: filename,
+          ),
+        ),
+      );
+    }
+  }
+
+  // ✅ Button 2: WhatsApp (Mobile Only mostly)
   Future<void> _shareViaWhatsApp() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile = await InstallationPdfService.generateInstallationReport(
-          installationData: data);
-      final message = InstallationPdfService.generateWhatsAppMessage(data);
-      await Share.shareXFiles([XFile(pdfFile.path)], text: message);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le partage direct n\'est pas supporté sur le Web. Veuillez télécharger le PDF.')),
+      );
+      return;
     }
+
+    final pdfData = await _fetchPdfBytes();
+    if (pdfData == null) return;
+
+    final bytes = pdfData['bytes'] as Uint8List;
+    final filename = pdfData['filename'] as String;
+
+    // Save to temp file for sharing
+    final file = await _saveFileForMobile(bytes, filename);
+
+    final data = widget.installationDoc.data() as Map<String, dynamic>;
+    final message = "Voici le rapport d'installation pour ${data['clientName'] ?? 'Client'}.";
+
+    await Share.shareXFiles([XFile(file.path)], text: message);
   }
 
+  // ✅ Button 3: Email (Mobile Only mostly)
   Future<void> _shareViaEmail() async {
-    setState(() => _isLoading = true);
-    try {
-      final data = widget.installationDoc.data() as Map<String, dynamic>;
-      final pdfFile = await InstallationPdfService.generateInstallationReport(
-          installationData: data);
-      final emailContent = InstallationPdfService.generateEmailContent(data);
-      await Share.shareXFiles([XFile(pdfFile.path)],
-          subject: emailContent['subject'], text: emailContent['body']);
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le partage direct n\'est pas supporté sur le Web. Veuillez télécharger le PDF.')),
+      );
+      return;
     }
+
+    final pdfData = await _fetchPdfBytes();
+    if (pdfData == null) return;
+
+    final bytes = pdfData['bytes'] as Uint8List;
+    final filename = pdfData['filename'] as String;
+
+    // Save to temp file for sharing
+    final file = await _saveFileForMobile(bytes, filename);
+
+    final data = widget.installationDoc.data() as Map<String, dynamic>;
+    final subject = "Rapport Installation: ${data['installationCode'] ?? 'N/A'}";
+    final body = "Bonjour,\n\nVeuillez trouver ci-joint le rapport d'installation.\n\nCordialement.";
+
+    await Share.shareXFiles([XFile(file.path)], subject: subject, text: body);
   }
 
-  // ✅ --- START: HELPER FUNCTION TO SORT MEDIA ---
-  // This helper checks if a URL is a video
+  // ----------------------------------------------------------------
+  // REST OF THE FILE REMAINS UNCHANGED
+  // ----------------------------------------------------------------
+
   bool _isVideoUrl(String path) {
     final lowercasePath = path.toLowerCase();
-    // You can add more video extensions here if needed
     return lowercasePath.endsWith('.mp4') ||
         lowercasePath.endsWith('.mov') ||
         lowercasePath.endsWith('.avi') ||
         lowercasePath.endsWith('.mkv');
   }
-  // ✅ --- END: HELPER FUNCTION TO SORT MEDIA ---
 
-  // ✅ NOUVEAU: Helper pour afficher une ligne simple
   Widget _buildDetailRow(String label, dynamic value, [Color? color]) {
     final displayValue = value is bool
         ? (value ? 'Oui' : 'Non')
@@ -285,7 +358,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ NOUVEAU: Helper pour afficher les questions Oui/Non avec notes
   Widget _buildBooleanRow(String label, dynamic value, [String? notes]) {
     if (value == null) return const SizedBox.shrink();
 
@@ -298,7 +370,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildDetailRow(label, statusText, statusColor),
-        // Display notes regardless of Oui/Non, but styled differently
         if (notes != null && notes.isNotEmpty)
           Padding(
             padding:
@@ -313,18 +384,16 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ MODIFIÉ: Fonction pour afficher les détails de l'évaluation technique (expansible avec tous les détails)
   List<Widget> _buildTechnicalEvaluation(List<dynamic> evaluations) {
     if (evaluations.isEmpty) return [];
 
     return evaluations.asMap().entries.map((entry) {
-      // ✅ FIX ANTI-CRASH: Cast entry.value safely to Map<String, dynamic>
       Map<String, dynamic> evalData = (entry.value is Map)
           ? Map<String, dynamic>.from(entry.value as Map)
           : {};
 
       if (evalData.isEmpty)
-        return const SizedBox.shrink(); // Skip invalid entries
+        return const SizedBox.shrink();
 
       List<Widget> details = [
         _buildDetailRow('Type d\'entrée', evalData['entranceType']),
@@ -332,35 +401,21 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         _buildDetailRow(
             'Largeur entrée', '${evalData['entranceWidth'] ?? 'N/A'} m'),
         _buildDetailRow('Longeur entrée',
-            '${evalData['entranceLength'] ?? 'N/A'} m'), // ✅ CORRECTED: Used evalData here
+            '${evalData['entranceLength'] ?? 'N/A'} m'),
         const Divider(height: 1),
 
-        // 1. Alimentation
         _buildBooleanRow(
             'Alimentation disponible', evalData['isPowerAvailable'],
             evalData['powerNotes']),
-
-        // 2. Sol Fini (Simple Boolean)
         _buildBooleanRow('Sol Fini', evalData['isFloorFinalized']),
-
-        // 3. Conduit
         _buildBooleanRow('Conduit disponible', evalData['isConduitAvailable']),
-
-        // 4. Tranchée
         _buildBooleanRow('Autorisé à trancher', evalData['canMakeTrench']),
-
-        // 5. Obstacles
         _buildBooleanRow(
             'Obstacles', evalData['hasObstacles'], evalData['obstacleNotes']),
-
-        // 6. Structures Métalliques
         _buildBooleanRow(
             'Structures métalliques', evalData['hasMetalStructures']),
-
-        // 7. Autres Systèmes
         _buildBooleanRow('Autres systèmes', evalData['hasOtherSystems']),
 
-        // Overall notes
         if (evalData['generalNotes'] != null &&
             (evalData['generalNotes'] as String).isNotEmpty) ...[
           const Divider(height: 1),
@@ -368,7 +423,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         ],
       ];
 
-      // ✅ MODIFIÉ: Retourne un Card avec ExpansionTile (pour l'expandabilité)
       return Card(
         elevation: 2,
         margin: const EdgeInsets.only(bottom: 16),
@@ -382,7 +436,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           children: [
             const Divider(height: 1),
-            // The list of details forms the content of the expanded area
             Column(
                 crossAxisAlignment: CrossAxisAlignment.start, children: details),
           ],
@@ -391,19 +444,17 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }).toList();
   }
 
-  // ✅ MODIFIÉ: Fonction pour afficher les détails de l'évaluation IT (maintenant expansible)
   List<Widget> _buildItEvaluation(List<dynamic> itItems) {
     if (itItems.isEmpty) return [];
 
     List<Widget> children = [];
 
     itItems.asMap().entries.forEach((entry) {
-      // ✅ FIX ANTI-CRASH: Cast entry.value safely to Map<String, dynamic>
       Map<String, dynamic> itemData = (entry.value is Map)
           ? Map<String, dynamic>.from(entry.value as Map)
           : {};
 
-      if (itemData.isEmpty) return; // Skip invalid entries
+      if (itemData.isEmpty) return;
 
       children.add(
         ListTile(
@@ -427,7 +478,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       );
     });
 
-    // ✅ MODIFIÉ: Retourne un Card avec ExpansionTile (pour l'expandabilité)
     return [
       Card(
         elevation: 2,
@@ -449,15 +499,10 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     ];
   }
 
-  // -----------------------------------------------------------------
-  // VVV THIS FUNCTION IS MODIFIED VVV
-  // -----------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final data = widget.installationDoc.data() as Map<String, dynamic>;
 
-    // ✅ CRITICAL FIX (CRASH PREVENTION): Safely convert the evaluation data from Map or null to List.
-    // This handles the type mismatch error: Map is not List.
     dynamic rawTechnicalData = data['technicalEvaluation'];
     final List<dynamic> technicalEvaluation = (rawTechnicalData is List)
         ? rawTechnicalData
@@ -471,7 +516,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     final status = data['status'] ?? 'Inconnu';
     final orderedProducts = data['orderedProducts'] as List? ?? [];
 
-    // --- Media Sorting Logic (Remains unchanged but uses safe list) ---
     final List<String> allMediaUrls =
     List<String>.from(data['mediaUrls'] ?? []);
 
@@ -485,7 +529,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         sortedPhotoUrls.add(url);
       }
     }
-    // --- End Media Sorting Logic ---
 
     return Scaffold(
       appBar: AppBar(
@@ -513,8 +556,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 subtitle: const Text('Demande initiale'),
                 isThreeLine: true,
               ),
-              // --- MODIFICATION START ---
-              // ✅ ADDED: Display the installation date
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: Icon(Icons.calendar_today_outlined,
@@ -532,11 +573,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 subtitle: const Text('Date d\'installation'),
                 visualDensity: VisualDensity.compact,
               ),
-              // --- MODIFICATION END ---
             ],
           ),
 
-          // This is from our previous change
           _buildTechnicianCard(),
 
           if (orderedProducts.isNotEmpty)
@@ -551,17 +590,14 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                   .toList(),
             ),
 
-          // ✅ Remplacement de l'ancien affichage simple par les nouvelles fonctions
           ..._buildTechnicalEvaluation(technicalEvaluation),
           const SizedBox(height: 16),
 
-          // ✅ FIX VISIBILITY: Only show IT Evaluation if the service type is NOT Service Technique (or if it's dual service/IT service)
           if (data['serviceType'] != 'Service Technique') ...[
             ..._buildItEvaluation(itEvaluation),
             const SizedBox(height: 16),
           ],
 
-          // ✅ MODIFIED: Pass the new sorted lists to the widget
           MediaGalleryWidget(
             photoUrls: sortedPhotoUrls,
             videoUrls: sortedVideoUrls,
@@ -573,9 +609,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       ),
     );
   }
-  // -----------------------------------------------------------------
-  // ^^^ THIS FUNCTION IS MODIFIED ^^^
-  // -----------------------------------------------------------------
 
   Widget _buildStatusHeader(String status) {
     IconData icon;
@@ -654,7 +687,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             ),
           ),
           const Divider(height: 1),
-          // Only wrap content in a Column if there are items, otherwise it can cause issues.
           ...children.isNotEmpty
               ? [
             Column(
@@ -668,20 +700,17 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  /// Builds a card to display the list of assigned technicians
   Widget _buildTechnicianCard() {
     return _buildInfoCard(
       title: 'Techniciens Assignés',
       icon: Icons.engineering_outlined,
       children: _selectedTechnicians.isEmpty
-      // Show this if no technicians are assigned
           ? [
         const ListTile(
           title: Text('Aucun technicien assigné'),
           subtitle: Text('La planification est requise'),
         )
       ]
-      // Show the list of technicians
           : _selectedTechnicians
           .map(
             (user) => ListTile(
@@ -710,7 +739,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   List<Widget> _buildActionButtons(String status, String userRole) {
-    // This function is from our previous change (Edit button for "Planifiée")
     List<Widget> buttons = [];
     switch (status) {
       case 'À Planifier':
@@ -736,7 +764,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         }
         break;
       case 'Planifiée':
-      // Button 1: Rédiger le Rapport (for Technicians)
         buttons.add(
           ElevatedButton.icon(
             onPressed: () => Navigator.of(context).push(
@@ -756,17 +783,16 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           ),
         );
 
-        // Button 2: Modifier la Planification (for Managers)
         if (RolePermissions.canScheduleInstallation(userRole)) {
-          buttons.add(const SizedBox(height: 12)); // Add space
+          buttons.add(const SizedBox(height: 12));
           buttons.add(
             ElevatedButton.icon(
               onPressed:
-              _showSchedulingDialog, // Re-uses the same dialog function
+              _showSchedulingDialog,
               icon: const Icon(Icons.edit_calendar_outlined),
               label: const Text('Modifier la Planification'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade700, // Different color
+                backgroundColor: Colors.blue.shade700,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.all(16),
                 shape: RoundedRectangleBorder(
@@ -794,7 +820,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           ElevatedButton.icon(
             onPressed: _generateAndDownloadPDF,
             icon: const Icon(Icons.picture_as_pdf),
-            label: const Text('Générer PDF'),
+            label: const Text('Générer / Voir PDF'), // Changed label
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF1E88E5),
               foregroundColor: Colors.white,
@@ -838,11 +864,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 }
 
-// ===================================================================
-// This is the Media Gallery widget we built before.
-// It is UNCHANGED, as it's already built to accept separate lists.
-// ===================================================================
-
 class MediaGalleryWidget extends StatelessWidget {
   final List<String> photoUrls;
   final List<String> videoUrls;
@@ -857,12 +878,10 @@ class MediaGalleryWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If there are no photos or videos, don't show anything
     if (photoUrls.isEmpty && videoUrls.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    // Reuse the style of _buildInfoCard
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 16),
@@ -870,7 +889,6 @@ class MediaGalleryWidget extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Card Header
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Row(
@@ -885,10 +903,8 @@ class MediaGalleryWidget extends StatelessWidget {
           ),
           const Divider(height: 1),
 
-          // Photo Section
           _buildPhotoSection(context),
 
-          // Video Section
           _buildVideoSection(context),
         ],
       ),
@@ -913,14 +929,13 @@ class MediaGalleryWidget extends StatelessWidget {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           SizedBox(
-            height: 100, // Fixed height for the horizontal list
+            height: 100,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: photoUrls.length,
               itemBuilder: (context, index) {
                 return GestureDetector(
                   onTap: () {
-                    // Navigate to your existing ImageGalleryPage
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -940,13 +955,11 @@ class MediaGalleryWidget extends StatelessWidget {
                       child: Image.network(
                         photoUrls[index],
                         fit: BoxFit.cover,
-                        // Show a loading indicator
                         loadingBuilder: (context, child, loadingProgress) {
                           if (loadingProgress == null) return child;
                           return const Center(
                               child: CircularProgressIndicator());
                         },
-                        // Show an error icon if loading fails
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
                             color: Colors.grey.shade200,
@@ -983,7 +996,6 @@ class MediaGalleryWidget extends StatelessWidget {
           const Text("Vidéos",
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          // Build a vertical list of video links
           Column(
             children: videoUrls.asMap().entries.map((entry) {
               int index = entry.key;
@@ -992,13 +1004,12 @@ class MediaGalleryWidget extends StatelessWidget {
                 leading: Icon(Icons.play_circle_outline, color: primaryColor),
                 title: Text("Vidéo ${index + 1}"),
                 subtitle: Text(
-                  _getFileNameFromUrl(url), // Helper to show a clean name
+                  _getFileNameFromUrl(url),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 onTap: () {
-                  // Navigate to your existing VideoPlayerPage
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -1014,7 +1025,6 @@ class MediaGalleryWidget extends StatelessWidget {
     );
   }
 
-  // Helper function to try and get a readable name from the URL
   String _getFileNameFromUrl(String url) {
     try {
       return Uri.decodeFull(url.split('/').last.split('?').first);

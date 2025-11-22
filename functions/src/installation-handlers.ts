@@ -5,7 +5,8 @@ import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import * as nodemailer from "nodemailer"; // ✅ Added for Email
 import {defineSecret} from "firebase-functions/params"; // ✅ Added for Secrets
-import {HttpsError} from "firebase-functions/v2/https"; // ✅ Added for Error handling
+// ✅ MODIFIED: Added 'onCall' to the imports so we can use it for the new function
+import {onCall, HttpsError} from "firebase-functions/v2/https";
 
 // ✅ Import the specific PDF generator for Installations
 import { generateInstallationPdf } from "./installation-pdf-generator";
@@ -17,9 +18,9 @@ const smtpUser = defineSecret("SMTP_USER");
 const smtpPassword = defineSecret("SMTP_PASSWORD");
 
 /**
- * Helper: Validate email format
- * (Added to support the fallback logic)
- */
+* Helper: Validate email format
+* (Added to support the fallback logic)
+*/
 function isValidEmail(email: string): boolean {
   if (!email || typeof email !== "string") return false;
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -139,7 +140,7 @@ export const onInstallationTermine = onDocumentUpdated(
     // Only run if status CHANGED to "Terminée"
     if (before?.status !== "Terminée" && after?.status === "Terminée") {
       const installationId = event.params.installationId;
-      
+
       // --- 1. Run Inventory Sync (Preserved) ---
       // We wrap it in try/catch to ensure the email still sends even if sync hits a snag
       try {
@@ -189,13 +190,13 @@ export const onInstallationTermine = onDocumentUpdated(
         subject: `Rapport d'Installation: ${after.installationCode || "N/A"}`,
         html: `
           <p>Bonjour,</p>
-          <p>L'installation <strong>${after.installationCode || "N/A"}</strong> 
-          pour le client <strong>${after.clientName || "Client"}</strong> 
-          au magasin <strong>${after.storeName || "Magasin"}</strong> 
+          <p>L'installation <strong>${after.installationCode || "N/A"}</strong>
+          pour le client <strong>${after.clientName || "Client"}</strong>
+          au magasin <strong>${after.storeName || "Magasin"}</strong>
           est maintenant terminée.</p>
-          
+
           <p>Vous trouverez ci-joint le rapport détaillé incluant les numéros de série des équipements installés.</p>
-          
+
           <p>Cordialement,<br>L'équipe Technique Boitex Info</p>
         `,
         attachments: [{
@@ -212,6 +213,39 @@ export const onInstallationTermine = onDocumentUpdated(
           logger.error("❌ Error sending email:", e);
           throw new HttpsError("internal", "Email sending failed");
       }
+    }
+  }
+);
+
+// ✅ 3. CALLABLE: Generate PDF on Demand
+// This function is called by the App when clicking "Generer PDF", "WhatsApp", or "Email" buttons.
+export const getInstallationPdf = onCall(
+  { region: "europe-west1" },
+  async (request) => {
+    const installationId = request.data.installationId;
+    if (!installationId) {
+      throw new HttpsError("invalid-argument", "Missing installationId");
+    }
+
+    // 1. Fetch Data
+    const doc = await admin.firestore().collection("installations").doc(installationId).get();
+    if (!doc.exists) {
+      throw new HttpsError("not-found", "Installation not found");
+    }
+    const data = doc.data();
+
+    // 2. Generate PDF
+    try {
+      const pdfBuffer = await generateInstallationPdf(data);
+
+      // 3. Return as Base64 string (so App can download and save it as a file)
+      return {
+        pdfBase64: pdfBuffer.toString("base64"),
+        filename: `Installation-${data?.installationCode || "Rapport"}.pdf`
+      };
+    } catch (error) {
+      logger.error("Error generating PDF on-demand:", error);
+      throw new HttpsError("internal", "Could not generate PDF");
     }
   }
 );
