@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ ADDED FOR WEB CHECK
 
 class FirebaseApi {
   final _firebaseMessaging = FirebaseMessaging.instance;
@@ -253,7 +254,18 @@ class FirebaseApi {
       return;
     }
 
-    final token = await _firebaseMessaging.getToken();
+    String? token;
+
+    // ✅ ADDED: Web VAPID Key Handling
+    if (kIsWeb) {
+      // TODO: REPLACE WITH YOUR VAPID KEY FROM FIREBASE CONSOLE
+      token = await _firebaseMessaging.getToken(
+        vapidKey: "BHexKZZ060QNgZVUSRoBXyIcTP-jyxDUo1-M6o0mPbeYFFaQo9OIyRfw15hGBNtHSo9jbQldoiauFjE1FlI5iXo",
+      );
+    } else {
+      token = await _firebaseMessaging.getToken();
+    }
+
     if (token == null) {
       print('⚠️ Could not get FCM token');
       return;
