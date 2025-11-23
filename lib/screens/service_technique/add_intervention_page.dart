@@ -1,9 +1,9 @@
 // lib/screens/service_technique/add_intervention_page.dart
 
-import 'dart:ui' as ui; // for ImageFilter.blur in BackdropFilter
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart'; // Haptic feedback
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -15,8 +15,8 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
-import 'package:image_picker/image_picker.dart'; // For camera/video access
-import 'package:video_thumbnail/video_thumbnail.dart'; // For displaying video thumbnails
+import 'package:image_picker/image_picker.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 // ✅ ADDED: Import for AI Keyword Enhancement
 import 'package:cloud_functions/cloud_functions.dart';
@@ -56,11 +56,10 @@ class AddInterventionPage extends StatefulWidget {
   State createState() => _AddInterventionPageState();
 }
 
-class _AddInterventionPageState extends State<AddInterventionPage>
-    with SingleTickerProviderStateMixin {
+class _AddInterventionPageState extends State<AddInterventionPage> {
   final _formKey = GlobalKey<FormState>();
 
-  // ✅ NEW: B2 Cloud Function URL (Copied from mission_details_page)
+  // ✅ NEW: B2 Cloud Function URL
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
@@ -94,33 +93,9 @@ class _AddInterventionPageState extends State<AddInterventionPage>
   // ✅ ADDED: State for AI Keyword Enhancement
   bool _isGeneratingAi = false;
 
-  // Creamy light + sunlit pastels background (sorbet gradient, luminous neutrals)
-  final List<Color> gradientColors = const [
-    Color(0xFFFDF4F0), // pastel peach (porcelain base)
-    Color(0xFFE8F5E8), // muted mint pastel (luminous neutral)
-    Color(0xFFF3E8FF), // soft lavender (sorbet accent)
-  ];
-
-  // Jewel-tone accents and duotone glow (color tokens)
-  static const Color kJewelAccent = Color(0xFF6B7280); // slate jewel
-  static const Color kDuotoneGlow = Color(0xFF10B981); // emerald glow
-
-  // Adaptive themes: creamy light mode / velvet dark mode
-  bool _isDarkMode = false;
-
-  late AnimationController _animationController;
-  late Animation<double> _parallaxAnimation;
-
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(seconds: 10),
-      vsync: this,
-    )..repeat();
-    _parallaxAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-    );
     _fetchClients();
   }
 
@@ -130,15 +105,72 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     _requestController.dispose();
     _clientSearchController.dispose();
     _storeSearchController.dispose();
-    _animationController.dispose();
     super.dispose();
   }
 
-  // --- ✅ START OF MODIFIED AI FUNCTION ---
+  // ----------------------------------------------------------------------
+  // Theme (Copied from InterventionDetailsPage)
+  // ----------------------------------------------------------------------
+  ThemeData _interventionTheme(BuildContext context) {
+    final base = Theme.of(context);
+    return base.copyWith(
+      scaffoldBackgroundColor: Colors.transparent,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      cardTheme: CardThemeData(
+        color: Colors.white.withOpacity(0.95),
+        elevation: 8,
+        shadowColor: const Color(0xFF667EEA).withOpacity(0.15),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
+        ),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        labelStyle: TextStyle(color: Colors.grey.shade700),
+        hintStyle: TextStyle(color: Colors.grey.shade400),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF667EEA),
+          foregroundColor: Colors.white,
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          elevation: 0,
+        ),
+      ),
+      dividerTheme:
+      const DividerThemeData(color: Color(0xFFE5E7EB), thickness: 1),
+    );
+  }
 
-  // Call the Cloud Function
+  // --- ✅ AI FUNCTION ---
   Future<void> _generateReportFromKeywords() async {
-    final rawNotes = _requestController.text; // Get text from controller
+    final rawNotes = _requestController.text;
     if (rawNotes.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Veuillez d\'abord saisir des mots-clés.')),
@@ -147,22 +179,19 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     }
 
     setState(() => _isGeneratingAi = true);
-    FocusScope.of(context).unfocus(); // Hide keyboard
+    FocusScope.of(context).unfocus();
 
     try {
-      // 1. Get the function
       final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('generateReportFromNotes');
 
-      // 2. Send the raw text AND THE CONTEXT
       final result = await callable.call<String>({
         'rawNotes': rawNotes,
-        'context': 'problem_report', // ✅ THIS IS THE REQUIRED UPDATE
+        'context': 'problem_report',
       });
 
-      // 3. Populate the text field with the AI's formal report
       setState(() {
-        _requestController.text = result.data; // Populate the description field
+        _requestController.text = result.data;
       });
 
     } catch (e) {
@@ -177,11 +206,8 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       }
     }
   }
-  // --- ✅ END OF MODIFIED AI FUNCTION ---
 
-  // --- B2 HELPER FUNCTIONS (COPIED/ADAPTED FROM mission_details_page) ---
-
-  // Gets credentials from the cloud function
+  // --- B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response =
@@ -198,7 +224,6 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     }
   }
 
-  // Uploads a single file to B2
   Future<String?> _uploadFileToB2(
       File file, Map<String, dynamic> b2Creds) async {
     try {
@@ -208,7 +233,6 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       final fileName = path.basename(file.path);
 
       String? mimeType;
-      // Simple MIME type detection for common media
       final extension = path.extension(fileName).toLowerCase();
       if (extension == '.jpg' || extension == '.jpeg') {
         mimeType = 'image/jpeg';
@@ -249,9 +273,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     }
   }
 
-  // --- NEW MEDIA PICKER LOGIC ---
-
-  // Handles picking multiple files (photos, videos, docs)
+  // --- MEDIA PICKER LOGIC ---
   Future<void> _pickFiles() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -270,11 +292,9 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     }
   }
 
-  // Handles capturing a single photo from the camera
   Future<void> _capturePhoto() async {
     final ImagePicker picker = ImagePicker();
     final XFile? xFile = await picker.pickImage(source: ImageSource.camera);
-
     if (xFile != null) {
       setState(() {
         _localFilesToUpload.add(File(xFile.path));
@@ -282,11 +302,9 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     }
   }
 
-  // Handles capturing a single video from the camera
   Future<void> _captureVideo() async {
     final ImagePicker picker = ImagePicker();
     final XFile? xFile = await picker.pickVideo(source: ImageSource.camera);
-
     if (xFile != null) {
       setState(() {
         _localFilesToUpload.add(File(xFile.path));
@@ -294,7 +312,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     }
   }
 
-  // Data Fetching Logic
+  // --- DATA FETCHING ---
   Future<void> _fetchClients() async {
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -357,122 +375,67 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     }
   }
 
-  // Quick-Add Dialogs
+  // --- DIALOGS ---
   Future<Client?> _showAddClientDialog() async {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
     final formKey = GlobalKey<FormState>();
     final result = await showDialog<Client>(
       context: context,
-      builder: (context) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: gradientColors[0],
-            brightness: _isDarkMode ? Brightness.dark : Brightness.light,
+      builder: (context) => AlertDialog(
+        title: const Text('Ajouter un Nouveau Client'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Nom du Client *'),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: phoneController,
+                decoration: const InputDecoration(labelText: 'Téléphone (Optionnel)'),
+                keyboardType: TextInputType.phone,
+              ),
+            ],
           ),
         ),
-        child: AlertDialog(
-          backgroundColor: _isDarkMode
-              ? const Color(0xFF1F2937).withOpacity(0.9) // velvet dark
-              : Colors.white.withOpacity(0.95), // porcelain white space
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text(
-            'Ajouter un Nouveau Client',
-            style: TextStyle(
-              color: _isDarkMode ? Colors.white : Colors.black87,
-              fontWeight: FontWeight.w600, // elegant serif feel
-              fontSize: 20,
-              height: 1.1,
-            ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
           ),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: nameController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 16),
-                  decoration: InputDecoration(
-                    labelText: 'Nom du Client *',
-                    labelStyle: const TextStyle(color: Colors.black54),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                      const BorderSide(color: kJewelAccent, width: 0.6),
-                    ),
-                    filled: true,
-                    fillColor: _isDarkMode
-                        ? const Color(0xFF374151).withOpacity(0.8)
-                        : Colors.white.withOpacity(0.9),
-                  ),
-                  validator: (value) =>
-                  value == null || value.trim().isEmpty ? 'Requis' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: phoneController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 16),
-                  decoration: InputDecoration(
-                    labelText: 'Téléphone (Optionnel)',
-                    labelStyle: const TextStyle(color: Colors.black54),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                      const BorderSide(color: kJewelAccent, width: 0.6),
-                    ),
-                    filled: true,
-                    fillColor: _isDarkMode
-                        ? const Color(0xFF374151).withOpacity(0.8)
-                        : Colors.white.withOpacity(0.9),
-                  ),
-                  keyboardType: TextInputType.phone,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Annuler',
-                style: TextStyle(
-                  color: _isDarkMode ? Colors.white70 : kJewelAccent,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  try {
-                    final docRef = await FirebaseFirestore.instance
-                        .collection('clients')
-                        .add({
-                      'name': nameController.text.trim(),
-                      'phone': phoneController.text.trim(),
-                      'createdAt': Timestamp.now(),
-                      'createdVia': 'intervention_quick_add',
-                    });
-                    final newClient = Client(
-                      id: docRef.id,
-                      name: nameController.text.trim(),
-                    );
-                    Navigator.pop(context, newClient);
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur: $e')),
-                    );
-                  }
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                try {
+                  final docRef = await FirebaseFirestore.instance
+                      .collection('clients')
+                      .add({
+                    'name': nameController.text.trim(),
+                    'phone': phoneController.text.trim(),
+                    'createdAt': Timestamp.now(),
+                    'createdVia': 'intervention_quick_add',
+                  });
+                  final newClient = Client(
+                    id: docRef.id,
+                    name: nameController.text.trim(),
+                  );
+                  Navigator.pop(context, newClient);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e')),
+                  );
                 }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kDuotoneGlow,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Ajouter'),
-            ),
-          ],
-        ),
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
       ),
     );
     if (result != null) {
@@ -498,119 +461,64 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     final formKey = GlobalKey<FormState>();
     final result = await showDialog<Store>(
       context: context,
-      builder: (context) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: gradientColors[1],
-            brightness: _isDarkMode ? Brightness.dark : Brightness.light,
+      builder: (context) => AlertDialog(
+        title: const Text('Ajouter un Nouveau Magasin'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Nom du Magasin *'),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: locationController,
+                decoration: const InputDecoration(labelText: 'Emplacement *'),
+                validator: (value) =>
+                value == null || value.trim().isEmpty ? 'Requis' : null,
+              ),
+            ],
           ),
         ),
-        child: AlertDialog(
-          backgroundColor: _isDarkMode
-              ? const Color(0xFF1F2937).withOpacity(0.9)
-              : Colors.white.withOpacity(0.95),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text(
-            'Ajouter un Nouveau Magasin',
-            style: TextStyle(
-              color: _isDarkMode ? Colors.white : Colors.black87,
-              fontWeight: FontWeight.w600,
-              fontSize: 20,
-              height: 1.1,
-            ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
           ),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: nameController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 16),
-                  decoration: InputDecoration(
-                    labelText: 'Nom du Magasin *',
-                    labelStyle: const TextStyle(color: Colors.black54),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                      const BorderSide(color: kJewelAccent, width: 0.6),
-                    ),
-                    filled: true,
-                    fillColor: _isDarkMode
-                        ? const Color(0xFF374151).withOpacity(0.8)
-                        : Colors.white.withOpacity(0.9),
-                  ),
-                  validator: (value) =>
-                  value == null || value.trim().isEmpty ? 'Requis' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: locationController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 16),
-                  decoration: InputDecoration(
-                    labelText: 'Emplacement *',
-                    labelStyle: const TextStyle(color: Colors.black54),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                      const BorderSide(color: kJewelAccent, width: 0.6),
-                    ),
-                    filled: true,
-                    fillColor: _isDarkMode
-                        ? const Color(0xFF374151).withOpacity(0.8)
-                        : Colors.white.withOpacity(0.9),
-                  ),
-                  validator: (value) =>
-                  value == null || value.trim().isEmpty ? 'Requis' : null,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Annuler',
-                style: TextStyle(
-                  color: _isDarkMode ? Colors.white70 : kJewelAccent,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  try {
-                    final docRef = await FirebaseFirestore.instance
-                        .collection('clients')
-                        .doc(_selectedClient!.id)
-                        .collection('stores')
-                        .add({
-                      'name': nameController.text.trim(),
-                      'location': locationController.text.trim(),
-                      'createdAt': Timestamp.now(),
-                      'createdVia': 'intervention_quick_add',
-                    });
-                    final newStore = Store(
-                      id: docRef.id,
-                      name: nameController.text.trim(),
-                      location: locationController.text.trim(),
-                    );
-                    Navigator.pop(context, newStore);
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur: $e')),
-                    );
-                  }
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                try {
+                  final docRef = await FirebaseFirestore.instance
+                      .collection('clients')
+                      .doc(_selectedClient!.id)
+                      .collection('stores')
+                      .add({
+                    'name': nameController.text.trim(),
+                    'location': locationController.text.trim(),
+                    'createdAt': Timestamp.now(),
+                    'createdVia': 'intervention_quick_add',
+                  });
+                  final newStore = Store(
+                    id: docRef.id,
+                    name: nameController.text.trim(),
+                    location: locationController.text.trim(),
+                  );
+                  Navigator.pop(context, newStore);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e')),
+                  );
                 }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kDuotoneGlow,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Ajouter'),
-            ),
-          ],
-        ),
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
       ),
     );
     if (result != null) {
@@ -623,13 +531,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     return result;
   }
 
-  // --- ❌ DELETED OLD/BUGGY HELPER FUNCTION ---
-  // The old _generateSequentialInterventionCode function that was here has been removed.
-  // The correct logic is now inside the _saveIntervention transaction.
-
-  // --- ✅ START: MODIFIED _saveIntervention FUNCTION ---
-  // This function now uses a transaction and the 'intervention_counter_YYYY' document
-  // to safely generate the new intervention code.
+  // --- SAVE INTERVENTION FUNCTION ---
   Future<void> _saveIntervention() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
@@ -647,7 +549,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       _uploadedMediaUrls = []; // Reset uploaded URLs list
     });
 
-    // --- STEP 1: UPLOAD MEDIA TO B2 (Unchanged) ---
+    // --- STEP 1: UPLOAD MEDIA TO B2 ---
     try {
       if (_localFilesToUpload.isNotEmpty) {
         final b2Credentials = await _getB2UploadCredentials();
@@ -661,7 +563,6 @@ class _AddInterventionPageState extends State<AddInterventionPage>
           if (url != null) {
             urls.add(url);
           } else {
-            // Log failure but continue with other files
             debugPrint('Failed to upload file: ${file.path}');
           }
         }
@@ -677,42 +578,32 @@ class _AddInterventionPageState extends State<AddInterventionPage>
         );
         setState(() => _isLoading = false);
       }
-      return; // Stop submission if media upload fails critically
+      return;
     } finally {
       if (mounted) {
         setState(() => _isUploadingMedia = false);
       }
     }
 
-    // --- STEP 2: SAVE INTERVENTION DATA TO FIRESTORE (WITH TRANSACTION) ---
+    // --- STEP 2: SAVE INTERVENTION DATA TO FIRESTORE ---
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       setState(() => _isLoading = false);
       return;
     }
 
-    // ✅ --- START OF FIX ---
-
-    // Get the current year in yyyy format (e.g., "2025")
     final currentYear = DateFormat('yyyy').format(DateTime.now());
-
-    // Get a reference to the correct counter (e.g., "intervention_counter_2025")
     final counterRef = FirebaseFirestore.instance
         .collection('counters')
-        .doc('intervention_counter_$currentYear'); // <-- This is the fix
-
-    // Get a reference for the new intervention document
+        .doc('intervention_counter_$currentYear');
     final interventionRef =
     FirebaseFirestore.instance.collection('interventions').doc();
-
-    // ✅ --- END OF FIX ---
 
     try {
       final userDoc =
       await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
 
-      // Run a transaction to safely get the new code and save the intervention
       String finalInterventionCode = '';
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final counterDoc = await transaction.get(counterRef);
@@ -720,29 +611,22 @@ class _AddInterventionPageState extends State<AddInterventionPage>
         int newCount;
         if (counterDoc.exists) {
           final data = counterDoc.data() as Map<String, dynamic>;
-          // Check if the counter doc has a 'lastReset' field for the year
-          // If not, we'll just use the count
           final lastResetYear = data['lastReset'] as String?;
           final currentCount = data['count'] as int? ?? 0;
 
           if (lastResetYear == currentYear) {
-            // Year is the same, increment the count (e.g., 36 -> 37)
             newCount = currentCount + 1;
           } else {
-            // This is a new year (or new counter doc), reset count to 1
             newCount = 1;
           }
         } else {
-          // Document "intervention_counter_2025" doesn't exist, start at 1
           newCount = 1;
         }
 
-        // Format the code: INT-37/2025 (no padding based on your example)
         finalInterventionCode = 'INT-$newCount/$currentYear';
 
-        // Set the data for the new intervention
         final interventionData = {
-          'interventionCode': finalInterventionCode, // Use the new transactional code
+          'interventionCode': finalInterventionCode,
           'serviceType': widget.serviceType,
           'clientId': _selectedClient!.id,
           'clientName': _selectedClient!.name,
@@ -759,17 +643,13 @@ class _AddInterventionPageState extends State<AddInterventionPage>
           'mediaUrls': _uploadedMediaUrls,
         };
 
-        // Save the new intervention
         transaction.set(interventionRef, interventionData);
-
-        // Update the counter document (e.g., "intervention_counter_2025")
         transaction.set(counterRef, {
           'count': newCount,
-          'lastReset': currentYear, // Save the current year
+          'lastReset': currentYear,
         });
       });
 
-      // --- Success ---
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -792,153 +672,44 @@ class _AddInterventionPageState extends State<AddInterventionPage>
       if (mounted) setState(() => _isLoading = false);
     }
   }
-  // --- ✅ END: MODIFIED _saveIntervention FUNCTION ---
 
-
-  // Subtle glassmorphism frosted card (depth layering, soft shadows)
-  Widget _buildGlassCard({required Widget child}) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.1)), // satin sheen
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: _isDarkMode
-              ? [
-            const Color(0xFF1F2937).withOpacity(0.85), // velvet dark
-            const Color(0xFF111827).withOpacity(0.85),
-          ]
-              : [
-            Colors.white.withOpacity(0.85), // porcelain white space
-            Colors.white.withOpacity(0.7),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: kDuotoneGlow.withOpacity(0.18), // duotone glow
-            blurRadius: 16,
-            spreadRadius: 0,
-            offset: const Offset(0, 8),
-          ),
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 22,
-            spreadRadius: 0,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-        child: child,
-      ),
-    );
-  }
-
-  // Magnetic buttons with microinteractions (glistening highlights)
-  Widget _buildMagneticButton({
-    required VoidCallback onPressed,
-    required Widget child,
-    bool isLoading = false,
-    Color? backgroundColor,
-    // ✅ NEW: Added isUploadingMedia check
-    bool isUploadingMedia = false,
-  }) {
-    final buttonColor = backgroundColor ?? kDuotoneGlow;
-
-    // Disable if loading OR uploading media
-    final isDisabled = isLoading || isUploadingMedia;
-
-    return GestureDetector(
-      onTapDown: (_) {
-        HapticFeedback.lightImpact(); // haptic cues
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          gradient: isDisabled
-              ? null // No gradient if disabled
-              : LinearGradient(
-            colors: [
-              buttonColor,
-              buttonColor.withOpacity(0.85),
-            ],
-          ),
-          color: isDisabled ? Colors.grey : buttonColor, // Grey if disabled
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            if (!isDisabled)
-              BoxShadow(
-                color: kDuotoneGlow.withOpacity(0.4),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            if (!isDisabled)
-              BoxShadow(
-                color: Colors.white.withOpacity(0.18),
-                blurRadius: 6,
-                offset: const Offset(0, -2),
-              ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: isDisabled ? null : onPressed,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              child: isLoading || isUploadingMedia
-                  ? const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  strokeWidth: 2,
-                ),
-              )
-                  : child,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- NEW MEDIA UI BUILDERS ---
-
+  // --- MEDIA UI BUILDER ---
   Widget _buildMediaSection() {
-    final textColor = _isDarkMode ? Colors.white : Colors.black87;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'FICHIERS & MÉDIAS DE SUPPORT (${_localFilesToUpload.length})',
-          style: TextStyle(
-              fontSize: 16, fontWeight: FontWeight.w700, color: textColor),
+        const Text(
+          'FICHIERS & MÉDIAS DE SUPPORT',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
-        const Divider(color: kJewelAccent),
+        const SizedBox(height: 8),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildMediaActionButton(
-              icon: Icons.photo_camera,
-              label: 'Photo',
-              onPressed: _capturePhoto,
-              color: Colors.blue.shade700,
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isUploadingMedia ? null : _capturePhoto,
+                icon: const Icon(Icons.photo_camera),
+                label: const Text('Photo'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade600, foregroundColor: Colors.white),
+              ),
             ),
-            _buildMediaActionButton(
-              icon: Icons.videocam,
-              label: 'Vidéo',
-              onPressed: _captureVideo,
-              color: Colors.purple.shade700,
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isUploadingMedia ? null : _captureVideo,
+                icon: const Icon(Icons.videocam),
+                label: const Text('Vidéo'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.purple.shade600, foregroundColor: Colors.white),
+              ),
             ),
-            _buildMediaActionButton(
-              icon: Icons.attach_file,
-              label: 'PDF',
-              onPressed: _pickFiles,
-              color: Colors.orange.shade700,
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isUploadingMedia ? null : _pickFiles,
+                icon: const Icon(Icons.attach_file),
+                label: const Text('Fichier'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade600, foregroundColor: Colors.white),
+              ),
             ),
           ],
         ),
@@ -947,27 +718,29 @@ class _AddInterventionPageState extends State<AddInterventionPage>
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: (_isDarkMode ? Colors.white10 : Colors.grey.shade100),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Fichiers locaux à envoyer:',
                     style: TextStyle(fontWeight: FontWeight.w600)),
+                const Divider(),
                 ..._localFilesToUpload.asMap().entries.map((entry) {
                   final index = entry.key;
                   final file = entry.value;
                   return ListTile(
+                    dense: true,
                     leading: FutureBuilder<Widget>(
                       future: _getLeadingIcon(file.path),
                       builder: (context, snapshot) {
                         return snapshot.data ??
-                            const Icon(Icons.file_present, color: kJewelAccent);
+                            const Icon(Icons.file_present);
                       },
                     ),
                     title: Text(path.basename(file.path),
-                        style: TextStyle(color: textColor),
                         overflow: TextOverflow.ellipsis),
                     trailing: IconButton(
                       icon: const Icon(Icons.close, color: Colors.red),
@@ -980,24 +753,6 @@ class _AddInterventionPageState extends State<AddInterventionPage>
             ),
           ),
       ],
-    );
-  }
-
-  Widget _buildMediaActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-    required Color color,
-  }) {
-    return ElevatedButton.icon(
-      onPressed: _isUploadingMedia ? null : onPressed,
-      icon: Icon(icon),
-      label: Text(label),
-      style: ElevatedButton.styleFrom(
-        foregroundColor: Colors.white,
-        backgroundColor: color,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      ),
     );
   }
 
@@ -1023,82 +778,24 @@ class _AddInterventionPageState extends State<AddInterventionPage>
     return const Icon(Icons.insert_drive_file, color: Colors.blue);
   }
 
-  // --- MAIN BUILD & DISPOSE ---
+  // --- MAIN BUILD ---
 
   @override
   Widget build(BuildContext context) {
-    final textColor = _isDarkMode ? Colors.white : Colors.black87;
-    final backgroundColor =
-    _isDarkMode ? const Color(0xFF111827) : const Color(0xFFFAFAF9);
-
-    final OutlineInputBorder focusedBorder = OutlineInputBorder(
-      borderSide: const BorderSide(color: kDuotoneGlow, width: 2.0),
-      borderRadius: BorderRadius.circular(16.0),
-    );
-    final OutlineInputBorder defaultBorder = OutlineInputBorder(
-      borderSide: BorderSide(color: gradientColors[0].withOpacity(0.4)),
-      borderRadius: BorderRadius.circular(16.0),
-    );
-
+    // FORM CONTENT
     final formContent = Form(
       key: _formKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Oversized hero with feathered motion (parallax-lite)
-          AnimatedBuilder(
-            animation: _parallaxAnimation,
-            builder: (context, child) {
-              return Transform.translate(
-                offset: Offset(0, _parallaxAnimation.value * 10),
-                child: Text(
-                  'Nouvelle Intervention',
-                  style: TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                    height: 1.1,
-                    shadows: [
-                      Shadow(
-                        color: kDuotoneGlow.withOpacity(0.28),
-                        offset: const Offset(0, 2),
-                        blurRadius: 8,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 32),
-
-          // Adaptive theme toggle (floating nav feel)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              IconButton(
-                onPressed: () {
-                  setState(() => _isDarkMode = !_isDarkMode);
-                },
-                icon: Icon(
-                  _isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                  color: kJewelAccent,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Client Autocomplete + Add (card stacks feel via spacing)
+          // Client Autocomplete
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Row(
               children: [
                 Expanded(
                   child: _isLoadingClients
-                      ? Center(
-                    child: CircularProgressIndicator(color: kDuotoneGlow),
-                  )
+                      ? const Center(child: CircularProgressIndicator())
                       : Autocomplete<Client>(
                     optionsBuilder: (textEditingValue) {
                       if (textEditingValue.text.isEmpty) {
@@ -1119,19 +816,10 @@ class _AddInterventionPageState extends State<AddInterventionPage>
                       return TextFormField(
                         controller: controller,
                         focusNode: focusNode,
-                        style: TextStyle(color: textColor, fontSize: 16),
                         decoration: InputDecoration(
                           labelText: 'Nom du Client *',
-                          labelStyle:
-                          TextStyle(color: textColor.withOpacity(0.7)),
-                          enabledBorder: defaultBorder,
-                          focusedBorder: focusedBorder,
-                          filled: true,
-                          fillColor: backgroundColor.withOpacity(0.9),
-                          suffixIcon: const Icon(
-                            Icons.arrow_drop_down,
-                            color: kJewelAccent,
-                          ),
+                          suffixIcon: const Icon(Icons.arrow_drop_down),
+                          // Matches theme Automatically
                         ),
                         validator: (value) => _selectedClient == null
                             ? 'Veuillez sélectionner un client'
@@ -1140,34 +828,24 @@ class _AddInterventionPageState extends State<AddInterventionPage>
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
-                _buildMagneticButton(
-                  onPressed: () {
-                    _showAddClientDialog();
-                  },
-                  child: const Icon(Icons.add, color: Colors.white, size: 20),
-                  backgroundColor: kDuotoneGlow,
-                  isLoading: _isLoading, // Use general loading state for client add
-                  isUploadingMedia: _isUploadingMedia,
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _showAddClientDialog,
+                  icon: const Icon(Icons.add_circle, size: 32, color: Color(0xFF667EEA)),
+                  tooltip: "Nouveau Client",
                 ),
               ],
             ),
           ),
 
-          // Store Autocomplete + Add
+          // Store Autocomplete
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Row(
               children: [
                 Expanded(
                   child: _isLoadingStores
-                      ? Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Center(
-                      child:
-                      CircularProgressIndicator(color: kDuotoneGlow),
-                    ),
-                  )
+                      ? const Center(child: CircularProgressIndicator())
                       : Autocomplete<Store>(
                     optionsBuilder: (textEditingValue) {
                       if (textEditingValue.text.isEmpty) {
@@ -1193,24 +871,9 @@ class _AddInterventionPageState extends State<AddInterventionPage>
                         controller: controller,
                         focusNode: focusNode,
                         enabled: _selectedClient != null,
-                        style: TextStyle(
-                          color: _selectedClient != null
-                              ? textColor
-                              : textColor.withOpacity(0.5),
-                          fontSize: 16,
-                        ),
                         decoration: InputDecoration(
                           labelText: 'Magasin *',
-                          labelStyle:
-                          TextStyle(color: textColor.withOpacity(0.7)),
-                          enabledBorder: defaultBorder,
-                          focusedBorder: focusedBorder,
-                          filled: true,
-                          fillColor: backgroundColor.withOpacity(0.9),
-                          suffixIcon: const Icon(
-                            Icons.arrow_drop_down,
-                            color: kJewelAccent,
-                          ),
+                          suffixIcon: const Icon(Icons.arrow_drop_down),
                         ),
                         validator: (value) => _selectedStore == null
                             ? 'Veuillez sélectionner un magasin'
@@ -1219,18 +882,11 @@ class _AddInterventionPageState extends State<AddInterventionPage>
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
-                _buildMagneticButton(
-                  onPressed: () {
-                    if (_selectedClient != null) {
-                      _showAddStoreDialog();
-                    }
-                  },
-                  child: const Icon(Icons.add, color: Colors.white, size: 20),
-                  backgroundColor:
-                  _selectedClient == null ? Colors.grey : kDuotoneGlow,
-                  isLoading: _isLoading, // Use general loading state for store add
-                  isUploadingMedia: _isUploadingMedia,
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _selectedClient != null ? _showAddStoreDialog : null,
+                  icon: Icon(Icons.add_circle, size: 32, color: _selectedClient != null ? const Color(0xFF667EEA) : Colors.grey),
+                  tooltip: "Nouveau Magasin",
                 ),
               ],
             ),
@@ -1241,20 +897,11 @@ class _AddInterventionPageState extends State<AddInterventionPage>
             padding: const EdgeInsets.only(bottom: 16),
             child: DropdownButtonFormField<String>(
               value: _selectedInterventionType,
-              dropdownColor: backgroundColor.withOpacity(0.95),
-              style: TextStyle(color: textColor, fontSize: 16),
-              decoration: InputDecoration(
-                labelText: 'Type d\'Intervention *',
-                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
-                enabledBorder: defaultBorder,
-                focusedBorder: focusedBorder,
-                filled: true,
-                fillColor: backgroundColor.withOpacity(0.9),
-              ),
+              decoration: const InputDecoration(labelText: 'Type d\'Intervention *'),
               items: ['Maintenance', 'Formation', 'Mise à Jour', 'Autre']
                   .map((String value) => DropdownMenuItem(
                 value: value,
-                child: Text(value, style: TextStyle(color: textColor)),
+                child: Text(value),
               ))
                   .toList(),
               onChanged: (String? newValue) {
@@ -1272,20 +919,11 @@ class _AddInterventionPageState extends State<AddInterventionPage>
             padding: const EdgeInsets.only(bottom: 16),
             child: DropdownButtonFormField<String>(
               value: _selectedInterventionPriority,
-              dropdownColor: backgroundColor.withOpacity(0.95),
-              style: TextStyle(color: textColor, fontSize: 16),
-              decoration: InputDecoration(
-                labelText: 'Priorité *',
-                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
-                enabledBorder: defaultBorder,
-                focusedBorder: focusedBorder,
-                filled: true,
-                fillColor: backgroundColor.withOpacity(0.9),
-              ),
+              decoration: const InputDecoration(labelText: 'Priorité *'),
               items: ['Haute', 'Moyenne', 'Basse']
                   .map((String value) => DropdownMenuItem(
                 value: value,
-                child: Text(value, style: TextStyle(color: textColor)),
+                child: Text(value),
               ))
                   .toList(),
               onChanged: (String? newValue) {
@@ -1303,15 +941,7 @@ class _AddInterventionPageState extends State<AddInterventionPage>
             padding: const EdgeInsets.only(bottom: 16),
             child: TextFormField(
               controller: _clientPhoneController,
-              style: TextStyle(color: textColor, fontSize: 16),
-              decoration: InputDecoration(
-                labelText: 'Numéro de Téléphone (Contact) *',
-                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
-                enabledBorder: defaultBorder,
-                focusedBorder: focusedBorder,
-                filled: true,
-                fillColor: backgroundColor.withOpacity(0.9),
-              ),
+              decoration: const InputDecoration(labelText: 'Numéro de Téléphone (Contact) *'),
               keyboardType: TextInputType.phone,
               validator: (value) =>
               value == null || value.isEmpty ? 'Veuillez entrer un numéro' : null,
@@ -1324,136 +954,101 @@ class _AddInterventionPageState extends State<AddInterventionPage>
             child: TextFormField(
               controller: _requestController,
               maxLines: 4,
-              style: TextStyle(color: textColor, fontSize: 16),
               decoration: InputDecoration(
                 labelText: 'Description de la Demande *',
-                labelStyle: TextStyle(color: textColor.withOpacity(0.7)),
-                enabledBorder: defaultBorder,
-                focusedBorder: focusedBorder,
-                filled: true,
-                fillColor: backgroundColor.withOpacity(0.9),
-                // ✅ --- START AI KEYWORD BUTTON ---
+                alignLabelWithHint: true,
                 suffixIcon: Padding(
                   padding: const EdgeInsets.all(4.0),
                   child: _isGeneratingAi
-                      ? Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: CircularProgressIndicator(color: kDuotoneGlow),
+                      ? const Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   )
                       : IconButton(
-                    icon: Icon(
-                      Icons.auto_awesome, // "Magic" icon
-                      color: kJewelAccent,
-                      size: 28,
-                    ),
+                    icon: const Icon(Icons.auto_awesome),
+                    color: Colors.grey.shade600,
                     tooltip: 'Améliorer le texte par IA',
-                    onPressed: _generateReportFromKeywords, // Call new function
+                    onPressed: _generateReportFromKeywords,
                   ),
                 ),
-                // ✅ --- END AI KEYWORD BUTTON ---
               ),
               validator: (value) =>
               value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,
             ),
           ),
 
-          // ✅ NEW: Media Upload Section
+          // Media Section
           _buildMediaSection(),
           const SizedBox(height: 24),
-
 
           // Submit Button
           SizedBox(
             width: double.infinity,
-            child: _buildMagneticButton(
-              onPressed: () {
-                _saveIntervention();
-              },
-              child: Text(
+            child: ElevatedButton(
+              onPressed: (_isLoading || _isUploadingMedia) ? null : _saveIntervention,
+              child: _isLoading
+                  ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
+                  : Text(
                 _isUploadingMedia ? 'Téléchargement Média en cours...' : 'Créer Intervention',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
-              isLoading: _isLoading,
-              isUploadingMedia: _isUploadingMedia, // Use the new flag
             ),
           ),
         ],
       ),
     );
 
-    return Scaffold(
-      extendBodyBehindAppBar: true, // edge-to-edge imagery
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Text(
-          'Nouvelle Intervention',
-          style: TextStyle(
-            color: textColor,
-            fontWeight: FontWeight.w700,
-            fontSize: 20,
-            shadows: [
-              Shadow(
-                color: kDuotoneGlow.withOpacity(0.22),
-                blurRadius: 8,
+    // SCAFFOLD
+    return Theme(
+      data: _interventionTheme(context),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Nouvelle Intervention'),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
               ),
-            ],
-          ),
-        ),
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient( // sorbet gradients
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: gradientColors,
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x33667EEA),
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                ),
+              ],
             ),
           ),
         ),
-        actions: [
-          // AI-assisted personalization (placeholder)
-          IconButton(
-            icon: Icon(Icons.smart_toy, color: textColor),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('AI Suggestions Coming Soon!')),
-              );
-            },
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.blue.shade50,
+                Colors.purple.shade50,
+                Colors.pink.shade50,
+              ],
+            ),
           ),
-        ],
-      ),
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: gradientColors, // high-key brightness
-            stops: const [0.0, 0.5, 1.0],
-          ),
-        ),
-        child: SafeArea(
-          child: _buildGlassCard(
-            child: LayoutBuilder(
-              builder: (ctx, constraints) {
-                final maxWidth = kIsWeb ? 600.0 : constraints.maxWidth; // fluid grid for web/phone
-                return Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: maxWidth),
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24), // airy spacing
-                      child: Padding(
-                        padding: const EdgeInsets.all(20.0),
-                        child: formContent,
-                      ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16), // Match detail page padding
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 600),
+                  child: Card(
+                    // Wrapping in a Card to match "Details" visual consistency
+                    margin: EdgeInsets.zero,
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: formContent,
                     ),
                   ),
-                );
-              },
+                ),
+              ),
             ),
           ),
         ),
