@@ -1,3 +1,4 @@
+// lib/main.dart
 import 'package:boitex_info_app/screens/auth_gate.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -8,6 +9,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 // ✅ 1. ADD THIS IMPORT FOR TIMEAGO
 import 'package:timeago/timeago.dart' as timeago;
+
+// 👇 IMPORT YOUR API TO ACCESS INITNOTIFICATIONS
+import 'package:boitex_info_app/api/firebase_api.dart';
 
 // ADDED: This function MUST be a top-level function (outside of any class)
 // It handles notifications that arrive when the app is closed.
@@ -28,6 +32,9 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // 👇 ADD THIS LINE: This triggers the permission prompt on Web
+  await FirebaseApi().initNotifications();
 
   // ✅ 2. ADD THESE TWO LINES TO REGISTER FRENCH LOCALE
   timeago.setLocaleMessages('fr', timeago.FrMessages());

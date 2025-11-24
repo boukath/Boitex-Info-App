@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter/foundation.dart' show kIsWeb; // ✅ ADDED FOR WEB CHECK
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ IMPORTANT IMPORT
 
 class FirebaseApi {
   final _firebaseMessaging = FirebaseMessaging.instance;
@@ -21,7 +21,6 @@ class FirebaseApi {
 
   // Helper function to convert role names to valid FCM topic names
   String _roleToTopic(String role) {
-    // Replace spaces with underscores to make valid FCM topic names
     return role.replaceAll(' ', '_');
   }
 
@@ -62,6 +61,10 @@ class FirebaseApi {
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
+
+    // ✅ ADDED: Web specific initialization (optional but good practice)
+    // Note: Local notifications on web often require extra setup,
+    // but this prevents crashes if parameters are missing.
     const settings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
@@ -74,17 +77,19 @@ class FirebaseApi {
       },
     );
 
-    // Create Android notification channel
-    const channel = AndroidNotificationChannel(
-      'high_importance_channel',
-      'High Importance Notifications',
-      description: 'This channel is used for important notifications.',
-      importance: Importance.high,
-    );
+    if (!kIsWeb) {
+      // Create Android notification channel (Only for Android)
+      const channel = AndroidNotificationChannel(
+        'high_importance_channel',
+        'High Importance Notifications',
+        description: 'This channel is used for important notifications.',
+        importance: Importance.high,
+      );
 
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+    }
 
     print('✅ Local notifications initialized');
   }
@@ -95,7 +100,6 @@ class FirebaseApi {
     print('Body: ${message.notification?.body}');
     print('Data: ${message.data}');
 
-    // Show notification when app is in foreground
     _showLocalNotification(message);
   }
 
@@ -103,10 +107,14 @@ class FirebaseApi {
     print('🔔 Notification tapped:');
     print('Title: ${message.notification?.title}');
     print('Data: ${message.data}');
-    // TODO: Add navigation logic here based on message.data
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
+    // Local Notifications on Web usually don't work with this plugin easily.
+    // We skip this on web to prevent errors, as the Service Worker handles background,
+    // and we can use standard browser alerts or custom UI for foreground if needed.
+    if (kIsWeb) return;
+
     const androidDetails = AndroidNotificationDetails(
       'high_importance_channel',
       'High Importance Notifications',
@@ -135,20 +143,23 @@ class FirebaseApi {
   }
 
   Future<void> subscribeToTopics(String userRole) async {
+    // ⚠️ STOP: Do not run topic logic on Web
+    if (kIsWeb) {
+      print('ℹ️ Web does not support client-side topic subscription. Skipping.');
+      return;
+    }
+
     await unsubscribeFromAllTopics();
     print('🔄 Subscribing to topics for role: $userRole');
 
-    // ✅ ADDED: Subscribe EVERYONE to global announcements
     await _firebaseMessaging.subscribeToTopic(_globalAnnouncementsTopic);
     print('✅ Subscribed to: $_globalAnnouncementsTopic');
 
-    // Check if user is a manager
     if (isManagerRole(userRole)) {
       await _firebaseMessaging.subscribeToTopic(_managersTopic);
       print('✅ Subscribed to: $_managersTopic');
     }
 
-    // Technician subscriptions
     if (userRole == UserRoles.technicienST) {
       await _firebaseMessaging.subscribeToTopic(_techStTopic);
       print('✅ Subscribed to: $_techStTopic');
@@ -159,7 +170,6 @@ class FirebaseApi {
       print('✅ Subscribed to: $_techItTopic');
     }
 
-    // ✅ UPDATED: Include technicians for livraison notifications
     final managementRoles = [
       UserRoles.pdg,
       UserRoles.admin,
@@ -168,37 +178,32 @@ class FirebaseApi {
       UserRoles.responsableTechnique,
       UserRoles.responsableIT,
       UserRoles.chefDeProjet,
-      UserRoles.technicienST,  // ✅ Added for livraisons
-      UserRoles.technicienIT,  // ✅ Added for livraisons
+      UserRoles.technicienST,
+      UserRoles.technicienIT,
     ];
 
     if (managementRoles.contains(userRole)) {
       final topic = _roleToTopic(userRole);
       await _firebaseMessaging.subscribeToTopic(topic);
-      print('✅ Subscribed to management topic (projects, requisitions & livraisons): $topic');
+      print('✅ Subscribed to management topic: $topic');
     }
 
-    // REMINDER NOTIFICATIONS - Subscribe to role-specific reminder topics
     if (userRole == UserRoles.admin) {
       final topic = _roleToTopic(UserRoles.admin);
       await _firebaseMessaging.subscribeToTopic(topic);
-      print('✅ Subscribed to reminder topic: $topic');
     }
 
     if (userRole == UserRoles.responsableAdministratif) {
       final topic = _roleToTopic(UserRoles.responsableAdministratif);
       await _firebaseMessaging.subscribeToTopic(topic);
-      print('✅ Subscribed to reminder topic: $topic');
     }
 
     if (userRole == UserRoles.responsableCommercial) {
       final topic = _roleToTopic(UserRoles.responsableCommercial);
       await _firebaseMessaging.subscribeToTopic(topic);
-      print('✅ Subscribed to reminder topic: $topic');
     }
   }
 
-  // Helper function to check if a user is part of the manager group
   bool isManagerRole(String userRole) {
     return [
       UserRoles.admin,
@@ -212,17 +217,16 @@ class FirebaseApi {
   }
 
   Future<void> unsubscribeFromAllTopics() async {
+    // ⚠️ STOP: Do not run topic logic on Web
+    if (kIsWeb) return;
+
     print('🔄 Unsubscribing from all topics...');
 
-    // ✅ ADDED: Unsubscribe from global announcements
     await _firebaseMessaging.unsubscribeFromTopic(_globalAnnouncementsTopic);
-
-    // Unsubscribe from existing topics
     await _firebaseMessaging.unsubscribeFromTopic(_managersTopic);
     await _firebaseMessaging.unsubscribeFromTopic(_techStTopic);
     await _firebaseMessaging.unsubscribeFromTopic(_techItTopic);
 
-    // ✅ UPDATED: Include technicians when unsubscribing
     final managementRoles = [
       UserRoles.pdg,
       UserRoles.admin,
@@ -231,15 +235,14 @@ class FirebaseApi {
       UserRoles.responsableTechnique,
       UserRoles.responsableIT,
       UserRoles.chefDeProjet,
-      UserRoles.technicienST,  // ✅ Added
-      UserRoles.technicienIT,  // ✅ Added
+      UserRoles.technicienST,
+      UserRoles.technicienIT,
     ];
 
     for (final role in managementRoles) {
       await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(role));
     }
 
-    // REMINDER NOTIFICATIONS - Unsubscribe from reminder topics
     await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.admin));
     await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.responsableAdministratif));
     await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(UserRoles.responsableCommercial));
@@ -256,9 +259,8 @@ class FirebaseApi {
 
     String? token;
 
-    // ✅ ADDED: Web VAPID Key Handling
     if (kIsWeb) {
-      // TODO: REPLACE WITH YOUR VAPID KEY FROM FIREBASE CONSOLE
+      // Use your VAPID key here
       token = await _firebaseMessaging.getToken(
         vapidKey: "BHexKZZ060QNgZVUSRoBXyIcTP-jyxDUo1-M6o0mPbeYFFaQo9OIyRfw15hGBNtHSo9jbQldoiauFjE1FlI5iXo",
       );
