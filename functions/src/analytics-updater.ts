@@ -8,37 +8,58 @@ import { DocumentSnapshot } from "firebase-admin/firestore";
 // 1️⃣ HELPERS
 // ==================================================================
 
+// ✅ SPECIFIC HELPER FOR INTERVENTIONS (Smart Filtering)
+async function getInterventionStats(db: admin.firestore.Firestore) {
+  try {
+    const colRef = db.collection("interventions");
+
+    // Define the exact list of statuses that count as "Valid Work"
+    // This excludes "Annulé" or "Brouillon" from the Total.
+    const activeStatuses = [
+      'Nouvelle Demande',
+      'Nouveau',
+      'En cours',
+      'Terminé',
+      'En attente',
+      'Clôturé'
+    ];
+
+    // 1. Count TOTAL (Only active statuses)
+    const totalSnap = await colRef.where("status", "in", activeStatuses).count().get();
+
+    // 2. Count SUCCESS (Only "Clôturé" per your new rule)
+    const successSnap = await colRef.where("status", "==", "Clôturé").count().get();
+
+    return { total: totalSnap.data().count, success: successSnap.data().count };
+  } catch (e) {
+    console.error("⚠️ Error counting Interventions:", e);
+    return { total: 0, success: 0 };
+  }
+}
+
+// Generic helper for other collections (Installations, etc.)
 async function getCollectionStats(db: admin.firestore.Firestore, collectionName: string, successStatus: string) {
   try {
     const colRef = db.collection(collectionName);
-    const totalSnap = await colRef.count().get();
+    const totalSnap = await colRef.count().get(); // Counts ALL docs
     const successSnap = await colRef.where("status", "==", successStatus).count().get();
     return { total: totalSnap.data().count, success: successSnap.data().count };
   } catch (e) {
     console.error(`⚠️ Error counting ${collectionName}:`, e);
-    return { total: 0, success: 0 }; // Return 0 instead of crashing
+    return { total: 0, success: 0 };
   }
 }
 
-// ✅ NEW: Calculate Logistics Stats (SAFE VERSION)
+// Calculate Logistics Stats
 async function getLogisticsStats(db: admin.firestore.Firestore) {
   try {
-    // A. Low Stock (< 5)
     const lowStockSnap = await db.collection("produits")
       .where("quantity", "<", 5)
       .count()
       .get();
 
-    // B. Stock Flow
-    // ⚠️ FIX: We removed the Date Filter ("timestamp") to prevent the "Requires Index" crash.
-    // We now count ALL positive/negative moves.
-    // To add the date back later, you must create a Composite Index in Firebase Console.
     const historyQuery = db.collectionGroup("stock_history");
-
-    // Count Entries (change > 0)
     const incomingSnap = await historyQuery.where("change", ">", 0).count().get();
-
-    // Count Exits (change < 0)
     const outgoingSnap = await historyQuery.where("change", "<", 0).count().get();
 
     return {
@@ -48,7 +69,6 @@ async function getLogisticsStats(db: admin.firestore.Firestore) {
     };
   } catch (e) {
     console.error("⚠️ Error in Logistics Stats:", e);
-    // Return empty stats so the rest of the dashboard still loads!
     return { lowStock: 0, incoming: 0, outgoing: 0 };
   }
 }
@@ -122,18 +142,18 @@ async function updateGlobalDashboard() {
   const statsDocRef = db.collection("analytics_dashboard").doc("stats_overview");
 
   try {
-    console.log("🔄 Starting Dashboard Update...");
+    console.log("🔄 Starting Dashboard Update (Smart Intervention Logic)...");
 
-    // Parallel Execution for Speed
+    // Run Aggregations
     const [
-      interventionStats,
+      interventionStats, // ✅ Uses new Specific Logic
       installationStats,
       livraisonStats,
       missionStats,
       savStats,
       logisticsStats
     ] = await Promise.all([
-      getCollectionStats(db, "interventions", "Clôturé"),
+      getInterventionStats(db), // ✅ Call the new helper
       getCollectionStats(db, "installations", "Terminée"),
       getCollectionStats(db, "livraisons", "Livré"),
       getCollectionStats(db, "missions", "Terminée"),
@@ -155,7 +175,7 @@ async function updateGlobalDashboard() {
         "Missions": missionStats.total,
         "SAV": savStats.total,
       },
-      // ✅ NEW: Detailed breakdown per category
+      // Detailed breakdown
       category_performance: {
         "Interventions": { "total": interventionStats.total, "success": interventionStats.success },
         "Installations": { "total": installationStats.total, "success": installationStats.success },
@@ -184,6 +204,7 @@ async function updateGlobalDashboard() {
 // ==================================================================
 
 export const onInterventionAnalytics = functions.firestore.document("interventions/{id}").onWrite(async (change) => {
+  // Note: We still track Tech Performance based on "Clôturé"
   await updateGlobalDashboard(); await updateTechnicianCounters(change, "assignedTechnicians", "Clôturé");
 });
 export const onInstallationAnalytics = functions.firestore.document("installations/{id}").onWrite(async (change) => {
@@ -195,9 +216,7 @@ export const onSavAnalytics = functions.firestore.document("sav_tickets/{id}").o
 export const onLivraisonAnalytics = functions.firestore.document("livraisons/{id}").onWrite(() => updateGlobalDashboard());
 export const onMissionAnalytics = functions.firestore.document("missions/{id}").onWrite(() => updateGlobalDashboard());
 
-// ✅ LISTENS TO SUBCOLLECTION (Fixed Logistics)
 export const onStockHistoryAnalytics = functions.firestore.document("produits/{productId}/stock_history/{historyId}")
   .onWrite(() => updateGlobalDashboard());
 
-// ✅ Keep Product Trigger
 export const onProductAnalytics = functions.firestore.document("produits/{id}").onWrite(() => updateGlobalDashboard());
