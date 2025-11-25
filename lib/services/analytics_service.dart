@@ -55,9 +55,12 @@ class AnalyticsService {
 
       // Chart 1 Data: Breakdown by Service
       interventionsByType: {
-        'SAV': 45,
-        'Installation': 78,
-        'IT Support': 19,
+        'Interventions': 45,
+        'Installations': 78,
+        'Service IT': 19,
+        'Livraisons': 30,
+        'Missions': 10,
+        'SAV': 5,
       },
 
       // Chart 2 Data: Status
@@ -75,11 +78,20 @@ class AnalyticsService {
         'Yacine D.': 25,
       },
 
-      // ✅ ADDED: Dummy Stock Health Data (Fixes the error)
+      // ✅ ADDED: Dummy Stock Health Data
       stockHealth: {
         'low_stock': 3,
         'movements_in': 25,
         'movements_out': 18,
+      },
+
+      // ✅ ADDED: Dummy Category Performance Data (Fixes the Error)
+      categoryPerformance: {
+        'Interventions': CategoryStats(total: 50, success: 45),
+        'Installations': CategoryStats(total: 80, success: 78),
+        'Livraisons': CategoryStats(total: 35, success: 30),
+        'Missions': CategoryStats(total: 12, success: 10),
+        'SAV': CategoryStats(total: 8, success: 5),
       },
 
       lastUpdated: DateTime.now(),

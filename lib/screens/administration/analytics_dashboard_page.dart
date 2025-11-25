@@ -5,6 +5,7 @@ import 'package:boitex_info_app/models/analytics_stats.dart';
 import 'package:boitex_info_app/services/analytics_service.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:boitex_info_app/screens/administration/activity_analytics_page.dart';
 // ignore: unused_import
 import 'package:intl/intl.dart';
 
@@ -154,7 +155,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
               const SizedBox(height: 16),
 
               // La Liste Détaillée (Légende)
-              _buildActivityLegend(stats.interventionsByType),
+              _buildActivityLegend(stats.interventionsByType, stats), // ✅ Updated call
             ],
           ),
         ),
@@ -163,7 +164,8 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
   }
 
   // --- Widget: Liste détaillée des activités (Légende) ---
-  Widget _buildActivityLegend(Map<String, int> data) {
+  // ✅ Updated Signature to accept 'fullStats'
+  Widget _buildActivityLegend(Map<String, int> data, AnalyticsStats fullStats) {
     if (data.isEmpty) {
       return const Center(child: Text("Aucune donnée disponible"));
     }
@@ -175,29 +177,46 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
     return Column(
       children: sortedEntries.map((entry) {
         final style = _activityStyles[entry.key] ?? _ActivityStyle(Colors.grey, Icons.circle);
+
+        // ✅ Get detailed stats safely
+        final catStats = fullStats.categoryPerformance[entry.key] ?? CategoryStats(total: entry.value, success: 0);
+
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8.0),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: style.color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(style.icon, size: 18, color: style.color),
+          padding: const EdgeInsets.symmetric(vertical: 4.0), // Tighter spacing
+          child: InkWell( // ✅ Make it clickable
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) =>
+                  ActivityAnalyticsPage(categoryTitle: entry.key, stats: catStats)
+              ));
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: style.color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(style.icon, size: 18, color: style.color),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    entry.key,
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87),
+                  ),
+                  const Spacer(),
+                  Text(
+                    "${entry.value}",
+                    style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: style.color),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_right_rounded, color: Colors.grey[400], size: 20), // Hint arrow
+                ],
               ),
-              const SizedBox(width: 12),
-              Text(
-                entry.key,
-                style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87),
-              ),
-              const Spacer(),
-              Text(
-                "${entry.value}",
-                style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: style.color),
-              ),
-            ],
+            ),
           ),
         );
       }).toList(),

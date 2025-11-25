@@ -155,6 +155,14 @@ async function updateGlobalDashboard() {
         "Missions": missionStats.total,
         "SAV": savStats.total,
       },
+      // ✅ NEW: Detailed breakdown per category
+      category_performance: {
+        "Interventions": { "total": interventionStats.total, "success": interventionStats.success },
+        "Installations": { "total": installationStats.total, "success": installationStats.success },
+        "Livraisons": { "total": livraisonStats.total, "success": livraisonStats.success },
+        "Missions": { "total": missionStats.total, "success": missionStats.success },
+        "SAV": { "total": savStats.total, "success": savStats.success },
+      },
       stock_health: {
         "low_stock": logisticsStats.lowStock,
         "movements_in": logisticsStats.incoming,
