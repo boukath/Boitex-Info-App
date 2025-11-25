@@ -13,8 +13,7 @@ async function getInterventionStats(db: admin.firestore.Firestore) {
   try {
     const colRef = db.collection("interventions");
 
-    // Define the exact list of statuses that count as "Valid Work"
-    // This excludes "Annulé" or "Brouillon" from the Total.
+    // Only count these valid active statuses for the Total
     const activeStatuses = [
       'Nouvelle Demande',
       'Nouveau',
@@ -24,10 +23,10 @@ async function getInterventionStats(db: admin.firestore.Firestore) {
       'Clôturé'
     ];
 
-    // 1. Count TOTAL (Only active statuses)
+    // 1. Count TOTAL (Active only)
     const totalSnap = await colRef.where("status", "in", activeStatuses).count().get();
 
-    // 2. Count SUCCESS (Only "Clôturé" per your new rule)
+    // 2. Count SUCCESS (Strictly "Clôturé")
     const successSnap = await colRef.where("status", "==", "Clôturé").count().get();
 
     return { total: totalSnap.data().count, success: successSnap.data().count };
@@ -37,11 +36,11 @@ async function getInterventionStats(db: admin.firestore.Firestore) {
   }
 }
 
-// Generic helper for other collections (Installations, etc.)
+// Generic helper for other collections
 async function getCollectionStats(db: admin.firestore.Firestore, collectionName: string, successStatus: string) {
   try {
     const colRef = db.collection(collectionName);
-    const totalSnap = await colRef.count().get(); // Counts ALL docs
+    const totalSnap = await colRef.count().get();
     const successSnap = await colRef.where("status", "==", successStatus).count().get();
     return { total: totalSnap.data().count, success: successSnap.data().count };
   } catch (e) {
@@ -50,15 +49,20 @@ async function getCollectionStats(db: admin.firestore.Firestore, collectionName:
   }
 }
 
-// Calculate Logistics Stats
+// ✅ LOGISTICS STATS (Fixed Field Name)
 async function getLogisticsStats(db: admin.firestore.Firestore) {
   try {
+    // A. Low Stock (< 5)
+    // 🔴 FIX: Changed 'quantity' to 'quantiteEnStock'
     const lowStockSnap = await db.collection("produits")
-      .where("quantity", "<", 5)
+      .where("quantiteEnStock", "<", 5)
       .count()
       .get();
 
+    // B. Stock Flow (Entries/Exits)
+    // We count the stock_history subcollection documents.
     const historyQuery = db.collectionGroup("stock_history");
+
     const incomingSnap = await historyQuery.where("change", ">", 0).count().get();
     const outgoingSnap = await historyQuery.where("change", "<", 0).count().get();
 
@@ -142,23 +146,22 @@ async function updateGlobalDashboard() {
   const statsDocRef = db.collection("analytics_dashboard").doc("stats_overview");
 
   try {
-    console.log("🔄 Starting Dashboard Update (Smart Intervention Logic)...");
+    console.log("🔄 Starting Dashboard Update...");
 
-    // Run Aggregations
     const [
-      interventionStats, // ✅ Uses new Specific Logic
+      interventionStats,
       installationStats,
       livraisonStats,
       missionStats,
       savStats,
       logisticsStats
     ] = await Promise.all([
-      getInterventionStats(db), // ✅ Call the new helper
+      getInterventionStats(db), // Smart Filter
       getCollectionStats(db, "installations", "Terminée"),
       getCollectionStats(db, "livraisons", "Livré"),
       getCollectionStats(db, "missions", "Terminée"),
       getCollectionStats(db, "sav_tickets", "Retourné"),
-      getLogisticsStats(db)
+      getLogisticsStats(db) // ✅ Corrected Field
     ]);
 
     const grandTotal = interventionStats.total + installationStats.total + livraisonStats.total + missionStats.total + savStats.total;
@@ -175,7 +178,7 @@ async function updateGlobalDashboard() {
         "Missions": missionStats.total,
         "SAV": savStats.total,
       },
-      // Detailed breakdown
+      // Detailed Performance Map
       category_performance: {
         "Interventions": { "total": interventionStats.total, "success": interventionStats.success },
         "Installations": { "total": installationStats.total, "success": installationStats.success },
@@ -204,7 +207,6 @@ async function updateGlobalDashboard() {
 // ==================================================================
 
 export const onInterventionAnalytics = functions.firestore.document("interventions/{id}").onWrite(async (change) => {
-  // Note: We still track Tech Performance based on "Clôturé"
   await updateGlobalDashboard(); await updateTechnicianCounters(change, "assignedTechnicians", "Clôturé");
 });
 export const onInstallationAnalytics = functions.firestore.document("installations/{id}").onWrite(async (change) => {
