@@ -17,6 +17,8 @@ import 'package:boitex_info_app/screens/administration/activity_log_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
+// ✅ ADDED IMPORT FOR ANALYTICS
+import 'package:boitex_info_app/screens/administration/analytics_dashboard_page.dart';
 import 'dart:math' as math;
 
 class AdministrationDashboardPage extends StatefulWidget {
@@ -514,6 +516,14 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
 
   List<Widget> _buildQuickActions(BuildContext context) {
     final items = <_ActionData>[
+      // ✅ ADDED: ANALYTICS BUTTON (First Position)
+      _ActionData(
+        'Analytics',
+        Icons.analytics_rounded,
+        const Color(0xFFEC4899), // Pink/Rose Color to stand out
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const AnalyticsDashboardPage())),
+      ),
       _ActionData(
         'Nouveau\nProjet',
         Icons.note_add_rounded,
