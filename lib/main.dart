@@ -33,8 +33,8 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // 👇 ADD THIS LINE: This triggers the permission prompt on Web
-  await FirebaseApi().initNotifications();
+  // 👇 LINE COMMENTED OUT: We removed the immediate trigger here
+  // await FirebaseApi().initNotifications();
 
   // ✅ 2. ADD THESE TWO LINES TO REGISTER FRENCH LOCALE
   timeago.setLocaleMessages('fr', timeago.FrMessages());

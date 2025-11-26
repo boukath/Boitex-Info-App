@@ -9,8 +9,8 @@ import 'package:boitex_info_app/screens/service_it/service_it_dashboard_page.dar
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/api/firebase_api.dart';
 import 'dart:math' as math;
-import 'package:cloud_firestore/cloud_firestore.dart'; // ✅ ADDED: For StreamBuilder
-import 'package:boitex_info_app/screens/home/notifications_page.dart'; // ✅ ADDED: Our new page
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:boitex_info_app/screens/home/notifications_page.dart';
 
 class HomePage extends StatefulWidget {
   final String userRole;
@@ -45,7 +45,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
+    // ✅ This triggers the notification permission logic when Home Page loads
     _setupNotifications();
+
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -72,11 +74,19 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   Future<void> _setupNotifications() async {
     final api = FirebaseApi();
+
+    // ✅ 1. Ask for permission (Popup appears here)
     await api.initNotifications();
+
     try {
+      // ✅ 2. Handle Topics (Safe for Web due to API checks)
       await api.unsubscribeFromAllTopics();
       await api.subscribeToTopics(widget.userRole);
-    } catch (_) {}
+    } catch (_) {
+      // Ignore topic errors on web to prevent crashes
+    }
+
+    // ✅ 3. Save Token
     await api.saveTokenForCurrentUser();
   }
 

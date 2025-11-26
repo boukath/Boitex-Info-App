@@ -466,8 +466,9 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
             borderRadius: BorderRadius.circular(24),
             boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5))],
           ),
-          child: !hasEnoughHistory
-              ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.show_chart, size: 48, color: Colors.grey[300]), const SizedBox(height: 16), Text("En attente de plus de données...", style: GoogleFonts.poppins(color: Colors.grey)), Text("Effectuez une autre action de stock.", style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey[400]))]))
+          // ✅ FIX: Safety Check - Only show chart if we have at least 2 points
+          child: stats.stockHistory.length < 2
+              ? Center(child: Text("Pas assez de données historiques", style: GoogleFonts.poppins(color: Colors.grey)))
               : LineChart(
             LineChartData(
               // ✅ FIXED: Explicitly set Min/Max Y to prevent loop
