@@ -49,31 +49,62 @@ async function getCollectionStats(db: admin.firestore.Firestore, collectionName:
   }
 }
 
-// ✅ LOGISTICS STATS (Fixed Field Name)
+// ✅ LOGISTICS STATS (Advanced Time-Series Version)
 async function getLogisticsStats(db: admin.firestore.Firestore) {
   try {
     // A. Low Stock (< 5)
-    // 🔴 FIX: Changed 'quantity' to 'quantiteEnStock'
     const lowStockSnap = await db.collection("produits")
       .where("quantiteEnStock", "<", 5)
       .count()
       .get();
 
-    // B. Stock Flow (Entries/Exits)
-    // We count the stock_history subcollection documents.
-    const historyQuery = db.collectionGroup("stock_history");
+    // B. Advanced Flow Calculation (Time-Series)
+    // We fetch the last 100 history movements to build the chart
+    const historySnapshot = await db.collectionGroup("stock_history")
+      .orderBy("timestamp", "desc") // Get newest first
+      .limit(100)
+      .get();
 
-    const incomingSnap = await historyQuery.where("change", ">", 0).count().get();
-    const outgoingSnap = await historyQuery.where("change", "<", 0).count().get();
+    let incomingTotal = 0;
+    let outgoingTotal = 0;
+    const dailyMap: Record<string, { in: number, out: number }> = {};
+
+    historySnapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      const change = data.change || 0;
+
+      // 1. Calculate Totals
+      if (change > 0) incomingTotal += change;
+      else outgoingTotal += Math.abs(change);
+
+      // 2. Group by Date (YYYY-MM-DD) for the Chart
+      if (data.timestamp) {
+        // Safe conversion of Firestore Timestamp to YYYY-MM-DD string
+        const dateKey = data.timestamp.toDate().toISOString().split('T')[0];
+
+        if (!dailyMap[dateKey]) {
+          dailyMap[dateKey] = { in: 0, out: 0 };
+        }
+
+        if (change > 0) {
+          dailyMap[dateKey].in += change;
+        } else {
+          // Store positive number for chart visualization
+          dailyMap[dateKey].out += Math.abs(change);
+        }
+      }
+    });
 
     return {
       lowStock: lowStockSnap.data().count,
-      incoming: incomingSnap.data().count,
-      outgoing: outgoingSnap.data().count
+      incoming: incomingTotal,
+      outgoing: outgoingTotal,
+      dailyHistory: dailyMap // ✅ The missing piece for your chart
     };
+
   } catch (e) {
     console.error("⚠️ Error in Logistics Stats:", e);
-    return { lowStock: 0, incoming: 0, outgoing: 0 };
+    return { lowStock: 0, incoming: 0, outgoing: 0, dailyHistory: {} };
   }
 }
 
@@ -154,14 +185,14 @@ async function updateGlobalDashboard() {
       livraisonStats,
       missionStats,
       savStats,
-      logisticsStats
+      logisticsStats // ✅ Now contains dailyHistory
     ] = await Promise.all([
       getInterventionStats(db), // Smart Filter
       getCollectionStats(db, "installations", "Terminée"),
       getCollectionStats(db, "livraisons", "Livré"),
       getCollectionStats(db, "missions", "Terminée"),
       getCollectionStats(db, "sav_tickets", "Retourné"),
-      getLogisticsStats(db) // ✅ Corrected Field
+      getLogisticsStats(db)
     ]);
 
     const grandTotal = interventionStats.total + installationStats.total + livraisonStats.total + missionStats.total + savStats.total;
@@ -186,10 +217,12 @@ async function updateGlobalDashboard() {
         "Missions": { "total": missionStats.total, "success": missionStats.success },
         "SAV": { "total": savStats.total, "success": savStats.success },
       },
+      // ✅ LOGISTICS UPDATE
       stock_health: {
         "low_stock": logisticsStats.lowStock,
         "movements_in": logisticsStats.incoming,
-        "movements_out": logisticsStats.outgoing
+        "movements_out": logisticsStats.outgoing,
+        "daily_history": logisticsStats.dailyHistory // ✅ Saves the map for the Flutter Chart
       },
       livraisons_pending: livraisonStats.total - livraisonStats.success,
       last_updated: admin.firestore.FieldValue.serverTimestamp(),
@@ -222,3 +255,42 @@ export const onStockHistoryAnalytics = functions.firestore.document("produits/{p
   .onWrite(() => updateGlobalDashboard());
 
 export const onProductAnalytics = functions.firestore.document("produits/{id}").onWrite(() => updateGlobalDashboard());
+
+
+// ==================================================================
+// 4️⃣ NEW: AUTO-GENERATE HISTORY ON STOCK CHANGE
+// ==================================================================
+export const onProductStockChanged = functions.firestore.document("produits/{productId}").onUpdate(async (change, context) => {
+  const before = change.before.data();
+  const after = change.after.data();
+
+  // 1. Check if quantity actually changed
+  const oldQty = before.quantiteEnStock || 0;
+  const newQty = after.quantiteEnStock || 0;
+
+  if (oldQty === newQty) return null; // No change, do nothing
+
+  // 2. Calculate difference
+  const diff = newQty - oldQty;
+  const productId = context.params.productId;
+
+  console.log(`Detected stock change for ${productId}: ${oldQty} -> ${newQty} (Diff: ${diff})`);
+
+  // 3. Create the History Record automatically
+  try {
+    await admin.firestore().collection(`produits/${productId}/stock_history`).add({
+      change: diff,
+      previousStock: oldQty,
+      newStock: newQty,
+      reason: "Mise à jour manuelle", // Default reason
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      user: "Système", // Or fetch user if possible, but 'System' is fine for auto-updates
+      type: diff > 0 ? "Entrée" : "Sortie"
+    });
+    console.log("✅ History record created.");
+  } catch (error) {
+    console.error("❌ Failed to create history record:", error);
+  }
+
+  return null;
+});

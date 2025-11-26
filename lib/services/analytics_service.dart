@@ -94,6 +94,15 @@ class AnalyticsService {
         'SAV': CategoryStats(total: 8, success: 5),
       },
 
+      // ✅ FIXED: Added missing stockHistory parameter for the compiler
+      stockHistory: [
+        DailyStockStat(date: DateTime.now().subtract(const Duration(days: 5)), incoming: 5, outgoing: 2),
+        DailyStockStat(date: DateTime.now().subtract(const Duration(days: 4)), incoming: 8, outgoing: 4),
+        DailyStockStat(date: DateTime.now().subtract(const Duration(days: 3)), incoming: 2, outgoing: 6),
+        DailyStockStat(date: DateTime.now().subtract(const Duration(days: 2)), incoming: 10, outgoing: 3),
+        DailyStockStat(date: DateTime.now().subtract(const Duration(days: 1)), incoming: 4, outgoing: 8),
+      ],
+
       lastUpdated: DateTime.now(),
     );
   }
