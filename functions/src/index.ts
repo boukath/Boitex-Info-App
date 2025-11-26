@@ -17,9 +17,9 @@ onInstallationAnalytics,
 onLivraisonAnalytics,
 onMissionAnalytics,
 onSavAnalytics,
-// ✅ NEW NAME:
 onStockHistoryAnalytics,
-onProductAnalytics
+onProductAnalytics,
+onProductStockChanged
 } from "./analytics-updater";
 
 export {
@@ -28,9 +28,9 @@ onInstallationAnalytics,
 onLivraisonAnalytics,
 onMissionAnalytics,
 onSavAnalytics,
-// ✅ EXPORT NEW NAME:
 onStockHistoryAnalytics,
-onProductAnalytics
+onProductAnalytics,
+onProductStockChanged
 };
 
 export { onInstallationTermine, getInstallationPdf } from "./installation-handlers";

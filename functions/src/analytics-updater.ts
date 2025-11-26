@@ -59,10 +59,13 @@ async function getLogisticsStats(db: admin.firestore.Firestore) {
       .get();
 
     // B. Advanced Flow Calculation (Time-Series)
-    // We fetch the last 100 history movements to build the chart
+    // ✅ MODIFIED: Use Date-based filtering (Last 30 Days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
     const historySnapshot = await db.collectionGroup("stock_history")
-      .orderBy("timestamp", "desc") // Get newest first
-      .limit(100)
+      .where("timestamp", ">=", admin.firestore.Timestamp.fromDate(thirtyDaysAgo))
+      .orderBy("timestamp", "desc") // ✅ Gets everything from the last 30 days
       .get();
 
     let incomingTotal = 0;
@@ -236,31 +239,32 @@ async function updateGlobalDashboard() {
 }
 
 // ==================================================================
-// 🚀 TRIGGERS
+// 🚀 TRIGGERS (Explicit region 'europe-west1' added)
 // ==================================================================
 
-export const onInterventionAnalytics = functions.firestore.document("interventions/{id}").onWrite(async (change) => {
+export const onInterventionAnalytics = functions.region("europe-west1").firestore.document("interventions/{id}").onWrite(async (change) => {
   await updateGlobalDashboard(); await updateTechnicianCounters(change, "assignedTechnicians", "Clôturé");
 });
-export const onInstallationAnalytics = functions.firestore.document("installations/{id}").onWrite(async (change) => {
+export const onInstallationAnalytics = functions.region("europe-west1").firestore.document("installations/{id}").onWrite(async (change) => {
   await updateGlobalDashboard(); await updateTechnicianCounters(change, "assignedTechnicians", "Terminée");
 });
-export const onSavAnalytics = functions.firestore.document("sav_tickets/{id}").onWrite(async (change) => {
+export const onSavAnalytics = functions.region("europe-west1").firestore.document("sav_tickets/{id}").onWrite(async (change) => {
   await updateGlobalDashboard(); await updateTechnicianCounters(change, "pickupTechnicianNames", "Retourné");
 });
-export const onLivraisonAnalytics = functions.firestore.document("livraisons/{id}").onWrite(() => updateGlobalDashboard());
-export const onMissionAnalytics = functions.firestore.document("missions/{id}").onWrite(() => updateGlobalDashboard());
+export const onLivraisonAnalytics = functions.region("europe-west1").firestore.document("livraisons/{id}").onWrite(() => updateGlobalDashboard());
+export const onMissionAnalytics = functions.region("europe-west1").firestore.document("missions/{id}").onWrite(() => updateGlobalDashboard());
 
-export const onStockHistoryAnalytics = functions.firestore.document("produits/{productId}/stock_history/{historyId}")
+// ✅ THE MISSING FUNCTION - Now with strict region
+export const onStockHistoryAnalytics = functions.region("europe-west1").firestore.document("produits/{productId}/stock_history/{historyId}")
   .onWrite(() => updateGlobalDashboard());
 
-export const onProductAnalytics = functions.firestore.document("produits/{id}").onWrite(() => updateGlobalDashboard());
+export const onProductAnalytics = functions.region("europe-west1").firestore.document("produits/{id}").onWrite(() => updateGlobalDashboard());
 
 
 // ==================================================================
 // 4️⃣ NEW: AUTO-GENERATE HISTORY ON STOCK CHANGE
 // ==================================================================
-export const onProductStockChanged = functions.firestore.document("produits/{productId}").onUpdate(async (change, context) => {
+export const onProductStockChanged = functions.region("europe-west1").firestore.document("produits/{productId}").onUpdate(async (change, context) => {
   const before = change.before.data();
   const after = change.after.data();
 
