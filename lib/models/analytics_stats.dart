@@ -69,13 +69,32 @@ class AnalyticsStats {
     );
   }
 
+  // ✅ THE FIX: A helper that ignores Maps (like 'daily_history') and safe parses Integers
+  static Map<String, int> _safeParseMap(Map<String, dynamic>? input) {
+    if (input == null) return {};
+    final result = <String, int>{};
+    input.forEach((key, value) {
+      if (value is int) {
+        result[key] = value;
+      } else if (value is double) {
+        result[key] = value.toInt();
+      }
+      // If it's a Map (like daily_history), we simply skip it! No crash.
+    });
+    return result;
+  }
+
   /// Parser: Converts Firestore Data -> Dart Object
   factory AnalyticsStats.fromMap(Map<String, dynamic> data) {
-    // ✅ Logic to parse the nested 'category_performance' map
+    // ✅ Logic to parse the nested 'category_performance' map safely
     final rawCatPerf = data['category_performance'] as Map<String, dynamic>? ?? {};
-    final parsedCatPerf = rawCatPerf.map(
-            (key, value) => MapEntry(key, CategoryStats.fromMap(value as Map<String, dynamic>))
-    );
+    final parsedCatPerf = <String, CategoryStats>{};
+
+    rawCatPerf.forEach((key, value) {
+      if (value is Map<String, dynamic>) {
+        parsedCatPerf[key] = CategoryStats.fromMap(value);
+      }
+    });
 
     return AnalyticsStats(
       totalInterventionsMonth: data['total_interventions_month'] ?? 0,
@@ -85,13 +104,13 @@ class AnalyticsStats {
 
       pendingLivraisons: data['livraisons_pending'] ?? 0,
 
-      // Robust casting for Maps
-      interventionsByType: Map<String, int>.from(data['interventions_by_type'] ?? {}),
-      interventionsByStatus: Map<String, int>.from(data['interventions_by_status'] ?? {}),
-      topTechnicians: Map<String, int>.from(data['top_technicians'] ?? {}),
+      // ✅ Robust casting for Maps using _safeParseMap
+      interventionsByType: _safeParseMap(data['interventions_by_type']),
+      interventionsByStatus: _safeParseMap(data['interventions_by_status']),
+      topTechnicians: _safeParseMap(data['top_technicians']),
 
-      // Parse stock health
-      stockHealth: Map<String, int>.from(data['stock_health'] ?? {}),
+      // ✅ Parse stock health safely (Ignores 'daily_history' map to fix crash)
+      stockHealth: _safeParseMap(data['stock_health']),
 
       // ✅ Assign the parsed category stats
       categoryPerformance: parsedCatPerf,
