@@ -2,6 +2,44 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// ✅ NEW: Helper class for Technician Leaderboard (Supports Score + Count + Badge + Breakdown)
+class TechnicianData {
+  final String name;
+  final int score;
+  final int count;
+  final String badge;
+  final Map<String, int> breakdown; // 👈 NEW FIELD
+
+  // Calculated: Average XP per Job (Efficiency)
+  double get efficiency => count > 0 ? score / count : 0.0;
+
+  TechnicianData({
+    required this.name,
+    required this.score,
+    required this.count,
+    this.badge = 'Polyvalent', // Default badge
+    this.breakdown = const {}, // Default empty map
+  });
+
+  factory TechnicianData.fromMap(String name, Map<String, dynamic> data) {
+    // Safely parse the breakdown map from Firestore
+    Map<String, int> parsedBreakdown = {};
+    if (data['breakdown'] != null && data['breakdown'] is Map) {
+      (data['breakdown'] as Map).forEach((k, v) {
+        parsedBreakdown[k.toString()] = (v is int) ? v : 0;
+      });
+    }
+
+    return TechnicianData(
+      name: name,
+      score: (data['score'] ?? 0) as int,
+      count: (data['count'] ?? 1) as int,
+      badge: (data['badge'] ?? 'Polyvalent') as String,
+      breakdown: parsedBreakdown, // 👈 Store the parsed map
+    );
+  }
+}
+
 // ✅ NEW: Helper class for Daily History Chart
 class DailyStockStat {
   final DateTime date;
@@ -28,7 +66,10 @@ class AnalyticsStats {
   final int pendingLivraisons;
   final Map<String, int> interventionsByType;
   final Map<String, int> interventionsByStatus;
-  final Map<String, int> topTechnicians;
+
+  // 🔄 CHANGED: Now a List of Objects instead of a simple Map
+  final List<TechnicianData> topTechnicians;
+
   final Map<String, int> stockHealth;
   final Map<String, CategoryStats> categoryPerformance;
 
@@ -42,7 +83,7 @@ class AnalyticsStats {
     required this.pendingLivraisons,
     required this.interventionsByType,
     required this.interventionsByStatus,
-    required this.topTechnicians,
+    required this.topTechnicians, // 👈 Updated Type
     required this.stockHealth,
     required this.categoryPerformance,
     required this.stockHistory, // ✅ Required
@@ -56,7 +97,7 @@ class AnalyticsStats {
       pendingLivraisons: 0,
       interventionsByType: {},
       interventionsByStatus: {},
-      topTechnicians: {},
+      topTechnicians: [], // 👈 Empty List
       stockHealth: {},
       categoryPerformance: {},
       stockHistory: [],
@@ -75,6 +116,24 @@ class AnalyticsStats {
   }
 
   factory AnalyticsStats.fromMap(Map<String, dynamic> data) {
+    // 🔄 NEW PARSING LOGIC FOR TECHNICIANS
+    final List<TechnicianData> techList = [];
+    final rawTechs = data['top_technicians'];
+
+    if (rawTechs is Map<String, dynamic>) {
+      rawTechs.forEach((key, value) {
+        // Handle both old format (int) and new format (Map)
+        if (value is Map<String, dynamic>) {
+          techList.add(TechnicianData.fromMap(key, value));
+        } else if (value is int) {
+          // Fallback for old data to prevent crashes during migration
+          techList.add(TechnicianData(name: key, score: value, count: 1));
+        }
+      });
+    }
+    // Sort by Score Descending
+    techList.sort((a, b) => b.score.compareTo(a.score));
+
     final rawCatPerf = data['category_performance'] as Map<String, dynamic>? ?? {};
     final parsedCatPerf = <String, CategoryStats>{};
     rawCatPerf.forEach((key, value) {
@@ -92,8 +151,6 @@ class AnalyticsStats {
         if (val is Map) {
           try {
             // Parse Date from String (assuming format YYYY-MM-DD or similar)
-            // If your keys are simple strings, we might need to adjust.
-            // Ideally, store dates as ISO strings.
             final date = DateTime.tryParse(dateKey) ?? DateTime.now();
             historyList.add(DailyStockStat(
                 date: date,
@@ -116,7 +173,7 @@ class AnalyticsStats {
       pendingLivraisons: data['livraisons_pending'] ?? 0,
       interventionsByType: _safeParseMap(data['interventions_by_type']),
       interventionsByStatus: _safeParseMap(data['interventions_by_status']),
-      topTechnicians: _safeParseMap(data['top_technicians']),
+      topTechnicians: techList, // 👈 Assigned the list
       stockHealth: _safeParseMap(data['stock_health']),
       categoryPerformance: parsedCatPerf,
       stockHistory: historyList, // ✅ Added

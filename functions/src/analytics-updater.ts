@@ -112,12 +112,14 @@ async function getLogisticsStats(db: admin.firestore.Firestore) {
 }
 
 // ==================================================================
-// 2️⃣ TECHNICIAN LEADERBOARD
+// 2️⃣ TECHNICIAN LEADERBOARD (UPDATED FOR BADGES & BREAKDOWN 🏅)
 // ==================================================================
 async function updateTechnicianCounters(
   change: functions.Change<DocumentSnapshot>,
   techFieldName: string,
-  successStatus: string
+  successStatus: string,
+  points: number,
+  category: string // 👈 NEW: Job Category (e.g., "Installation")
 ) {
   const db = admin.firestore();
   const before = change.before.exists ? change.before.data() : null;
@@ -139,37 +141,82 @@ async function updateTechnicianCounters(
   const batch = db.batch();
   const countersRef = db.collection("analytics_dashboard").doc("technician_performance").collection("counters");
 
+  // 1. Increment Count, Score, AND Specific Category
   toIncrement.forEach(techName => {
     if (!techName) return;
     const docRef = countersRef.doc(techName);
-    batch.set(docRef, { count: admin.firestore.FieldValue.increment(1), name: techName }, { merge: true });
+    batch.set(docRef, {
+      name: techName,
+      count: admin.firestore.FieldValue.increment(1),
+      score: admin.firestore.FieldValue.increment(points),
+      [`breakdown.${category}`]: admin.firestore.FieldValue.increment(1) // 👈 Track Breakdown
+    }, { merge: true });
   });
 
+  // 2. Decrement
   toDecrement.forEach(techName => {
     if (!techName) return;
     const docRef = countersRef.doc(techName);
-    batch.set(docRef, { count: admin.firestore.FieldValue.increment(-1) }, { merge: true });
+    batch.set(docRef, {
+      count: admin.firestore.FieldValue.increment(-1),
+      score: admin.firestore.FieldValue.increment(-points),
+      [`breakdown.${category}`]: admin.firestore.FieldValue.increment(-1)
+    }, { merge: true });
   });
 
   await batch.commit();
   await refreshTopTechnicians(db);
 }
 
+// 🔄 UPDATED FUNCTION: Includes breakdown in the summary
 async function refreshTopTechnicians(db: admin.firestore.Firestore) {
   const topSnaps = await db.collection("analytics_dashboard")
     .doc("technician_performance")
     .collection("counters")
-    .orderBy("count", "desc")
+    .orderBy("score", "desc")
     .limit(5)
     .get();
 
-  const topTechsMap: { [key: string]: number } = {};
+  // Updated Interface to include Badge AND Breakdown
+  const topTechsMap: {
+    [key: string]: {
+      score: number,
+      count: number,
+      badge: string,
+      breakdown: { [key: string]: number } // 👈 NEW: Detailed Breakdown
+    }
+  } = {};
+
   topSnaps.forEach(doc => {
     const data = doc.data();
-    if (data.count > 0) topTechsMap[data.name] = data.count;
+    if (data.score > 0) {
+
+      // 🏅 BADGE LOGIC (The Brain)
+      const total = data.count || 1;
+      const breakdown = data.breakdown || {};
+
+      let assignedBadge = "Polyvalent"; // Default = Generalist
+      const installCount = breakdown['Installation'] || 0;
+      const savCount = breakdown['SAV'] || 0;
+      const logistiqueCount = breakdown['Livraison'] || 0;
+
+      // Logic: If > 50% of work is in one category, assign that badge
+      if (installCount > (total * 0.5)) assignedBadge = "Installateur";
+      else if (savCount > (total * 0.5)) assignedBadge = "Expert SAV";
+      else if (logistiqueCount > (total * 0.5)) assignedBadge = "Logistique";
+
+      topTechsMap[data.name] = {
+        score: data.score,
+        count: data.count || 1,
+        badge: assignedBadge,
+        breakdown: breakdown // 👈 Send the breakdown to the app
+      };
+    }
   });
 
-  await db.collection("analytics_dashboard").doc("stats_overview").set({ top_technicians: topTechsMap }, { merge: true });
+  await db.collection("analytics_dashboard").doc("stats_overview").set({
+    top_technicians: topTechsMap
+  }, { merge: true });
 }
 
 // ==================================================================
@@ -239,20 +286,38 @@ async function updateGlobalDashboard() {
 }
 
 // ==================================================================
-// 🚀 TRIGGERS (Explicit region 'europe-west1' added)
+// 🚀 TRIGGERS (UPDATED WITH POINTS & CATEGORY)
 // ==================================================================
 
+// 🔧 Interventions: 3 Points
 export const onInterventionAnalytics = functions.region("europe-west1").firestore.document("interventions/{id}").onWrite(async (change) => {
-  await updateGlobalDashboard(); await updateTechnicianCounters(change, "assignedTechnicians", "Clôturé");
+  await updateGlobalDashboard();
+  await updateTechnicianCounters(change, "assignedTechnicians", "Clôturé", 3, "Intervention"); // 👈 Added Category
 });
+
+// 🛠️ Installations: 10 Points
 export const onInstallationAnalytics = functions.region("europe-west1").firestore.document("installations/{id}").onWrite(async (change) => {
-  await updateGlobalDashboard(); await updateTechnicianCounters(change, "assignedTechnicians", "Terminée");
+  await updateGlobalDashboard();
+  await updateTechnicianCounters(change, "assignedTechnicians", "Terminée", 10, "Installation"); // 👈 Added Category
 });
+
+// 🚑 SAV: 5 Points
 export const onSavAnalytics = functions.region("europe-west1").firestore.document("sav_tickets/{id}").onWrite(async (change) => {
-  await updateGlobalDashboard(); await updateTechnicianCounters(change, "pickupTechnicianNames", "Retourné");
+  await updateGlobalDashboard();
+  await updateTechnicianCounters(change, "pickupTechnicianNames", "Retourné", 5, "SAV"); // 👈 Added Category
 });
-export const onLivraisonAnalytics = functions.region("europe-west1").firestore.document("livraisons/{id}").onWrite(() => updateGlobalDashboard());
-export const onMissionAnalytics = functions.region("europe-west1").firestore.document("missions/{id}").onWrite(() => updateGlobalDashboard());
+
+// 🚚 Livraisons: 2 Points
+export const onLivraisonAnalytics = functions.region("europe-west1").firestore.document("livraisons/{id}").onWrite(async (change) => {
+  await updateGlobalDashboard();
+  await updateTechnicianCounters(change, "livreurName", "Livré", 2, "Livraison"); // 👈 Added Category
+});
+
+// 🚩 Missions: 5 Points
+export const onMissionAnalytics = functions.region("europe-west1").firestore.document("missions/{id}").onWrite(async (change) => {
+  await updateGlobalDashboard();
+  await updateTechnicianCounters(change, "members", "Terminée", 5, "Mission"); // 👈 Added Category
+});
 
 // ✅ THE MISSING FUNCTION - Now with strict region
 export const onStockHistoryAnalytics = functions.region("europe-west1").firestore.document("produits/{productId}/stock_history/{historyId}")

@@ -12,6 +12,8 @@ import 'package:intl/date_symbol_data_local.dart'; // Required for locale
 import 'package:boitex_info_app/screens/administration/stock_movements_page.dart';
 // ✅ ADDED: Import for the Report Dialog
 import 'package:boitex_info_app/widgets/logistics_report_dialog.dart';
+// 🏆 ✅ ADDED: Import for the new Podium Widget
+import 'package:boitex_info_app/widgets/technician_podium.dart';
 
 class AnalyticsDashboardPage extends StatefulWidget {
   const AnalyticsDashboardPage({super.key});
@@ -150,41 +152,17 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
     );
   }
 
-  // --- 2. OPERATIONS TAB ---
+  // --- 2. OPERATIONS TAB (UPDATED ONLY HERE) ---
   Widget _buildOperationsTab(AnalyticsStats stats) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text("Top Techniciens", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
-        const SizedBox(height: 16),
-        Container(
-          height: 350,
-          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
-          child: BarChart(
-            BarChartData(
-              alignment: BarChartAlignment.spaceAround,
-              maxY: 60,
-              barTouchData: BarTouchData(enabled: true),
-              titlesData: FlTitlesData(
-                show: true,
-                bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (double value, TitleMeta meta) {
-                  final names = stats.topTechnicians.keys.toList();
-                  if (value.toInt() >= 0 && value.toInt() < names.length) {
-                    return Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(names[value.toInt()].split(' ').first, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)));
-                  }
-                  return const Text('');
-                })),
-                leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              ),
-              gridData: const FlGridData(show: false),
-              borderData: FlBorderData(show: false),
-              barGroups: _getBarGroups(stats.topTechnicians),
-            ),
-          ),
-        ),
+        Text("Classement Techniciens (XP)", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
+        const SizedBox(height: 8), // Adjusted spacing slightly
+
+        // 🏆 REPLACED: Old BarChart with New Podium Widget
+        // The rest of the page remains exactly the same.
+        TechnicianPodium(topTechnicians: stats.topTechnicians),
       ],
     );
   }

@@ -9,7 +9,6 @@ class AnalyticsService {
 
   // ⚡️ PRO TIP: Set this to TRUE to design the UI without cost/data.
   // Set to FALSE when you are ready to ship to production.
-  // ✅ UPDATE: Switched to FALSE. We are now LIVE!
   static const bool _useMockData = false;
 
   /// Returns a stream of stats.
@@ -70,22 +69,22 @@ class AnalyticsService {
         'Annulé': 5,
       },
 
-      // Leaderboard Data
-      topTechnicians: {
-        'Amine S.': 42,
-        'Sarah K.': 38,
-        'Mohamed B.': 31,
-        'Yacine D.': 25,
-      },
+      // ✅ FIXED: Updated to List<TechnicianData> to match the new Model
+      topTechnicians: [
+        TechnicianData(name: 'Amine S.', score: 450, count: 42),
+        TechnicianData(name: 'Sarah K.', score: 380, count: 38),
+        TechnicianData(name: 'Mohamed B.', score: 310, count: 31),
+        TechnicianData(name: 'Yacine D.', score: 250, count: 25),
+      ],
 
-      // ✅ ADDED: Dummy Stock Health Data
+      // Dummy Stock Health Data
       stockHealth: {
         'low_stock': 3,
         'movements_in': 25,
         'movements_out': 18,
       },
 
-      // ✅ ADDED: Dummy Category Performance Data (Fixes the Error)
+      // Dummy Category Performance Data
       categoryPerformance: {
         'Interventions': CategoryStats(total: 50, success: 45),
         'Installations': CategoryStats(total: 80, success: 78),
@@ -94,7 +93,7 @@ class AnalyticsService {
         'SAV': CategoryStats(total: 8, success: 5),
       },
 
-      // ✅ FIXED: Added missing stockHistory parameter for the compiler
+      // Stock History Data
       stockHistory: [
         DailyStockStat(date: DateTime.now().subtract(const Duration(days: 5)), incoming: 5, outgoing: 2),
         DailyStockStat(date: DateTime.now().subtract(const Duration(days: 4)), incoming: 8, outgoing: 4),
