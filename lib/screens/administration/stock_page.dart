@@ -2,14 +2,16 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:boitex_info_app/screens/administration/stock_category_list_page.dart';
 import 'package:boitex_info_app/screens/administration/add_requisition_page.dart';
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 import 'package:boitex_info_app/screens/administration/antivol_config/antivol_main_page.dart';
 import 'package:boitex_info_app/screens/administration/inventory_report_page.dart';
-import 'package:boitex_info_app/screens/administration/stock_audit_page.dart'; // ✅ IMPORT ADDED
+import 'package:boitex_info_app/screens/administration/stock_audit_page.dart';
+import 'package:boitex_info_app/utils/user_roles.dart';
 
-// Helper class to hold style info for our main sections
 class MainCategory {
   final String name;
   final IconData icon;
@@ -25,8 +27,7 @@ class StockPage extends StatefulWidget {
   State<StockPage> createState() => _StockPageState();
 }
 
-class _StockPageState extends State<StockPage>
-    with SingleTickerProviderStateMixin {
+class _StockPageState extends State<StockPage> with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   List<DocumentSnapshot> _searchResults = [];
@@ -70,189 +71,7 @@ class _StockPageState extends State<StockPage>
     super.dispose();
   }
 
-  Future<void> _searchProducts(String query) async {
-    if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-      });
-      return;
-    }
-
-    setState(() => _isSearching = true);
-    try {
-      final queryLower = query.toLowerCase();
-      final snapshot =
-      await FirebaseFirestore.instance.collection('produits').get();
-
-      final results = snapshot.docs.where((doc) {
-        final data = doc.data();
-        final productName = (data['nom'] ?? '').toString().toLowerCase();
-        final reference = (data['reference'] ?? '').toString().toLowerCase();
-        final category = (data['categorie'] ?? '').toString().toLowerCase();
-        return productName.contains(queryLower) ||
-            reference.contains(queryLower) ||
-            category.contains(queryLower);
-      }).toList();
-
-      setState(() {
-        _searchResults = results;
-        _isSearching = false;
-      });
-    } catch (e) {
-      setState(() => _isSearching = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.white),
-                const SizedBox(width: 12),
-                Text('Erreur de recherche: $e'),
-              ],
-            ),
-            backgroundColor: const Color(0xFFEF4444),
-            behavior: SnackBarBehavior.floating,
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _scanProduct(BuildContext context) async {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final String? scannedCode = await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ProductScannerPage()),
-    );
-
-    if (scannedCode == null || scannedCode.isEmpty) return;
-
-    try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('produits')
-          .where('reference', isEqualTo: scannedCode)
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        final productData = querySnapshot.docs.first.data();
-        final productName = productData['nom'] ?? 'Nom inconnu';
-        final stockQuantity = productData['quantiteEnStock'] ?? 0;
-
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.inventory_2_rounded,
-                      color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                Expanded(child: Text(productName)),
-              ],
-            ),
-            content: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    stockQuantity > 0
-                        ? Colors.green.shade50
-                        : Colors.red.shade50,
-                    Colors.white,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Stock:', style: TextStyle(fontSize: 16)),
-                  Text(
-                    '$stockQuantity',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: stockQuantity > 0
-                          ? const Color(0xFF10B981)
-                          : const Color(0xFFEF4444),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      } else {
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.search_off_rounded,
-                      color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                const Text('Produit non trouvé'),
-              ],
-            ),
-            content: Text('Aucun produit trouvé pour le code: $scannedCode'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    } catch (e) {
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline, color: Colors.white),
-              const SizedBox(width: 12),
-              Text('Erreur: $e'),
-            ],
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    }
-  }
-
+  // --- 1. BUILD METHOD (Restored) ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -316,6 +135,372 @@ class _StockPageState extends State<StockPage>
     );
   }
 
+  // --- 2. SEARCH FUNCTION ---
+  Future<void> _searchProducts(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() => _isSearching = true);
+    try {
+      final queryLower = query.toLowerCase();
+      final snapshot =
+      await FirebaseFirestore.instance.collection('produits').get();
+
+      final results = snapshot.docs.where((doc) {
+        final data = doc.data();
+        final productName = (data['nom'] ?? '').toString().toLowerCase();
+        final reference = (data['reference'] ?? '').toString().toLowerCase();
+        final category = (data['categorie'] ?? '').toString().toLowerCase();
+        return productName.contains(queryLower) ||
+            reference.contains(queryLower) ||
+            category.contains(queryLower);
+      }).toList();
+
+      setState(() {
+        _searchResults = results;
+        _isSearching = false;
+      });
+    } catch (e) {
+      setState(() => _isSearching = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de recherche: $e')),
+        );
+      }
+    }
+  }
+
+  // --- 3. RESET FUNCTION (Admin Only) ---
+  Future<void> _resetAllStock() async {
+    final String? role = await UserRoles.getCurrentUserRole();
+
+    if (role != UserRoles.admin) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⛔ Accès Refusé : Seul l\'Administrateur peut réinitialiser le stock.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('⚠️ DANGER: RESET TOTAL'),
+        content: const Text(
+            'Voulez-vous vraiment mettre TOUT le stock à 0 ?\n\nCette action est irréversible.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('OUI, TOUT EFFACER'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final snapshot = await db.collection('produits').get();
+
+      int batchCount = 0;
+      WriteBatch batch = db.batch();
+
+      for (var doc in snapshot.docs) {
+        batch.update(doc.reference, {
+          'quantiteEnStock': 0,
+          'lastModifiedBy': 'RESET ADMIN',
+          'lastModifiedAt': FieldValue.serverTimestamp(),
+        });
+
+        final historyRef = db.collection('stock_movements').doc();
+        batch.set(historyRef, {
+          'productId': doc.id,
+          'productName': doc.data()['nom'] ?? 'Produit',
+          'quantityChange': -(doc.data()['quantiteEnStock'] ?? 0),
+          'oldQuantity': doc.data()['quantiteEnStock'] ?? 0,
+          'newQuantity': 0,
+          'type': 'RESET',
+          'user': 'Admin (Reset)',
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+
+        batchCount++;
+
+        if (batchCount >= 200) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+
+      if (batchCount > 0) {
+        await batch.commit();
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('✅ Stock réinitialisé à 0 avec succès !'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // --- 4. SCANNER LOGIC (Smart User ID) ---
+  Future<void> _scanProduct(BuildContext context) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    final String? scannedCode = await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ProductScannerPage()),
+    );
+
+    if (scannedCode == null || scannedCode.isEmpty) return;
+
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('produits')
+          .where('reference', isEqualTo: scannedCode)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final productDoc = querySnapshot.docs.first;
+        final productData = productDoc.data();
+        final productName = productData['nom'] ?? 'Nom inconnu';
+        final int currentStock = productData['quantiteEnStock'] ?? 0;
+
+        final quantityController = TextEditingController(text: currentStock.toString());
+        final notesController = TextEditingController();
+
+        if (!mounted) return;
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.qr_code_scanner, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    productName,
+                    style: const TextStyle(fontSize: 18),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Stock actuel: $currentStock',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: quantityController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                    labelText: 'Nouvelle Quantité',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.inventory_2_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.edit_note_rounded),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.save_rounded, size: 18),
+                label: const Text('Valider'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  final int newQty = int.tryParse(quantityController.text) ?? currentStock;
+                  final String notes = notesController.text.trim();
+
+                  if (newQty == currentStock) {
+                    Navigator.of(ctx).pop();
+                    return;
+                  }
+
+                  final authUser = FirebaseAuth.instance.currentUser;
+                  final userId = authUser?.uid ?? 'unknown';
+                  String userName = 'Utilisateur';
+
+                  if (authUser != null) {
+                    try {
+                      final userDoc = await FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(userId)
+                          .get();
+
+                      if (userDoc.exists) {
+                        final data = userDoc.data();
+                        if (data != null) {
+                          userName = data['displayName'] ??
+                              data['fullName'] ??
+                              'Utilisateur';
+                        }
+                      } else {
+                        userName = authUser.displayName ?? 'Utilisateur';
+                      }
+                    } catch (e) {
+                      print("Error fetching user name: $e");
+                    }
+                  }
+
+                  final db = FirebaseFirestore.instance;
+                  final ledgerRef = db.collection('stock_movements').doc();
+
+                  try {
+                    await db.runTransaction((transaction) async {
+                      transaction.set(ledgerRef, {
+                        'productId': productDoc.id,
+                        'productRef': productData['reference'] ?? 'N/A',
+                        'productName': productName,
+                        'quantityChange': newQty - currentStock,
+                        'oldQuantity': currentStock,
+                        'newQuantity': newQty,
+                        'type': 'SCAN_ADJUST',
+                        'notes': notes.isEmpty ? 'Scan rapide' : notes,
+                        'userId': userId,
+                        'user': userName,
+                        'userDisplayName': userName,
+                        'timestamp': FieldValue.serverTimestamp(),
+                      });
+
+                      transaction.update(productDoc.reference, {
+                        'quantiteEnStock': newQty,
+                        'lastModifiedBy': userName,
+                        'lastModifiedAt': FieldValue.serverTimestamp(),
+                      });
+                    });
+
+                    if (ctx.mounted) {
+                      Navigator.of(ctx).pop();
+                      scaffoldMessenger.showSnackBar(
+                        SnackBar(
+                          content: Text('Stock mis à jour par $userName!'),
+                          backgroundColor: const Color(0xFF10B981),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Produit non trouvé'), backgroundColor: Colors.orange),
+        );
+      }
+    } catch (e) {
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('Erreur: $e'), backgroundColor: const Color(0xFFEF4444)),
+      );
+    }
+  }
+
+  // --- 5. HELPER WIDGETS ---
+
+  // Helper for Popup Menu Items
+  PopupMenuItem _buildMenuItem({
+    required IconData icon,
+    required String text,
+    required VoidCallback onTap,
+    Color color = const Color(0xFF1F2937),
+    Color iconColor = const Color(0xFF667EEA),
+  }) {
+    return PopupMenuItem(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 20),
+          const SizedBox(width: 12),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAppBar() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -333,18 +518,20 @@ class _StockPageState extends State<StockPage>
       ),
       child: Row(
         children: [
+          // Back Button
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: Colors.white),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
           ),
           const SizedBox(width: 16),
+
+          // Title
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -360,78 +547,81 @@ class _StockPageState extends State<StockPage>
               ],
             ),
           ),
+
+          // Scanner Button
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              icon: const Icon(Icons.qr_code_scanner_rounded,
-                  color: Colors.white, size: 26),
+              icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 26),
               tooltip: 'Scanner un produit',
               onPressed: () => _scanProduct(context),
             ),
           ),
           const SizedBox(width: 8),
 
-          // Report Button
+          // Menu Button (The Fix for Mobile Layout)
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: IconButton(
-              icon: const Icon(Icons.assessment_outlined,
-                  color: Colors.white, size: 26),
-              tooltip: 'Rapport d\'Inventaire',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const InventoryReportPage(),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // ✅ NEW AUDIT LOG BUTTON
-          const SizedBox(width: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.history_outlined,
-                  color: Colors.white, size: 26),
-              tooltip: 'Audit des Mouvements',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const StockAuditPage(),
-                  ),
-                );
-              },
-            ),
-          ),
-          // ✅ END OF NEW BUTTON
-
-          const SizedBox(width: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.tune_rounded,
-                  color: Colors.white, size: 26),
-              tooltip: 'Configuration Antivol',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                      builder: (context) => const AntivolMainPage()),
-                );
-              },
+            child: PopupMenuButton<dynamic>( // ✅ Fixed: Added <dynamic>
+              icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 26),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              offset: const Offset(0, 50),
+              tooltip: 'Options',
+              // ✅ Fixed: Explicitly typed list to avoid "List<StatefulWidget>" error
+              itemBuilder: (context) => <PopupMenuEntry<dynamic>>[
+                _buildMenuItem(
+                  icon: Icons.assessment_outlined,
+                  text: 'Rapport d\'Inventaire',
+                  onTap: () {
+                    Future.delayed(Duration.zero, () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const InventoryReportPage(),
+                        ),
+                      );
+                    });
+                  },
+                ),
+                _buildMenuItem(
+                  icon: Icons.history_outlined,
+                  text: 'Audit des Mouvements',
+                  onTap: () {
+                    Future.delayed(Duration.zero, () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const StockAuditPage(),
+                        ),
+                      );
+                    });
+                  },
+                ),
+                _buildMenuItem(
+                  icon: Icons.tune_rounded,
+                  text: 'Configuration Antivol',
+                  onTap: () {
+                    Future.delayed(Duration.zero, () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (context) => const AntivolMainPage()),
+                      );
+                    });
+                  },
+                ),
+                const PopupMenuDivider(),
+                _buildMenuItem(
+                  icon: Icons.delete_forever_rounded,
+                  text: 'RESET TOUT LE STOCK',
+                  color: Colors.red,
+                  iconColor: Colors.red,
+                  onTap: _resetAllStock,
+                ),
+              ],
             ),
           ),
         ],
@@ -485,8 +675,8 @@ class _StockPageState extends State<StockPage>
                 ),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child:
-              const Icon(Icons.search_rounded, color: Colors.white, size: 20),
+              child: const Icon(Icons.search_rounded,
+                  color: Colors.white, size: 20),
             ),
             suffixIcon: _searchQuery.isNotEmpty
                 ? IconButton(
@@ -742,7 +932,10 @@ class _StockPageState extends State<StockPage>
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: stock > 0
-                            ? [const Color(0xFF10B981), const Color(0xFF059669)]
+                            ? [
+                          const Color(0xFF10B981),
+                          const Color(0xFF059669)
+                        ]
                             : [
                           const Color(0xFFEF4444),
                           const Color(0xFFDC2626)
@@ -820,9 +1013,7 @@ class _StockPageState extends State<StockPage>
                     MaterialPageRoute(
                       builder: (context) => StockCategoryListPage(
                         mainCategory: mainCategory.name,
-                        // ✅ --- THIS IS THE FIX ---
                         mainCategoryColor: mainCategory.color,
-                        // ✅ --------------------------
                         mainCategoryIcon: mainCategory.icon,
                       ),
                     ),

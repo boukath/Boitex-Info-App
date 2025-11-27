@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/services.dart'; // ✅ ADDED for number input
+import 'package:flutter/services.dart';
 
 class ProductStockListPage extends StatelessWidget {
   final String category;
@@ -15,17 +15,13 @@ class ProductStockListPage extends StatelessWidget {
     required this.categoryColor,
   });
 
-  /// ✅ --- REBUILT DIALOG LOGIC ---
-  /// This dialog now uses a Firebase Transaction to create a
-  /// stock_movements ledger entry for every change.
   void _showAdjustStockDialog(BuildContext context, DocumentSnapshot productDoc) {
     final formKey = GlobalKey<FormState>();
     final productData = productDoc.data() as Map<String, dynamic>;
 
-    // Get current user details
-    final currentUser = FirebaseAuth.instance.currentUser;
-    final currentUserName = currentUser?.displayName ?? 'Inconnu';
-    final currentUserId = currentUser?.uid ?? 'unknown_uid';
+    // Initial Auth User Check
+    final authUser = FirebaseAuth.instance.currentUser;
+    final String initialUid = authUser?.uid ?? 'unknown_uid';
 
     // Get old quantity
     final int oldQuantity = productData['quantiteEnStock'] ?? 0;
@@ -38,7 +34,7 @@ class ProductStockListPage extends StatelessWidget {
 
     showDialog(
       context: context,
-      barrierDismissible: !isLoading, // Prevent closing while saving
+      barrierDismissible: !isLoading,
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (context, setState) {
@@ -55,23 +51,45 @@ class ProductStockListPage extends StatelessWidget {
               final int newQuantity = int.tryParse(newQuantityController.text) ?? oldQuantity;
               final String notes = notesController.text.trim();
 
-              // Check if anything actually changed
               if (newQuantity == oldQuantity) {
                 Navigator.of(context).pop();
                 return;
               }
 
-              // Calculate the difference
               final int quantityChange = newQuantity - oldQuantity;
-
               final db = FirebaseFirestore.instance;
               final productRef = productDoc.reference;
-              final ledgerRef = db.collection('stock_movements').doc(); // New ledger entry
+              final ledgerRef = db.collection('stock_movements').doc();
+
+              // ✅ 1. SMART NAME LOOKUP
+              // We try to find the real name from Firestore before saving
+              String finalUserName = 'Utilisateur'; // Default
+              String finalUserId = initialUid;
+
+              if (authUser != null) {
+                // Try to use local display name first if available
+                if (authUser.displayName != null && authUser.displayName!.isNotEmpty) {
+                  finalUserName = authUser.displayName!;
+                }
+                // If local name is missing/empty, fetch from Firestore
+                else {
+                  try {
+                    final userDoc = await db.collection('users').doc(authUser.uid).get();
+                    if (userDoc.exists) {
+                      final data = userDoc.data();
+                      // Check 'displayName' then 'fullName'
+                      finalUserName = data?['displayName'] ?? data?['fullName'] ?? 'Utilisateur';
+                    }
+                  } catch (e) {
+                    print("Error fetching user name: $e");
+                  }
+                }
+              }
 
               try {
                 // Use a transaction for safety
                 await db.runTransaction((transaction) async {
-                  // 1. Create the new Stock Movement Log (Your Ledger)
+                  // 2. Create the Ledger Entry
                   transaction.set(ledgerRef, {
                     'productId': productDoc.id,
                     'productRef': productData['reference'] ?? 'N/A',
@@ -79,18 +97,21 @@ class ProductStockListPage extends StatelessWidget {
                     'quantityChange': quantityChange,
                     'oldQuantity': oldQuantity,
                     'newQuantity': newQuantity,
-                    'type': 'ADJUST', // Manual adjustment
+                    'type': 'ADJUST',
                     'notes': notes,
-                    'userId': currentUserId,
-                    'userDisplayName': currentUserName,
+                    'userId': finalUserId,
+
+                    // ✅ Correctly set the fetched name
+                    'user': finalUserName,
+                    'userDisplayName': finalUserName,
                     'timestamp': FieldValue.serverTimestamp(),
                   });
 
-                  // 2. Update the product's main stock level
-                  // ✅ CRITICAL FIX: We now send 'lastModifiedBy' so the Cloud Function knows who you are
+                  // 3. Update the Product with Signature
                   transaction.update(productRef, {
                     'quantiteEnStock': newQuantity,
-                    'lastModifiedBy': currentUserName, // <--- THIS FIXES THE PDF USER NAME
+                    // ✅ This stops "Système" and "Inconnu"
+                    'lastModifiedBy': finalUserName,
                     'lastModifiedAt': FieldValue.serverTimestamp(),
                   });
                 });
@@ -99,7 +120,7 @@ class ProductStockListPage extends StatelessWidget {
                   Navigator.of(context).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Stock pour ${productData['nom']} mis à jour!'),
+                      content: Text('Stock mis à jour par $finalUserName !'),
                       backgroundColor: Colors.green,
                     ),
                   );
@@ -121,7 +142,6 @@ class ProductStockListPage extends StatelessWidget {
               }
             }
             // --- End of Save Function ---
-
 
             return AlertDialog(
               title: Text(productData['nom'] ?? 'Ajuster le Stock'),
@@ -196,7 +216,6 @@ class ProductStockListPage extends StatelessWidget {
       },
     );
   }
-  // ✅ --- END OF REBUILT DIALOG ---
 
   @override
   Widget build(BuildContext context) {

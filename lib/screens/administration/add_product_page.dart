@@ -14,6 +14,7 @@ import 'package:file_picker/file_picker.dart';
 // ✅ ADDED: Imports for B2 upload helpers
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path; // Use 'as path' to avoid conflicts
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AddProductPage extends StatefulWidget {
   final DocumentSnapshot? productDoc;
@@ -588,6 +589,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   }
 
   // ✅ MODIFIED: _saveProduct to use new upload functions
+  // ✅ MODIFIED: _saveProduct with User Signature Fix
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) return;
     if (_mainCategory == null) {
@@ -640,6 +642,10 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       final allImageUrls = [..._existingImageUrls, ...newImageUrls];
       final allPdfData = [..._existingPdfData, ...newPdfData];
 
+      // ✅ GET CURRENT USER IDENTITY (Fix for "Système" user)
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final currentUserName = currentUser?.displayName ?? 'Inconnu';
+
       // Prepare product data for Firestore
       final productData = {
         'nom': _nomController.text.trim(),
@@ -651,7 +657,10 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         'origine': _origineController.text.trim(),
         'tags': tagsList,
         'imageUrls': allImageUrls,
-        'manualFiles': allPdfData, // Save combined list of PDF data
+        'manualFiles': allPdfData,
+
+        // 👇 THIS IS THE FIX: Explicitly sign the update
+        'lastModifiedBy': currentUserName,
       };
 
       if (_isEditing) {
