@@ -71,7 +71,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     super.dispose();
   }
 
-  // --- 1. BUILD METHOD (Restored) ---
+  // ✅ 1. BUILD METHOD
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -175,24 +175,32 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     }
   }
 
-  // --- 3. RESET FUNCTION (Admin Only) ---
+  // ✅ 3. SECURE RESET FUNCTION (ADMIN ONLY)
   Future<void> _resetAllStock() async {
+    // A. Check Role (Security)
     final String? role = await UserRoles.getCurrentUserRole();
+    print("🚨 DEBUG ROLE: Actuel='$role' vs Attendu='${UserRoles.admin}'");
 
+    // If you are NOT Admin, stop immediately.
     if (role != UserRoles.admin) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('⛔ Accès Refusé : Seul l\'Administrateur peut réinitialiser le stock.'),
             backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
+            duration: Duration(seconds: 4),
           ),
         );
       }
       return;
     }
 
+    // B. Hardcode the signature to "Admin" as requested
+    const String signatureName = UserRoles.admin; // "Admin"
+
     if (!mounted) return;
+
+    // C. Confirmation Dialog
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -232,9 +240,10 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
       WriteBatch batch = db.batch();
 
       for (var doc in snapshot.docs) {
+        // ✅ FIX: Use 'Admin' as the signature
         batch.update(doc.reference, {
           'quantiteEnStock': 0,
-          'lastModifiedBy': 'RESET ADMIN',
+          'lastModifiedBy': signatureName, // "Admin"
           'lastModifiedAt': FieldValue.serverTimestamp(),
         });
 
@@ -246,12 +255,14 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
           'oldQuantity': doc.data()['quantiteEnStock'] ?? 0,
           'newQuantity': 0,
           'type': 'RESET',
-          'user': 'Admin (Reset)',
+          'user': signatureName, // "Admin"
+          'notes': 'Reset Total',
           'timestamp': FieldValue.serverTimestamp(),
         });
 
         batchCount++;
 
+        // Commit in chunks of 200
         if (batchCount >= 200) {
           await batch.commit();
           batch = db.batch();
@@ -264,25 +275,36 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
       }
 
       if (mounted) {
-        Navigator.pop(context);
+        Navigator.pop(context); // Close loading
         scaffoldMessenger.showSnackBar(
           const SnackBar(
             content: Text('✅ Stock réinitialisé à 0 avec succès !'),
-            backgroundColor: Colors.redAccent,
+            backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        Navigator.pop(context); // Close loading
+
+        // Detailed error for debugging
+        String errorMsg = e.toString();
+        if (errorMsg.contains("PERMISSION_DENIED")) {
+          errorMsg = "Erreur de Permission: Vos règles de base de données exigent peut-être votre vrai nom.";
+        }
+
         scaffoldMessenger.showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(errorMsg),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     }
   }
 
-  // --- 4. SCANNER LOGIC (Smart User ID) ---
+  // --- 4. SCANNER LOGIC ---
   Future<void> _scanProduct(BuildContext context) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
@@ -475,8 +497,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
 
   // --- 5. HELPER WIDGETS ---
 
-  // Helper for Popup Menu Items
-  PopupMenuItem _buildMenuItem({
+  PopupMenuItem<dynamic> _buildMenuItem({
     required IconData icon,
     required String text,
     required VoidCallback onTap,
@@ -562,18 +583,17 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
           ),
           const SizedBox(width: 8),
 
-          // Menu Button (The Fix for Mobile Layout)
+          // Menu Button
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: PopupMenuButton<dynamic>( // ✅ Fixed: Added <dynamic>
+            child: PopupMenuButton<dynamic>(
               icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 26),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               offset: const Offset(0, 50),
               tooltip: 'Options',
-              // ✅ Fixed: Explicitly typed list to avoid "List<StatefulWidget>" error
               itemBuilder: (context) => <PopupMenuEntry<dynamic>>[
                 _buildMenuItem(
                   icon: Icons.assessment_outlined,
