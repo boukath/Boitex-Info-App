@@ -7,8 +7,11 @@ import 'package:boitex_info_app/services/analytics_service.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:boitex_info_app/screens/administration/activity_analytics_page.dart';
-import 'package:intl/intl.dart'; // ✅ Required for date formatting
-import 'package:boitex_info_app/screens/administration/stock_movements_page.dart'; // ✅ Added for navigation
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart'; // Required for locale
+import 'package:boitex_info_app/screens/administration/stock_movements_page.dart';
+// ✅ ADDED: Import for the Report Dialog
+import 'package:boitex_info_app/widgets/logistics_report_dialog.dart';
 
 class AnalyticsDashboardPage extends StatefulWidget {
   const AnalyticsDashboardPage({super.key});
@@ -34,6 +37,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
   @override
   void initState() {
     super.initState();
+    initializeDateFormatting('fr_FR', null);
     _tabController = TabController(length: 3, vsync: this);
     _statsStream = _service.getStatsStream();
   }
@@ -42,19 +46,6 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
   void dispose() {
     _tabController.dispose();
     super.dispose();
-  }
-
-  // 🧠 SMART FORMATTER: 410950 -> 410k
-  String _formatNumber(num number) {
-    if (number >= 1000000) {
-      double val = number / 1000000;
-      return "${val.toStringAsFixed(val >= 10 ? 0 : 1)}M";
-    }
-    if (number >= 1000) {
-      double val = number / 1000;
-      return "${val.toStringAsFixed(val >= 10 ? 0 : 1)}k";
-    }
-    return number.toString();
   }
 
   @override
@@ -69,6 +60,20 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
+        // ✅ ADDED: Action Button to Open PDF Dialog
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_rounded, color: Colors.black87),
+            tooltip: "Générer Rapport PDF",
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => const LogisticsReportDialog(),
+              );
+            },
+          ),
+          const SizedBox(width: 10),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.blue[700],
@@ -79,7 +84,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
           tabs: const [
             Tab(text: "Global"),
             Tab(text: "Opérations"),
-            Tab(text: "Logistique"),
+            Tab(text: "Logistique"), // This is the PRO tab
           ],
         ),
       ),
@@ -100,7 +105,8 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
             children: [
               _buildGlobalTab(stats),
               _buildOperationsTab(stats),
-              _buildLogisticsTabGoogleStyle(stats), // ✅ NEW GOOGLE STYLE TAB
+              // ✅ WE USE A SEPARATE WIDGET FOR THE PRO TAB TO MANAGE ITS OWN DATE STATE
+              LogisticsProTab(currentStats: stats),
             ],
           );
         },
@@ -183,383 +189,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
     );
   }
 
-  // ==============================================================================
-  // 🚀 3. LOGISTICS TAB (GOOGLE ANALYTICS STYLE) - ✅ NEW VERSION
-  // ==============================================================================
-  Widget _buildLogisticsTabGoogleStyle(AnalyticsStats stats) {
-    // 1. Calculate Totals based on History (or fallback to snapshot values)
-    int totalIn = stats.stockHistory.fold(0, (sum, item) => sum + item.incoming);
-    int totalOut = stats.stockHistory.fold(0, (sum, item) => sum + item.outgoing);
-    // If history is empty, use the monthly totals from stats object as fallback
-    if (stats.stockHistory.isEmpty) {
-      totalIn = stats.stockHealth['movements_in'] ?? 0;
-      totalOut = stats.stockHealth['movements_out'] ?? 0;
-    }
-
-    int netChange = totalIn - totalOut;
-
-    // 2. Stock Health Logic
-    int lowStock = stats.stockHealth['low_stock'] ?? 0;
-    int outOfStock = 5; // Example/Mock if not in stats
-    int healthy = 100 - lowStock - outOfStock; // Example
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 📊 SECTION 1: KEY PERFORMANCE INDICATORS (KPIs)
-          Text("Vue d'ensemble", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
-          const SizedBox(height: 15),
-          Row(
-            children: [
-              Expanded(
-                child: _buildDetailedKpiCard(
-                  "Entrées",
-                  "+$totalIn",
-                  Icons.arrow_circle_down_rounded,
-                  Colors.green,
-                  "Produits reçus",
-                  // ✅ ADDED TAP ACTION
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => const StockMovementsPage(type: StockMovementType.entry)
-                    ));
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildDetailedKpiCard(
-                  "Sorties",
-                  "-$totalOut",
-                  Icons.arrow_circle_up_rounded,
-                  Colors.redAccent,
-                  "Utilisés/Vendus",
-                  // ✅ ADDED TAP ACTION
-                  onTap: () {
-                    Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => const StockMovementsPage(type: StockMovementType.exit)
-                    ));
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildDetailedKpiCard(
-                  "Flux Net",
-                  "${netChange > 0 ? '+' : ''}$netChange",
-                  Icons.compare_arrows_rounded,
-                  netChange >= 0 ? Colors.blue : Colors.orange,
-                  "Variation",
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildDetailedKpiCard(
-                  "Alertes",
-                  "$lowStock",
-                  Icons.warning_amber_rounded,
-                  Colors.orangeAccent,
-                  "Stock critique",
-                  isAlert: true,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 30),
-
-          // 📈 SECTION 2: DUAL-LINE TREND CHART
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text("Tendances des Stocks", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
-              _buildLegendRow(),
-            ],
-          ),
-          const SizedBox(height: 15),
-          Container(
-            height: 320,
-            padding: const EdgeInsets.only(right: 20, left: 10, top: 20, bottom: 10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-            ),
-            child: stats.stockHistory.isEmpty
-                ? const Center(child: Text("Pas assez de données pour le graphique"))
-                : LineChart(_buildLogisticsLineChart(stats.stockHistory)),
-          ),
-
-          const SizedBox(height: 30),
-
-          // 🍩 SECTION 3: STOCK HEALTH DONUT
-          Text("Santé du Stock", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
-          const SizedBox(height: 15),
-          Container(
-            height: 250,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 4,
-                      centerSpaceRadius: 40,
-                      sections: [
-                        PieChartSectionData(
-                          value: lowStock.toDouble(),
-                          color: Colors.orangeAccent,
-                          title: "$lowStock",
-                          radius: 50,
-                          titleStyle: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
-                        PieChartSectionData(
-                          value: outOfStock.toDouble(),
-                          color: Colors.redAccent,
-                          title: "$outOfStock",
-                          radius: 45,
-                          titleStyle: GoogleFonts.poppins(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                        ),
-                        PieChartSectionData(
-                          value: healthy.toDouble(),
-                          color: const Color(0xFF4CAF50),
-                          title: "", // Clean look
-                          radius: 60,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSimpleLegend(const Color(0xFF4CAF50), "Sain"),
-                      const SizedBox(height: 10),
-                      _buildSimpleLegend(Colors.orangeAccent, "Faible"),
-                      const SizedBox(height: 10),
-                      _buildSimpleLegend(Colors.redAccent, "Rupture"),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 30),
-        ],
-      ),
-    );
-  }
-
-  // --- 🧩 HELPER WIDGETS FOR LOGISTICS ---
-
-  // ✅ UPDATED: Now accepts an onTap callback and uses GestureDetector
-  Widget _buildDetailedKpiCard(String title, String value, IconData icon, Color color, String subtitle, {bool isAlert = false, VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: isAlert ? Border.all(color: color.withOpacity(0.3), width: 1.5) : Border.all(color: Colors.transparent),
-          boxShadow: [BoxShadow(color: color.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, 4))],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                  child: Icon(icon, color: color, size: 20),
-                ),
-                // ✅ Show small indicator if clickable
-                if (onTap != null)
-                  Icon(Icons.chevron_right, size: 18, color: Colors.grey[300]),
-              ],
-            ),
-            const SizedBox(height: 12),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(value, style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)),
-            ),
-            const SizedBox(height: 2),
-            Text(title, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[800], fontWeight: FontWeight.w600)),
-            const SizedBox(height: 4),
-            Text(subtitle, style: GoogleFonts.poppins(fontSize: 10, color: color, fontWeight: FontWeight.w500)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLegendRow() {
-    return Row(
-      children: [
-        _buildLegendDot(Colors.green, "Entrées"),
-        const SizedBox(width: 12),
-        _buildLegendDot(Colors.redAccent, "Sorties"),
-      ],
-    );
-  }
-
-  Widget _buildLegendDot(Color color, String text) {
-    return Row(
-      children: [
-        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
-        Text(text, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500)),
-      ],
-    );
-  }
-
-  Widget _buildSimpleLegend(Color color, String text) {
-    return Row(
-      children: [
-        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4))),
-        const SizedBox(width: 8),
-        Text(text, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[700])),
-      ],
-    );
-  }
-
-  // --- 📈 CHART LOGIC ---
-
-  LineChartData _buildLogisticsLineChart(List<DailyStockStat> history) {
-    List<FlSpot> incomingSpots = [];
-    List<FlSpot> outgoingSpots = [];
-    double maxY = 0;
-
-    for (int i = 0; i < history.length; i++) {
-      final stat = history[i];
-      incomingSpots.add(FlSpot(i.toDouble(), stat.incoming.toDouble()));
-      outgoingSpots.add(FlSpot(i.toDouble(), stat.outgoing.toDouble()));
-
-      if (stat.incoming > maxY) maxY = stat.incoming.toDouble();
-      if (stat.outgoing > maxY) maxY = stat.outgoing.toDouble();
-    }
-
-    // Add buffer to Y axis
-    maxY = maxY * 1.2;
-    if (maxY == 0) maxY = 10;
-
-    return LineChartData(
-      gridData: FlGridData(
-        show: true,
-        drawVerticalLine: false,
-        horizontalInterval: maxY / 5,
-        getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1),
-      ),
-      titlesData: FlTitlesData(
-        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            getTitlesWidget: (value, meta) {
-              int index = value.toInt();
-              if (index >= 0 && index < history.length) {
-                // Show date every 2 or 3 items to avoid clutter
-                if (history.length > 7 && index % 2 != 0) return const SizedBox.shrink();
-
-                final date = history[index].date;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    DateFormat('dd/MM').format(date),
-                    style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey),
-                  ),
-                );
-              }
-              return const SizedBox.shrink();
-            },
-            interval: 1,
-          ),
-        ),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 30,
-            interval: maxY / 5,
-            getTitlesWidget: (value, meta) {
-              if (value == 0) return const Text('');
-              return Text(value.toInt().toString(), style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey));
-            },
-          ),
-        ),
-      ),
-      borderData: FlBorderData(show: false),
-      minX: 0,
-      maxX: (history.length - 1).toDouble(),
-      minY: 0,
-      maxY: maxY,
-      lineBarsData: [
-        // 🟢 Incoming Line (Green)
-        LineChartBarData(
-          spots: incomingSpots,
-          isCurved: true,
-          color: Colors.green,
-          barWidth: 3,
-          isStrokeCapRound: true,
-          dotData: const FlDotData(show: false),
-          belowBarData: BarAreaData(
-            show: true,
-            color: Colors.green.withOpacity(0.1),
-          ),
-        ),
-        // 🔴 Outgoing Line (Red)
-        LineChartBarData(
-          spots: outgoingSpots,
-          isCurved: true,
-          color: Colors.redAccent,
-          barWidth: 3,
-          isStrokeCapRound: true,
-          dotData: const FlDotData(show: false),
-          belowBarData: BarAreaData(
-            show: true,
-            color: Colors.redAccent.withOpacity(0.05),
-          ),
-        ),
-      ],
-      lineTouchData: LineTouchData(
-        touchTooltipData: LineTouchTooltipData(
-          tooltipRoundedRadius: 8,
-          getTooltipItems: (touchedSpots) {
-            return touchedSpots.map((spot) {
-              final isIncoming = spot.barIndex == 0;
-              return LineTooltipItem(
-                "${isIncoming ? 'Entrées' : 'Sorties'}: ${spot.y.toInt()}",
-                GoogleFonts.poppins(
-                  color: isIncoming ? Colors.green : Colors.redAccent,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              );
-            }).toList();
-          },
-        ),
-      ),
-    );
-  }
-
-  // --- 🏷️ HELPER FOR GLOBAL TAB (OLD STYLE) ---
+  // --- 🏷️ HELPERS FOR GLOBAL TAB ---
   Widget _buildSimpleKpiCard(String title, String value, IconData icon, Color color) {
     return Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))]), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Icon(icon, color: color, size: 20), const Spacer(), Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(4)), child: Text("Mois", style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)))]), const SizedBox(height: 12), FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87))), const SizedBox(height: 4), Text(title, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]))]));
   }
@@ -617,4 +247,445 @@ class _ActivityStyle {
   final Color color;
   final IconData icon;
   _ActivityStyle(this.color, this.icon);
+}
+
+// ==================================================================================
+// 🌟 PRO LOGISTICS TAB (SEPARATE WIDGET FOR DATE STATE MANAGEMENT)
+// ==================================================================================
+
+class LogisticsProTab extends StatefulWidget {
+  final AnalyticsStats currentStats;
+  const LogisticsProTab({super.key, required this.currentStats});
+
+  @override
+  State<LogisticsProTab> createState() => _LogisticsProTabState();
+}
+
+class _LogisticsProTabState extends State<LogisticsProTab> {
+  DateTime _selectedDate = DateTime.now();
+  List<DailyStockStat> _historyData = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistoryForMonth(_selectedDate);
+  }
+
+  // 📅 QUERY FIRESTORE FOR SPECIFIC MONTH
+  Future<void> _fetchHistoryForMonth(DateTime date) async {
+    setState(() => _isLoading = true);
+
+    final startOfMonth = DateTime(date.year, date.month, 1);
+    final endOfMonth = DateTime(date.year, date.month + 1, 1);
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collectionGroup('stock_history')
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+          .where('timestamp', isLessThan: Timestamp.fromDate(endOfMonth))
+          .get();
+
+      final dailyMap = <int, DailyStockStat>{}; // Day -> Stat
+
+      // Process documents
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final timestamp = (data['timestamp'] as Timestamp).toDate();
+        final change = (data['change'] ?? 0) as int;
+        final day = timestamp.day;
+
+        if (!dailyMap.containsKey(day)) {
+          dailyMap[day] = DailyStockStat(date: timestamp, incoming: 0, outgoing: 0);
+        }
+
+        // Accumulate
+        if (change > 0) {
+          dailyMap[day] = DailyStockStat(
+            date: timestamp,
+            incoming: dailyMap[day]!.incoming + change,
+            outgoing: dailyMap[day]!.outgoing,
+          );
+        } else {
+          dailyMap[day] = DailyStockStat(
+            date: timestamp,
+            incoming: dailyMap[day]!.incoming,
+            outgoing: dailyMap[day]!.outgoing + change.abs(),
+          );
+        }
+      }
+
+      // Convert Map to List and Sort
+      final sortedList = dailyMap.values.toList()
+        ..sort((a, b) => a.date.day.compareTo(b.date.day));
+
+      setState(() {
+        _historyData = sortedList;
+        _isLoading = false;
+      });
+
+    } catch (e) {
+      debugPrint("Error fetching history: $e");
+      setState(() => _isLoading = false);
+    }
+  }
+
+  // 🗓️ SELECT DATE DIALOG
+  Future<void> _pickMonth() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2022),
+      lastDate: DateTime(2030),
+      locale: const Locale('fr', 'FR'),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(primary: Color(0xFF667EEA)),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+      _fetchHistoryForMonth(picked);
+    }
+  }
+
+  void _changeMonth(int offset) {
+    final newDate = DateTime(_selectedDate.year, _selectedDate.month + offset, 1);
+    setState(() => _selectedDate = newDate);
+    _fetchHistoryForMonth(newDate);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Calculate Totals for the SELECTED month
+    int totalIn = _historyData.fold(0, (sum, item) => sum + item.incoming);
+    int totalOut = _historyData.fold(0, (sum, item) => sum + item.outgoing);
+    int netChange = totalIn - totalOut;
+
+    // Use Global Stats for Snapshot Data (Alerts, Health)
+    int lowStock = widget.currentStats.stockHealth['low_stock'] ?? 0;
+    int outOfStock = 5; // Example threshold
+    int healthy = 100 - lowStock - outOfStock;
+
+    final dateLabel = DateFormat.yMMMM('fr_FR').format(_selectedDate);
+    final formattedDateLabel = dateLabel[0].toUpperCase() + dateLabel.substring(1);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 🗓️ HEADER: DATE SELECTOR
+          Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(icon: const Icon(Icons.chevron_left_rounded), onPressed: () => _changeMonth(-1)),
+                GestureDetector(
+                  onTap: _pickMonth,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_month_rounded, color: Color(0xFF667EEA)),
+                      const SizedBox(width: 8),
+                      Text(
+                        formattedDateLabel,
+                        style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(icon: const Icon(Icons.chevron_right_rounded), onPressed: () => _changeMonth(1)),
+              ],
+            ),
+          ),
+
+          // 📊 DYNAMIC KPIS (Based on Selected Month)
+          Row(
+            children: [
+              Expanded(
+                child: _buildDetailedKpiCard(
+                  "Entrées",
+                  "+$totalIn",
+                  Icons.arrow_circle_down_rounded,
+                  Colors.green,
+                  "Ce mois-ci",
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockMovementsPage(type: StockMovementType.entry))),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildDetailedKpiCard(
+                  "Sorties",
+                  "-$totalOut",
+                  Icons.arrow_circle_up_rounded,
+                  Colors.redAccent,
+                  "Ce mois-ci",
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockMovementsPage(type: StockMovementType.exit))),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _buildDetailedKpiCard("Flux Net", "${netChange > 0 ? '+' : ''}$netChange", Icons.compare_arrows_rounded, netChange >= 0 ? Colors.blue : Colors.orange, "Variation")),
+              const SizedBox(width: 12),
+              Expanded(child: _buildDetailedKpiCard("Alertes", "$lowStock", Icons.warning_amber_rounded, Colors.orangeAccent, "Stock actuel", isAlert: true)),
+            ],
+          ),
+
+          const SizedBox(height: 30),
+
+          // 📈 PRO BAR CHART
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Flux Journaliers", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
+              _buildLegendRow(),
+            ],
+          ),
+          const SizedBox(height: 15),
+
+          Container(
+            height: 340,
+            padding: const EdgeInsets.fromLTRB(10, 24, 10, 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _historyData.isEmpty
+                ? Center(child: Text("Aucun mouvement en $formattedDateLabel", style: GoogleFonts.poppins(color: Colors.grey)))
+                : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: _historyData.length < 7
+                    ? MediaQuery.of(context).size.width - 64
+                    : _historyData.length * 60.0,
+                child: _buildLogisticsBarChart(_historyData),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 30),
+
+          // 🍩 DONUT CHART (Current Status)
+          Text("Santé du Stock (Actuel)", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
+          const SizedBox(height: 15),
+          Container(
+            height: 250,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: PieChart(
+                    PieChartData(
+                      sectionsSpace: 4,
+                      centerSpaceRadius: 40,
+                      sections: [
+                        PieChartSectionData(value: lowStock.toDouble(), color: Colors.orangeAccent, title: "$lowStock", radius: 50, titleStyle: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
+                        PieChartSectionData(value: outOfStock.toDouble(), color: Colors.redAccent, title: "$outOfStock", radius: 45, titleStyle: GoogleFonts.poppins(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                        PieChartSectionData(value: healthy.toDouble(), color: const Color(0xFF4CAF50), title: "", radius: 60),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSimpleLegend(const Color(0xFF4CAF50), "Sain"),
+                      const SizedBox(height: 10),
+                      _buildSimpleLegend(Colors.orangeAccent, "Faible"),
+                      const SizedBox(height: 10),
+                      _buildSimpleLegend(Colors.redAccent, "Rupture"),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
+
+  // --- CHART BUILDER ---
+  Widget _buildLogisticsBarChart(List<DailyStockStat> history) {
+    double maxY = 0;
+    for (var stat in history) {
+      if (stat.incoming > maxY) maxY = stat.incoming.toDouble();
+      if (stat.outgoing > maxY) maxY = stat.outgoing.toDouble();
+    }
+    if (maxY == 0) maxY = 10;
+    maxY = maxY * 1.1;
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.center,
+        maxY: maxY,
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchCallback: (FlTouchEvent event, barTouchResponse) {
+            if (!event.isInterestedForInteractions || barTouchResponse == null || barTouchResponse.spot == null) return;
+            if (event is FlTapUpEvent) {
+              // Navigate to Details on Tap
+              final rodIndex = barTouchResponse.spot!.touchedRodDataIndex;
+              final isEntry = rodIndex == 0;
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => StockMovementsPage(type: isEntry ? StockMovementType.entry : StockMovementType.exit)
+              ));
+            }
+          },
+          touchTooltipData: BarTouchTooltipData(
+            tooltipRoundedRadius: 8,
+            tooltipPadding: const EdgeInsets.all(12),
+            tooltipMargin: 8,
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final isEntry = rodIndex == 0;
+              final dateStr = DateFormat('d MMM', 'fr_FR').format(history[groupIndex].date);
+              return BarTooltipItem(
+                '$dateStr\n',
+                GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                children: <TextSpan>[
+                  TextSpan(
+                    text: '${isEntry ? 'Entrées' : 'Sorties'}: ${rod.toY.toInt()}',
+                    style: GoogleFonts.poppins(color: isEntry ? Colors.greenAccent : Colors.redAccent.shade100, fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 60,
+              getTitlesWidget: (double value, TitleMeta meta) {
+                int index = value.toInt();
+                if (index >= 0 && index < history.length) {
+                  final date = history[index].date;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Column(
+                      children: [
+                        Text(DateFormat('dd').format(date), style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87)),
+                        Text(DateFormat('MMM', 'fr_FR').format(date), style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey)),
+                      ],
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+        gridData: FlGridData(show: true, drawVerticalLine: false, horizontalInterval: maxY / 5, getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.withOpacity(0.1), strokeWidth: 1)),
+        borderData: FlBorderData(show: false),
+        groupsSpace: 25,
+        barGroups: history.asMap().entries.map((entry) {
+          final index = entry.key;
+          final stat = entry.value;
+          return BarChartGroupData(
+            x: index,
+            barRods: [
+              BarChartRodData(toY: stat.incoming.toDouble(), color: const Color(0xFF10B981), width: 14, borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4))),
+              BarChartRodData(toY: stat.outgoing.toDouble(), color: const Color(0xFFEF4444), width: 14, borderRadius: const BorderRadius.only(topLeft: Radius.circular(4), topRight: Radius.circular(4))),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildDetailedKpiCard(String title, String value, IconData icon, Color color, String subtitle, {bool isAlert = false, VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: isAlert ? Border.all(color: color.withOpacity(0.3), width: 1.5) : Border.all(color: Colors.transparent),
+          boxShadow: [BoxShadow(color: color.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle), child: Icon(icon, color: color, size: 20)),
+                if (onTap != null) Icon(Icons.chevron_right, size: 18, color: Colors.grey[300]),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87))),
+            const SizedBox(height: 2),
+            Text(title, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[800], fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(subtitle, style: GoogleFonts.poppins(fontSize: 10, color: color, fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLegendRow() {
+    return Row(
+      children: [
+        _buildLegendDot(const Color(0xFF10B981), "Entrées"),
+        const SizedBox(width: 12),
+        _buildLegendDot(const Color(0xFFEF4444), "Sorties"),
+      ],
+    );
+  }
+
+  Widget _buildLegendDot(Color color, String text) {
+    return Row(
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text(text, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500)),
+      ],
+    );
+  }
+
+  Widget _buildSimpleLegend(Color color, String text) {
+    return Row(
+      children: [
+        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4))),
+        const SizedBox(width: 8),
+        Text(text, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+      ],
+    );
+  }
 }

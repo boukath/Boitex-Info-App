@@ -71,7 +71,7 @@ class ProductStockListPage extends StatelessWidget {
               try {
                 // Use a transaction for safety
                 await db.runTransaction((transaction) async {
-                  // 1. Create the new Stock Movement Log
+                  // 1. Create the new Stock Movement Log (Your Ledger)
                   transaction.set(ledgerRef, {
                     'productId': productDoc.id,
                     'productRef': productData['reference'] ?? 'N/A',
@@ -87,8 +87,11 @@ class ProductStockListPage extends StatelessWidget {
                   });
 
                   // 2. Update the product's main stock level
+                  // ✅ CRITICAL FIX: We now send 'lastModifiedBy' so the Cloud Function knows who you are
                   transaction.update(productRef, {
                     'quantiteEnStock': newQuantity,
+                    'lastModifiedBy': currentUserName, // <--- THIS FIXES THE PDF USER NAME
+                    'lastModifiedAt': FieldValue.serverTimestamp(),
                   });
                 });
 

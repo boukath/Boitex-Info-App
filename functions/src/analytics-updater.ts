@@ -278,20 +278,32 @@ export const onProductStockChanged = functions.region("europe-west1").firestore.
   const diff = newQty - oldQty;
   const productId = context.params.productId;
 
-  console.log(`Detected stock change for ${productId}: ${oldQty} -> ${newQty} (Diff: ${diff})`);
+  // ✅ ROBUST USER DETECTION
+  // We check 'lastModifiedBy' explicitly.
+  // If it's missing, undefined, or null, ONLY THEN do we fallback.
+  let userName = "Système";
 
-  // 3. Create the History Record automatically
+  if (after.lastModifiedBy && typeof after.lastModifiedBy === 'string' && after.lastModifiedBy.trim() !== '') {
+    userName = after.lastModifiedBy;
+  }
+
+  const productName = after.nom || "Produit Inconnu";
+
+  console.log(`STK_UPDATE: ${productId} | Qty: ${oldQty}->${newQty} | User: '${userName}' (Raw field: '${after.lastModifiedBy}')`);
+
+  // 3. Create the History Record
   try {
     await admin.firestore().collection(`produits/${productId}/stock_history`).add({
       change: diff,
       previousStock: oldQty,
       newStock: newQty,
-      reason: "Mise à jour manuelle", // Default reason
+      reason: "Mise à jour manuelle",
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      user: "Système", // Or fetch user if possible, but 'System' is fine for auto-updates
+      user: userName, // ✅ Uses the robustly detected name
+      productName: productName,
       type: diff > 0 ? "Entrée" : "Sortie"
     });
-    console.log("✅ History record created.");
+    console.log("✅ History record created successfully.");
   } catch (error) {
     console.error("❌ Failed to create history record:", error);
   }

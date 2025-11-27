@@ -27,20 +27,43 @@ class _StockMovementsPageState extends State<StockMovementsPage> {
     initializeDateFormatting('fr_FR', null);
   }
 
-  // Generate the last 12 months for the tabs
-  List<DateTime> _getTabMonths() {
-    List<DateTime> months = [];
-    DateTime now = DateTime.now();
-    for (int i = 0; i < 12; i++) {
-      months.add(DateTime(now.year, now.month - i, 1));
-    }
-    return months;
+  // ⏩ Navigate Next/Previous Month
+  void _changeMonth(int monthsToAdd) {
+    setState(() {
+      _selectedMonth = DateTime(
+        _selectedMonth.year,
+        _selectedMonth.month + monthsToAdd,
+        1,
+      );
+    });
   }
 
-  void _onMonthSelected(DateTime month) {
-    setState(() {
-      _selectedMonth = month;
-    });
+  // 📅 Pick Any Date (Jump to 2026 etc)
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedMonth,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      locale: const Locale("fr", "FR"),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: widget.type == StockMovementType.entry ? Colors.green : Colors.redAccent,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        // Always set to the 1st of the picked month to avoid bugs
+        _selectedMonth = DateTime(picked.year, picked.month, 1);
+      });
+    }
   }
 
   @override
@@ -53,6 +76,10 @@ class _StockMovementsPageState extends State<StockMovementsPage> {
     // Calculate Start and End of the selected month for the query
     final startOfMonth = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
     final endOfMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+
+    final monthLabel = DateFormat.yMMMM('fr_FR').format(_selectedMonth);
+    // Capitalize first letter (e.g., "novembre" -> "Novembre")
+    final formattedDate = monthLabel[0].toUpperCase() + monthLabel.substring(1);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
@@ -67,62 +94,69 @@ class _StockMovementsPageState extends State<StockMovementsPage> {
       ),
       body: Column(
         children: [
-          // 🗓️ MONTH SELECTOR TABS
+          // 🗓️ NEW: NAVIGATION HEADER
           Container(
-            height: 70,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             color: Colors.white,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              itemCount: _getTabMonths().length,
-              itemBuilder: (context, index) {
-                final monthDate = _getTabMonths()[index];
-                final isSelected = monthDate.month == _selectedMonth.month &&
-                    monthDate.year == _selectedMonth.year;
-                final label = DateFormat.yMMMM('fr_FR').format(monthDate);
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Previous Month Button
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left_rounded),
+                    onPressed: () => _changeMonth(-1),
+                    color: Colors.grey.shade700,
+                  ),
 
-                return GestureDetector(
-                  onTap: () => _onMonthSelected(monthDate),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    margin: const EdgeInsets.only(right: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected ? themeColor : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: isSelected
-                          ? [BoxShadow(color: themeColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))]
-                          : [],
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      label[0].toUpperCase() + label.substring(1), // Capitalize first letter
-                      style: GoogleFonts.poppins(
-                        color: isSelected ? Colors.white : Colors.grey.shade700,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
+                  // Date Display (Clickable)
+                  GestureDetector(
+                    onTap: _pickDate,
+                    child: Row(
+                      children: [
+                        Icon(Icons.calendar_month_rounded, size: 18, color: themeColor),
+                        const SizedBox(width: 8),
+                        Text(
+                          formattedDate,
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                );
-              },
+
+                  // Next Month Button
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right_rounded),
+                    onPressed: () => _changeMonth(1),
+                    color: Colors.grey.shade700,
+                  ),
+                ],
+              ),
             ),
           ),
 
-          // 📄 LIST OF MOVEMENTS
+          // 📄 LIST OF MOVEMENTS (Same robust logic as before)
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collectionGroup('stock_history')
-                  .where('type', isEqualTo: typeString) // Filter by "Entrée" or "Sortie"
-                  .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth)) // Start Date
-                  .where('timestamp', isLessThan: Timestamp.fromDate(endOfMonth)) // End Date
-                  .orderBy('timestamp', descending: true) // ✅ SORTED NEWEST FIRST
+                  .where('type', isEqualTo: typeString)
+                  .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+                  .where('timestamp', isLessThan: Timestamp.fromDate(endOfMonth))
+                  .orderBy('timestamp', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  print("Error: ${snapshot.error}");
-                  return Center(child: Text("Erreur de chargement (Vérifiez les index)"));
+                  return Center(child: Text("Erreur: ${snapshot.error}"));
                 }
 
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -134,10 +168,10 @@ class _StockMovementsPageState extends State<StockMovementsPage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.history_toggle_off, size: 60, color: Colors.grey.shade300),
+                        Icon(Icons.search_off_rounded, size: 60, color: Colors.grey.shade300),
                         const SizedBox(height: 16),
                         Text(
-                          "Aucun mouvement pour ce mois.",
+                          "Aucun mouvement en $formattedDate",
                           style: GoogleFonts.poppins(color: Colors.grey.shade500),
                         ),
                       ],
@@ -157,10 +191,10 @@ class _StockMovementsPageState extends State<StockMovementsPage> {
                     final user = data['user'] ?? "Inconnu";
                     final timestamp = data['timestamp'] as Timestamp?;
                     final dateStr = timestamp != null
-                        ? DateFormat('dd MMM yyyy • HH:mm', 'fr_FR').format(timestamp.toDate())
+                        ? DateFormat('dd MMM • HH:mm', 'fr_FR').format(timestamp.toDate())
                         : "Date inconnue";
 
-                    // Fetch Parent Product (We need to go up the reference tree)
+                    // Fetch Parent Product
                     final productRef = docs[index].reference.parent.parent;
 
                     return Card(
@@ -183,51 +217,39 @@ class _StockMovementsPageState extends State<StockMovementsPage> {
                         title: FutureBuilder<DocumentSnapshot>(
                           future: productRef!.get(),
                           builder: (context, productSnap) {
-                            if (!productSnap.hasData) return Text("Chargement...", style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey));
-
+                            if (!productSnap.hasData) return Text("...", style: GoogleFonts.poppins(color: Colors.grey));
                             final productData = productSnap.data!.data() as Map<String, dynamic>?;
-                            final productName = productData?['nom'] ?? productData?['name'] ?? "Produit Supprimé";
-
+                            final productName = productData?['nom'] ?? "Produit Inconnu";
                             return Text(
                               productName,
                               style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 15),
                             );
                           },
                         ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 4.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text("$reason", style: GoogleFonts.poppins(fontSize: 13, color: Colors.black87)),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  Icon(Icons.person_outline, size: 14, color: Colors.grey),
-                                  const SizedBox(width: 4),
-                                  Text(user, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey)),
-                                  const SizedBox(width: 10),
-                                  Icon(Icons.access_time, size: 14, color: Colors.grey),
-                                  const SizedBox(width: 4),
-                                  Text(dateStr, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: themeColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            "${isEntry ? '+' : ''}$change",
-                            style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: themeColor,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(reason, style: GoogleFonts.poppins(fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(Icons.person_outline, size: 12, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Text(user, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey)),
+                                const SizedBox(width: 12),
+                                Icon(Icons.access_time, size: 12, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Text(dateStr, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey)),
+                              ],
                             ),
+                          ],
+                        ),
+                        trailing: Text(
+                          "${isEntry ? '+' : ''}$change",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: themeColor,
                           ),
                         ),
                       ),
