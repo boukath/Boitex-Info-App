@@ -11,6 +11,7 @@ import 'package:boitex_info_app/api/firebase_api.dart';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/home/notifications_page.dart';
+import 'package:boitex_info_app/screens/settings/global_settings_page.dart'; // ✅ ADDED
 
 class HomePage extends StatefulWidget {
   final String userRole;
@@ -306,6 +307,34 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             _buildNotificationBell(context),
 
             const SizedBox(width: 16),
+
+            // ⚙️ ✅ NEW: SETTINGS BUTTON (Only for Admins)
+            if (RolePermissions.canSeeAdminCard(widget.userRole)) ...[
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.3),
+                    width: 1.5,
+                  ),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.settings_rounded, color: Colors.white, size: 20),
+                  tooltip: 'Paramètres',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => GlobalSettingsPage(userRole: widget.userRole),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+            ],
+
             // Logout Button
             Container(
               decoration: BoxDecoration(
@@ -612,6 +641,32 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           _buildNotificationBell(context),
 
                           const SizedBox(width: 8),
+
+                          // ⚙️ ✅ NEW: SETTINGS BUTTON (Mobile)
+                          if (RolePermissions.canSeeAdminCard(widget.userRole)) ...[
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.3),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: IconButton(
+                                icon: const Icon(Icons.settings_rounded, color: Colors.white, size: 18),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => GlobalSettingsPage(userRole: widget.userRole),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
 
                           // Logout button
                           Container(

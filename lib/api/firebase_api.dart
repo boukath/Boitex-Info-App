@@ -259,12 +259,14 @@ class FirebaseApi {
 
     String? token;
 
+    // 1. Get the token based on the platform
     if (kIsWeb) {
       // Use your VAPID key here
       token = await _firebaseMessaging.getToken(
         vapidKey: "BHexKZZ060QNgZVUSRoBXyIcTP-jyxDUo1-M6o0mPbeYFFaQo9OIyRfw15hGBNtHSo9jbQldoiauFjE1FlI5iXo",
       );
     } else {
+      // Mobile (Android/iOS)
       token = await _firebaseMessaging.getToken();
     }
 
@@ -273,12 +275,19 @@ class FirebaseApi {
       return;
     }
 
-    print('💾 Saving FCM token: $token');
+    // 2. Decide which field to update
+    // We update ONE specific field and leave the other one alone.
+    final tokenField = kIsWeb ? 'fcmTokenWeb' : 'fcmTokenMobile';
+
+    print('💾 Saving $tokenField: $token');
+
+    // 3. Save to Firestore
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-      'fcmToken': token,
+      tokenField: token, // <--- Saves to either 'fcmTokenWeb' or 'fcmTokenMobile'
       'lastTokenUpdate': FieldValue.serverTimestamp(),
+      'platform': kIsWeb ? 'web' : 'mobile', // Optional: Helps you debug later
     }, SetOptions(merge: true));
 
-    print('✅ FCM token saved successfully');
+    print('✅ Token saved successfully to $tokenField');
   }
 }
