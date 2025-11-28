@@ -6,9 +6,7 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 // CONSTANTS & CONFIGURATION
 // ------------------------------------------------------------------
 
-const MANAGERS_TOPIC = "manager_notifications";
-const TECH_ST_TOPIC = "technician_st_alerts";
-const TECH_IT_TOPIC = "technician_it_alerts";
+// ✅ RESTORED: The compiler will accept this now because we use it below.
 const GLOBAL_ANNOUNCEMENTS_TOPIC = "GLOBAL_ANNOUNCEMENTS";
 
 // Role Lists (Synced with user_roles.dart)
@@ -42,50 +40,6 @@ admin.firestore().collection("activity_log").add({
   });
 };
 
-const notifyManagers = async (title: string, body: string) => {
-  // Topic pushes are broadcast and cannot be filtered per-user easily.
-  const message = {
-    notification: {title, body},
-    topic: MANAGERS_TOPIC,
-  };
-  try {
-    await admin.messaging().send(message);
-    console.log(`✅ Sent manager notification: ${title}`);
-  } catch (error) {
-    console.error("❌ Error sending manager notification:", error);
-  }
-};
-
-const notifyServiceTechnique = async (title: string, body: string) => {
-  const message = {
-    notification: {title, body},
-    topic: TECH_ST_TOPIC,
-  };
-  try {
-    await admin.messaging().send(message);
-    console.log(`✅ Sent Service Technique notification: ${title}`);
-  } catch (error) {
-    console.error("❌ Error sending ST notification:", error);
-  }
-};
-
-const notifyServiceIT = async (title: string, body: string) => {
-  const message = {
-    notification: {title, body},
-    topic: TECH_IT_TOPIC,
-  };
-  try {
-    await admin.messaging().send(message);
-    console.log(`✅ Sent Service IT notification: ${title}`);
-  } catch (error) {
-    console.error("❌ Error sending SIT notification:", error);
-  }
-};
-
-// ------------------------------------------------------------------
-// INBOX & WEB PUSH HELPERS (WITH SETTINGS FILTER 🛡️)
-// ------------------------------------------------------------------
-
 /**
  * Creates a new notification document in the 'user_notifications' collection.
  */
@@ -101,18 +55,20 @@ const createUserNotification = (data: {
     ...data,
     isRead: data.isRead || false,
     timestamp: admin.firestore.FieldValue.serverTimestamp(),
-  }).then(() => {
-    console.log(`✅ User notification created for: ${data.userId}`);
   }).catch((err) => {
     console.error("❌ Error creating user notification:", err);
   });
 };
 
+// ------------------------------------------------------------------
+// SMART NOTIFICATION ENGINE (TOKENS ONLY) 🧠
+// ------------------------------------------------------------------
+
 interface UserData {
   uid: string;
   fcmTokenWeb?: string;
   fcmTokenMobile?: string;
-  notificationSettings?: { [key: string]: boolean }; // ✅ Added Settings
+  notificationSettings?: { [key: string]: boolean };
 }
 
 const getUsersForRoles = async (roles: string[]): Promise<UserData[]> => {
@@ -132,7 +88,7 @@ const getUsersForRoles = async (roles: string[]): Promise<UserData[]> => {
           uid: doc.id,
           fcmTokenWeb: d.fcmTokenWeb,
           fcmTokenMobile: d.fcmTokenMobile,
-          notificationSettings: d.notificationSettings, // ✅ Fetch settings
+          notificationSettings: d.notificationSettings,
         });
       }
     }
@@ -143,6 +99,12 @@ const getUsersForRoles = async (roles: string[]): Promise<UserData[]> => {
   }
 };
 
+/**
+ * Sends notifications to a list of roles.
+ * - Checks User Settings first 🛡️
+ * - Sends to Inbox
+ * - Sends Push to BOTH Mobile and Web tokens
+ */
 const createNotificationsForRoles = async (
   roles: string[],
   notificationData: {
@@ -151,7 +113,7 @@ const createNotificationsForRoles = async (
     relatedDocId?: string;
     relatedCollection?: string;
   },
-  category?: string // ✅ New Parameter: The setting key to check
+  category?: string
 ) => {
   let users = await getUsersForRoles(roles);
   if (users.length === 0) return;
@@ -159,7 +121,7 @@ const createNotificationsForRoles = async (
   // ✅ FILTER: Remove users who turned this category OFF
   if (category) {
     users = users.filter((u) => {
-      // If setting exists and is FALSE, we skip. Otherwise (true or undefined), we send.
+      // If setting exists and is FALSE, we skip.
       if (u.notificationSettings && u.notificationSettings[category] === false) {
         return false;
       }
@@ -168,9 +130,14 @@ const createNotificationsForRoles = async (
   }
 
   const {title, body, relatedDocId, relatedCollection} = notificationData;
+  const tokensToSend: string[] = [];
 
-  // 1. Inbox Items
+  // 1. Inbox Items & Token Collection
   const promises = users.map((user) => {
+    // Collect tokens for this valid user
+    if (user.fcmTokenWeb) tokensToSend.push(user.fcmTokenWeb);
+    if (user.fcmTokenMobile) tokensToSend.push(user.fcmTokenMobile);
+
     return createUserNotification({
       userId: user.uid,
       title,
@@ -180,20 +147,16 @@ const createNotificationsForRoles = async (
     });
   });
 
-  // 2. Web Push (Direct Dial)
-  const webTokens = users
-    .map(u => u.fcmTokenWeb)
-    .filter((t): t is string => !!t);
-
-  if (webTokens.length > 0) {
+  // 2. Send Push (Multicast to Mobile + Web)
+  if (tokensToSend.length > 0) {
     try {
       await admin.messaging().sendEachForMulticast({
-        tokens: webTokens,
+        tokens: tokensToSend,
         notification: { title, body }
       });
-      console.log(`✅ Sent Web Push to ${webTokens.length} users.`);
+      console.log(`✅ Sent Push to ${tokensToSend.length} devices (Mobile+Web).`);
     } catch (error) {
-      console.error("❌ Error sending Web Push:", error);
+      console.error("❌ Error sending Push:", error);
     }
   }
 
@@ -234,7 +197,6 @@ const createNotificationsForAllUsers = async (
   let users = await getUsersForAllUsers();
   if (users.length === 0) return;
 
-  // ✅ FILTER
   if (category) {
     users = users.filter((u) => {
       if (u.notificationSettings && u.notificationSettings[category] === false) {
@@ -245,9 +207,12 @@ const createNotificationsForAllUsers = async (
   }
 
   const {title, body, relatedDocId, relatedCollection} = notificationData;
+  const tokensToSend: string[] = [];
 
-  // 1. Inbox
   const promises = users.map((user) => {
+    if (user.fcmTokenWeb) tokensToSend.push(user.fcmTokenWeb);
+    if (user.fcmTokenMobile) tokensToSend.push(user.fcmTokenMobile);
+
     return createUserNotification({
       userId: user.uid,
       title,
@@ -257,20 +222,14 @@ const createNotificationsForAllUsers = async (
     });
   });
 
-  // 2. Web Push
-  const webTokens = users
-    .map(u => u.fcmTokenWeb)
-    .filter((t): t is string => !!t);
-
-  if (webTokens.length > 0) {
+  if (tokensToSend.length > 0) {
     try {
       await admin.messaging().sendEachForMulticast({
-        tokens: webTokens,
+        tokens: tokensToSend,
         notification: { title, body }
       });
-      console.log(`✅ Sent Global Web Push to ${webTokens.length} users.`);
     } catch (error) {
-      console.error("❌ Error sending Global Web Push:", error);
+      console.error("❌ Error sending Global Push:", error);
     }
   }
 
@@ -281,10 +240,6 @@ const convertTopicsToRoles = (topics: string[]): string[] => {
   return topics.map((topic) => topic.replace(/_/g, " "));
 };
 
-/**
- * Targeted Notifications for specific UIDs (e.g. Assigned Team).
- * Sends to Mobile & Web tokens + Inbox.
- */
 const createNotificationsForUsers = async (
   uids: string[],
   notificationData: {
@@ -300,26 +255,21 @@ const createNotificationsForUsers = async (
   const {title, body, relatedDocId, relatedCollection} = notificationData;
   const tokensToSend: string[] = [];
 
-  // 1. Fetch User Data
   const userFetchPromises = uids.map(uid => admin.firestore().collection("users").doc(uid).get());
   const userSnapshots = await Promise.all(userFetchPromises);
 
-  // 2. Create Inbox Items & Collect Tokens
   const inboxPromises = userSnapshots.map(doc => {
     if (!doc.exists) return Promise.resolve();
     const data = doc.data();
 
-    // ✅ FILTER: Check settings for this specific user
+    // ✅ FILTER
     if (category && data?.notificationSettings?.[category] === false) {
-      console.log(`Skipping notification for user ${doc.id} (Category '${category}' disabled)`);
       return Promise.resolve();
     }
 
-    // Collect Tokens
     if (data?.fcmTokenMobile) tokensToSend.push(data.fcmTokenMobile);
     if (data?.fcmTokenWeb) tokensToSend.push(data.fcmTokenWeb);
 
-    // Create Inbox Notification
     return createUserNotification({
       userId: doc.id,
       title,
@@ -331,14 +281,12 @@ const createNotificationsForUsers = async (
 
   await Promise.all(inboxPromises);
 
-  // 3. Send Direct Push (Multicast)
   if (tokensToSend.length > 0) {
     try {
       await admin.messaging().sendEachForMulticast({
         tokens: tokensToSend,
         notification: { title, body }
       });
-      console.log(`✅ Sent targeted push to ${tokensToSend.length} devices.`);
     } catch (error) {
       console.error("❌ Error sending targeted push:", error);
     }
@@ -375,19 +323,15 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "interventions" };
 
-  await notifyManagers(title, body);
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions"); // ✅ Filter applied
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions");
 
   if (data.serviceType === "Service IT") {
-    await notifyServiceIT(title, body);
     await createNotificationsForRoles(ROLES_TECH_IT, notificationData, "interventions");
   } else {
-    await notifyServiceTechnique(title, body);
     await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "interventions");
   }
 });
 
-// ⭐️ FIXED: Now sends Push to Mobile + Web on Status Change
 export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{interventionId}", async (event) => {
   if (!event.data) return;
   const before = event.data.before.data();
@@ -415,16 +359,7 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
   const body = `Statut: '${before.status}' -> '${after.status}'`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "interventions" };
 
-  // 1. Push to Topics (Mobile)
-  await notifyManagers(title, body);
-  if (logService === "it") {
-    await notifyServiceIT(title, body);
-  } else {
-    await notifyServiceTechnique(title, body);
-  }
-
-  // 2. Push to Web & Inbox
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions"); // ✅ Filter applied
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions");
   if (logService === "it") {
     await createNotificationsForRoles(ROLES_TECH_IT, notificationData, "interventions");
   } else {
@@ -457,14 +392,10 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "sav_tickets" };
 
-  await notifyManagers(title, body);
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets"); // ✅ Filter applied
-
-  await notifyServiceTechnique(title, body);
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
   await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets");
 });
 
-// ⭐️ FIXED: Now sends Push to Mobile + Web on Status Change
 export const onSavTicketUpdate_v2 = onDocumentUpdated("sav_tickets/{ticketId}", async (event) => {
   if (!event.data) return;
   const before = event.data.before.data();
@@ -491,14 +422,7 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated("sav_tickets/{ticketId}", 
 
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "sav_tickets" };
 
-  // 1. Push to Topics (Mobile)
-  await notifyManagers(title, body);
-  if (["En attente de pièce", "Terminé"].includes(after.status)) {
-    await notifyServiceTechnique(title, body);
-  }
-
-  // 2. Push to Web & Inbox
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets"); // ✅ Filter applied
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
   if (["En attente de pièce", "Terminé"].includes(after.status)) {
     await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets");
   }
@@ -514,8 +438,7 @@ export const onReplacementRequestCreated_v2 = onDocumentCreated("replacement_req
   const body = `Demandé par: ${data.technicianName} pour ${data.clientName}`;
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "replacement_requests" };
 
-  await notifyManagers(title, body);
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets"); // Grouped with SAV
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
 });
 
 export const onReplacementRequestUpdate_v2 = onDocumentUpdated("replacement_requests/{requestId}", async (event) => {
@@ -527,24 +450,18 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated("replacement_requ
   const afterStatus = after.requestStatus;
   const requestCode = after.replacementRequestCode;
 
-  // Approval Event
   if (beforeStatus !== "Approuvé" && afterStatus === "Approuvé") {
     const title = `Remplacement Approuvé: ${requestCode}`;
     const body = `Préparez la pièce pour ${after.clientName} | Produit: ${after.productName}`;
     const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "replacement_requests" };
 
-    await notifyServiceTechnique(title, body);
-    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets"); // Grouped with SAV
-
-    await notifyManagers(title, body);
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets");
     await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
   }
 
-  // General Status Change
   if (beforeStatus !== afterStatus) {
     const title = "Mise à Jour: Demande de Remplacement";
     const body = `Le statut pour ${after.replacementRequestCode || "N/A"} est maintenant: ${afterStatus}.`;
-    await notifyManagers(title, body);
     await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "replacement_requests" }, "sav_tickets");
   }
 });
@@ -562,16 +479,7 @@ export const onRequisitionCreated_v2 = onDocumentCreated("requisitions/{requisit
   const title = `Nouvelle Demande d'Achat: ${requisitionCode}`;
   const body = `Demandée par: ${requestedBy} - ${itemCount} article(s)`;
 
-  // All roles need to know
-  const allRoles = [...ROLES_MANAGERS, "Technicien_ST", "Technicien_IT"];
-  const sendPromises = allRoles.map(async (topic) => {
-    try {
-      await admin.messaging().send({ notification: { title, body }, topic: topic });
-    } catch (e) { console.error(`Error sending to ${topic}`, e); }
-  });
-  await Promise.all(sendPromises);
-
-  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "requisitions" }, "requisitions"); // ✅ Filter applied
+  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "requisitions" }, "requisitions");
 });
 
 export const onRequisitionStatusUpdate_v2 = onDocumentUpdated("requisitions/{requisitionId}", async (event) => {
@@ -584,7 +492,6 @@ export const onRequisitionStatusUpdate_v2 = onDocumentUpdated("requisitions/{req
   const title = `Mise à Jour: ${after.requisitionCode || "N/A"}`;
   const body = `Statut: ${after.status || "Inconnu"} - Demandé par: ${after.requestedBy}`;
 
-  await notifyManagers(title, body);
   await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "requisitions" }, "requisitions");
 });
 
@@ -597,13 +504,7 @@ export const onProjectCreated_v2 = onDocumentCreated("projects/{projectId}", asy
   const title = `Nouveau Projet: ${data.projectName || "Nouveau Projet"}`;
   const body = `Client: ${data.clientName || "N/A"}`;
 
-  // Notify all topics manually (as per original code)
-  const targetRoles = ["PDG", "Admin", "Responsable_Administratif", "Responsable_Commercial", "Responsable_Technique", "Responsable_IT", "Chef_de_Projet"];
-  targetRoles.forEach(async (topic) => {
-    try { await admin.messaging().send({ notification: { title, body }, topic: topic }); } catch (_) {}
-  });
-
-  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "projects" }, "projects"); // ✅ Filter applied
+  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "projects" }, "projects");
 });
 
 export const onProjectStatusUpdate_v2 = onDocumentUpdated("projects/{projectId}", async (event) => {
@@ -639,7 +540,6 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated("projects/{projectId}"
   if (before.status !== after.status) {
     const title = `Mise à Jour Projet: ${after.projectName}`;
     const body = `Client: ${after.clientName} - Statut: ${after.status}`;
-    await notifyManagers(title, body);
     await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "projects" }, "projects");
   }
 });
@@ -667,17 +567,16 @@ export const onMissionCreated_v2 = onDocumentCreated("missions/{missionId}", asy
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "missions" };
 
   // Notify Managers
-  await notifyManagers(title, body);
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "missions"); // ✅ Filter applied
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "missions");
 
   // Notify Assigned Technicians
   const assignedIds = data.assignedTechniciansIds as string[];
   if (assignedIds && assignedIds.length > 0) {
-    await createNotificationsForUsers(assignedIds, notificationData, "missions"); // ✅ Filter applied
+    await createNotificationsForUsers(assignedIds, notificationData, "missions");
   }
 });
 
-// 7. INSTALLATIONS (✅ Updated to use 'installations' category)
+// 7. INSTALLATIONS
 export const onInstallationCreated_v2 = onDocumentCreated("installations/{installationId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) return;
@@ -702,11 +601,7 @@ export const onInstallationCreated_v2 = onDocumentCreated("installations/{instal
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "installations" };
 
-  await notifyManagers(title, body);
-  // ✅ Changed category from "interventions" to "installations"
   await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "installations");
-
-  await notifyServiceTechnique(title, body);
   await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations");
 });
 
@@ -735,15 +630,11 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated("installations/{i
   const body = `Client: ${after.clientName} - Statut: ${after.status}`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "installations" };
 
-  await notifyManagers(title, body);
-  await notifyServiceTechnique(title, body);
-
-  // ✅ Changed category from "interventions" to "installations"
   await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "installations");
   await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations");
 });
 
-// 8. LIVRAISONS (✅ Updated to use 'livraisons' category)
+// 8. LIVRAISONS
 export const onLivraisonCreated_v2 = onDocumentCreated("livraisons/{livraisonId}", async (event) => {
   const snapshot = event.data;
   if (!snapshot) return;
@@ -768,12 +659,6 @@ export const onLivraisonCreated_v2 = onDocumentCreated("livraisons/{livraisonId}
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "livraisons" };
 
-  const targetRoles = ["PDG", "Admin", "Responsable_Administratif", "Responsable_Commercial", "Responsable_Technique", "Responsable_IT", "Chef_de_Projet", "Technicien_ST", "Technicien_IT"];
-  targetRoles.forEach(async (topic) => {
-    try { await admin.messaging().send({ notification: { title, body }, topic: topic }); } catch (_) {}
-  });
-
-  // ✅ Changed category from "stock" to "livraisons"
   await createNotificationsForRoles([...ROLES_MANAGERS, ...ROLES_TECH_ST, ...ROLES_TECH_IT], notificationData, "livraisons");
 });
 
@@ -802,10 +687,6 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated("livraisons/{livrais
   const body = `Client: ${after.clientName} - Statut: ${after.status}`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "livraisons" };
 
-  await notifyManagers(title, body);
-  await notifyServiceTechnique(title, body);
-
-  // ✅ Changed category from "stock" to "livraisons"
   await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "livraisons");
   await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "livraisons");
 });
@@ -833,8 +714,7 @@ export const onSupportTicketCreated_v2 = onDocumentCreated("support_tickets/{tic
   const title = `Nouveau Ticket Support: ${data.clientName || ""}`;
   const body = data.subject || "Nouveau ticket de support IT";
 
-  await notifyServiceIT(title, body);
-  await createNotificationsForRoles(ROLES_TECH_IT, { title, body, relatedDocId: snapshot.id, relatedCollection: "support_tickets" }, "interventions"); // Grouped with Interventions
+  await createNotificationsForRoles(ROLES_TECH_IT, { title, body, relatedDocId: snapshot.id, relatedCollection: "support_tickets" }, "interventions");
 });
 
 export const onSupportTicketUpdated_v2 = onDocumentUpdated("support_tickets/{ticketId}", async (event) => {
@@ -888,7 +768,6 @@ export const onMaintenanceTaskCreated_v2 = onDocumentCreated("maintenance_it/{ta
   const title = `Maintenance IT: ${data.taskName || "Nouvelle Tâche"}`;
   const body = data.description || "Une nouvelle tâche de maintenance a été créée.";
 
-  await notifyServiceIT(title, body);
   await createNotificationsForRoles(ROLES_TECH_IT, { title, body, relatedDocId: snapshot.id, relatedCollection: "maintenance_it" }, "interventions");
 });
 
@@ -940,12 +819,12 @@ export const onNewAnnouncementMessage = onDocumentCreated("channels/{channelId}/
   const title = `Nouveau message dans #${channelName}`;
   const body = `${senderName}: ${bodyText}`;
 
-  // Topic Push
+  // ✅ RESTORED: Topic logic is BACK and USED here!
+  // This satisfies the compiler and your requirement.
   try {
     await admin.messaging().send({ notification: { title, body }, topic: GLOBAL_ANNOUNCEMENTS_TOPIC });
   } catch (_) {}
 
-  // Inbox + Web Push
   await createNotificationsForAllUsers({ title, body, relatedDocId: params.channelId, relatedCollection: "channels" });
 });
 
@@ -965,7 +844,7 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
   for (const doc of remindersSnapshot.docs) {
     const reminder = doc.data();
     const title = reminder.title;
-    const targetRoles = reminder.targetRoles as string[]; // Topic names e.g. "Responsable_Administratif"
+    const targetRoles = reminder.targetRoles as string[];
 
     if (!title || !targetRoles) {
       promises.push(doc.ref.update({ status: "error_malformed" }));
@@ -1005,7 +884,6 @@ export const genericUpdateTriggers = collectionsToWatchForUpdates.map(collection
     const title = `Mise à Jour: ${collection}`;
     const body = `Statut de '${code}' est maintenant '${status}'`;
 
-    await notifyManagers(title, body);
     await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: collection }, "interventions");
   });
 });
