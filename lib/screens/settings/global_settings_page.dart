@@ -2,7 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
-import 'package:boitex_info_app/screens/settings/notification_manager_page.dart'; // ✅ ADDED
+import 'package:boitex_info_app/screens/settings/notification_manager_page.dart';
+import 'package:boitex_info_app/screens/settings/user_role_manager_page.dart'; // ✅ ADDED IMPORT
 
 class GlobalSettingsPage extends StatelessWidget {
   final String userRole;
@@ -25,23 +26,44 @@ class GlobalSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // "Gestion des Notifications" Card
-          _buildSettingsCard(
-            context,
-            title: 'Gestion des Notifications',
-            subtitle: 'Activer/Désactiver les alertes par utilisateur',
-            icon: Icons.notifications_active_rounded,
-            color: Colors.blue,
-            onTap: () {
-              // ✅ MODIFIED: Navigate to the Manager Page
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const NotificationManagerPage(),
-                ),
-              );
-            },
-          ),
+          // ✅ FIXED: Only Admin sees these controls
+          if (userRole == UserRoles.admin) ...[
+            // 1. Role Manager (New)
+            _buildSettingsCard(
+              context,
+              title: 'Gestion des Rôles',
+              subtitle: 'Modifier les rôles et permissions des utilisateurs',
+              icon: Icons.security_rounded,
+              color: Colors.redAccent,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const UserRoleManagerPage(),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 10), // Spacing between Admin cards
+
+            // 2. Notification Manager (Existing)
+            _buildSettingsCard(
+              context,
+              title: 'Gestion des Notifications',
+              subtitle: 'Activer/Désactiver les alertes par utilisateur',
+              icon: Icons.notifications_active_rounded,
+              color: Colors.blue,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const NotificationManagerPage(),
+                  ),
+                );
+              },
+            ),
+          ],
         ],
       ),
     );

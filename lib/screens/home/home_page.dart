@@ -11,7 +11,7 @@ import 'package:boitex_info_app/api/firebase_api.dart';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/home/notifications_page.dart';
-import 'package:boitex_info_app/screens/settings/global_settings_page.dart'; // ✅ ADDED
+import 'package:boitex_info_app/screens/settings/global_settings_page.dart';
 
 class HomePage extends StatefulWidget {
   final String userRole;
@@ -46,7 +46,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
-    // ✅ This triggers the notification permission logic when Home Page loads
     _setupNotifications();
 
     _controller = AnimationController(
@@ -75,25 +74,16 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   Future<void> _setupNotifications() async {
     final api = FirebaseApi();
-
-    // ✅ 1. Ask for permission (Popup appears here)
     await api.initNotifications();
 
     try {
-      // ✅ 2. Handle Topics (Safe for Web due to API checks)
       await api.unsubscribeFromAllTopics();
       await api.subscribeToTopics(widget.userRole);
-    } catch (_) {
-      // Ignore topic errors on web to prevent crashes
-    }
+    } catch (_) {}
 
-    // ✅ 3. Save Token
     await api.saveTokenForCurrentUser();
   }
 
-  // ✅ --- NEW WIDGET ---
-  // This widget builds the bell icon, listens for unread
-  // notifications, and shows a badge.
   Widget _buildNotificationBell(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
@@ -101,12 +91,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
 
     return StreamBuilder<QuerySnapshot>(
-      // 1. Listen to the new collection for unread items
       stream: FirebaseFirestore.instance
           .collection('user_notifications')
           .where('userId', isEqualTo: currentUser.uid)
           .where('isRead', isEqualTo: false)
-          .limit(1) // We only need to know if 1 or more exist
+          .limit(1)
           .snapshots(),
       builder: (context, snapshot) {
         bool hasUnread = false;
@@ -114,11 +103,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           hasUnread = true;
         }
 
-        // 2. Use a Stack to place a badge on top of the icon
         return Stack(
           clipBehavior: Clip.none,
           children: [
-            // Styled just like the logout button
             Container(
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
@@ -132,11 +119,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 icon: Icon(
                   Icons.notifications_none_rounded,
                   color: Colors.white,
-                  size: kIsWeb ? 20 : 18, // Match web/mobile logout icon sizes
+                  size: kIsWeb ? 20 : 18,
                 ),
                 tooltip: 'Notifications',
                 onPressed: () {
-                  // 3. Navigate to our new page
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -148,11 +134,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 },
               ),
             ),
-            // The unread badge
             if (hasUnread)
               Positioned(
-                top: 4, // Adjust as needed
-                right: 4, // Adjust as needed
+                top: 4,
+                right: 4,
                 child: Container(
                   width: 8,
                   height: 8,
@@ -167,7 +152,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       },
     );
   }
-  // ✅ --- END OF NEW WIDGET ---
 
   @override
   Widget build(BuildContext context) {
@@ -215,7 +199,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 40),
-                          // Greeting
                           Text(
                             _getGreeting(),
                             style: TextStyle(
@@ -235,7 +218,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                             ),
                           ),
                           const SizedBox(height: 60),
-                          // Service Cards
                           _buildWebServiceCards(context),
                         ],
                       ),
@@ -257,7 +239,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         padding: const EdgeInsets.fromLTRB(40, 20, 40, 0),
         child: Row(
           children: [
-            // ✨ Logo (BIGGER - 80px height)
             Image.asset(
               'assets/images/logo.png',
               height: 80,
@@ -267,7 +248,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               },
             ),
             const Spacer(),
-            // Role Badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               decoration: BoxDecoration(
@@ -303,39 +283,36 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
             const SizedBox(width: 16),
 
-            // ✅ ADDED: Notification Bell
             _buildNotificationBell(context),
 
             const SizedBox(width: 16),
 
-            // ⚙️ ✅ NEW: SETTINGS BUTTON (Only for Admins)
-            if (RolePermissions.canSeeAdminCard(widget.userRole)) ...[
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.3),
-                    width: 1.5,
-                  ),
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.settings_rounded, color: Colors.white, size: 20),
-                  tooltip: 'Paramètres',
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => GlobalSettingsPage(userRole: widget.userRole),
-                      ),
-                    );
-                  },
+            // ⚙️ ✅ UPDATED: Settings Icon Visible to Everyone
+            // (The restriction is handled INSIDE the Settings Page)
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.3),
+                  width: 1.5,
                 ),
               ),
-              const SizedBox(width: 16),
-            ],
+              child: IconButton(
+                icon: const Icon(Icons.settings_rounded, color: Colors.white, size: 20),
+                tooltip: 'Paramètres',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => GlobalSettingsPage(userRole: widget.userRole),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 16),
 
-            // Logout Button
             Container(
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
@@ -547,13 +524,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              // ✨ NEW HEADER (Logo + Greeting + PDG Badge horizontally)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                   child: Column(
                     children: [
-                      // Row 1: Logo on left
                       Row(
                         children: [
                           Image.asset(
@@ -568,12 +543,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         ],
                       ),
                       const SizedBox(height: 20),
-                      // Row 2: Greeting + Name + PDG Badge (horizontally)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Greeting + Name
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -601,7 +574,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                             ),
                           ),
                           const SizedBox(width: 12),
-                          // PDG Badge
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
@@ -637,38 +609,34 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           ),
                           const SizedBox(width: 8),
 
-                          // ✅ ADDED: Notification Bell
                           _buildNotificationBell(context),
 
                           const SizedBox(width: 8),
 
-                          // ⚙️ ✅ NEW: SETTINGS BUTTON (Mobile)
-                          if (RolePermissions.canSeeAdminCard(widget.userRole)) ...[
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: IconButton(
-                                icon: const Icon(Icons.settings_rounded, color: Colors.white, size: 18),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => GlobalSettingsPage(userRole: widget.userRole),
-                                    ),
-                                  );
-                                },
+                          // ⚙️ ✅ UPDATED: Settings Icon Visible to Everyone (Mobile)
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.3),
+                                width: 1.5,
                               ),
                             ),
-                            const SizedBox(width: 8),
-                          ],
+                            child: IconButton(
+                              icon: const Icon(Icons.settings_rounded, color: Colors.white, size: 18),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => GlobalSettingsPage(userRole: widget.userRole),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
 
-                          // Logout button
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
@@ -696,7 +664,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
 
-              // Service Cards
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
                 sliver: SliverList(
