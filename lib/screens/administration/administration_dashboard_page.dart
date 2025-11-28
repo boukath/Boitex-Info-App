@@ -516,14 +516,6 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
 
   List<Widget> _buildQuickActions(BuildContext context) {
     final items = <_ActionData>[
-      // ✅ ADDED: ANALYTICS BUTTON (First Position)
-      _ActionData(
-        'Analytics',
-        Icons.analytics_rounded,
-        const Color(0xFFEC4899), // Pink/Rose Color to stand out
-            () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const AnalyticsDashboardPage())),
-      ),
       _ActionData(
         'Nouveau\nProjet',
         Icons.note_add_rounded,
@@ -588,6 +580,13 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
           MaterialPageRoute(
               builder: (_) => ActivityLogPage(userRole: widget.userRole)),
         ),
+      ),
+      _ActionData(
+        'Analytics',
+        Icons.analytics_rounded,
+        const Color(0xFFEC4899), // Pink/Rose Color to stand out
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const AnalyticsDashboardPage())),
       ),
     ];
 

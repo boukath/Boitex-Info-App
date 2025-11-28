@@ -112,7 +112,7 @@ async function getLogisticsStats(db: admin.firestore.Firestore) {
 }
 
 // ==================================================================
-// 2️⃣ TECHNICIAN LEADERBOARD (UPDATED FOR BADGES & BREAKDOWN 🏅)
+// 2️⃣ TECHNICIAN LEADERBOARD (UPDATED FOR BADGES 🏅)
 // ==================================================================
 async function updateTechnicianCounters(
   change: functions.Change<DocumentSnapshot>,
