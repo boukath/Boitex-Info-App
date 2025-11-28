@@ -12,6 +12,8 @@ import 'package:timeago/timeago.dart' as timeago;
 
 // 👇 IMPORT YOUR API TO ACCESS INITNOTIFICATIONS
 import 'package:boitex_info_app/api/firebase_api.dart';
+// 👇 IMPORT YOUR NAV KEY
+import 'package:boitex_info_app/utils/nav_key.dart';
 
 // ADDED: This function MUST be a top-level function (outside of any class)
 // It handles notifications that arrive when the app is closed.
@@ -51,6 +53,8 @@ class BoitexInfoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      // 👇 Plug in the navigator key here to control steering
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Connexion Boitex Info',
       theme: ThemeData(

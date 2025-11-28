@@ -152,7 +152,13 @@ const createNotificationsForRoles = async (
     try {
       await admin.messaging().sendEachForMulticast({
         tokens: tokensToSend,
-        notification: { title, body }
+        notification: { title, body },
+        // ✅ 1. UPDATE APPLIED: Added data payload for Deep Linking
+        data: {
+          relatedCollection: relatedCollection || "",
+          relatedDocId: relatedDocId || "",
+          click_action: "FLUTTER_NOTIFICATION_CLICK"
+        }
       });
       console.log(`✅ Sent Push to ${tokensToSend.length} devices (Mobile+Web).`);
     } catch (error) {
@@ -226,7 +232,13 @@ const createNotificationsForAllUsers = async (
     try {
       await admin.messaging().sendEachForMulticast({
         tokens: tokensToSend,
-        notification: { title, body }
+        notification: { title, body },
+        // ✅ 2. UPDATE APPLIED: Added data payload for Deep Linking
+        data: {
+          relatedCollection: relatedCollection || "",
+          relatedDocId: relatedDocId || "",
+          click_action: "FLUTTER_NOTIFICATION_CLICK"
+        }
       });
     } catch (error) {
       console.error("❌ Error sending Global Push:", error);
@@ -285,7 +297,13 @@ const createNotificationsForUsers = async (
     try {
       await admin.messaging().sendEachForMulticast({
         tokens: tokensToSend,
-        notification: { title, body }
+        notification: { title, body },
+        // ✅ 3. UPDATE APPLIED: Added data payload for Deep Linking
+        data: {
+          relatedCollection: relatedCollection || "",
+          relatedDocId: relatedDocId || "",
+          click_action: "FLUTTER_NOTIFICATION_CLICK"
+        }
       });
     } catch (error) {
       console.error("❌ Error sending targeted push:", error);
@@ -873,7 +891,10 @@ export const checkAndSendReminders = onSchedule("every 5 minutes", async (event)
 });
 
 // 12. GENERIC FALLBACK FOR OTHER COLLECTIONS
-const collectionsToWatchForUpdates = ["interventions", "installations", "sav_tickets"];
+// ✅ FIX: Emptied this list to prevent duplicate notifications (Double Trigger Bug)
+// Because "interventions", "installations", and "sav_tickets" already have specific listeners above.
+// ❌ FIX TYPE: Added ': string[]' to prevent 'implicitly has type any[]' error.
+const collectionsToWatchForUpdates: string[] = [];
 export const genericUpdateTriggers = collectionsToWatchForUpdates.map(collection => {
   return onDocumentUpdated(`${collection}/{docId}`, async (event) => {
     if (!event.data) return;
