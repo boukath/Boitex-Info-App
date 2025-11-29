@@ -5,14 +5,31 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/home/home_page.dart';
 import 'package:boitex_info_app/screens/login/login_page.dart';
+// Import API to init notifications AFTER auth check
+import 'package:boitex_info_app/api/firebase_api.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
-  /// This function is now very lean. Its ONLY job is to get the user's
-  /// document from Firestore, which is a very fast operation.
   Future<DocumentSnapshot> _getUserData(User user) async {
-    return FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    // Add a 5 second timeout to prevent infinite loading
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get()
+        .timeout(const Duration(seconds: 5));
+  }
+
+  // Helper to initialize notifications in the background
+  void _initNotificationsBackground(String role) {
+    // Fire and forget - don't await this
+    final api = FirebaseApi();
+    api.initNotifications().then((_) {
+      api.subscribeToTopics(role);
+      api.saveTokenForCurrentUser();
+    }).catchError((e) {
+      print("Notification init failed (non-fatal): $e");
+    });
   }
 
   @override
@@ -25,26 +42,27 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.hasData) {
-          // The FutureBuilder now only waits for the essential user data.
           return FutureBuilder<DocumentSnapshot>(
             future: _getUserData(snapshot.data!),
             builder: (context, firestoreSnapshot) {
               if (firestoreSnapshot.connectionState == ConnectionState.waiting) {
                 return const Scaffold(body: Center(child: CircularProgressIndicator()));
               }
-              if (firestoreSnapshot.hasError) {
-                return const Scaffold(body: Center(child: Text("Une erreur s'est produite")));
-              }
-              if (firestoreSnapshot.hasData && firestoreSnapshot.data!.exists) {
+
+              // Defaults if fetch fails or user has no doc
+              String role = 'utilisateur';
+              String displayName = 'Utilisateur';
+
+              if (firestoreSnapshot.hasData && firestoreSnapshot.data != null && firestoreSnapshot.data!.exists) {
                 final data = firestoreSnapshot.data!.data() as Map<String, dynamic>;
-                final role = data['role'] ?? 'utilisateur';
-                final displayName = data['displayName'] ?? 'Utilisateur';
-
-                // Go to the HomePage immediately with the essential data.
-                return HomePage(userRole: role, displayName: displayName);
+                role = data['role'] ?? 'utilisateur';
+                displayName = data['displayName'] ?? 'Utilisateur';
               }
 
-              return const LoginPage();
+              // Trigger notification setup in background once we have the role
+              _initNotificationsBackground(role);
+
+              return HomePage(userRole: role, displayName: displayName);
             },
           );
         }

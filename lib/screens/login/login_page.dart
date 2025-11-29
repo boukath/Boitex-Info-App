@@ -3,82 +3,73 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:boitex_info_app/screens/home/home_page.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:boitex_info_app/api/firebase_api.dart';
+// We remove manual navigation imports because AuthGate handles routing
+// import 'package:boitex_info_app/screens/home/home_page.dart';
+// import 'package:cloud_firestore/cloud_firestore.dart';
+// import 'package:boitex_info_app/api/firebase_api.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
   @override
-  State createState() => _LoginPageState();
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State {
+class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-
-  // ADDED: password visibility state (default hidden)
   bool _passwordVisible = false;
-
   bool _isLoading = false;
 
-  Future _signIn() async {
+  Future<void> _signIn() async {
+    if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez remplir tous les champs.')),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // 1. Authenticate the user
-      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      // 1. Authenticate (AuthGate will detect the change and navigate automatically)
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
-      );
+      ).timeout(const Duration(seconds: 15), onTimeout: () {
+        throw FirebaseAuthException(
+            code: 'network-request-failed',
+            message: 'Délai d\'attente dépassé. Vérifiez votre connexion.'
+        );
+      });
 
-      // 2. Initialize notifications and save the device token
-      final firebaseApi = FirebaseApi();
-      await firebaseApi.initNotifications();
+      // NOTE: We do NOT initialize notifications or fetch Firestore here.
+      // We let AuthGate handle the transition to HomePage.
+      // Logic for notifications should be in the initState of HomePage.
 
-      // 3. Fetch user data from Firestore
-      if (credential.user != null) {
-        final docSnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(credential.user!.uid)
-            .get();
-
-        String userRole = 'utilisateur';
-        String displayName = 'Utilisateur';
-
-        if (docSnapshot.exists) {
-          userRole = docSnapshot.data()?['role'] ?? 'utilisateur';
-          displayName = docSnapshot.data()?['displayName'] ?? 'Utilisateur';
-        }
-
-        await firebaseApi.subscribeToTopics(userRole);
-        await firebaseApi.saveTokenForCurrentUser();
-
-        // 4. Navigate to the HomePage
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) =>
-                  HomePage(userRole: userRole, displayName: displayName),
-            ),
-          );
-        }
-      }
     } on FirebaseAuthException catch (e) {
       String message;
       if (e.code == 'user-not-found' ||
           e.code == 'wrong-password' ||
           e.code == 'invalid-credential') {
         message = 'Email ou mot de passe incorrect.';
+      } else if (e.code == 'network-request-failed') {
+        message = 'Problème de connexion internet.';
       } else {
-        message = 'Une erreur est survenue. Veuillez réessayer.';
+        message = 'Erreur: ${e.message}';
       }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Une erreur inattendue est survenue: $e"), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -99,7 +90,6 @@ class _LoginPageState extends State {
 
   @override
   Widget build(BuildContext context) {
-    // Check if web and wide screen
     final isWebWide = kIsWeb && MediaQuery.of(context).size.width >= 900;
     if (isWebWide) {
       return _buildWebLayout();
@@ -108,7 +98,14 @@ class _LoginPageState extends State {
     }
   }
 
-  // 🎨 PREMIUM WEB LAYOUT (2025 STYLE)
+  // ... (Keep your _buildWebLayout and _buildMobileLayout exactly as they were)
+  // ... (Paste the rest of your UI code here: _buildWebLayout, _buildMobileLayout, WaveClipper)
+
+  // -------------------------------------------------------------------------
+  // PASTE THE REST OF YOUR UI CODE FROM YOUR PREVIOUS FILE HERE
+  // (I am omitting it to save space, but keep your existing UI code below)
+  // -------------------------------------------------------------------------
+
   Widget _buildWebLayout() {
     return Scaffold(
       body: Row(
@@ -542,7 +539,6 @@ class _LoginPageState extends State {
   }
 }
 
-// This custom class creates the wavy shape for mobile
 class WaveClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {

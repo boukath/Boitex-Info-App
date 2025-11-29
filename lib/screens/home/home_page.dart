@@ -504,7 +504,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  // 🎨 MOBILE LAYOUT
+// 🎨 MOBILE LAYOUT (UPDATED)
   Widget _buildMobileLayout(BuildContext context) {
     return Scaffold(
       body: Container(
@@ -528,54 +528,67 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        children: [
-                          Image.asset(
-                            'assets/images/logo.png',
-                            width: 80,
-                            height: 80,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Icon(Icons.business, size: 40, color: Colors.white);
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
+                      // 1. TOP ROW: Logo (Left) and Greeting (Right)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
+                          // Logo
+                          Image.asset(
+                            'assets/images/logo.png',
+                            width: 70,
+                            height: 70,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Icon(Icons.business,
+                                  size: 40, color: Colors.white);
+                            },
+                          ),
+
+                          // Greeting Text - Moved to Top Right
                           Expanded(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
                                   _getGreeting(),
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: Colors.white.withOpacity(0.8),
+                                    color: Colors.white.withOpacity(0.9),
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
+                                const SizedBox(height: 4),
                                 Text(
                                   widget.displayName,
+                                  textAlign: TextAlign.right,
                                   style: const TextStyle(
-                                    fontSize: 20,
+                                    fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
                                     letterSpacing: -0.3,
                                   ),
                                   overflow: TextOverflow.ellipsis,
+                                  maxLines: 2,
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 12),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // 2. SECOND ROW: All Action Icons (Aligned to Right)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          // Role Badge
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
                               borderRadius: BorderRadius.circular(16),
@@ -607,13 +620,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               ],
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const Spacer(),
 
+                          // Bell
                           _buildNotificationBell(context),
-
                           const SizedBox(width: 8),
 
-                          // ⚙️ ✅ UPDATED: Settings Icon Visible to Everyone (Mobile)
+                          // Settings
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
@@ -624,12 +637,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               ),
                             ),
                             child: IconButton(
-                              icon: const Icon(Icons.settings_rounded, color: Colors.white, size: 18),
+                              icon: const Icon(Icons.settings_rounded,
+                                  color: Colors.white, size: 18),
                               onPressed: () {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => GlobalSettingsPage(userRole: widget.userRole),
+                                    builder: (context) => GlobalSettingsPage(
+                                        userRole: widget.userRole),
                                   ),
                                 );
                               },
@@ -637,6 +652,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           ),
                           const SizedBox(width: 8),
 
+                          // Logout
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
@@ -647,11 +663,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               ),
                             ),
                             child: IconButton(
-                              icon: const Icon(Icons.logout_rounded, color: Colors.white, size: 18),
+                              icon: const Icon(Icons.logout_rounded,
+                                  color: Colors.white, size: 18),
                               tooltip: 'Déconnexion',
                               onPressed: () async {
                                 try {
-                                  await FirebaseApi().unsubscribeFromAllTopics();
+                                  await FirebaseApi()
+                                      .unsubscribeFromAllTopics();
                                 } catch (_) {}
                                 await FirebaseAuth.instance.signOut();
                               },
@@ -665,7 +683,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               ),
 
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate(_buildMobileCards()),
                 ),
