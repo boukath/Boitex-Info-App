@@ -6,8 +6,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter/foundation.dart' show kIsWeb; // ✅ IMPORTANT IMPORT
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+
+// ✅ NEW IMPORT FOR CLOUD FUNCTIONS
+import 'package:cloud_functions/cloud_functions.dart';
 
 // 👇 IMPORT NAV KEY
 import 'package:boitex_info_app/utils/nav_key.dart';
@@ -36,8 +39,6 @@ class FirebaseApi {
   static const String _managersTopic = 'manager_notifications';
   static const String _techStTopic = 'technician_st_alerts';
   static const String _techItTopic = 'technician_it_alerts';
-
-  // ✅ NEWLY ADDED TOPIC
   static const String _globalAnnouncementsTopic = 'GLOBAL_ANNOUNCEMENTS';
 
   // Helper function to convert role names to valid FCM topic names
@@ -73,7 +74,6 @@ class FirebaseApi {
     final initialMessage = await _firebaseMessaging.getInitialMessage();
     if (initialMessage != null) {
       print('🚀 App launched from Terminated state via Notification');
-      // Delay slightly to allow the app/navigator to build
       Future.delayed(const Duration(milliseconds: 500), () {
         _handleNavigation(initialMessage.data);
       });
@@ -90,7 +90,6 @@ class FirebaseApi {
       requestSoundPermission: true,
     );
 
-    // ✅ ADDED: Web specific initialization (optional but good practice)
     const settings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
@@ -98,7 +97,6 @@ class FirebaseApi {
 
     await _localNotifications.initialize(
       settings,
-      // 👇 Handle tap on FOREGROUND Local Notification
       onDidReceiveNotificationResponse: (details) {
         print('Notification tapped payload: ${details.payload}');
         if (details.payload != null) {
@@ -113,7 +111,6 @@ class FirebaseApi {
     );
 
     if (!kIsWeb) {
-      // Create Android notification channel (Only for Android)
       const channel = AndroidNotificationChannel(
         'high_importance_channel',
         'High Importance Notifications',
@@ -130,9 +127,7 @@ class FirebaseApi {
     print('✅ Local notifications initialized');
   }
 
-  // 🧠 SMART ROUTING LOGIC (UPDATED: FETCHES DATA FIRST)
   Future<void> _handleNavigation(Map<String, dynamic> data) async {
-    // 1. Get the Context via our Global Key
     final context = navigatorKey.currentState?.context;
     if (context == null) {
       print('⚠️ Navigator Context is null, cannot navigate.');
@@ -146,8 +141,7 @@ class FirebaseApi {
 
     print('📍 Routing to: $collection -> $docId (Fetching data...)');
 
-    // 2. Fetch User Role (Required for many pages)
-    String userRole = 'Utilisateur'; // Default
+    String userRole = 'Utilisateur';
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null) {
       try {
@@ -164,7 +158,6 @@ class FirebaseApi {
     Widget? page;
 
     try {
-      // 🚦 SWITCHBOARD: Map collections to Pages & Fetch Data
       switch (collection) {
         case 'interventions':
           final doc = await FirebaseFirestore.instance
@@ -215,13 +208,11 @@ class FirebaseApi {
           break;
 
         case 'requisitions':
-        // Pass userRole required by the page
           page = RequisitionDetailsPage(
               requisitionId: docId, userRole: userRole);
           break;
 
         case 'projects':
-        // Pass userRole required by the page
           page = ProjectDetailsPage(projectId: docId, userRole: userRole);
           break;
 
@@ -245,7 +236,6 @@ class FirebaseApi {
       }
 
       if (page != null) {
-        // Push the page onto the navigation stack
         navigatorKey.currentState?.push(
           MaterialPageRoute(builder: (context) => page!),
         );
@@ -273,8 +263,44 @@ class FirebaseApi {
   }
 
   Future<void> _showLocalNotification(RemoteMessage message) async {
-    if (kIsWeb) return;
+    // 🌍 WEB FIX: Show an in-app SnackBar because browsers block system notifications when focused
+    if (kIsWeb) {
+      final context = navigatorKey.currentState?.context;
+      if (context != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (message.notification?.title != null)
+                  Text(
+                    message.notification!.title!,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                if (message.notification?.body != null)
+                  Text(message.notification!.body!),
+              ],
+            ),
+            backgroundColor: Colors.blueGrey.shade900,
+            behavior: SnackBarBehavior.floating,
+            width: 400, // Fixed width for web looks better
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'VOIR',
+              textColor: Colors.orangeAccent,
+              onPressed: () {
+                // Trigger the same navigation logic as tapping a notification
+                _handleNavigation(message.data);
+              },
+            ),
+          ),
+        );
+      }
+      return;
+    }
 
+    // 📱 MOBILE LOGIC (Remains unchanged)
     const androidDetails = AndroidNotificationDetails(
       'high_importance_channel',
       'High Importance Notifications',
@@ -298,36 +324,28 @@ class FirebaseApi {
       message.notification?.title ?? 'New Notification',
       message.notification?.body ?? '',
       details,
-      // 💾 ENCODE DATA INTO PAYLOAD FOR FOREGROUND TAPS
       payload: json.encode(message.data),
     );
   }
 
+  // ⭐️⭐️ THIS IS THE FIXED METHOD ⭐️⭐️
   Future<void> subscribeToTopics(String userRole) async {
-    if (kIsWeb) {
-      print('ℹ️ Web does not support client-side topic subscription. Skipping.');
-      return;
-    }
+    // 1. Build the list of topics this user *should* have
+    List<String> topicsToSubscribe = [];
 
-    await unsubscribeFromAllTopics();
-    print('🔄 Subscribing to topics for role: $userRole');
-
-    await _firebaseMessaging.subscribeToTopic(_globalAnnouncementsTopic);
-    print('✅ Subscribed to: $_globalAnnouncementsTopic');
+    // Always subscribe to global
+    topicsToSubscribe.add(_globalAnnouncementsTopic);
 
     if (isManagerRole(userRole)) {
-      await _firebaseMessaging.subscribeToTopic(_managersTopic);
-      print('✅ Subscribed to: $_managersTopic');
+      topicsToSubscribe.add(_managersTopic);
     }
 
     if (userRole == UserRoles.technicienST) {
-      await _firebaseMessaging.subscribeToTopic(_techStTopic);
-      print('✅ Subscribed to: $_techStTopic');
+      topicsToSubscribe.add(_techStTopic);
     }
 
     if (userRole == UserRoles.technicienIT) {
-      await _firebaseMessaging.subscribeToTopic(_techItTopic);
-      print('✅ Subscribed to: $_techItTopic');
+      topicsToSubscribe.add(_techItTopic);
     }
 
     final managementRoles = [
@@ -344,23 +362,65 @@ class FirebaseApi {
 
     if (managementRoles.contains(userRole)) {
       final topic = _roleToTopic(userRole);
-      await _firebaseMessaging.subscribeToTopic(topic);
-      print('✅ Subscribed to management topic: $topic');
+      topicsToSubscribe.add(topic);
     }
 
     if (userRole == UserRoles.admin) {
-      final topic = _roleToTopic(UserRoles.admin);
-      await _firebaseMessaging.subscribeToTopic(topic);
+      topicsToSubscribe.add(_roleToTopic(UserRoles.admin));
     }
-
     if (userRole == UserRoles.responsableAdministratif) {
-      final topic = _roleToTopic(UserRoles.responsableAdministratif);
-      await _firebaseMessaging.subscribeToTopic(topic);
+      topicsToSubscribe.add(_roleToTopic(UserRoles.responsableAdministratif));
+    }
+    if (userRole == UserRoles.responsableCommercial) {
+      topicsToSubscribe.add(_roleToTopic(UserRoles.responsableCommercial));
     }
 
-    if (userRole == UserRoles.responsableCommercial) {
-      final topic = _roleToTopic(UserRoles.responsableCommercial);
-      await _firebaseMessaging.subscribeToTopic(topic);
+    // 2. Unsubscribe logic (Optional but good for role changes)
+    await unsubscribeFromAllTopics();
+    print('🔄 Subscribing to topics for role: $userRole');
+
+    // 3. 🛑 EXECUTE SUBSCRIPTION BASED ON PLATFORM 🛑
+    if (kIsWeb) {
+      // ✅ WEB PATH: Use Cloud Function with RETRY Logic
+      print('🌍 Web detected: Delegating subscription to Server...');
+
+      String? token;
+      // 🔄 RETRY LOGIC: Try 3 times to wait for Service Worker
+      for (int i = 0; i < 3; i++) {
+        try {
+          token = await _firebaseMessaging.getToken(
+              vapidKey: "BHexKZZ060QNgZVUSRoBXyIcTP-jyxDUo1-M6o0mPbeYFFaQo9OIyRfw15hGBNtHSo9jbQldoiauFjE1FlI5iXo"
+          );
+          if (token != null) break; // Success! Exit loop.
+        } catch (e) {
+          print('⏳ Waiting for Service Worker (Attempt ${i + 1}/3)...');
+          await Future.delayed(const Duration(milliseconds: 1000)); // Wait 1s
+        }
+      }
+
+      try {
+        if (token != null) {
+          // Call the Cloud Function we just created
+          final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+              .httpsCallable('subscribeToTopicsWeb')
+              .call({
+            'token': token,
+            'topics': topicsToSubscribe,
+          });
+          print('✅ Web Topics Subscribed via Server: ${result.data}');
+        } else {
+          print('⚠️ Web Token was null, could not subscribe.');
+        }
+      } catch (e) {
+        print('❌ Failed to subscribe web topics via server: $e');
+      }
+    } else {
+      // 📱 MOBILE PATH: Direct Subscription
+      print('📱 Mobile detected: Subscribing directly...');
+      for (final topic in topicsToSubscribe) {
+        await _firebaseMessaging.subscribeToTopic(topic);
+        print('✅ Subscribed to: $topic');
+      }
     }
   }
 
@@ -377,6 +437,9 @@ class FirebaseApi {
   }
 
   Future<void> unsubscribeFromAllTopics() async {
+    // Note: We don't have an easy "Unsubscribe All" for Web via Server yet,
+    // so we skip it for Web to avoid errors. The Cloud Function only *adds* topics.
+    // Over time, tokens expire anyway.
     if (kIsWeb) return;
 
     print('🔄 Unsubscribing from all topics...');

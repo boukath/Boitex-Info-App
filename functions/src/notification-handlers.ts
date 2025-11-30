@@ -1,6 +1,8 @@
 import {onDocumentCreated, onDocumentUpdated} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import {onSchedule} from "firebase-functions/v2/scheduler";
+// ✅ ADDED IMPORTS FOR WEB SUBSCRIPTION
+import {onCall, HttpsError} from "firebase-functions/v2/https";
 
 // ------------------------------------------------------------------
 // CONSTANTS & CONFIGURATION
@@ -907,4 +909,46 @@ export const genericUpdateTriggers = collectionsToWatchForUpdates.map(collection
 
     await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: collection }, "interventions");
   });
+});
+
+// ------------------------------------------------------------------
+// WEB SUBSCRIPTION HANDLER
+// ------------------------------------------------------------------
+
+/**
+ * Manually subscribes a Web FCM Token to a list of topics.
+ * This is required because the Firebase JS SDK does not support
+ * client-side topic subscription.
+ */
+export const subscribeToTopicsWeb = onCall(async (request) => {
+  // 1. Validation
+  const token = request.data.token;
+  const topics = request.data.topics as string[];
+
+  if (!token || typeof token !== "string") {
+    throw new HttpsError("invalid-argument", "The function must be called with a valid 'token'.");
+  }
+
+  if (!topics || !Array.isArray(topics) || topics.length === 0) {
+    throw new HttpsError("invalid-argument", "The function must be called with a list of 'topics'.");
+  }
+
+  // 2. Execution
+  try {
+    console.log(`🔌 Subscribing Web Token to ${topics.length} topics...`);
+
+    // Create an array of promises to subscribe to all topics in parallel
+    const promises = topics.map((topic) =>
+      admin.messaging().subscribeToTopic(token, topic)
+    );
+
+    await Promise.all(promises);
+
+    console.log(`✅ Successfully subscribed web user to: ${topics.join(", ")}`);
+    return { success: true, subscribedTo: topics };
+
+  } catch (error) {
+    console.error("❌ Error subscribing web token to topics:", error);
+    throw new HttpsError("internal", "Failed to subscribe web token to topics.");
+  }
 });
