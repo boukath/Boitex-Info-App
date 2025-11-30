@@ -43,21 +43,40 @@ self.addEventListener('push', function(event) {
 // Handle Notification Click
 self.addEventListener('notificationclick', function(event) {
   console.log('[Service Worker] Notification click received.');
+
   event.notification.close();
 
-  const urlToOpen = self.location.origin;
+  // 1. Prepare the data to send
+  // We explicitly attach the data to the URL query params for the "Cold Start" case
+  const notificationData = JSON.stringify(event.notification.data);
+  const urlToOpen = self.location.origin + '?notification_payload=' + encodeURIComponent(notificationData);
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
-      // Focus existing tab if open
+      let matchingClient = null;
+
+      // 2. Check if a tab is already open
       for (let i = 0; i < windowClients.length; i++) {
         const client = windowClients[i];
-        if (client.url.indexOf(urlToOpen) !== -1 && 'focus' in client) {
-          return client.focus();
+        // Check if the client matches our origin
+        if (client.url.indexOf(self.location.origin) !== -1 && 'focus' in client) {
+          matchingClient = client;
+          break;
         }
       }
-      // Open new tab if none open
-      if (clients.openWindow) {
+
+      if (matchingClient) {
+        // ✅ CASE A: App is already open (Background or Active)
+        // Focus the tab and send data via postMessage
+        return matchingClient.focus().then(() => {
+            matchingClient.postMessage({
+                'messageType': 'notification-click',
+                'data': event.notification.data
+            });
+        });
+      } else {
+        // ✅ CASE B: App is closed
+        // Open the URL with the data attached as a query parameter
         return clients.openWindow(urlToOpen);
       }
     })

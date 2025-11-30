@@ -8,6 +8,8 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+// ✅ ADDED: Import for Web Service Worker communication
+import 'package:universal_html/html.dart' as html;
 
 // ✅ NEW IMPORT FOR CLOUD FUNCTIONS
 import 'package:cloud_functions/cloud_functions.dart';
@@ -60,6 +62,57 @@ class FirebaseApi {
 
     // Initialize local notifications
     await _initLocalNotifications();
+
+    // ✅ WEB SPECIFIC LOGIC
+    if (kIsWeb) {
+      // 1. Listen for messages if the app is already running (Hot/Background)
+      html.window.onMessage.listen((event) {
+        // Verify it's a valid message map
+        if (event.data is Map) {
+          final data = event.data;
+          // Check for the specific key we sent from JS
+          if (data['messageType'] == 'notification-click') {
+            print('🌐 Web Notification Click Detected via postMessage');
+
+            // Extract the actual payload data
+            final payload = data['data'];
+
+            if (payload != null) {
+              // Convert to Map<String, dynamic> and Navigate
+              try {
+                final Map<String, dynamic> navigationData = Map<String, dynamic>.from(payload as Map);
+                _handleNavigation(navigationData);
+              } catch (e) {
+                print('Error parsing web payload: $e');
+              }
+            }
+          }
+        }
+      });
+
+      // 2. Check URL Query Params if the app just started (Cold Start)
+      // This catches the "?notification_payload=..." we added in the Service Worker
+      final uri = Uri.base;
+      if (uri.queryParameters.containsKey('notification_payload')) {
+        print('🚀 App launched from Web Notification (Cold Start)');
+        try {
+          final String encodedData = uri.queryParameters['notification_payload']!;
+          // Decode the URL encoded JSON string
+          final String jsonStr = Uri.decodeComponent(encodedData);
+          final Map<String, dynamic> data = json.decode(jsonStr);
+
+          // Wait a brief moment for the app to build before routing
+          Future.delayed(const Duration(milliseconds: 1000), () {
+            _handleNavigation(data);
+
+            // Optional: Clean the URL so the user doesn't see the ugly query string
+            html.window.history.replaceState(null, '', '/');
+          });
+        } catch (e) {
+          print('❌ Error parsing startup URL payload: $e');
+        }
+      }
+    }
 
     // Set up foreground notification handler
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
