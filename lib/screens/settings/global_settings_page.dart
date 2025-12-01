@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/screens/settings/notification_manager_page.dart';
 import 'package:boitex_info_app/screens/settings/user_role_manager_page.dart'; // ✅ ADDED IMPORT
+import 'package:boitex_info_app/screens/settings/morning_briefing_page.dart'; // ✅ NEW IMPORT
 
 class GlobalSettingsPage extends StatelessWidget {
   final String userRole;
@@ -28,7 +29,7 @@ class GlobalSettingsPage extends StatelessWidget {
         children: [
           // ✅ FIXED: Only Admin sees these controls
           if (userRole == UserRoles.admin) ...[
-            // 1. Role Manager (New)
+            // 1. Role Manager (Existing)
             _buildSettingsCard(
               context,
               title: 'Gestion des Rôles',
@@ -47,7 +48,28 @@ class GlobalSettingsPage extends StatelessWidget {
 
             const SizedBox(height: 10), // Spacing between Admin cards
 
-            // 2. Notification Manager (Existing)
+            // ---------------------------------------------------------
+            // ✅ 2. MORNING BRIEFING (NEW)
+            // ---------------------------------------------------------
+            _buildSettingsCard(
+              context,
+              title: 'Morning Briefing',
+              subtitle: 'Planifier les jours, l\'heure et les destinataires',
+              icon: Icons.wb_sunny_rounded, // Sun icon for morning
+              color: Colors.orange,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MorningBriefingPage(),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 10), // Spacing between Admin cards
+
+            // 3. Notification Manager (Existing)
             _buildSettingsCard(
               context,
               title: 'Gestion des Notifications',

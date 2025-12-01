@@ -1,8 +1,10 @@
+// functions/src/notification-handlers.ts
 import {onDocumentCreated, onDocumentUpdated} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 // ✅ ADDED IMPORTS FOR WEB SUBSCRIPTION
 import {onCall, HttpsError} from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
 
 // ------------------------------------------------------------------
 // CONSTANTS & CONFIGURATION
@@ -950,5 +952,160 @@ export const subscribeToTopicsWeb = onCall(async (request) => {
   } catch (error) {
     console.error("❌ Error subscribing web token to topics:", error);
     throw new HttpsError("internal", "Failed to subscribe web token to topics.");
+  }
+});
+
+// ------------------------------------------------------------------
+// MORNING BRIEFING SCHEDULER
+// ------------------------------------------------------------------
+
+export const sendMorningBriefing = onSchedule({
+  schedule: "every 30 minutes",
+  timeZone: "Africa/Algiers",   // Scheduler trigger (Works)
+  retryCount: 0,
+}, async (event) => {
+
+  const db = admin.firestore();
+
+  // 1. Fetch Configuration
+  const settingsDoc = await db.collection("settings").doc("morning_briefing").get();
+  if (!settingsDoc.exists) return;
+
+  const settings = settingsDoc.data();
+  if (!settings || !settings.enabled) return;
+
+  // ----------------------------------------------------------------
+  // ✅ FIX: FORCE ALGERIA TIME CALCULATION (UTC+1)
+  // ----------------------------------------------------------------
+  const now = new Date();
+
+  // 1. Get current UTC time in milliseconds
+  // (This removes any server-local bias)
+  const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+
+  // 2. Add Algeria Offset (UTC + 1 hour)
+  const algeriaOffsetHours = 1;
+  const algeriaDate = new Date(utcMs + (3600000 * algeriaOffsetHours));
+
+  // 3. Extract Time & Day from the calculated Algeria Date
+  const currentHour = algeriaDate.getHours();
+  const currentMinute = algeriaDate.getMinutes();
+
+  const frenchDays = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+  const currentDayName = frenchDays[algeriaDate.getDay()];
+
+  // ----------------------------------------------------------------
+
+  // A. Check Day
+  if (!settings.days || !settings.days.includes(currentDayName)) {
+    console.log(`Skipping: Today is ${currentDayName}, not in allowed days.`);
+    return;
+  }
+
+  // B. Check Time
+  const targetHour = settings.time.hour;
+  const targetMinute = settings.time.minute;
+
+  // Debug Log (So you can see exactly what the server sees)
+  console.log(`🕒 Time Check (Algeria): Current ${currentHour}:${currentMinute} vs Target ${targetHour}:${targetMinute}`);
+
+  // Check: Same hour AND within 15 minutes window
+  const isTimeMatch = (currentHour === targetHour) && (Math.abs(currentMinute - targetMinute) < 16);
+
+  if (!isTimeMatch) {
+    console.log(`Skipping: Time mismatch.`);
+    return;
+  }
+
+  console.log("🚀 Starting Morning Briefing Generation...");
+
+  // 3. Parallel Data Aggregation (Your Custom Queries)
+  try {
+    const [
+      interventionsSnap,
+      savSnap,
+      livraisonsSnap,
+      billingSnap,
+      requisitionsSnap
+    ] = await Promise.all([
+      // Interventions: 'Nouvelle Demande'
+      db.collection('interventions').where('status', '==', 'Nouvelle Demande').count().get(),
+
+      // SAV: != 'Nouveau'
+      db.collection('sav_tickets').where('status', '!=', 'Nouveau').count().get(),
+
+      // Livraisons: 'À Préparer'
+      db.collection('livraisons').where('status', '==', 'À Préparer').count().get(),
+
+      // Billing: 'Terminé'
+      db.collection('interventions').where('status', '==', 'Terminé').count().get(),
+
+      // Requisitions: 'En attente d\'approbation'
+      db.collection('requisitions').where('status', '==', "En attente d'approbation").count().get()
+    ]);
+
+    const counts = {
+      pending_interventions: interventionsSnap.data().count,
+      active_sav: savSnap.data().count,
+      todays_livraisons: livraisonsSnap.data().count,
+      pending_billing: billingSnap.data().count,
+      pending_requisitions: requisitionsSnap.data().count,
+    };
+
+    // 4. Targeted Dispatch (Per Role)
+    const recipients = settings.roles || []; // List of roles like ['Admin', 'PDG']
+    const contentVisibility = settings.content_visibility || {};
+
+    const sendPromises = recipients.map(async (role: string) => {
+      let bodyLines: string[] = [];
+
+      // Helper to check visibility
+      const canSee = (key: string) => {
+        const allowedRoles = contentVisibility[key];
+        return allowedRoles && allowedRoles.includes(role);
+      };
+
+      // Build Message Lines based on Permissions
+      if (canSee('pending_interventions') && counts.pending_interventions > 0) {
+        bodyLines.push(`🛠️ ${counts.pending_interventions} Nouvelles Interventions`);
+      }
+      if (canSee('active_sav') && counts.active_sav > 0) {
+        bodyLines.push(`🎫 ${counts.active_sav} Tickets SAV actifs`);
+      }
+      if (canSee('todays_livraisons') && counts.todays_livraisons > 0) {
+        bodyLines.push(`🚚 ${counts.todays_livraisons} Livraisons à préparer`);
+      }
+      if (canSee('pending_billing') && counts.pending_billing > 0) {
+        bodyLines.push(`💰 ${counts.pending_billing} Dossiers à facturer`);
+      }
+      if (canSee('pending_requisitions') && counts.pending_requisitions > 0) {
+        bodyLines.push(`🛒 ${counts.pending_requisitions} Achats à valider`);
+      }
+
+      // If there is nothing relevant for this role, don't send anything
+      if (bodyLines.length === 0) return;
+
+      const messageBody = bodyLines.join("\n");
+      const topicName = `user_role_${role.replace(/\s+/g, '_')}`;
+
+      await admin.messaging().send({
+        topic: topicName,
+        notification: {
+          title: `📊 Briefing Matinal - ${currentDayName}`,
+          body: messageBody,
+        },
+        data: {
+          type: "morning_briefing",
+          click_action: "FLUTTER_NOTIFICATION_CLICK"
+        }
+      });
+
+      console.log(`✅ Sent briefing to ${role}`);
+    });
+
+    await Promise.all(sendPromises);
+
+  } catch (error) {
+    logger.error("Error generating morning briefing:", error);
   }
 });
