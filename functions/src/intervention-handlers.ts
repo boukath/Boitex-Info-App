@@ -18,6 +18,20 @@ const smtpPort = defineSecret("SMTP_PORT");
 const smtpUser = defineSecret("SMTP_USER");
 const smtpPassword = defineSecret("SMTP_PASSWORD");
 
+// --- CONFIGURATION CONSTANTS (ADDED FOR SERVICE IT) ---
+const SERVICE_IT = "Service IT";
+
+const CC_LIST_TECH = [
+"athmane-boukerdous@boitexinfo.com",
+"commercial@boitexinfo.com",
+"khaled-mekideche@boitexinfo.com"
+];
+
+const CC_LIST_IT = [
+"commercial@boitexinfo.com",
+"karim-lehamine@boitexinfo.com"
+];
+
 /**
 * Validates if a string is a plausible email address.
 * @param {string} email The email string to test.
@@ -160,8 +174,9 @@ export const onInterventionTermine = onDocumentUpdated(
     const statusBefore = beforeData?.status;
     const statusAfter = afterData?.status;
     const interventionCode = afterData?.interventionCode || "N/A";
+    const serviceType = afterData?.serviceType || "Service Technique"; // Check Service Type
 
-    logger.log(`Processing update for intervention: ${interventionCode}`);
+    logger.log(`Processing update for intervention: ${interventionCode} | Service: ${serviceType}`);
 
     // --- 5. Status Check Logic ---
     // We only proceed if the status was *not* "Terminé" before
@@ -214,8 +229,19 @@ export const onInterventionTermine = onDocumentUpdated(
       },
     });
 
+    // --- 7.5. DETERMINE IDENTITY (IT vs TECHNIQUE) ---
+    let fromDisplayName = "Boitex Info Service Technique";
+    let ccList = CC_LIST_TECH;
+    let pdfSubjectPrefix = "Rapport Intervention";
+
+    if (serviceType === SERVICE_IT) {
+      fromDisplayName = "Boitex Info Service IT";
+      ccList = CC_LIST_IT;
+      pdfSubjectPrefix = "Rapport Intervention IT";
+    }
+
     // --- 8. Define Email Content ---
-    const subject = `Intervention Terminée: ${interventionCode}`;
+    const subject = `${pdfSubjectPrefix}: ${interventionCode} - ${afterData?.clientName || "Client"}`;
     const body = `
       <p>Bonjour,</p>
 
@@ -233,7 +259,7 @@ export const onInterventionTermine = onDocumentUpdated(
       ${afterData?.workDone || "Non spécifié"}</p>
 
       <p>Cordialement,<br/>
-      Le Service Technique Boitex Info</p>
+      ${fromDisplayName}</p>
     `;
 
     // --- 9. Send the Email ---
@@ -248,19 +274,15 @@ export const onInterventionTermine = onDocumentUpdated(
       // ✅ --- MODIFIED ---
       // Add the 'attachments' array to the mail options
       const mailOptions = {
-        from: `"Boitex Info Service Technique" <${smtpUser.value()}>`,
+        from: `"${fromDisplayName}" <${smtpUser.value()}>`,
         to: managerEmail,
-        cc: [
-          "athmane-boukerdous@boitexinfo.com",
-          "commercial@boitexinfo.com",
-          "khaled-mekideche@boitexinfo.com"
-        ],
+        cc: ccList, // Dynamic list
         subject: subject,
         html: body,
         attachments: [
           {
-            filename: `Rapport-${interventionCode}.pdf`, // The name for the file
-            content: pdfBuffer,                           // The raw PDF data
+            filename: `${pdfSubjectPrefix.replace(/\s/g, "_")}-${interventionCode}.pdf`,
+            content: pdfBuffer,
             contentType: "application/pdf",
           },
         ],
@@ -269,7 +291,7 @@ export const onInterventionTermine = onDocumentUpdated(
 
       await transporter.sendMail(mailOptions);
       // ✅ Updated log message to reflect the CC
-      logger.log(`✅ Email with PDF attachment successfully sent to ${managerEmail} and CC to athmane-boukerdous@boitexinfo.com`);
+      logger.log(`✅ Email sent as "${fromDisplayName}" to ${managerEmail} (CC count: ${ccList.length})`);
       return;
 
     } catch (error) {

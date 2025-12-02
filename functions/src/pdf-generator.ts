@@ -40,7 +40,7 @@ async function fetchImage(url: string): Promise<Buffer | null> {
 /**
  * Draws a full-width blue bar with the logo and title.
  */
-async function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
+async function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null, data: any) {
   // Full-width blue rectangle
   doc
     .rect(0, 0, doc.page.width, 100) // 100 points high
@@ -54,13 +54,17 @@ async function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) 
     });
   }
 
+  // ✅ Determine Title based on Service Type
+  const isServiceIT = data.serviceType === "Service IT";
+  const reportTitle = isServiceIT ? "RAPPORT INTERVENTION IT" : "RAPPORT INTERVENTION TECHNIQUE";
+
   // Draw the title on the right
   doc
     .font("Helvetica-Bold")
     .fontSize(18)
     .fillColor(HEADER_TEXT_COLOR)
     .text(
-      "RAPPORT D'INTERVENTION",
+      reportTitle, // ✅ Use the dynamic title
       doc.page.width - MARGIN - 250, // Align right
       40, // Vertically centered
       {
@@ -355,7 +359,7 @@ export async function generateInterventionPdf(data: any): Promise<Buffer> {
   ]);
 
   // --- 2. Build PDF Header ---
-  await _buildHeader(doc, logoBuffer);
+  await _buildHeader(doc, logoBuffer, data); // ✅ Passed 'data' here
 
   // --- 3. Build PDF Body ---
   doc.x = MARGIN; // Set default X margin for body

@@ -74,7 +74,10 @@ export const onSavTicketCreated = onDocumentCreated(
         to: recipient,
         cc: [
           "athmane-boukerdous@boitexinfo.com",
-            ],
+          "commercial@boitexinfo.com",
+          "khaled-mekideche@boitexinfo.com",
+          "karim-lehamine@boitexinfo.com"
+        ],
         subject: `[DÉCHARGE MATÉRIEL] Prise en charge SAV - ${data.productName} (${savCode})`,
         html: `
           <div style="font-family: Arial, sans-serif; color: #333;">
