@@ -13,19 +13,19 @@ const smtpUser = defineSecret("SMTP_USER");
 const smtpPassword = defineSecret("SMTP_PASSWORD");
 
 /**
- * TRIGGER: Fires when a new document is created in 'sav_tickets'.
- * PURPOSE: Generates a 'Décharge' PDF and emails it to the manager.
- */
+* TRIGGER: Fires when a new document is created in 'sav_tickets'.
+* PURPOSE: Generates a 'Décharge' or 'Bon de Dépose' PDF and emails it.
+*/
 export const onSavTicketCreated = onDocumentCreated(
-  {
-    document: "sav_tickets/{ticketId}",
-    secrets: [smtpHost, smtpPort, smtpUser, smtpPassword],
-    region: "europe-west1",
-    // Retry ensures if the email fails due to network, it tries again.
-    // Set to false if you want to avoid risk of double emails.
-    retry: false, 
-  },
-  async (event) => {
+{
+document: "sav_tickets/{ticketId}",
+secrets: [smtpHost, smtpPort, smtpUser, smtpPassword],
+region: "europe-west1",
+// Retry ensures if the email fails due to network, it tries again.
+// Set to false if you want to avoid risk of double emails.
+retry: false,
+},
+async (event) => {
     const snapshot = event.data;
     if (!snapshot) {
       logger.error("No data associated with the event");
@@ -36,20 +36,24 @@ export const onSavTicketCreated = onDocumentCreated(
     const ticketId = event.params.ticketId;
     const savCode = data.savCode || ticketId;
 
-    // ✅ Safety Check: Only process if it's actually a new ticket (Status "Nouveau")
-    // Although onDocumentCreated implies it is new, redundancy is safe.
-    if (data.status !== "Nouveau") {
-        logger.info(`Skipping ticket ${savCode} because status is not Nouveau.`);
+    // ✅ CHECK TICKET TYPE
+    const isRemoval = data.ticketType === 'removal';
+
+    // ✅ Safety Check:
+    // - If it's a standard SAV, we expect "Nouveau".
+    // - If it's a Removal, the App sets it to "Terminé" immediately, so we MUST allow "Terminé" if type is removal.
+    if (data.status !== "Nouveau" && !isRemoval) {
+        logger.info(`Skipping ticket ${savCode} because status is not Nouveau (and not a Removal).`);
         return;
     }
 
-    logger.info(`🆕 Processing Décharge for SAV Ticket: ${savCode}`);
+    logger.info(`🆕 Processing Document (${isRemoval ? 'Dépose' : 'SAV'}) for Ticket: ${savCode}`);
 
     try {
       // --- 1. Generate the PDF ---
-      // We use the specific "Décharge" generator we created in Step 1
+      // The generator inside sav-pdf-generator.ts now handles the Title change automatically
       const pdfBuffer = await generateSavDechargePdf(data);
-      
+
       // --- 2. Configure Email Transport ---
       const transporter = nodemailer.createTransport({
         host: smtpHost.value(),
@@ -64,11 +68,27 @@ export const onSavTicketCreated = onDocumentCreated(
       // --- 3. Determine Recipient ---
       // If the manager put their email, use it. Otherwise, fallback to commercial.
       const managerEmail = data.storeManagerEmail;
-      const recipient = (managerEmail && managerEmail.includes("@")) 
-        ? managerEmail 
+      const recipient = (managerEmail && managerEmail.includes("@"))
+        ? managerEmail
         : "commercial@boitexinfo.com";
 
-      // --- 4. Construct Email ---
+      // --- 4. Define Dynamic Email Content ---
+      const emailSubject = isRemoval
+        ? `[BON DE DÉPOSE] Confirmation de Dépose - ${data.productName} (${savCode})`
+        : `[DÉCHARGE MATÉRIEL] Prise en charge SAV - ${data.productName} (${savCode})`;
+
+      const emailTitle = isRemoval ? "Confirmation de Dépose Matériel" : "Confirmation de Prise en Charge SAV";
+
+      const emailBodyIntro = isRemoval
+        ? "L'équipement suivant a été <strong>désinstallé et laissé sur site</strong> à votre demande :"
+        : "L'équipement suivant a été récupéré par nos services pour diagnostic :";
+
+      const problemLabel = isRemoval ? "Motif" : "Panne déclarée";
+
+      const docName = isRemoval ? "Bon de Dépose" : "Décharge de Matériel";
+      const fileName = isRemoval ? `Bon-Depose-${savCode}.pdf` : `Decharge-SAV-${savCode}.pdf`;
+
+      // --- 5. Construct Email ---
       const mailOptions = {
         from: `"Boitex SAV" <${smtpUser.value()}>`,
         to: recipient,
@@ -78,23 +98,23 @@ export const onSavTicketCreated = onDocumentCreated(
           "khaled-mekideche@boitexinfo.com",
           "karim-lehamine@boitexinfo.com"
         ],
-        subject: `[DÉCHARGE MATÉRIEL] Prise en charge SAV - ${data.productName} (${savCode})`,
+        subject: emailSubject,
         html: `
           <div style="font-family: Arial, sans-serif; color: #333;">
-            <h2 style="color: #0D47A1;">Confirmation de Prise en Charge SAV</h2>
+            <h2 style="color: #0D47A1;">${emailTitle}</h2>
             <p>Bonjour ${data.storeManagerName},</p>
-            
-            <p>L'équipement suivant a été récupéré par nos services pour diagnostic :</p>
-            
+
+            <p>${emailBodyIntro}</p>
+
             <ul>
               <li><strong>Produit :</strong> ${data.productName}</li>
               <li><strong>N° Série :</strong> ${data.serialNumber}</li>
-              <li><strong>Panne déclarée :</strong> ${data.problemDescription}</li>
+              <li><strong>${problemLabel} :</strong> ${data.problemDescription}</li>
               <li><strong>Technicien(s) :</strong> ${data.pickupTechnicianNames ? data.pickupTechnicianNames.join(", ") : "Non spécifié"}</li>
             </ul>
 
-            <p>Veuillez trouver ci-joint la <strong>Décharge de Matériel</strong> officielle (PDF) valant preuve de dépôt.</p>
-            
+            <p>Veuillez trouver ci-joint le document <strong>${docName}</strong> officiel (PDF).</p>
+
             <hr style="border: 0; border-top: 1px solid #eee;" />
             <p style="font-size: 12px; color: #666;">
               Ceci est un message automatique. Merci de ne pas y répondre directement.<br/>
@@ -104,19 +124,19 @@ export const onSavTicketCreated = onDocumentCreated(
         `,
         attachments: [
           {
-            filename: `Decharge-SAV-${savCode}.pdf`,
+            filename: fileName,
             content: pdfBuffer,
             contentType: "application/pdf",
           },
         ],
       };
 
-      // --- 5. Send ---
+      // --- 6. Send ---
       await transporter.sendMail(mailOptions);
-      logger.info(`✅ Décharge email sent successfully to ${recipient} for ${savCode}`);
+      logger.info(`✅ Email (${docName}) sent successfully to ${recipient} for ${savCode}`);
 
     } catch (error) {
-      logger.error(`❌ Error processing SAV Décharge for ${savCode}:`, error);
+      logger.error(`❌ Error processing SAV Document for ${savCode}:`, error);
       // If you set retry: true, throwing here would trigger a retry
     }
   }

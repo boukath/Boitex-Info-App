@@ -50,6 +50,9 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   final _formKey = GlobalKey<FormState>();
   final _itemFormKey = GlobalKey<FormState>(); // ✅ Key for the item entry part
 
+  // ✅ 1. ADD THIS VARIABLE: State for ticket type selector
+  String _selectedTicketType = 'standard';
+
   // Clients and stores
   List<QueryDocumentSnapshot> _clients = [];
   List<QueryDocumentSnapshot> _stores = [];
@@ -695,7 +698,9 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           storeManagerName: _managerNameController.text,
           storeManagerEmail: _managerEmailController.text.trim().isEmpty ? null : _managerEmailController.text.trim(),
           storeManagerSignatureUrl: sigUrl, // Shared signature
-          status: 'Nouveau',
+          // ✅ 3. Update the _saveTicket logic: Set status and type based on selection
+          status: _selectedTicketType == 'removal' ? 'Terminé' : 'Nouveau',
+          ticketType: _selectedTicketType,
           createdBy: 'Current User',
           createdAt: DateTime.now(),
         );
@@ -869,6 +874,52 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                   border: defaultBorder,
                   focusedBorder: focusedBorder,
                   prefixIcon: const Icon(Icons.alternate_email_rounded),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ✅ 2. Add the Selector Widget: Dropdown for Ticket Type
+              Container(
+                margin: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedTicketType,
+                    isExpanded: true,
+                    icon: const Icon(Icons.arrow_drop_down, color: Colors.blue),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'standard',
+                        child: Row(
+                          children: [
+                            Icon(Icons.build_circle, color: Colors.orange),
+                            SizedBox(width: 12),
+                            Text('Réparation Standard (Atelier)'),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 'removal',
+                        child: Row(
+                          children: [
+                            Icon(Icons.remove_circle, color: Colors.red),
+                            SizedBox(width: 12),
+                            Text('Dépose Matériel (Laissé sur site)'),
+                          ],
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedTicketType = value);
+                      }
+                    },
+                  ),
                 ),
               ),
 

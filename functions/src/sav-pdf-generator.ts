@@ -19,8 +19,8 @@ const LINE_COLOR = "#E0E0E0";
 const MARGIN = 40;
 
 /**
- * Fetches an image from a URL and returns it as a Buffer.
- */
+* Fetches an image from a URL and returns it as a Buffer.
+*/
 async function fetchImage(url: string): Promise<Buffer | null> {
   if (!url || !url.startsWith("http")) {
     // Don't log warning for missing optional signatures, just return null
@@ -92,7 +92,10 @@ function _buildClientAndManagerInfo(doc: PDFKit.PDFDocument, data: any) {
   drawField("Magasin / Site", data.storeName, col1X, doc.y);
 
   // --- Column 2: Manager & Date ---
-  drawField("Date de Récupération", dateStr, col2X, startY); // createdAt as Pick up date
+  // ✅ LOGIC: If removal, label is 'Date de Dépose', else 'Date de Récupération'
+  const dateLabel = data.ticketType === 'removal' ? "Date de Dépose" : "Date de Récupération";
+
+  drawField(dateLabel, dateStr, col2X, startY);
   drawField("Responsable sur Site", data.storeManagerName, col2X, doc.y);
   drawField("Email Responsable", data.storeManagerEmail, col2X, doc.y);
 
@@ -109,6 +112,9 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
   const contentX = MARGIN + 20;
   const contentWidth = doc.page.width - MARGIN * 2 - 40;
 
+  // ✅ LOGIC: Change label based on ticket type
+  const problemLabel = data.ticketType === 'removal' ? "Motif de la Dépose" : "Problème Déclaré";
+
   const drawTextBlock = (label: string, text: string) => {
     doc
       .font("Helvetica-Bold")
@@ -121,17 +127,17 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
       .fontSize(10)
       .fillColor(TEXT_COLOR)
       .text(text || "Non spécifié", contentX, doc.y, { width: contentWidth });
-    
+
     doc.moveDown(1.5);
   };
 
   // 1. Measure Height
   const tempY = doc.y;
   doc.y = tempY + 20;
-  
+
   drawTextBlock("Produit / Équipement", data.productName);
   drawTextBlock("Numéro de Série (S/N)", data.serialNumber);
-  drawTextBlock("Problème Déclaré", data.problemDescription);
+  drawTextBlock(problemLabel, data.problemDescription); // Using dynamic label
 
   const endY = doc.y;
 
@@ -145,7 +151,7 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
   doc.y = tempY + 20;
   drawTextBlock("Produit / Équipement", data.productName);
   drawTextBlock("Numéro de Série (S/N)", data.serialNumber);
-  drawTextBlock("Problème Déclaré", data.problemDescription);
+  drawTextBlock(problemLabel, data.problemDescription);
 
   doc.y = endY + 20;
 }
@@ -179,11 +185,14 @@ async function _buildValidationSection(
   }
 
   // --- Column 1: Boitex Technicians ---
+  // ✅ LOGIC: Label change for removal vs pickup
+  const techLabel = data.ticketType === 'removal' ? "Techniciens (Dépose)" : "Techniciens (Récupération)";
+
   doc.font("Helvetica-Bold").fontSize(12).fillColor(TITLE_COLOR)
-     .text("Techniciens (Récupération)", col1X, startY);
+     .text(techLabel, col1X, startY);
 
   const techs: string[] = data.pickupTechnicianNames || [];
-  
+
   if (techs.length > 0) {
     techs.forEach((tech) => {
       doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR).text(`• ${tech}`, { lineGap: 3 });
@@ -264,8 +273,11 @@ export async function generateSavDechargePdf(data: any): Promise<Buffer> {
     fetchImage(WATERMARK_URL),
   ]);
 
-  // 2. Header (Title: DÉCHARGE MATÉRIEL)
-  _buildHeader(doc, logoBuffer, "DÉCHARGE MATÉRIEL");
+  // ✅ 2. Header (Dynamic Title)
+  const isRemoval = data.ticketType === 'removal';
+  const title = isRemoval ? "BON DE DÉPOSE" : "DÉCHARGE MATÉRIEL";
+
+  _buildHeader(doc, logoBuffer, title);
 
   // 3. Info Section
   doc.x = MARGIN;

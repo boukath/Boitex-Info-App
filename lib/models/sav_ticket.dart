@@ -48,6 +48,9 @@ class SavTicket {
   final DateTime createdAt;
   final List<BrokenPart> brokenParts;
 
+  // ✅ 1. Add the variable at the top of the class
+  final String ticketType;
+
   // ✅ ADDED: New fields for the enhanced workflow
   final String? billingStatus;
   final String? invoiceUrl;
@@ -79,6 +82,8 @@ class SavTicket {
     required this.createdBy,
     required this.createdAt,
     List<BrokenPart>? brokenParts,
+    // ✅ Initialize default value so existing code doesn't break
+    this.ticketType = 'standard',
     // ✅ ADDED: New fields to the constructor
     this.billingStatus,
     this.invoiceUrl,
@@ -110,6 +115,8 @@ class SavTicket {
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(createdAt),
       'brokenParts': brokenParts.map((part) => part.toJson()).toList(),
+      // ✅ 3. Update toMap (toJson) method
+      'ticketType': ticketType,
       // ✅ ADDED: Saving new fields to Firestore
       'billingStatus': billingStatus,
       'invoiceUrl': invoiceUrl,
@@ -152,6 +159,8 @@ class SavTicket {
       createdBy: data['createdBy'] as String,
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       brokenParts: brokenPartsList,
+      // ✅ 2. Update fromFirestore factory
+      ticketType: data['ticketType'] as String? ?? 'standard',
       // ✅ ADDED: Reading new fields from Firestore
       billingStatus: data['billingStatus'] as String?,
       invoiceUrl: data['invoiceUrl'] as String?,
