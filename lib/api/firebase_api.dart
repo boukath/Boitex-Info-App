@@ -44,8 +44,9 @@ class FirebaseApi {
   static const String _globalAnnouncementsTopic = 'GLOBAL_ANNOUNCEMENTS';
 
   // Helper function to convert role names to valid FCM topic names
+  // ⚡ FIXED: Added 'user_role_' prefix to match Backend logic!
   String _roleToTopic(String role) {
-    return role.replaceAll(' ', '_');
+    return 'user_role_${role.replaceAll(' ', '_')}';
   }
 
   Future<void> initNotifications() async {
@@ -189,6 +190,14 @@ class FirebaseApi {
 
     final String? collection = data['relatedCollection'];
     final String? docId = data['relatedDocId'];
+
+    // Specific check for morning briefing
+    if (data['type'] == 'morning_briefing') {
+      // You can add navigation to a specific briefing page here if needed
+      // For now, we just print or return
+      print('📊 Morning Briefing tapped');
+      return;
+    }
 
     if (docId == null || collection == null) return;
 
@@ -381,10 +390,10 @@ class FirebaseApi {
     );
   }
 
-  // ⭐️⭐️ THIS IS THE FIXED METHOD ⭐️⭐️
   Future<void> subscribeToTopics(String userRole) async {
     // 1. Build the list of topics this user *should* have
-    List<String> topicsToSubscribe = [];
+    // ⚡ FIXED: Use Set to avoid duplicate subscriptions
+    Set<String> topicsToSubscribe = {};
 
     // Always subscribe to global
     topicsToSubscribe.add(_globalAnnouncementsTopic);
@@ -401,6 +410,7 @@ class FirebaseApi {
       topicsToSubscribe.add(_techItTopic);
     }
 
+    // Subscribe to Role-Based Topic (This matches your Morning Briefing now)
     final managementRoles = [
       UserRoles.pdg,
       UserRoles.admin,
@@ -414,23 +424,14 @@ class FirebaseApi {
     ];
 
     if (managementRoles.contains(userRole)) {
-      final topic = _roleToTopic(userRole);
+      final topic = _roleToTopic(userRole); // Now returns 'user_role_Admin', etc.
       topicsToSubscribe.add(topic);
-    }
-
-    if (userRole == UserRoles.admin) {
-      topicsToSubscribe.add(_roleToTopic(UserRoles.admin));
-    }
-    if (userRole == UserRoles.responsableAdministratif) {
-      topicsToSubscribe.add(_roleToTopic(UserRoles.responsableAdministratif));
-    }
-    if (userRole == UserRoles.responsableCommercial) {
-      topicsToSubscribe.add(_roleToTopic(UserRoles.responsableCommercial));
     }
 
     // 2. Unsubscribe logic (Optional but good for role changes)
     await unsubscribeFromAllTopics();
     print('🔄 Subscribing to topics for role: $userRole');
+    print('📝 Topic List: $topicsToSubscribe'); // Debug print
 
     // 3. 🛑 EXECUTE SUBSCRIPTION BASED ON PLATFORM 🛑
     if (kIsWeb) {
@@ -458,7 +459,7 @@ class FirebaseApi {
               .httpsCallable('subscribeToTopicsWeb')
               .call({
             'token': token,
-            'topics': topicsToSubscribe,
+            'topics': topicsToSubscribe.toList(),
           });
           print('✅ Web Topics Subscribed via Server: ${result.data}');
         } else {
@@ -517,13 +518,6 @@ class FirebaseApi {
     for (final role in managementRoles) {
       await _firebaseMessaging.unsubscribeFromTopic(_roleToTopic(role));
     }
-
-    await _firebaseMessaging
-        .unsubscribeFromTopic(_roleToTopic(UserRoles.admin));
-    await _firebaseMessaging
-        .unsubscribeFromTopic(_roleToTopic(UserRoles.responsableAdministratif));
-    await _firebaseMessaging
-        .unsubscribeFromTopic(_roleToTopic(UserRoles.responsableCommercial));
 
     print('✅ Unsubscribed from all topics');
   }

@@ -960,8 +960,8 @@ export const subscribeToTopicsWeb = onCall(async (request) => {
 // ------------------------------------------------------------------
 
 export const sendMorningBriefing = onSchedule({
-  schedule: "every 30 minutes",
-  timeZone: "Africa/Algiers",   // Scheduler trigger (Works)
+  schedule: "every 15 minutes", // ⚡ UPDATED: Check more often for better precision
+  timeZone: "Africa/Algiers",
   retryCount: 0,
 }, async (event) => {
 
@@ -975,52 +975,58 @@ export const sendMorningBriefing = onSchedule({
   if (!settings || !settings.enabled) return;
 
   // ----------------------------------------------------------------
-  // ✅ FIX: FORCE ALGERIA TIME CALCULATION (UTC+1)
+  // 2. Precise Time Calculation (Force Algeria Time UTC+1)
   // ----------------------------------------------------------------
   const now = new Date();
-
-  // 1. Get current UTC time in milliseconds
-  // (This removes any server-local bias)
+  // Get UTC time in ms
   const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
-
-  // 2. Add Algeria Offset (UTC + 1 hour)
+  // Add Algeria Offset (UTC + 1 hour)
   const algeriaOffsetHours = 1;
   const algeriaDate = new Date(utcMs + (3600000 * algeriaOffsetHours));
 
-  // 3. Extract Time & Day from the calculated Algeria Date
   const currentHour = algeriaDate.getHours();
   const currentMinute = algeriaDate.getMinutes();
 
+  // Check Day
   const frenchDays = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
   const currentDayName = frenchDays[algeriaDate.getDay()];
 
-  // ----------------------------------------------------------------
-
-  // A. Check Day
   if (!settings.days || !settings.days.includes(currentDayName)) {
     console.log(`Skipping: Today is ${currentDayName}, not in allowed days.`);
     return;
   }
 
-  // B. Check Time
+  // ----------------------------------------------------------------
+  // 3. ⚡ FIXED: Time Window Logic
+  // ----------------------------------------------------------------
   const targetHour = settings.time.hour;
   const targetMinute = settings.time.minute;
 
-  // Debug Log (So you can see exactly what the server sees)
-  console.log(`🕒 Time Check (Algeria): Current ${currentHour}:${currentMinute} vs Target ${targetHour}:${targetMinute}`);
+  // Calculate difference in minutes
+  const currentTotalMinutes = (currentHour * 60) + currentMinute;
+  const targetTotalMinutes = (targetHour * 60) + targetMinute;
 
-  // Check: Same hour AND within 15 minutes window
-  const isTimeMatch = (currentHour === targetHour) && (Math.abs(currentMinute - targetMinute) < 16);
+  const diff = Math.abs(currentTotalMinutes - targetTotalMinutes);
 
-  if (!isTimeMatch) {
+  console.log(`🕒 Time Check (Algeria): Current ${currentHour}:${currentMinute} vs Target ${targetHour}:${targetMinute} (Diff: ${diff}m)`);
+
+  // We run every 15 mins.
+  // We strictly check if we are within 7 minutes of the target.
+  // This prevents 8:15 and 8:45 from triggering an 8:30 target.
+  if (diff > 7) {
     console.log(`Skipping: Time mismatch.`);
     return;
   }
 
   console.log("🚀 Starting Morning Briefing Generation...");
 
-  // 3. Parallel Data Aggregation (Your Custom Queries)
+  // ----------------------------------------------------------------
+  // 4. Data Aggregation & Sending
+  // ----------------------------------------------------------------
   try {
+    // Note: I also fixed the '!=' query which can be problematic in Firestore
+    const activeSavStatuses = ['Nouveau', 'En cours', 'En attente de pièce', 'Diagnostiqué'];
+
     const [
       interventionsSnap,
       savSnap,
@@ -1028,19 +1034,13 @@ export const sendMorningBriefing = onSchedule({
       billingSnap,
       requisitionsSnap
     ] = await Promise.all([
-      // Interventions: 'Nouvelle Demande'
       db.collection('interventions').where('status', '==', 'Nouvelle Demande').count().get(),
 
-      // SAV: != 'Nouveau'
-      db.collection('sav_tickets').where('status', '!=', 'Nouveau').count().get(),
+      // Changed to 'in' query for better accuracy
+      db.collection('sav_tickets').where('status', 'in', activeSavStatuses).count().get(),
 
-      // Livraisons: 'À Préparer'
       db.collection('livraisons').where('status', '==', 'À Préparer').count().get(),
-
-      // Billing: 'Terminé'
       db.collection('interventions').where('status', '==', 'Terminé').count().get(),
-
-      // Requisitions: 'En attente d\'approbation'
       db.collection('requisitions').where('status', '==', "En attente d'approbation").count().get()
     ]);
 
@@ -1052,8 +1052,8 @@ export const sendMorningBriefing = onSchedule({
       pending_requisitions: requisitionsSnap.data().count,
     };
 
-    // 4. Targeted Dispatch (Per Role)
-    const recipients = settings.roles || []; // List of roles like ['Admin', 'PDG']
+    // Dispatch (Per Role)
+    const recipients = settings.roles || [];
     const contentVisibility = settings.content_visibility || {};
 
     const sendPromises = recipients.map(async (role: string) => {
@@ -1065,7 +1065,6 @@ export const sendMorningBriefing = onSchedule({
         return allowedRoles && allowedRoles.includes(role);
       };
 
-      // Build Message Lines based on Permissions
       if (canSee('pending_interventions') && counts.pending_interventions > 0) {
         bodyLines.push(`🛠️ ${counts.pending_interventions} Nouvelles Interventions`);
       }
@@ -1082,11 +1081,11 @@ export const sendMorningBriefing = onSchedule({
         bodyLines.push(`🛒 ${counts.pending_requisitions} Achats à valider`);
       }
 
-      // If there is nothing relevant for this role, don't send anything
       if (bodyLines.length === 0) return;
 
       const messageBody = bodyLines.join("\n");
-      const topicName = `user_role_${role.replace(/\s+/g, '_')}`;
+      // IMPORTANT: Ensure topic name matches what the app subscribes to!
+      const topicName = `user_role_${role.replace(/\s+/g, '_')}`; // e.g., user_role_Admin
 
       await admin.messaging().send({
         topic: topicName,
@@ -1100,7 +1099,7 @@ export const sendMorningBriefing = onSchedule({
         }
       });
 
-      console.log(`✅ Sent briefing to ${role}`);
+      console.log(`✅ Sent briefing to ${role} (Topic: ${topicName})`);
     });
 
     await Promise.all(sendPromises);
