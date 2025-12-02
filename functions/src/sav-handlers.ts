@@ -51,7 +51,6 @@ async (event) => {
 
     try {
       // --- 1. Generate the PDF ---
-      // The generator inside sav-pdf-generator.ts now handles the Title change automatically
       const pdfBuffer = await generateSavDechargePdf(data);
 
       // --- 2. Configure Email Transport ---
@@ -65,14 +64,35 @@ async (event) => {
         },
       });
 
-      // --- 3. Determine Recipient ---
-      // If the manager put their email, use it. Otherwise, fallback to commercial.
+      // --- 3. Determine Recipient (Manager/Client) ---
       const managerEmail = data.storeManagerEmail;
       const recipient = (managerEmail && managerEmail.includes("@"))
         ? managerEmail
         : "commercial@boitexinfo.com";
 
-      // --- 4. Define Dynamic Email Content ---
+      // --- 4. Determine Internal Team (CC) based on Service Type ---
+      // Defaults to Service Technique if undefined
+      const serviceType = data.serviceType || "Service Technique";
+      let ccList: string[] = [];
+
+      if (serviceType.toString().toUpperCase().includes("IT")) {
+        // 💻 Service IT List
+        ccList = [
+          "commercial@boitexinfo.com",
+          "karim-lehamine@boitexinfo.com"
+        ];
+        logger.info(`📧 Routing to IT Team: ${ccList.join(", ")}`);
+      } else {
+        // 🔧 Service Technique List (Default)
+        ccList = [
+          "athmane-boukerdous@boitexinfo.com",
+          "commercial@boitexinfo.com",
+          "khaled-mekideche@boitexinfo.com"
+        ];
+        logger.info(`📧 Routing to Technical Team: ${ccList.join(", ")}`);
+      }
+
+      // --- 5. Define Dynamic Email Content ---
       const emailSubject = isRemoval
         ? `[BON DE DÉPOSE] Confirmation de Dépose - ${data.productName} (${savCode})`
         : `[DÉCHARGE MATÉRIEL] Prise en charge SAV - ${data.productName} (${savCode})`;
@@ -88,16 +108,11 @@ async (event) => {
       const docName = isRemoval ? "Bon de Dépose" : "Décharge de Matériel";
       const fileName = isRemoval ? `Bon-Depose-${savCode}.pdf` : `Decharge-SAV-${savCode}.pdf`;
 
-      // --- 5. Construct Email ---
+      // --- 6. Construct Email ---
       const mailOptions = {
         from: `"Boitex SAV" <${smtpUser.value()}>`,
         to: recipient,
-        cc: [
-          "athmane-boukerdous@boitexinfo.com",
-          "commercial@boitexinfo.com",
-          "khaled-mekideche@boitexinfo.com",
-          "karim-lehamine@boitexinfo.com"
-        ],
+        cc: ccList, // ✅ Uses the dynamic list we created above
         subject: emailSubject,
         html: `
           <div style="font-family: Arial, sans-serif; color: #333;">
@@ -131,9 +146,9 @@ async (event) => {
         ],
       };
 
-      // --- 6. Send ---
+      // --- 7. Send ---
       await transporter.sendMail(mailOptions);
-      logger.info(`✅ Email (${docName}) sent successfully to ${recipient} for ${savCode}`);
+      logger.info(`✅ Email (${docName}) sent successfully to ${recipient} (CC: ${ccList.length}) for ${savCode}`);
 
     } catch (error) {
       logger.error(`❌ Error processing SAV Document for ${savCode}:`, error);

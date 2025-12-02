@@ -37,6 +37,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
   final _notesController = TextEditingController();
   final _emailController = TextEditingController();
+  // ✅ ADDED: Controller for the person on site
+  final _signatoryNameController = TextEditingController();
 
   final ImagePicker _picker = ImagePicker();
   List<XFile> _mediaFilesToUpload = [];
@@ -67,6 +69,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   void dispose() {
     _notesController.dispose();
     _emailController.dispose();
+    // ✅ ADDED: Dispose name controller
+    _signatoryNameController.dispose();
     _signatureController.dispose();
     super.dispose();
   }
@@ -111,6 +115,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           _installationDoc = snapshot;
           _notesController.text = data['notes'] ?? '';
           _emailController.text = data['clientEmail'] ?? '';
+          // ✅ ADDED: Load existing contact name if available
+          _signatoryNameController.text = data['signatoryName'] ?? data['contactName'] ?? '';
           _existingMediaUrls =
           List<String>.from(data['mediaUrls'] ?? data['photoUrls'] ?? []);
           _installedSystems = initialSystems;
@@ -396,8 +402,61 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   Future<void> _saveReport() async {
     if (_isSaving) return;
 
+    // ✅ CHECK 1: Ensure products exist
     if (_installedSystems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez ajouter au moins un équipement installé."), backgroundColor: Colors.red));
+      return;
+    }
+
+    // ✅ CHECK 2: MANDATORY NAME VALIDATION
+    if (_signatoryNameController.text.trim().isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nom Requis'),
+          content: const Text(
+              'Veuillez indiquer le nom de la personne responsable (signataire) sur site.'
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // ✅ CHECK 3: MANDATORY EMAIL VALIDATION
+    if (_emailController.text.trim().isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Email Obligatoire'),
+          content: const Text(
+              'L\'email du client est requis pour l\'envoi automatique du rapport PDF.\n\nVeuillez demander l\'email au responsable sur site.'
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('OK, je vais le remplir'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // ✅ CHECK 4: Simple Regex for Email Format
+    if (!_emailController.text.contains('@') || !_emailController.text.contains('.')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Format d'email invalide."), backgroundColor: Colors.red),
+      );
       return;
     }
 
@@ -441,6 +500,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         'status': 'Terminée',
         'notes': _notesController.text,
         'clientEmail': _emailController.text.trim(),
+        'signatoryName': _signatoryNameController.text.trim(), // ✅ Saved specific to this report
+        'contactName': _signatoryNameController.text.trim(), // ✅ Update main contact for email template
         'signatureUrl': signatureUrl,
         'mediaUrls': uploadedMediaUrls,
         'photoUrls': FieldValue.delete(),
@@ -512,15 +573,48 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
             const SizedBox(height: 24),
 
+            // ✅ NEW: Name Field (Person on site)
+            TextField(
+              controller: _signatoryNameController,
+              readOnly: isReadOnly,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: 'Nom du Responsable / Signataire *',
+                hintText: 'Personne présente sur site',
+                prefixIcon: const Icon(Icons.person_pin_circle_outlined, color: Colors.blue),
+                border: const OutlineInputBorder(),
+                enabledBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue, width: 1.5),
+                ),
+                suffixIcon: isReadOnly
+                    ? null
+                    : const Tooltip(
+                  message: "Le nom de la personne qui signe le rapport.",
+                  child: Icon(Icons.info_outline, color: Colors.orange),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ✅ EMAIL FIELD UI - Updated Decoration
             TextField(
               controller: _emailController,
               readOnly: isReadOnly,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Email du Client (pour envoi du rapport)',
-                prefixIcon: Icon(Icons.email),
-                border: OutlineInputBorder(),
-                hintText: 'client@example.com',
+              decoration: InputDecoration(
+                labelText: 'Email du Client * (Obligatoire)',
+                hintText: 'Pour l\'envoi automatique du PDF',
+                prefixIcon: const Icon(Icons.email, color: Colors.blue),
+                border: const OutlineInputBorder(),
+                enabledBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue, width: 1.5),
+                ),
+                suffixIcon: isReadOnly
+                    ? null
+                    : const Tooltip(
+                  message: "Ce champ est requis pour envoyer le rapport.",
+                  child: Icon(Icons.info_outline, color: Colors.orange),
+                ),
               ),
             ),
             const SizedBox(height: 24),

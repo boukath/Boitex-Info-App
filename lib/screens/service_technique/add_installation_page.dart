@@ -73,6 +73,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   final _formKey = GlobalKey<FormState>();
   final _requestController = TextEditingController();
   final _clientPhoneController = TextEditingController();
+  // ✅ ADDED: Email Controller
+  final _clientEmailController = TextEditingController();
   final _contactNameController = TextEditingController();
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
@@ -120,6 +122,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   void dispose() {
     _requestController.dispose();
     _clientPhoneController.dispose();
+    // ✅ ADDED: Dispose Email Controller
+    _clientEmailController.dispose();
     _contactNameController.dispose();
     _clientSearchController.dispose();
     _storeSearchController.dispose();
@@ -287,7 +291,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // -----------------------------------------------------------------
-  // ⭐️ FIXED: _saveInstallation (With Image/Category Enrichment)
+  // ⭐️ FIXED: _saveInstallation (With Email & Image Enrichment)
   // -----------------------------------------------------------------
   Future<void> _saveInstallation() async {
     if (!_formKey.currentState!.validate()) {
@@ -350,7 +354,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       final createdByName = userDoc.data()?['displayName'] ?? 'N/A';
 
       // 🔹 A: PREPARE "ENRICHED" PRODUCTS (The Plan)
-      // ✅ FIXED: We fetch the missing data (Image, Category) from Firestore directly
       List<Map<String, dynamic>> enrichedProducts = [];
 
       for (var p in _selectedProducts) {
@@ -393,7 +396,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       }
 
       // 🔹 B: PREPARE "SYSTEMS" (The Execution Checklist)
-      // We use the enriched list so the Technician also sees images
       final systems = enrichedProducts.map((p) {
         return {
           'id': p['productId'],
@@ -428,10 +430,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
         // Write the Installation
         transaction.set(installationRef, {
-          'installationCode': installationCode, // ✅ SAVED HERE
+          'installationCode': installationCode,
           'clientName': _selectedClient!.name,
           'clientId': _selectedClient!.id,
           'clientPhone': _clientPhoneController.text.trim(),
+          // ✅ ADDED: Client Email
+          'clientEmail': _clientEmailController.text.trim(),
           'contactName': _contactNameController.text.trim(),
           'storeName': _selectedStore!.name,
           'storeId': _selectedStore!.id,
@@ -830,6 +834,28 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   floatingLabelStyle: const TextStyle(color: primaryColor),
                 ),
                 keyboardType: TextInputType.phone,
+              ),
+
+              const SizedBox(height: 20),
+
+              // ✅ ADDED: Client Email Field
+              TextFormField(
+                controller: _clientEmailController,
+                decoration: InputDecoration(
+                  labelText: 'Email Client (Pour le rapport)',
+                  hintText: 'email@client.com',
+                  prefixIcon: const Icon(Icons.alternate_email),
+                  enabledBorder: defaultBorder,
+                  focusedBorder: focusedBorder,
+                  floatingLabelStyle: const TextStyle(color: primaryColor),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  if (value != null && value.isNotEmpty && !value.contains('@')) {
+                    return 'Format email invalide';
+                  }
+                  return null;
+                },
               ),
 
               const SizedBox(height: 20),

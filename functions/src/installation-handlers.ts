@@ -153,7 +153,6 @@ export const onInstallationTermine = onDocumentUpdated(
       logger.log(`🚀 Processing Completion for Installation: ${after.installationCode}`);
 
       // Prepare Recipients (with Fallback)
-      // ✅ FIX: Use 'clientEmail' instead of 'managerEmail'
       let mainRecipient = after.clientEmail;
       if (!isValidEmail(mainRecipient)) {
          logger.warn(`⚠️ Invalid or missing client email. Defaulting to internal admin.`);
@@ -162,9 +161,26 @@ export const onInstallationTermine = onDocumentUpdated(
          logger.log(`📧 Sending to client: ${mainRecipient}`);
       }
 
-      const ccList = [
+      // ✅ SMART ROUTING: Determine CC List based on Service Type
+      const serviceType = after.serviceType || "Service Technique";
+      let ccList: string[] = [];
+
+      if (serviceType.toString().toUpperCase().includes("IT")) {
+        // 💻 Service IT List
+        ccList = [
+          "commercial@boitexinfo.com",
+          "karim-lehamine@boitexinfo.com"
+        ];
+        logger.info(`📧 Routing to IT Team: ${ccList.join(", ")}`);
+      } else {
+        // 🔧 Service Technique List (Default)
+        ccList = [
           "athmane-boukerdous@boitexinfo.com",
-      ];
+          "commercial@boitexinfo.com",
+          "khaled-mekideche@boitexinfo.com"
+        ];
+        logger.info(`📧 Routing to Technical Team: ${ccList.join(", ")}`);
+      }
 
       // Generate PDF
       logger.log("📄 Generating Installation PDF in memory...");
@@ -176,6 +192,11 @@ export const onInstallationTermine = onDocumentUpdated(
           return; // Stop if PDF fails to avoid sending broken emails
       }
 
+      // Formatting Tech Names
+      const techNames = (after.assignedTechnicians && Array.isArray(after.assignedTechnicians))
+        ? after.assignedTechnicians.map((t:any) => t.displayName).join(", ")
+        : "Non spécifié";
+
       // Configure Transporter
       const transporter = nodemailer.createTransport({
         host: smtpHost.value(),
@@ -185,23 +206,33 @@ export const onInstallationTermine = onDocumentUpdated(
       });
 
       const mailOptions = {
-        from: `"Boitex Info Installation" <${smtpUser.value()}>`,
+        from: `"Boitex Installation" <${smtpUser.value()}>`,
         to: mainRecipient,
-        cc: ccList,
-        subject: `Rapport d'Installation: ${after.installationCode || "N/A"}`,
+        cc: ccList, // ✅ Uses dynamic list
+        subject: `[RAPPORT INSTALLATION] Confirmation de Fin de Travaux - ${after.clientName} (${after.installationCode})`,
         html: `
-          <p>Bonjour,</p>
-          <p>L'installation <strong>${after.installationCode || "N/A"}</strong>
-          pour le client <strong>${after.clientName || "Client"}</strong>
-          au magasin <strong>${after.storeName || "Magasin"}</strong>
-          est maintenant terminée.</p>
+          <div style="font-family: Arial, sans-serif; color: #333;">
+            <h2 style="color: #0D47A1;">Confirmation de Fin d'Installation</h2>
+            <p>Bonjour,</p>
+            <p>L'installation suivante a été réalisée avec succès et le rapport technique est disponible.</p>
 
-          <p>Vous trouverez ci-joint le rapport détaillé incluant les numéros de série des équipements installés.</p>
+            <ul>
+              <li><strong>Client / Site :</strong> ${after.clientName || "N/A"} - ${after.storeName || "N/A"}</li>
+              <li><strong>Code Installation :</strong> ${after.installationCode || "N/A"}</li>
+              <li><strong>Technicien(s) :</strong> ${techNames}</li>
+            </ul>
 
-          <p>Cordialement,<br>L'équipe Technique Boitex Info</p>
+            <p>Vous trouverez ci-joint le <strong>Procès-Verbal de Réception</strong> (PDF) incluant les détails des équipements installés.</p>
+
+            <hr style="border: 0; border-top: 1px solid #eee;" />
+            <p style="font-size: 12px; color: #666;">
+              Ceci est un message automatique.<br/>
+              <strong>Boitex Info SARL</strong>
+            </p>
+          </div>
         `,
         attachments: [{
-          filename: `Installation-${after.installationCode || "Rapport"}.pdf`,
+          filename: `PV-Reception-${after.installationCode || "Installation"}.pdf`,
           content: pdfBuffer,
           contentType: "application/pdf",
         }]
