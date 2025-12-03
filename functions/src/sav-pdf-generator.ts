@@ -105,14 +105,75 @@ function _buildClientAndManagerInfo(doc: PDFKit.PDFDocument, data: any) {
 
 /**
  * Section 2: Equipment Details
- * Layout: Gray Card (Identical to Technical Report in Intervention)
+ * ✅ MODIFIED: Handles both Single Item (Card) and Multi-Items (Table)
  */
 function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
   const startY = doc.y;
-  const contentX = MARGIN + 20;
-  const contentWidth = doc.page.width - MARGIN * 2 - 40;
 
   // ✅ LOGIC: Change label based on ticket type
+  const problemLabelHeader = data.ticketType === 'removal' ? "Motif" : "Problème";
+
+  // ---------------------------------------------------------
+  // 🅰️ MULTI-PRODUCT MODE (Table View)
+  // ---------------------------------------------------------
+  if (data.multiProducts && data.multiProducts.length > 0) {
+    // Table Config
+    const col1X = MARGIN;           // Product Name
+    const col2X = MARGIN + 200;     // Serial Number
+    const col3X = MARGIN + 350;     // Problem/Description
+
+    const col1Width = 190;
+    const col2Width = 140;
+    const col3Width = doc.page.width - MARGIN - col3X;
+
+    // 1. Draw Table Header
+    doc.rect(MARGIN, doc.y, doc.page.width - (MARGIN * 2), 20).fillColor(BRAND_COLOR).fill();
+
+    const headerY = doc.y + 5; // vertical centering offset
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(HEADER_TEXT_COLOR);
+    doc.text("Produit / Équipement", col1X + 5, headerY, { width: col1Width });
+    doc.text("N° Série (S/N)", col2X, headerY, { width: col2Width });
+    doc.text(problemLabelHeader, col3X, headerY, { width: col3Width });
+
+    doc.moveDown(2); // Move past header rectangle
+
+    // 2. Draw Rows
+    doc.font("Helvetica").fontSize(9).fillColor(TEXT_COLOR);
+
+    data.multiProducts.forEach((item: any, index: number) => {
+      const rowY = doc.y;
+      const rowHeight = 25; // Approximate height per row
+
+      // Zebra Striping (Optional: alternating light gray background)
+      if (index % 2 === 0) {
+        doc.rect(MARGIN, rowY - 5, doc.page.width - (MARGIN * 2), rowHeight + 5)
+           .fillColor(LIGHT_GRAY_BACKGROUND).fill();
+        doc.fillColor(TEXT_COLOR); // Reset text color
+      }
+
+      // Check for Page Break
+      if (rowY > doc.page.height - 50) {
+        doc.addPage();
+        // Re-draw header on new page? Optional, keeping it simple for now.
+      }
+
+      doc.text(item.productName || "N/A", col1X + 5, rowY, { width: col1Width });
+      doc.text(item.serialNumber || "N/A", col2X, rowY, { width: col2Width });
+      doc.text(item.problemDescription || "N/A", col3X, rowY, { width: col3Width });
+
+      doc.moveDown(1); // Add spacing between rows
+    });
+
+    doc.moveDown(2);
+    return; // 🛑 Stop here, do not print the single card below
+  }
+
+  // ---------------------------------------------------------
+  // 🅱️ SINGLE PRODUCT MODE (Original Gray Card)
+  // ---------------------------------------------------------
+
+  const contentX = MARGIN + 20;
+  const contentWidth = doc.page.width - MARGIN * 2 - 40;
   const problemLabel = data.ticketType === 'removal' ? "Motif de la Dépose" : "Problème Déclaré";
 
   const drawTextBlock = (label: string, text: string) => {
@@ -131,13 +192,13 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
     doc.moveDown(1.5);
   };
 
-  // 1. Measure Height
+  // 1. Measure Height (Mock Run)
   const tempY = doc.y;
   doc.y = tempY + 20;
 
   drawTextBlock("Produit / Équipement", data.productName);
   drawTextBlock("Numéro de Série (S/N)", data.serialNumber);
-  drawTextBlock(problemLabel, data.problemDescription); // Using dynamic label
+  drawTextBlock(problemLabel, data.problemDescription);
 
   const endY = doc.y;
 
@@ -147,7 +208,7 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
     .fillColor(LIGHT_GRAY_BACKGROUND)
     .fill();
 
-  // 3. Draw Text on Top
+  // 3. Draw Text on Top (Real Run)
   doc.y = tempY + 20;
   drawTextBlock("Produit / Équipement", data.productName);
   drawTextBlock("Numéro de Série (S/N)", data.serialNumber);
@@ -288,7 +349,7 @@ export async function generateSavDechargePdf(data: any): Promise<Buffer> {
      .lineWidth(0.5).strokeColor(LINE_COLOR).stroke().restore();
   doc.moveDown(2);
 
-  // 4. Equipment Details (Gray Card)
+  // 4. Equipment Details (Gray Card OR Table)
   _buildEquipmentDetails(doc, data);
 
   // 5. Validation (Signatures)

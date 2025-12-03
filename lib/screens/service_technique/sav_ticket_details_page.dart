@@ -619,6 +619,14 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             const Divider(height: 20),
             _buildInfoRow('Client:', _currentTicket.clientName),
             _buildInfoRow('Magasin:', _currentTicket.storeName ?? 'N/A'),
+
+            // ✅ ADD THIS SECTION HERE:
+            _buildInfoRow('Technicien(s):',
+                _currentTicket.pickupTechnicianNames.isNotEmpty
+                    ? _currentTicket.pickupTechnicianNames.join(', ')
+                    : 'Non assigné'
+            ),
+
             _buildInfoRow('Produit:', _currentTicket.productName),
             _buildInfoRow('N° de Série:', _currentTicket.serialNumber),
             const SizedBox(height: 8),

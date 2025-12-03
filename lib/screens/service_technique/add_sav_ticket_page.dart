@@ -16,6 +16,9 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import 'package:uuid/uuid.dart'; // ✅ NEW: For generating unique Draft IDs
+import 'package:boitex_info_app/services/sav_draft_service.dart';
+import 'package:boitex_info_app/screens/service_technique/sav_drafts_list_page.dart'; // ✅ NEW: Import List Page
 
 // ✅ Helper class for batch items
 class TicketItem {
@@ -48,10 +51,16 @@ class AddSavTicketPage extends StatefulWidget {
 
 class _AddSavTicketPageState extends State<AddSavTicketPage> {
   final _formKey = GlobalKey<FormState>();
-  final _itemFormKey = GlobalKey<FormState>(); // ✅ Key for the item entry part
+  final _itemFormKey = GlobalKey<FormState>();
 
-  // ✅ 1. ADD THIS VARIABLE: State for ticket type selector
+  // ✅ State for ticket type selector
   String _selectedTicketType = 'standard';
+
+  // ✅ NEW: State for Creation Mode (Individual vs Grouped)
+  String _creationMode = 'individual'; // 'individual' or 'grouped'
+
+  // ✅ NEW: Track current draft ID (null = new draft)
+  String? _currentDraftId;
 
   // Clients and stores
   List<QueryDocumentSnapshot> _clients = [];
@@ -96,12 +105,130 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
+  // --- DRAFT LOGIC START ---
+  final _draftService = SavDraftService();
+
   @override
   void initState() {
     super.initState();
     _fetchClients();
     _fetchAvailableTechnicians();
+    // ✅ NOTE: Removed automatic check. User will use the folder icon to load drafts.
   }
+
+  // ✅ 1. Save Current State as Draft (Generates UUID or updates existing)
+  Future<void> _saveDraft() async {
+    if (_selectedClientId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Veuillez au moins sélectionner un Client.')));
+      return;
+    }
+
+    // Find Client Name for the list view
+    String? clientName;
+    try {
+      final clientDoc =
+      _clients.firstWhere((doc) => doc.id == _selectedClientId);
+      clientName = clientDoc['name'];
+    } catch (_) {}
+
+    // Generate ID if it's a new draft, otherwise keep existing
+    final String draftId = _currentDraftId ?? const Uuid().v4();
+
+    final draft = SavDraft(
+      id: draftId,
+      date: DateTime.now(),
+      clientId: _selectedClientId,
+      clientName: clientName,
+      storeId: _selectedStoreId,
+      managerName: _managerNameController.text,
+      managerEmail: _managerEmailController.text,
+      ticketType: _selectedTicketType,
+      creationMode: _creationMode,
+      items: _addedItems
+          .map((i) => {
+        'productId': i.productId,
+        'productName': i.productName,
+        'serialNumber': i.serialNumber,
+        'problemDescription': i.problemDescription,
+      })
+          .toList(),
+      mediaPaths: _pickedMediaFiles.map((f) => f.path).toList(),
+      // ✅ ADDED THIS LINE to save technicians
+      technicianIds: _selectedTechnicians.map((u) => u.id).toList(),
+    );
+
+    await _draftService.saveDraft(draft);
+
+    setState(() {
+      _currentDraftId = draftId; // Set ID so next save overwrites this one
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Brouillon sauvegardé !'),
+            backgroundColor: Colors.teal),
+      );
+    }
+  }
+
+  // ✅ 2. Open Draft List Page
+  Future<void> _openDraftsList() async {
+    // Navigate to list page and wait for result
+    final SavDraft? selectedDraft = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SavDraftsListPage()),
+    );
+
+    if (selectedDraft != null) {
+      _restoreDraft(selectedDraft);
+    }
+  }
+
+  // ✅ 3. Restore Selected Draft
+  Future<void> _restoreDraft(SavDraft draft) async {
+    setState(() {
+      _currentDraftId = draft.id; // Important: Set ID to track updates
+      _selectedClientId = draft.clientId;
+
+      if (_selectedClientId != null) {
+        _fetchStoresForClient(_selectedClientId!);
+      }
+
+      _selectedStoreId = draft.storeId;
+      _managerNameController.text = draft.managerName ?? '';
+      _managerEmailController.text = draft.managerEmail ?? '';
+      _selectedTicketType = draft.ticketType;
+      _creationMode = draft.creationMode;
+
+      // ✅ ADD THIS LOGIC to restore technicians:
+      if (draft.technicianIds.isNotEmpty) {
+        // We match the IDs from the draft with the available technicians list
+        _selectedTechnicians = _availableTechnicians
+            .where((u) => draft.technicianIds.contains(u.id))
+            .toList();
+      }
+
+      _addedItems = draft.items
+          .map((item) => TicketItem(
+        productId: item['productId']!,
+        productName: item['productName']!,
+        serialNumber: item['serialNumber']!,
+        problemDescription: item['problemDescription']!,
+      ))
+          .toList();
+
+      _pickedMediaFiles = draft.mediaPaths
+          .map((path) => File(path))
+          .where((file) => file.existsSync())
+          .toList();
+    });
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Brouillon chargé.')));
+  }
+  // --- DRAFT LOGIC END ---
 
   @override
   void dispose() {
@@ -262,14 +389,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // ✅ FIXED: Removed double Navigator.pop() to prevent closing the add page
   Future<void> _openScanner() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ScannerPage(
           onScan: (result) {
-            // Only update the UI. Do NOT call Navigator.pop here.
-            // ScannerPage handles the pop internally.
             setState(() {
               _serialNumberController.text = result;
             });
@@ -557,10 +681,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
   // ✅ --- END: B2 HELPER FUNCTIONS ---
 
-  // ✅ NEW: Add item to list
   void _addItemToList() {
     if (_itemFormKey.currentState!.validate()) {
-      // Find product name
       final prodDoc =
       _products.firstWhere((doc) => doc.id == _selectedProductId);
 
@@ -572,12 +694,9 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           problemDescription: _problemDescriptionController.text,
         ));
 
-        // Clear ONLY item specific fields
         _serialNumberController.clear();
         _problemDescriptionController.clear();
         _selectedProductId = null;
-        // Optional: Clear categories if you want users to re-select
-        // _selectedSubCategory = null;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -586,34 +705,30 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // ✅ NEW: Remove item from list
   void _removeItemFromList(int index) {
     setState(() {
       _addedItems.removeAt(index);
     });
   }
 
-  // ✅ MODIFIED: Save batch tickets
+  // ✅ UPDATED: Save Logic for both Individual and Grouped modes
   Future<void> _saveTicket() async {
     // Basic validation
     if (_selectedClientId == null || _managerNameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez remplir les infos client/gérant.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Veuillez remplir les infos client/gérant.')));
       return;
     }
 
     if (_addedItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ajoutez au moins un produit à la liste.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Ajoutez au moins un produit à la liste.')));
       return;
     }
 
     if (_signatureController.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Signature requise.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Signature requise.')));
       return;
     }
 
@@ -632,25 +747,27 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         storeName = '${storeDoc['name']} - ${storeDoc['location']}';
       }
 
-      // --- 1. Reserve Block of Codes ---
+      // --- 1. Reserve Codes based on Mode ---
+      // If Grouped: We need only 1 code.
+      // If Individual: We need 1 code per item.
+      final int itemsToCreate =
+      _creationMode == 'grouped' ? 1 : _addedItems.length;
       final year = DateTime.now().year;
       final counterRef = FirebaseFirestore.instance
           .collection('counters')
           .doc('sav_tickets_$year');
 
-      final int startCount = await FirebaseFirestore.instance.runTransaction((tx) async {
+      final int startCount =
+      await FirebaseFirestore.instance.runTransaction((tx) async {
         final snap = await tx.get(counterRef);
         final current = (snap.data()?['count'] as int?) ?? 0;
-        final batchSize = _addedItems.length;
-        final nextEnd = current + batchSize;
+        final nextEnd = current + itemsToCreate;
         tx.set(counterRef, {'count': nextEnd}, SetOptions(merge: true));
-        return current + 1; // Return the first number of the reserved block
+        return current + 1; // First ID
       });
 
       // --- 2. Upload Shared Assets (Signature & Media) ---
-      // We use the FIRST code for the signature filename, or a unique ID
       final sigCode = 'BATCH-${startCount}_$year';
-
       final Uint8List? sigData = await _signatureController.toPngBytes();
       if (sigData == null) throw Exception("Impossible de générer la signature.");
       final sigRef =
@@ -672,14 +789,24 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         }
       }
 
-      // --- 3. Batch Write to Firestore ---
+      // --- 3. Write to Firestore based on Mode ---
       final batch = FirebaseFirestore.instance.batch();
-      final ticketsCollection = FirebaseFirestore.instance.collection('sav_tickets');
+      final ticketsCollection =
+      FirebaseFirestore.instance.collection('sav_tickets');
 
-      for (int i = 0; i < _addedItems.length; i++) {
-        final item = _addedItems[i];
-        final currentCodeNumber = startCount + i;
-        final codeStr = 'SAV-$currentCodeNumber/$year';
+      if (_creationMode == 'grouped') {
+        // --- GROUPED MODE (1 Ticket, Multiple Products) ---
+        final codeStr = 'SAV-$startCount/$year';
+
+        // Convert local TicketItem to Model's SavProductItem
+        final savItems = _addedItems
+            .map((item) => SavProductItem(
+          productId: item.productId,
+          productName: item.productName,
+          serialNumber: item.serialNumber,
+          problemDescription: item.problemDescription,
+        ))
+            .toList();
 
         final ticket = SavTicket(
           serviceType: widget.serviceType,
@@ -690,34 +817,80 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           storeName: storeName,
           pickupDate: _pickupDate ?? DateTime.now(),
           pickupTechnicianIds: _selectedTechnicians.map((u) => u.id).toList(),
-          pickupTechnicianNames: _selectedTechnicians.map((u) => u.name).toList(),
-          productName: item.productName,          // From Item
-          serialNumber: item.serialNumber,        // From Item
-          problemDescription: item.problemDescription, // From Item
-          itemPhotoUrls: mediaUrls, // Shared media
+          pickupTechnicianNames:
+          _selectedTechnicians.map((u) => u.name).toList(),
+          // Use summary strings for the main fields
+          productName: 'Lot de ${_addedItems.length} Appareils',
+          serialNumber: 'VOIR LISTE',
+          problemDescription: 'Voir liste des appareils ci-dessous',
+          multiProducts: savItems, // ✅ Populating the new list
+          itemPhotoUrls: mediaUrls,
           storeManagerName: _managerNameController.text,
-          storeManagerEmail: _managerEmailController.text.trim().isEmpty ? null : _managerEmailController.text.trim(),
-          storeManagerSignatureUrl: sigUrl, // Shared signature
-          // ✅ 3. Update the _saveTicket logic: Set status and type based on selection
+          storeManagerEmail: _managerEmailController.text.trim().isEmpty
+              ? null
+              : _managerEmailController.text.trim(),
+          storeManagerSignatureUrl: sigUrl,
           status: _selectedTicketType == 'removal' ? 'Terminé' : 'Nouveau',
           ticketType: _selectedTicketType,
           createdBy: 'Current User',
           createdAt: DateTime.now(),
         );
 
-        final newDocRef = ticketsCollection.doc(); // Auto ID
-        batch.set(newDocRef, ticket.toJson());
+        batch.set(ticketsCollection.doc(), ticket.toJson());
+      } else {
+        // --- INDIVIDUAL MODE (Loop creates 1 Ticket per Item) ---
+        for (int i = 0; i < _addedItems.length; i++) {
+          final item = _addedItems[i];
+          final currentCodeNumber = startCount + i;
+          final codeStr = 'SAV-$currentCodeNumber/$year';
+
+          final ticket = SavTicket(
+            serviceType: widget.serviceType,
+            savCode: codeStr,
+            clientId: _selectedClientId!,
+            clientName: clientDoc['name'],
+            storeId: _selectedStoreId,
+            storeName: storeName,
+            pickupDate: _pickupDate ?? DateTime.now(),
+            pickupTechnicianIds:
+            _selectedTechnicians.map((u) => u.id).toList(),
+            pickupTechnicianNames:
+            _selectedTechnicians.map((u) => u.name).toList(),
+            productName: item.productName,
+            serialNumber: item.serialNumber,
+            problemDescription: item.problemDescription,
+            multiProducts: [], // Empty for individual tickets
+            itemPhotoUrls: mediaUrls,
+            storeManagerName: _managerNameController.text,
+            storeManagerEmail: _managerEmailController.text.trim().isEmpty
+                ? null
+                : _managerEmailController.text.trim(),
+            storeManagerSignatureUrl: sigUrl,
+            status: _selectedTicketType == 'removal' ? 'Terminé' : 'Nouveau',
+            ticketType: _selectedTicketType,
+            createdBy: 'Current User',
+            createdAt: DateTime.now(),
+          );
+
+          batch.set(ticketsCollection.doc(), ticket.toJson());
+        }
       }
 
       await batch.commit();
 
-      // --- 4. Success ---
+      // ✅ 4. Remove draft on success (if editing one)
+      if (_currentDraftId != null) {
+        await _draftService.deleteDraft(_currentDraftId!);
+      }
+
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('${_addedItems.length} Tickets créés avec succès!')),
+        SnackBar(
+            content: Text(_creationMode == 'grouped'
+                ? 'Ticket Groupé créé avec succès!'
+                : '${_addedItems.length} Tickets créés avec succès!')),
       );
       navigator.pop();
-
     } catch (e) {
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
@@ -726,6 +899,39 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // Helper Widget for Toggle Buttons
+  Widget _buildModeButton(String label, String value, IconData icon) {
+    final isSelected = _creationMode == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _creationMode = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.orange : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: isSelected ? null : Border.all(color: Colors.grey.shade300),
+          ),
+          child: Column(
+            children: [
+              Icon(icon,
+                  color: isSelected ? Colors.white : Colors.grey, size: 20),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.grey[700],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -744,6 +950,20 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       appBar: AppBar(
         title: Text('Nouveau Ticket SAV (${widget.serviceType})'),
         backgroundColor: primaryColor,
+        actions: [
+          // ✅ NEW: Drafts List Button (Folder)
+          IconButton(
+            icon: const Icon(Icons.folder_open),
+            tooltip: 'Mes Brouillons',
+            onPressed: _openDraftsList,
+          ),
+          // ✅ NEW: Save Current Draft Button
+          IconButton(
+            icon: const Icon(Icons.save_outlined),
+            tooltip: 'Sauvegarder Brouillon',
+            onPressed: _saveDraft,
+          ),
+        ],
       ),
       body: Form(
         key: _formKey,
@@ -752,7 +972,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- HEADER INFO ---
               const Text('Informations Client',
                   style: TextStyle(
                       fontSize: 18,
@@ -788,7 +1007,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                         prefixIcon: _isLoadingClients
                             ? const Padding(
                           padding: EdgeInsets.all(8),
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child:
+                          CircularProgressIndicator(strokeWidth: 2),
                         )
                             : const Icon(Icons.person_outline),
                       ),
@@ -834,7 +1054,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                         prefixIcon: _isLoadingStores
                             ? const Padding(
                           padding: EdgeInsets.all(8),
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child:
+                          CircularProgressIndicator(strokeWidth: 2),
                         )
                             : const Icon(Icons.store_outlined),
                       ),
@@ -878,10 +1099,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               ),
               const SizedBox(height: 16),
 
-              // ✅ 2. Add the Selector Widget: Dropdown for Ticket Type
+              // Ticket Type Selector
               Container(
-                margin: const EdgeInsets.only(bottom: 24),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                margin: const EdgeInsets.only(bottom: 16),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
@@ -923,7 +1145,27 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 ),
               ),
 
-              const Divider(height: 40),
+              // ✅ NEW: Creation Mode Toggle
+              Container(
+                margin: const EdgeInsets.only(bottom: 24),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                padding: const EdgeInsets.all(4),
+                child: Row(
+                  children: [
+                    _buildModeButton('Individuel (1 Ticket/Article)',
+                        'individual', Icons.list),
+                    const SizedBox(width: 4),
+                    _buildModeButton('Groupé (1 Ticket Global)', 'grouped',
+                        Icons.folder_copy_outlined),
+                  ],
+                ),
+              ),
+
+              const Divider(height: 20),
               const Text('Détails de la Récupération',
                   style: TextStyle(
                       fontSize: 18,
@@ -963,13 +1205,13 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey.shade300),
                     borderRadius: BorderRadius.circular(12)),
-                validator: (vals) =>
-                vals == null || vals.isEmpty ? 'Assigner au moins un' : null,
+                validator: (vals) => vals == null || vals.isEmpty
+                    ? 'Assigner au moins un'
+                    : null,
               ),
 
               const Divider(height: 40),
 
-              // --- ✅ NEW ITEMS LIST SECTION ---
               if (_addedItems.isNotEmpty) ...[
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1004,12 +1246,14 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                           child: const Icon(Icons.devices, color: Colors.blue),
                         ),
                         title: Text(item.productName,
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                            style:
+                            const TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(
                             'S/N: ${item.serialNumber}\nPanne: ${item.problemDescription}'),
                         isThreeLine: true,
                         trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          icon: const Icon(Icons.delete_outline,
+                              color: Colors.red),
                           onPressed: () => _removeItemFromList(index),
                         ),
                       ),
@@ -1019,7 +1263,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 const Divider(height: 30),
               ],
 
-              // --- ✅ ENTRY FORM FOR NEW ITEM ---
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1057,10 +1300,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                           border: defaultBorder,
                           focusedBorder: focusedBorder,
                           prefixIcon: const Icon(Icons.category_outlined),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                         ),
-                        validator: (v) =>
-                        v == null ? 'Requis' : null,
+                        validator: (v) => v == null ? 'Requis' : null,
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
@@ -1091,10 +1334,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                             CircularProgressIndicator(strokeWidth: 2),
                           )
                               : const Icon(Icons.dashboard_customize_outlined),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                         ),
-                        validator: (v) =>
-                        v == null ? 'Requis' : null,
+                        validator: (v) => v == null ? 'Requis' : null,
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
@@ -1120,10 +1363,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                             CircularProgressIndicator(strokeWidth: 2),
                           )
                               : const Icon(Icons.inventory_2_outlined),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                         ),
-                        validator: (v) =>
-                        v == null ? 'Requis' : null,
+                        validator: (v) => v == null ? 'Requis' : null,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
@@ -1149,7 +1392,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                             labelText: 'Description du Problème',
                             border: defaultBorder,
                             focusedBorder: focusedBorder,
-                            prefixIcon: const Icon(Icons.report_problem_outlined),
+                            prefixIcon:
+                            const Icon(Icons.report_problem_outlined),
                             alignLabelWithHint: true),
                         maxLines: 2,
                         validator: (v) =>
@@ -1244,7 +1488,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                 }
                                 return const Center(
                                     child: Icon(Icons.videocam_outlined,
-                                        size: 40, color: Colors.black54));
+                                        size: 40,
+                                        color: Colors.black54));
                               },
                             )
                                 : Image.file(file, fit: BoxFit.cover),
@@ -1305,8 +1550,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                         color: Colors.white,
                         strokeWidth: 3,
                       ))
-                      : Text(
-                      'Créer ${_addedItems.isEmpty ? "" : _addedItems.length} Tickets SAV'),
+                  // ✅ Button text changes based on mode
+                      : Text(_creationMode == 'grouped'
+                      ? 'Créer 1 Ticket Groupé (${_addedItems.length} articles)'
+                      : 'Créer ${_addedItems.length} Tickets Individuels'),
                 ),
               ),
             ],

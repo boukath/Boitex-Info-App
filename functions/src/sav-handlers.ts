@@ -108,11 +108,48 @@ async (event) => {
       const docName = isRemoval ? "Bon de Dépose" : "Décharge de Matériel";
       const fileName = isRemoval ? `Bon-Depose-${savCode}.pdf` : `Decharge-SAV-${savCode}.pdf`;
 
+      // ✅ 5b. Build HTML for Items (Table vs Single List)
+      let itemsHtml = "";
+      const techString = data.pickupTechnicianNames ? data.pickupTechnicianNames.join(", ") : "Non spécifié";
+
+      if (data.multiProducts && data.multiProducts.length > 0) {
+        // 🅰️ BATCH MODE: HTML Table
+        itemsHtml += `<table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 13px; margin-top: 10px; margin-bottom: 20px;">`;
+        // Header
+        itemsHtml += `<thead style="background-color: #f2f2f2;"><tr>`;
+        itemsHtml += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Produit</th>`;
+        itemsHtml += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">N° Série</th>`;
+        itemsHtml += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">${problemLabel}</th>`;
+        itemsHtml += `</tr></thead>`;
+        // Body
+        itemsHtml += `<tbody>`;
+        data.multiProducts.forEach((item: any) => {
+          itemsHtml += `<tr>`;
+          itemsHtml += `<td style="border: 1px solid #ddd; padding: 8px;">${item.productName || "N/A"}</td>`;
+          itemsHtml += `<td style="border: 1px solid #ddd; padding: 8px;">${item.serialNumber || "N/A"}</td>`;
+          itemsHtml += `<td style="border: 1px solid #ddd; padding: 8px;">${item.problemDescription || "N/A"}</td>`;
+          itemsHtml += `</tr>`;
+        });
+        itemsHtml += `</tbody></table>`;
+
+        // Add Technicians info below table for Batch
+        itemsHtml += `<p style="margin-top: 0;"><strong>Technicien(s) :</strong> ${techString}</p>`;
+
+      } else {
+        // 🅱️ SINGLE MODE: Original <ul> List
+        itemsHtml += `<ul>`;
+        itemsHtml += `<li><strong>Produit :</strong> ${data.productName}</li>`;
+        itemsHtml += `<li><strong>N° Série :</strong> ${data.serialNumber}</li>`;
+        itemsHtml += `<li><strong>${problemLabel} :</strong> ${data.problemDescription}</li>`;
+        itemsHtml += `<li><strong>Technicien(s) :</strong> ${techString}</li>`;
+        itemsHtml += `</ul>`;
+      }
+
       // --- 6. Construct Email ---
       const mailOptions = {
         from: `"Boitex SAV" <${smtpUser.value()}>`,
         to: recipient,
-        cc: ccList, // ✅ Uses the dynamic list we created above
+        cc: ccList,
         subject: emailSubject,
         html: `
           <div style="font-family: Arial, sans-serif; color: #333;">
@@ -121,12 +158,7 @@ async (event) => {
 
             <p>${emailBodyIntro}</p>
 
-            <ul>
-              <li><strong>Produit :</strong> ${data.productName}</li>
-              <li><strong>N° Série :</strong> ${data.serialNumber}</li>
-              <li><strong>${problemLabel} :</strong> ${data.problemDescription}</li>
-              <li><strong>Technicien(s) :</strong> ${data.pickupTechnicianNames ? data.pickupTechnicianNames.join(", ") : "Non spécifié"}</li>
-            </ul>
+            ${itemsHtml}
 
             <p>Veuillez trouver ci-joint le document <strong>${docName}</strong> officiel (PDF).</p>
 

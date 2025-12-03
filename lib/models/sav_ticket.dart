@@ -2,6 +2,37 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// ✅ NEW CLASS: Holds details for individual items in a grouped ticket
+class SavProductItem {
+  final String productId;
+  final String productName;
+  final String serialNumber;
+  final String problemDescription;
+
+  SavProductItem({
+    required this.productId,
+    required this.productName,
+    required this.serialNumber,
+    required this.problemDescription,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'productId': productId,
+    'productName': productName,
+    'serialNumber': serialNumber,
+    'problemDescription': problemDescription,
+  };
+
+  factory SavProductItem.fromJson(Map<String, dynamic> json) {
+    return SavProductItem(
+      productId: json['productId'] as String? ?? '',
+      productName: json['productName'] as String? ?? '',
+      serialNumber: json['serialNumber'] as String? ?? '',
+      problemDescription: json['problemDescription'] as String? ?? '',
+    );
+  }
+}
+
 class BrokenPart {
   final String productId;
   final String productName;
@@ -35,12 +66,15 @@ class SavTicket {
   final DateTime pickupDate;
   final List<String> pickupTechnicianIds;
   final List<String> pickupTechnicianNames;
+
+  // These top-level fields will act as "Global Summaries" for grouped tickets
   final String productName;
   final String serialNumber;
   final String problemDescription;
+
   final List<String> itemPhotoUrls;
   final String storeManagerName;
-  final String? storeManagerEmail; // ✅ ADDED: Email field
+  final String? storeManagerEmail;
   final String storeManagerSignatureUrl;
   final String status;
   final String? technicianReport;
@@ -48,16 +82,17 @@ class SavTicket {
   final DateTime createdAt;
   final List<BrokenPart> brokenParts;
 
-  // ✅ 1. Add the variable at the top of the class
   final String ticketType;
 
-  // ✅ ADDED: New fields for the enhanced workflow
+  // Enhanced workflow fields
   final String? billingStatus;
   final String? invoiceUrl;
   final String? returnClientName;
   final String? returnSignatureUrl;
   final String? returnPhotoUrl;
 
+  // ✅ NEW FIELD: List of products for grouped tickets
+  final List<SavProductItem> multiProducts;
 
   SavTicket({
     this.id,
@@ -75,22 +110,23 @@ class SavTicket {
     required this.problemDescription,
     required this.itemPhotoUrls,
     required this.storeManagerName,
-    this.storeManagerEmail, // ✅ ADDED: Constructor parameter
+    this.storeManagerEmail,
     required this.storeManagerSignatureUrl,
     required this.status,
     this.technicianReport,
     required this.createdBy,
     required this.createdAt,
     List<BrokenPart>? brokenParts,
-    // ✅ Initialize default value so existing code doesn't break
     this.ticketType = 'standard',
-    // ✅ ADDED: New fields to the constructor
     this.billingStatus,
     this.invoiceUrl,
     this.returnClientName,
     this.returnSignatureUrl,
     this.returnPhotoUrl,
-  }) : brokenParts = brokenParts ?? [];
+    // ✅ Initialize new list
+    List<SavProductItem>? multiProducts,
+  }) : brokenParts = brokenParts ?? [],
+        multiProducts = multiProducts ?? [];
 
   Map<String, dynamic> toJson() {
     return {
@@ -108,36 +144,41 @@ class SavTicket {
       'problemDescription': problemDescription,
       'itemPhotoUrls': itemPhotoUrls,
       'storeManagerName': storeManagerName,
-      'storeManagerEmail': storeManagerEmail, // ✅ ADDED: To JSON
+      'storeManagerEmail': storeManagerEmail,
       'storeManagerSignatureUrl': storeManagerSignatureUrl,
       'status': status,
       'technicianReport': technicianReport,
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(createdAt),
       'brokenParts': brokenParts.map((part) => part.toJson()).toList(),
-      // ✅ 3. Update toMap (toJson) method
       'ticketType': ticketType,
-      // ✅ ADDED: Saving new fields to Firestore
       'billingStatus': billingStatus,
       'invoiceUrl': invoiceUrl,
       'returnClientName': returnClientName,
       'returnSignatureUrl': returnSignatureUrl,
       'returnPhotoUrl': returnPhotoUrl,
+      // ✅ Save the multi-products list
+      'multiProducts': multiProducts.map((item) => item.toJson()).toList(),
     };
   }
 
-  // ⭐️ FIXED: The factory method now accepts only one argument (doc)
-  // and reads the doc.id internally, resolving the compile error
-  // in sav_list_page.dart.
   factory SavTicket.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
+
+    // Parse Broken Parts
     final brokenPartsData = data['brokenParts'] as List<dynamic>? ?? [];
     final brokenPartsList = brokenPartsData
         .map((partJson) => BrokenPart.fromJson(partJson as Map<String, dynamic>))
         .toList();
 
+    // ✅ Parse Multi Products
+    final multiProductsData = data['multiProducts'] as List<dynamic>? ?? [];
+    final multiProductsList = multiProductsData
+        .map((itemJson) => SavProductItem.fromJson(itemJson as Map<String, dynamic>))
+        .toList();
+
     return SavTicket(
-      id: doc.id, // ⭐️ FIXED: Reads the document ID here
+      id: doc.id,
       serviceType: data['serviceType'] as String? ?? 'Service Technique',
       savCode: data['savCode'] as String,
       clientId: data['clientId'] as String,
@@ -152,21 +193,21 @@ class SavTicket {
       problemDescription: data['problemDescription'] as String,
       itemPhotoUrls: List<String>.from(data['itemPhotoUrls'] ?? []),
       storeManagerName: data['storeManagerName'] as String,
-      storeManagerEmail: data['storeManagerEmail'] as String?, // ✅ ADDED: From Firestore
+      storeManagerEmail: data['storeManagerEmail'] as String?,
       storeManagerSignatureUrl: data['storeManagerSignatureUrl'] as String,
       status: data['status'] as String,
       technicianReport: data['technicianReport'] as String?,
       createdBy: data['createdBy'] as String,
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       brokenParts: brokenPartsList,
-      // ✅ 2. Update fromFirestore factory
       ticketType: data['ticketType'] as String? ?? 'standard',
-      // ✅ ADDED: Reading new fields from Firestore
       billingStatus: data['billingStatus'] as String?,
       invoiceUrl: data['invoiceUrl'] as String?,
       returnClientName: data['returnClientName'] as String?,
       returnSignatureUrl: data['returnSignatureUrl'] as String?,
       returnPhotoUrl: data['returnPhotoUrl'] as String?,
+      // ✅ Assign the parsed list
+      multiProducts: multiProductsList,
     );
   }
 }
