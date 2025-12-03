@@ -10,7 +10,7 @@ import 'dart:typed_data';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
-import 'dart:io'; // Needed for mobile File access
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
@@ -19,8 +19,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
-import 'package:flutter/foundation.dart'; // For kIsWeb
-import 'package:file_saver/file_saver.dart'; // ✅ ADDED: For Web Downloads
+import 'package:flutter/foundation.dart';
+import 'package:file_saver/file_saver.dart';
 
 class SavTicketDetailsPage extends StatefulWidget {
   final SavTicket ticket;
@@ -158,7 +158,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       String fileName;
 
       if (kIsWeb) {
-        // On Web, we use bytes directly
         if (file.bytes != null) {
           fileBytes = file.bytes!;
           fileName = file.name;
@@ -166,7 +165,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           throw Exception("Web upload failed: File bytes are null");
         }
       } else {
-        // On Mobile, we read from path
         if (file.path != null) {
           fileBytes = await File(file.path!).readAsBytes();
           fileName = path.basename(file.path!);
@@ -225,7 +223,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.media,
       allowMultiple: true,
-      withData: true, // Important for Web!
+      withData: true,
     );
 
     if (result != null) {
@@ -368,6 +366,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           returnClientName: _currentTicket.returnClientName,
           returnSignatureUrl: _currentTicket.returnSignatureUrl,
           returnPhotoUrl: _currentTicket.returnPhotoUrl,
+          multiProducts: _currentTicket.multiProducts, // ✅ Ensure multiProducts are kept
         );
       });
 
@@ -410,7 +409,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     }
   }
 
-  // ✅ UPDATED: Download on Web, View on Mobile
   Future<void> _downloadPdf(String type) async {
     try {
       showDialog(
@@ -419,7 +417,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         builder: (ctx) => const Center(child: CircularProgressIndicator()),
       );
 
-      // Call Cloud Function
       final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('downloadSavPdf')
           .call({
@@ -427,9 +424,8 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         'type': type,
       });
 
-      if (mounted) Navigator.of(context).pop(); // Close loading
+      if (mounted) Navigator.of(context).pop();
 
-      // Parse Data
       final rawData = result.data;
       if (rawData == null) throw Exception("Réponse vide.");
       final Map<String, dynamic> data = Map<String, dynamic>.from(rawData as Map);
@@ -439,12 +435,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
 
       final Uint8List bytes = base64Decode(base64Pdf);
       String filename = data['filename'] ?? 'document.pdf';
-      filename = filename.replaceAll(RegExp(r'[/\\]'), '_'); // Sanitize
+      filename = filename.replaceAll(RegExp(r'[/\\]'), '_');
 
-      // 🌍 WEB: Direct Download
       if (kIsWeb) {
         await FileSaver.instance.saveFile(
-          name: filename.replaceAll('.pdf', ''), // FileSaver adds ext automatically in some versions
+          name: filename.replaceAll('.pdf', ''),
           bytes: bytes,
           ext: 'pdf',
           mimeType: MimeType.pdf,
@@ -452,10 +447,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Téléchargement lancé...'), backgroundColor: Colors.green),
         );
-        return; // Stop here
+        return;
       }
 
-      // 📱 MOBILE: Save and Open Viewer
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$filename');
       await file.writeAsBytes(bytes);
@@ -536,7 +530,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -565,6 +558,12 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           children: [
             _buildInfoCard(),
             const SizedBox(height: 16),
+
+            // ✅ NEW: Display List of Items if grouped
+            if (_currentTicket.multiProducts.isNotEmpty) ...[
+              _buildMultiProductsList(),
+              const SizedBox(height: 16),
+            ],
 
             if (_currentTicket.itemPhotoUrls.isNotEmpty) ...[
               _buildMediaSection(),
@@ -620,7 +619,6 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             _buildInfoRow('Client:', _currentTicket.clientName),
             _buildInfoRow('Magasin:', _currentTicket.storeName ?? 'N/A'),
 
-            // ✅ ADD THIS SECTION HERE:
             _buildInfoRow('Technicien(s):',
                 _currentTicket.pickupTechnicianNames.isNotEmpty
                     ? _currentTicket.pickupTechnicianNames.join(', ')
@@ -639,6 +637,50 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             _buildInfoRow('Statut Actuel:', _currentTicket.status, isStatus: true),
             _buildInfoRow('Date de création:', DateFormat('dd MMM yyyy, HH:mm', 'fr_FR').format(_currentTicket.createdAt)),
             _buildInfoRow('Créé par:', _currentTicket.createdBy),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ NEW WIDGET: Display Table of Products
+  Widget _buildMultiProductsList() {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Liste des Appareils (${_currentTicket.multiProducts.length})',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.blue)),
+                const Icon(Icons.list_alt, color: Colors.blue),
+              ],
+            ),
+            const Divider(height: 20),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _currentTicket.multiProducts.length,
+              separatorBuilder: (ctx, i) => const Divider(),
+              itemBuilder: (context, index) {
+                final item = _currentTicket.multiProducts[index];
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blue.shade50,
+                    child: Text('${index + 1}', style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.bold)),
+                  ),
+                  title: Text(item.productName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text("S/N: ${item.serialNumber}\n${item.problemDescription}"),
+                );
+              },
+            ),
           ],
         ),
       ),

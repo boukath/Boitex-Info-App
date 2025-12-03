@@ -97,6 +97,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     exportBackgroundColor: Colors.white,
   );
   List<File> _pickedMediaFiles = [];
+
+  // ✅ NEW: Variable for the specific attached file
+  File? _attachedFile;
+
   bool _isLoading = false;
 
   // ✅ List to store multiple items
@@ -447,6 +451,27 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
+  // ✅ NEW: Method to pick a specific document/file
+  Future<void> _pickAttachedFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any, // Allows PDF, Images, etc.
+      allowMultiple: false,
+    );
+
+    if (result != null && result.files.single.path != null) {
+      final file = File(result.files.single.path!);
+      // Optional: Check size limit if needed
+      if (file.lengthSync() > 50 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fichier trop volumineux (>50Mo)')));
+        return;
+      }
+
+      setState(() {
+        _attachedFile = file;
+      });
+    }
+  }
+
   // --- START: NEW QUICK-ADD DIALOGS ---
   Future<void> _showAddClientDialog() async {
     final nameController = TextEditingController();
@@ -777,16 +802,22 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
       // Upload Media
       List<String> mediaUrls = [];
-      if (_pickedMediaFiles.isNotEmpty) {
-        final b2Credentials = await _getB2UploadCredentials();
-        if (b2Credentials != null) {
-          for (var file in _pickedMediaFiles) {
-            final downloadUrl = await _uploadFileToB2(file, b2Credentials);
-            if (downloadUrl != null) {
-              mediaUrls.add(downloadUrl);
-            }
+      // 1. Get credentials only once for everything
+      final b2Credentials = await _getB2UploadCredentials();
+
+      if (_pickedMediaFiles.isNotEmpty && b2Credentials != null) {
+        for (var file in _pickedMediaFiles) {
+          final downloadUrl = await _uploadFileToB2(file, b2Credentials);
+          if (downloadUrl != null) {
+            mediaUrls.add(downloadUrl);
           }
         }
+      }
+
+      // ✅ NEW: Upload the Attached File (if selected)
+      String? attachedFileUrl;
+      if (_attachedFile != null && b2Credentials != null) {
+        attachedFileUrl = await _uploadFileToB2(_attachedFile!, b2Credentials);
       }
 
       // --- 3. Write to Firestore based on Mode ---
@@ -834,6 +865,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           ticketType: _selectedTicketType,
           createdBy: 'Current User',
           createdAt: DateTime.now(),
+          // ✅ Pass the new URL
+          uploadedFileUrl: attachedFileUrl,
         );
 
         batch.set(ticketsCollection.doc(), ticket.toJson());
@@ -870,6 +903,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
             ticketType: _selectedTicketType,
             createdBy: 'Current User',
             createdAt: DateTime.now(),
+            // ✅ Pass the new URL (Same file for all tickets in batch)
+            uploadedFileUrl: attachedFileUrl,
           );
 
           batch.set(ticketsCollection.doc(), ticket.toJson());
@@ -1499,6 +1534,34 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     },
                   ),
                 ),
+
+              // ✅ NEW UI: Button to pick the specific file
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _pickAttachedFile,
+                      icon: const Icon(Icons.attach_file),
+                      label: Text(_attachedFile == null
+                          ? 'Joindre un Fichier (Optionnel)'
+                          : 'Fichier joint: ${path.basename(_attachedFile!.path)}'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        // Change color if file is selected
+                        foregroundColor: _attachedFile != null ? Colors.green : Colors.grey[700],
+                        side: BorderSide(color: _attachedFile != null ? Colors.green : Colors.grey[400]!),
+                      ),
+                    ),
+                  ),
+                  if (_attachedFile != null)
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.red),
+                      onPressed: () => setState(() => _attachedFile = null),
+                      tooltip: 'Supprimer le fichier',
+                    )
+                ],
+              ),
 
               const Divider(height: 40),
               Row(

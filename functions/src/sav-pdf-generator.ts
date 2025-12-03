@@ -23,7 +23,6 @@ const MARGIN = 40;
 */
 async function fetchImage(url: string): Promise<Buffer | null> {
   if (!url || !url.startsWith("http")) {
-    // Don't log warning for missing optional signatures, just return null
     return null;
   }
   try {
@@ -141,31 +140,43 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
     doc.font("Helvetica").fontSize(9).fillColor(TEXT_COLOR);
 
     data.multiProducts.forEach((item: any, index: number) => {
-      const rowY = doc.y;
-      const rowHeight = 25; // Approximate height per row
+      // ✅ FIX: Check for Page Break BEFORE getting rowY
+      if (doc.y > doc.page.height - 50) {
+        doc.addPage();
+        // Optional: Re-draw header here if you want perfect polish
+      }
 
-      // Zebra Striping (Optional: alternating light gray background)
+      const rowY = doc.y; // Capture Y *after* potentially adding a page
+      const rowHeight = 25;
+
+      // Zebra Striping
       if (index % 2 === 0) {
         doc.rect(MARGIN, rowY - 5, doc.page.width - (MARGIN * 2), rowHeight + 5)
            .fillColor(LIGHT_GRAY_BACKGROUND).fill();
-        doc.fillColor(TEXT_COLOR); // Reset text color
-      }
-
-      // Check for Page Break
-      if (rowY > doc.page.height - 50) {
-        doc.addPage();
-        // Re-draw header on new page? Optional, keeping it simple for now.
+        doc.fillColor(TEXT_COLOR);
       }
 
       doc.text(item.productName || "N/A", col1X + 5, rowY, { width: col1Width });
       doc.text(item.serialNumber || "N/A", col2X, rowY, { width: col2Width });
       doc.text(item.problemDescription || "N/A", col3X, rowY, { width: col3Width });
 
-      doc.moveDown(1); // Add spacing between rows
+      doc.moveDown(1);
     });
 
+    doc.moveDown(1);
+
+    // ✅ ADDED: Technicians Summary right after table
+    const techs: string[] = data.pickupTechnicianNames || [];
+    const techLabel = data.ticketType === 'removal' ? "Techniciens (Dépose) :" : "Techniciens (Récupération) :";
+
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(TITLE_COLOR)
+       .text(techLabel, MARGIN, doc.y, { continued: true });
+
+    doc.font("Helvetica").fillColor(TEXT_COLOR)
+       .text(`  ${techs.length > 0 ? techs.join(", ") : "Non spécifié"}`);
+
     doc.moveDown(2);
-    return; // 🛑 Stop here, do not print the single card below
+    return; // 🛑 Stop here
   }
 
   // ---------------------------------------------------------
@@ -192,7 +203,6 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
     doc.moveDown(1.5);
   };
 
-  // 1. Measure Height (Mock Run)
   const tempY = doc.y;
   doc.y = tempY + 20;
 
@@ -202,13 +212,13 @@ function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
 
   const endY = doc.y;
 
-  // 2. Draw Gray Card Background
+  // Draw Gray Card Background
   doc
     .rect(MARGIN, startY, doc.page.width - MARGIN * 2, endY - startY + 10)
     .fillColor(LIGHT_GRAY_BACKGROUND)
     .fill();
 
-  // 3. Draw Text on Top (Real Run)
+  // Draw Text on Top
   doc.y = tempY + 20;
   drawTextBlock("Produit / Équipement", data.productName);
   drawTextBlock("Numéro de Série (S/N)", data.serialNumber);
@@ -227,7 +237,11 @@ async function _buildValidationSection(
   signatureBuffer: Buffer | null,
   watermarkBuffer: Buffer | null
 ) {
-  doc.moveDown(1);
+  // Ensure we don't start at the very bottom
+  if (doc.y > doc.page.height - 150) {
+    doc.addPage();
+  }
+
   const startY = doc.y;
   const col1X = MARGIN;
   const col2X = doc.page.width / 2 + 30;
@@ -246,7 +260,6 @@ async function _buildValidationSection(
   }
 
   // --- Column 1: Boitex Technicians ---
-  // ✅ LOGIC: Label change for removal vs pickup
   const techLabel = data.ticketType === 'removal' ? "Techniciens (Dépose)" : "Techniciens (Récupération)";
 
   doc.font("Helvetica-Bold").fontSize(12).fillColor(TITLE_COLOR)
@@ -269,7 +282,6 @@ async function _buildValidationSection(
   const sigBoxHeight = 100;
   const sigBoxY = startY + 25;
 
-  // Box border
   doc.rect(col2X, sigBoxY, colWidth, sigBoxHeight).lineWidth(0.5).strokeColor(LINE_COLOR).stroke();
 
   if (signatureBuffer) {
@@ -283,7 +295,6 @@ async function _buildValidationSection(
        .text("Absence de signature", col2X, sigBoxY + 40, { width: colWidth, align: "center" });
   }
 
-  // Name under signature
   doc.font("Helvetica").fontSize(9).fillColor(LABEL_COLOR)
      .text(`Validé par : ${data.storeManagerName || "N/A"}`, col2X, sigBoxY + sigBoxHeight + 5, {
        width: colWidth, align: "center"

@@ -94,6 +94,9 @@ class SavTicket {
   // ✅ NEW FIELD: List of products for grouped tickets
   final List<SavProductItem> multiProducts;
 
+  // ✅ NEW FIELD: URL for the specific uploaded file
+  final String? uploadedFileUrl;
+
   SavTicket({
     this.id,
     required this.serviceType,
@@ -125,6 +128,8 @@ class SavTicket {
     this.returnPhotoUrl,
     // ✅ Initialize new list
     List<SavProductItem>? multiProducts,
+    // ✅ Add to Constructor
+    this.uploadedFileUrl,
   }) : brokenParts = brokenParts ?? [],
         multiProducts = multiProducts ?? [];
 
@@ -159,6 +164,8 @@ class SavTicket {
       'returnPhotoUrl': returnPhotoUrl,
       // ✅ Save the multi-products list
       'multiProducts': multiProducts.map((item) => item.toJson()).toList(),
+      // ✅ Save to JSON
+      'uploadedFileUrl': uploadedFileUrl,
     };
   }
 
@@ -208,6 +215,8 @@ class SavTicket {
       returnPhotoUrl: data['returnPhotoUrl'] as String?,
       // ✅ Assign the parsed list
       multiProducts: multiProductsList,
+      // ✅ Read from Firestore
+      uploadedFileUrl: data['uploadedFileUrl'] as String?,
     );
   }
 }
