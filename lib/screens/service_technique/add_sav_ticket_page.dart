@@ -861,7 +861,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               ? null
               : _managerEmailController.text.trim(),
           storeManagerSignatureUrl: sigUrl,
-          status: _selectedTicketType == 'removal' ? 'Terminé' : 'Nouveau',
+          // ✅ CHANGED: If removal, status is 'Dépose'. If standard, 'Nouveau'.
+          status: _selectedTicketType == 'removal' ? 'Dépose' : 'Nouveau',
           ticketType: _selectedTicketType,
           createdBy: 'Current User',
           createdAt: DateTime.now(),
@@ -899,7 +900,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 ? null
                 : _managerEmailController.text.trim(),
             storeManagerSignatureUrl: sigUrl,
-            status: _selectedTicketType == 'removal' ? 'Terminé' : 'Nouveau',
+            // ✅ CHANGED: If removal, status is 'Dépose'. If standard, 'Nouveau'.
+            status: _selectedTicketType == 'removal' ? 'Dépose' : 'Nouveau',
             ticketType: _selectedTicketType,
             createdBy: 'Current User',
             createdAt: DateTime.now(),

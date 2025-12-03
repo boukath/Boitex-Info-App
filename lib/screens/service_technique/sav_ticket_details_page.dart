@@ -38,15 +38,22 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
 
   List<PlatformFile> _technicianMediaToUpload = [];
 
-  final List<String> _statusOptions = [
-    'Nouveau',
-    'En Diagnostic',
-    'En Réparation',
-    'Terminé',
-    'Irréparable - Remplacement Demandé',
-    'Approuvé - Prêt pour retour',
-    'Retourné',
-  ];
+  // ✅ NEW: Dynamic Status Options based on Ticket Type
+  List<String> get _validStatusOptions {
+    if (_currentTicket.ticketType == 'removal') {
+      return ['Dépose', 'Retourné']; // Allowed statuses for Removal
+    }
+    // Standard statuses
+    return [
+      'Nouveau',
+      'En Diagnostic',
+      'En Réparation',
+      'Terminé',
+      'Irréparable - Remplacement Demandé',
+      'Approuvé - Prêt pour retour',
+      'Retourné',
+    ];
+  }
 
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
@@ -367,6 +374,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
           returnSignatureUrl: _currentTicket.returnSignatureUrl,
           returnPhotoUrl: _currentTicket.returnPhotoUrl,
           multiProducts: _currentTicket.multiProducts, // ✅ Ensure multiProducts are kept
+          uploadedFileUrl: _currentTicket.uploadedFileUrl,
         );
       });
 
@@ -637,13 +645,33 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             _buildInfoRow('Statut Actuel:', _currentTicket.status, isStatus: true),
             _buildInfoRow('Date de création:', DateFormat('dd MMM yyyy, HH:mm', 'fr_FR').format(_currentTicket.createdAt)),
             _buildInfoRow('Créé par:', _currentTicket.createdBy),
+
+            // ✅ NEW: Show uploaded file link if present
+            if (_currentTicket.uploadedFileUrl != null) ...[
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  final url = _currentTicket.uploadedFileUrl!;
+                  // You might need url_launcher or a webview to open this
+                  // For now, just printing or handling via a dialog
+                  print("Open URL: $url");
+                  // If you have url_launcher: launchUrl(Uri.parse(url));
+                },
+                child: const Row(
+                  children: [
+                    Icon(Icons.attach_file, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Text("Voir fichier joint", style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline)),
+                  ],
+                ),
+              )
+            ]
           ],
         ),
       ),
     );
   }
 
-  // ✅ NEW WIDGET: Display Table of Products
   Widget _buildMultiProductsList() {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -796,6 +824,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   Widget _buildTechnicianSection() {
     bool isReadOnly = _currentTicket.status == 'Retourné';
 
+    // ✅ Get the correct list of options
+    final options = _validStatusOptions;
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 4,
@@ -808,8 +839,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
             const Divider(height: 20),
 
             DropdownButtonFormField<String>(
-              value: _statusOptions.contains(_currentTicket.status) ? _currentTicket.status : null,
-              items: _statusOptions.map((status) => DropdownMenuItem(value: status, child: Text(status))).toList(),
+              // ✅ Check if current status is in the allowed list to avoid crashes
+              value: options.contains(_currentTicket.status) ? _currentTicket.status : null,
+              items: options.map((status) => DropdownMenuItem(value: status, child: Text(status))).toList(),
               onChanged: isReadOnly ? null : (value) {
                 if (value != null && value != _currentTicket.status) {
                   _updateTicket(value);
@@ -962,6 +994,8 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
         case 'Irréparable - Remplacement Demandé': valueColor = Colors.red.shade700; break;
         case 'Approuvé - Prêt pour retour': valueColor = Colors.purple.shade700; break;
         case 'Retourné': valueColor = Colors.grey.shade700; break;
+      // ✅ ADDED: Color for Dépose
+        case 'Dépose': valueColor = Colors.teal.shade700; break;
         default: valueColor = Colors.black87;
       }
     }
@@ -979,7 +1013,8 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 }
 
-// --- Add Parts Dialog (Kept as is) ---
+// ... (Keep _AddPartsDialog class) ...
+
 class _AddPartsDialog extends StatefulWidget {
   final List<String> initialSelected;
   const _AddPartsDialog({required this.initialSelected});
