@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:boitex_info_app/screens/service_technique/service_technique_dashboard_page.dart';
 import 'package:boitex_info_app/screens/administration/administration_dashboard_page.dart';
 import 'package:boitex_info_app/screens/service_it/service_it_dashboard_page.dart';
+// ✅ ADDED: Import for the Commercial Dashboard
+import 'package:boitex_info_app/screens/commercial/commercial_dashboard_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/api/firebase_api.dart';
 import 'dart:math' as math;
@@ -365,6 +367,32 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       ));
     }
 
+    // ✅ NEW: Commercial Card for WEB
+    if (RolePermissions.canSeeCommercialCard(widget.userRole)) {
+      if (cards.isNotEmpty) cards.add(const SizedBox(width: 20));
+      cards.add(Expanded(
+        child: _webServiceCard(
+          context: context,
+          title: 'Commercial',
+          icon: Icons.business_center_rounded, // or store_rounded
+          // Orange/Red Gradient
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF9966), Color(0xFFFF5E62)],
+          ),
+          delay: 50,
+          onTap: () {
+            // ✅ Updated Navigation
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CommercialDashboardPage(),
+              ),
+            );
+          },
+        ),
+      ));
+    }
+
     if (RolePermissions.canSeeTechServiceCard(widget.userRole)) {
       if (cards.isNotEmpty) cards.add(const SizedBox(width: 20));
       cards.add(Expanded(
@@ -716,6 +744,30 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
           ),
         ),
+      ));
+      cards.add(const SizedBox(height: 16));
+    }
+
+    // ✅ NEW: Commercial Card for MOBILE
+    if (RolePermissions.canSeeCommercialCard(widget.userRole)) {
+      cards.add(_mobileServiceCard(
+        icon: Icons.business_center_rounded,
+        title: 'Commercial',
+        // Orange/Red Gradient
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFF9966), Color(0xFFFF5E62)],
+        ),
+        shadowColor: const Color(0xFFFF9966),
+        delay: 50,
+        onTap: () {
+          // ✅ Updated Navigation
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const CommercialDashboardPage(),
+            ),
+          );
+        },
       ));
       cards.add(const SizedBox(height: 16));
     }

@@ -15,6 +15,9 @@ class UserRoles {
   static const String technicienST = 'Technicien ST';                          // WITH SPACES
   static const String technicienIT = 'Technicien IT';                          // WITH SPACES
 
+  // ✅ ADDED: New Commercial Role
+  static const String commercial = 'Commercial';
+
   /// Fetches the role of the currently authenticated user from Firestore.
   /// Returns null if the user is not logged in or has no role.
   static Future<String?> getCurrentUserRole() async {
@@ -114,6 +117,15 @@ class RolePermissions {
 
   /// ALL MANAGEMENT ROLES CAN SEE ADMIN CARD
   static bool canSeeAdminCard(String userRole) {
+    return _checkRole(userRole, _fullAccessRoles);
+  }
+
+  /// ✅ ADDED: Check if user can see the Commercial Card
+  /// Allows the specific 'Commercial' role OR any manager/admin.
+  static bool canSeeCommercialCard(String userRole) {
+    if (userRole == UserRoles.commercial) {
+      return true;
+    }
     return _checkRole(userRole, _fullAccessRoles);
   }
 
