@@ -41,7 +41,8 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   // ✅ NEW: Dynamic Status Options based on Ticket Type
   List<String> get _validStatusOptions {
     if (_currentTicket.ticketType == 'removal') {
-      return ['Dépose', 'Retourné']; // Allowed statuses for Removal
+      // ✅ STEP 4 MODIFICATION: Removed 'Retourné'. Status stays fixed at 'Dépose'.
+      return ['Dépose'];
     }
     // Standard statuses
     return [
@@ -822,9 +823,9 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
   }
 
   Widget _buildTechnicianSection() {
-    bool isReadOnly = _currentTicket.status == 'Retourné';
+    // ✅ STEP 4 MODIFICATION: Treat 'Dépose' as Read-Only (Closed)
+    bool isReadOnly = _currentTicket.status == 'Retourné' || _currentTicket.status == 'Dépose';
 
-    // ✅ Get the correct list of options
     final options = _validStatusOptions;
 
     return Card(

@@ -29,8 +29,6 @@ class _SavListPageState extends State<SavListPage> {
   }
 
   // Define the roles considered managers for the delete permission.
-  // This list is defined locally to resolve the compilation error
-  // until the isManager helper is added to UserRoles.
   final List<String> _managerRoles = const [
     UserRoles.admin,
     UserRoles.pdg,
@@ -54,7 +52,6 @@ class _SavListPageState extends State<SavListPage> {
   // Helper to check if the current user is a manager (can delete)
   bool get _isManager {
     if (_currentUserRole == null) return false;
-    // ✅ FIXED (Error 1): Use the locally defined list for the check.
     return _managerRoles.contains(_currentUserRole!);
   }
 
@@ -65,7 +62,8 @@ class _SavListPageState extends State<SavListPage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Confirmation de Suppression'),
-          content: Text('Êtes-vous sûr de vouloir supprimer le ticket SAV $savCode ? Cette action est irréversible.'),
+          content: Text(
+              'Êtes-vous sûr de vouloir supprimer le ticket SAV $savCode ? Cette action est irréversible.'),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -83,7 +81,10 @@ class _SavListPageState extends State<SavListPage> {
 
     if (confirmed == true) {
       try {
-        await FirebaseFirestore.instance.collection('sav_tickets').doc(docId).delete();
+        await FirebaseFirestore.instance
+            .collection('sav_tickets')
+            .doc(docId)
+            .delete();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Ticket SAV $savCode supprimé.')),
@@ -149,8 +150,6 @@ class _SavListPageState extends State<SavListPage> {
   @override
   Widget build(BuildContext context) {
     if (_currentUserRole == null) {
-      // Show loading indicator while fetching role
-      // ✅ FIXED (Error 2): Ensures AppBar is not called with 'const'
       return Scaffold(
         appBar: AppBar(title: const Text('Tickets SAV')),
         body: const Center(child: CircularProgressIndicator()),
@@ -158,7 +157,8 @@ class _SavListPageState extends State<SavListPage> {
     }
 
     // Get the status filter to exclude 'Retourné' tickets
-    final List<String> excludedStatuses = ['Retourné'];
+    // ✅ MODIFIED: Added 'Dépose' to the excluded list
+    final List<String> excludedStatuses = ['Retourné', 'Dépose'];
 
     return Scaffold(
       appBar: AppBar(
@@ -166,7 +166,6 @@ class _SavListPageState extends State<SavListPage> {
         backgroundColor: Colors.orange,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // Use whereNotIn to filter out 'Retourné' tickets
         stream: FirebaseFirestore.instance
             .collection('sav_tickets')
             .where('serviceType', isEqualTo: widget.serviceType)
@@ -185,37 +184,47 @@ class _SavListPageState extends State<SavListPage> {
           }
 
           final tickets = snapshot.data!.docs.map((doc) {
-            // ✅ FIXED (Error 3): Correctly passing the DocumentSnapshot<Map<String, dynamic>>
-            return SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
+            return SavTicket.fromFirestore(
+                doc as DocumentSnapshot<Map<String, dynamic>>);
           }).toList();
 
           return ListView(
             children: tickets.map((ticket) {
-              Widget child = Card(
+              // We define the logic to open details here to reuse it
+              void openDetails() {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => SavTicketDetailsPage(ticket: ticket),
+                  ),
+                );
+              }
+
+              return Card(
                 elevation: 3,
                 margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 child: InkWell(
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => SavTicketDetailsPage(ticket: ticket),
-                      ),
-                    );
-                  },
+                  onTap: openDetails,
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.build_circle_outlined, color: Colors.orange, size: 30),
+                        const Icon(Icons.build_circle_outlined,
+                            color: Colors.orange, size: 30),
                         const SizedBox(width: 12),
+                        // Expanded Column for Text Info
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(ticket.savCode, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  Text(ticket.savCode,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16)),
                                   _getStatusChip(ticket.status),
                                 ],
                               ),
@@ -227,36 +236,56 @@ class _SavListPageState extends State<SavListPage> {
                               ),
                               Text(
                                 'Produit: ${ticket.productName}',
-                                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                style: TextStyle(
+                                    color: Colors.grey.shade600, fontSize: 12),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
+                        ),
+                        // ✅ NEW: Popup Menu for Options
+                        PopupMenuButton<String>(
+                          onSelected: (value) {
+                            if (value == 'edit') {
+                              openDetails();
+                            } else if (value == 'delete') {
+                              _deleteTicket(ticket.id!, ticket.savCode);
+                            }
+                          },
+                          itemBuilder: (BuildContext context) {
+                            return [
+                              const PopupMenuItem(
+                                value: 'edit',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit, color: Colors.blue),
+                                    SizedBox(width: 8),
+                                    Text('Ouvrir / Traiter'),
+                                  ],
+                                ),
+                              ),
+                              // Only show delete option if user is a manager
+                              if (_isManager)
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete_outline,
+                                          color: Colors.red),
+                                      SizedBox(width: 8),
+                                      Text('Supprimer'),
+                                    ],
+                                  ),
+                                ),
+                            ];
+                          },
+                          icon: const Icon(Icons.more_vert, color: Colors.grey),
                         ),
                       ],
                     ),
                   ),
                 ),
               );
-
-              if (_isManager) {
-                return Dismissible(
-                  // ✅ FIXED (Error 3): Using the null-assertion operator (!) on the ID
-                  key: Key(ticket.id!),
-                  direction: DismissDirection.endToStart,
-                  background: Container(
-                    color: Colors.red,
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: const Icon(Icons.delete, color: Colors.white),
-                  ),
-                  // This now correctly expects and receives a Future<bool?>
-                  confirmDismiss: (direction) => _deleteTicket(ticket.id!, ticket.savCode),
-                  child: child,
-                );
-              }
-
-              return child;
             }).toList(),
           );
         },
@@ -264,7 +293,9 @@ class _SavListPageState extends State<SavListPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => AddSavTicketPage(serviceType: widget.serviceType)),
+            MaterialPageRoute(
+                builder: (context) =>
+                    AddSavTicketPage(serviceType: widget.serviceType)),
           );
         },
         tooltip: 'Nouveau Ticket SAV',

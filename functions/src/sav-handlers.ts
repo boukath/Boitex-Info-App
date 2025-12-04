@@ -78,16 +78,14 @@ async (event) => {
       if (serviceType.toString().toUpperCase().includes("IT")) {
         // 💻 Service IT List
         ccList = [
-          "commercial@boitexinfo.com",
           "karim-lehamine@boitexinfo.com"
         ];
         logger.info(`📧 Routing to IT Team: ${ccList.join(", ")}`);
       } else {
         // 🔧 Service Technique List (Default)
         ccList = [
-          "athmane-boukerdous@boitexinfo.com",
-          "commercial@boitexinfo.com",
-          "khaled-mekideche@boitexinfo.com"
+          "khaled-mekideche@boitexinfo.com",
+          "athmane-boukerdous@boitexinfo.com"
         ];
         logger.info(`📧 Routing to Technical Team: ${ccList.join(", ")}`);
       }

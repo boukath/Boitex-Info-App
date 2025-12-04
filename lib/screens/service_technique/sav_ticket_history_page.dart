@@ -52,7 +52,8 @@ class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
               stream: FirebaseFirestore.instance
                   .collection('sav_tickets')
                   .where('serviceType', isEqualTo: widget.serviceType)
-                  .where('status', isEqualTo: 'Retourné')
+              // ✅ STEP 3 CHANGE: Use 'whereIn' to include both statuses
+                  .where('status', whereIn: ['Retourné', 'Dépose'])
                   .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (BuildContext context,
@@ -65,7 +66,7 @@ class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const Center(
-                      child: Text('Aucun ticket SAV retourné trouvé.'));
+                      child: Text('Aucun ticket dans l\'historique.'));
                 }
 
                 // ✅ ADDED: Filtering logic
@@ -91,6 +92,10 @@ class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
                   itemCount: filteredTickets.length,
                   itemBuilder: (context, index) {
                     final ticket = filteredTickets[index];
+
+                    // Optional: Visual distinction for 'Dépose' vs 'Retourné'
+                    final isDepose = ticket.status == 'Dépose';
+
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 6.0),
                       shape: RoundedRectangleBorder(
@@ -108,19 +113,43 @@ class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
                           padding: const EdgeInsets.all(12.0),
                           child: Row(
                             children: [
-                              const CircleAvatar(
-                                backgroundColor: Colors.grey,
-                                child: Icon(Icons.history, color: Colors.white),
+                              CircleAvatar(
+                                backgroundColor: isDepose ? Colors.blueGrey : Colors.grey,
+                                child: Icon(
+                                    isDepose ? Icons.remove_circle_outline : Icons.history,
+                                    color: Colors.white
+                                ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(ticket.savCode,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16)),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(ticket.savCode,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16)),
+                                        // Show a small tag for the status
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: isDepose ? Colors.blueGrey.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            ticket.status,
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                color: isDepose ? Colors.blueGrey : Colors.grey[700],
+                                                fontWeight: FontWeight.bold
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                     const SizedBox(height: 4),
                                     Text(
                                       'Client: ${ticket.clientName}',

@@ -751,11 +751,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       return;
     }
 
-    if (_signatureController.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Signature requise.')));
-      return;
-    }
+    // ✅ MODIFIED: Removed required check for signature.
+    // if (_signatureController.isEmpty) {
+    //   ScaffoldMessenger.of(context)
+    //       .showSnackBar(const SnackBar(content: Text('Signature requise.')));
+    //   return;
+    // }
 
     setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -792,13 +793,18 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       });
 
       // --- 2. Upload Shared Assets (Signature & Media) ---
-      final sigCode = 'BATCH-${startCount}_$year';
-      final Uint8List? sigData = await _signatureController.toPngBytes();
-      if (sigData == null) throw Exception("Impossible de générer la signature.");
-      final sigRef =
-      FirebaseStorage.instance.ref('sav_signatures/$sigCode.png');
-      await sigRef.putData(sigData);
-      final sigUrl = await sigRef.getDownloadURL();
+      // ✅ MODIFIED: Handle optional signature
+      String sigUrl = '';
+      if (_signatureController.isNotEmpty) {
+        final sigCode = 'BATCH-${startCount}_$year';
+        final Uint8List? sigData = await _signatureController.toPngBytes();
+        if (sigData != null) { // Check if not null
+          final sigRef =
+          FirebaseStorage.instance.ref('sav_signatures/$sigCode.png');
+          await sigRef.putData(sigData);
+          sigUrl = await sigRef.getDownloadURL();
+        }
+      }
 
       // Upload Media
       List<String> mediaUrls = [];
