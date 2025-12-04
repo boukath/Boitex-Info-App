@@ -325,7 +325,9 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   if (!snapshot) return;
   const data = snapshot.data();
 
-  const title = `Nouvelle Intervention: ${data.interventionCode}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = data.storeName || "Magasin Inconnu";
+  const title = `Nouvelle Intervention : ${storeName}`;
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
   const logService = data.serviceType === "Service IT" ? "it" : "technique";
 
@@ -377,7 +379,9 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
     relatedCollection: "interventions",
   });
 
-  const title = `Mise à Jour Intervention: ${after.interventionCode || "N/A"}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = after.storeName || "Magasin Inconnu";
+  const title = `Mise à Jour Intervention : ${storeName}`;
   const body = `Statut: '${before.status}' -> '${after.status}'`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "interventions" };
 
@@ -395,7 +399,9 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
   if (!snapshot) return;
   const data = snapshot.data();
 
-  const title = `Nouveau Ticket SAV: ${data.savCode}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = data.storeName || "Magasin Inconnu";
+  const title = `Nouveau Ticket SAV : ${storeName}`;
   const body = `Client: ${data.clientName} - Produit: ${data.productName}`;
 
   createActivityLog({
@@ -425,7 +431,9 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated("sav_tickets/{ticketId}", 
 
   if (before.status === after.status) return;
 
-  const title = `Mise à Jour SAV: ${after.savCode}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = after.storeName || "Magasin Inconnu";
+  const title = `Mise à Jour SAV : ${storeName}`;
   const body = `Nouveau statut: ${after.status}`;
 
   createActivityLog({
@@ -604,7 +612,9 @@ export const onInstallationCreated_v2 = onDocumentCreated("installations/{instal
   if (!snapshot) return;
   const data = snapshot.data();
 
-  const title = `Nouvelle Installation: ${data.installationCode || "N/A"}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = data.storeName || "Magasin Inconnu";
+  const title = `Nouvelle Installation : ${storeName}`;
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
 
   createActivityLog({
@@ -648,7 +658,9 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated("installations/{i
     relatedCollection: "installations",
   });
 
-  const title = `Mise à Jour Installation: ${after.installationCode || "N/A"}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = after.storeName || "Magasin Inconnu";
+  const title = `Mise à Jour Installation : ${storeName}`;
   const body = `Client: ${after.clientName} - Statut: ${after.status}`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "installations" };
 
@@ -662,7 +674,9 @@ export const onLivraisonCreated_v2 = onDocumentCreated("livraisons/{livraisonId}
   if (!snapshot) return;
   const data = snapshot.data();
 
-  const title = `Nouvelle Livraison: ${data.bonLivraisonCode || "N/A"}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = data.storeName || "Magasin Inconnu";
+  const title = `Nouvelle Livraison : ${storeName}`;
   const body = `Client: ${data.clientName} | Service: ${data.serviceType}`;
 
   createActivityLog({
@@ -705,7 +719,9 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated("livraisons/{livrais
     relatedCollection: "livraisons",
   });
 
-  const title = `Mise à Jour Livraison: ${after.bonLivraisonCode || "N/A"}`;
+  // ✅ CHANGED: Use Store Name
+  const storeName = after.storeName || "Magasin Inconnu";
+  const title = `Mise à Jour Livraison : ${storeName}`;
   const body = `Client: ${after.clientName} - Statut: ${after.status}`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "livraisons" };
 
@@ -1106,5 +1122,52 @@ export const sendMorningBriefing = onSchedule({
 
   } catch (error) {
     logger.error("Error generating morning briefing:", error);
+  }
+});
+
+// ------------------------------------------------------------------
+// 13. AUTO-CLEANUP (Scheduled - Daily at 03:00 AM)
+// ------------------------------------------------------------------
+// Deletes notifications older than 7 days to keep the DB clean and the app fast.
+
+export const cleanupOldNotifications = onSchedule({
+  schedule: "every day 03:00", // Runs at 3 AM when traffic is low
+  timeZone: "Africa/Algiers",
+}, async (event) => {
+
+  const db = admin.firestore();
+  const now = new Date();
+  // Calculate date: 7 days ago
+  const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+  const threshold = admin.firestore.Timestamp.fromDate(sevenDaysAgo);
+
+  console.log(`🧹 Starting cleanup of notifications older than: ${sevenDaysAgo.toISOString()}`);
+
+  try {
+    // Query for old docs
+    // Note: Firestore batch delete limit is 500. We loop to handle more if needed.
+    const snapshot = await db.collection("user_notifications")
+      .where("timestamp", "<", threshold)
+      .limit(400) // Safety limit per run
+      .get();
+
+    if (snapshot.empty) {
+      console.log("✅ No old notifications to delete.");
+      return;
+    }
+
+    const batch = db.batch();
+    let count = 0;
+
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+      count++;
+    });
+
+    await batch.commit();
+    console.log(`🗑️ Successfully deleted ${count} old notifications.`);
+
+  } catch (error) {
+    logger.error("❌ Error running cleanup:", error);
   }
 });
