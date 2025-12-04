@@ -110,10 +110,10 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.white),
-                const SizedBox(width: 12),
-                Text('Erreur de recherche: $e'),
+              children: const [
+                Icon(Icons.error_outline, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Erreur de recherche'),
               ],
             ),
             backgroundColor: const Color(0xFFEF4444),
