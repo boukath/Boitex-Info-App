@@ -18,7 +18,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 class AddProspectPage extends StatefulWidget {
-  const AddProspectPage({super.key});
+  final Prospect? prospectToEdit; // ✅ Added: Optional prospect for editing
+
+  const AddProspectPage({super.key, this.prospectToEdit});
 
   @override
   State<AddProspectPage> createState() => _AddProspectPageState();
@@ -39,11 +41,9 @@ class _AddProspectPageState extends State<AddProspectPage> {
   final _emailController = TextEditingController();
   final _streetDetailsController = TextEditingController();
   final _notesController = TextEditingController();
-
-  // ✅ ADDED: Controller for "Autre" service type
   final _otherServiceController = TextEditingController();
 
-  // List of Communes d'Alger
+  // Locations & Services
   String? _selectedCommune;
   final List<String> _communesAlger = [
     'Alger-Centre', "Sidi M'Hamed", 'El Madania', 'Belouizdad', 'Bab El Oued',
@@ -74,8 +74,80 @@ class _AddProspectPageState extends State<AddProspectPage> {
   Position? _currentPosition;
   bool _gettingLocation = false;
 
+  // Media
   List<File> _localFilesToUpload = [];
   bool _isUploadingMedia = false;
+
+  // ✅ Added: Lists to hold existing URLs when editing
+  List<String> _existingPhotoUrls = [];
+  List<String> _existingVideoUrls = [];
+
+  @override
+  void initState() {
+    super.initState();
+    // ✅ Check if we are in Edit Mode
+    if (widget.prospectToEdit != null) {
+      _initializeEditMode(widget.prospectToEdit!);
+    }
+  }
+
+  void _initializeEditMode(Prospect p) {
+    _companyNameController.text = p.companyName;
+    _contactNameController.text = p.contactName;
+    _roleController.text = p.role;
+    _phoneController.text = p.phoneNumber;
+    _emailController.text = p.email;
+    _notesController.text = p.notes;
+
+    // Recover Location
+    if (p.latitude != null && p.longitude != null) {
+      _currentPosition = Position(
+          longitude: p.longitude!,
+          latitude: p.latitude!,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          heading: 0,
+          speed: 0,
+          speedAccuracy: 0,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0
+      );
+    }
+
+    // Recover Address Logic
+    // Format: "Commune - Details"
+    if (p.address.contains(' - ')) {
+      final parts = p.address.split(' - ');
+      final potentialCommune = parts[0];
+      if (_communesAlger.contains(potentialCommune)) {
+        _selectedCommune = potentialCommune;
+        // Join the rest back in case the street details also had hyphens
+        _streetDetailsController.text = parts.sublist(1).join(' - ');
+      } else {
+        // Fallback if commune logic changed
+        _streetDetailsController.text = p.address;
+      }
+    } else {
+      if (_communesAlger.contains(p.address)) {
+        _selectedCommune = p.address;
+      } else {
+        _streetDetailsController.text = p.address;
+      }
+    }
+
+    // Recover Service Type
+    if (_serviceTypes.contains(p.serviceType)) {
+      _selectedServiceType = p.serviceType;
+    } else {
+      _selectedServiceType = 'Autre';
+      _otherServiceController.text = p.serviceType;
+    }
+
+    // Recover Media
+    _existingPhotoUrls = List.from(p.photoUrls);
+    _existingVideoUrls = List.from(p.videoUrls);
+  }
 
   @override
   void dispose() {
@@ -86,7 +158,7 @@ class _AddProspectPageState extends State<AddProspectPage> {
     _emailController.dispose();
     _streetDetailsController.dispose();
     _notesController.dispose();
-    _otherServiceController.dispose(); // ✅ Dispose new controller
+    _otherServiceController.dispose();
     super.dispose();
   }
 
@@ -269,6 +341,26 @@ class _AddProspectPageState extends State<AddProspectPage> {
       children: [
         _buildSectionTitle("📷 Photos & Médias"),
         const SizedBox(height: 10),
+
+        // ✅ Existing Media (Edit Mode)
+        if (_existingPhotoUrls.isNotEmpty || _existingVideoUrls.isNotEmpty) ...[
+          const Text('Médias existants (sur le serveur) :',
+              style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
+          const SizedBox(height: 8),
+          Container(
+            height: 80,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                ..._existingPhotoUrls.map((url) => _buildExistingMediaItem(url, true)),
+                ..._existingVideoUrls.map((url) => _buildExistingMediaItem(url, false)),
+              ],
+            ),
+          ),
+          const Divider(),
+        ],
+
+        // New Media Actions
         Row(
           children: [
             Expanded(
@@ -306,6 +398,8 @@ class _AddProspectPageState extends State<AddProspectPage> {
           ],
         ),
         const SizedBox(height: 12),
+
+        // Local Files List
         if (_localFilesToUpload.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(8),
@@ -347,6 +441,48 @@ class _AddProspectPageState extends State<AddProspectPage> {
     );
   }
 
+  Widget _buildExistingMediaItem(String url, bool isPhoto) {
+    return Stack(
+      children: [
+        Container(
+          width: 80,
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade300),
+            image: isPhoto
+                ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
+                : null,
+            color: isPhoto ? null : Colors.black12,
+          ),
+          child: !isPhoto
+              ? const Center(child: Icon(Icons.videocam, color: Colors.purple))
+              : null,
+        ),
+        Positioned(
+          top: 0,
+          right: 4,
+          child: InkWell(
+            onTap: () {
+              setState(() {
+                if (isPhoto) {
+                  _existingPhotoUrls.remove(url);
+                } else {
+                  _existingVideoUrls.remove(url);
+                }
+              });
+            },
+            child: const CircleAvatar(
+              radius: 10,
+              backgroundColor: Colors.red,
+              child: Icon(Icons.close, size: 12, color: Colors.white),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
@@ -379,12 +515,14 @@ class _AddProspectPageState extends State<AddProspectPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("Utilisateur non connecté");
 
-      final prospectId = const Uuid().v4();
+      // ✅ Use existing ID if editing, otherwise generate new
+      final prospectId = widget.prospectToEdit?.id ?? const Uuid().v4();
 
-      List<String> photoUrls = [];
-      List<String> videoUrls = [];
+      // ✅ Start with existing URLs
+      List<String> photoUrls = List.from(_existingPhotoUrls);
+      List<String> videoUrls = List.from(_existingVideoUrls);
 
-      // 1. Upload Media
+      // 1. Upload New Media
       if (_localFilesToUpload.isNotEmpty) {
         final b2Credentials = await _getB2UploadCredentials();
         if (b2Credentials == null) {
@@ -413,7 +551,7 @@ class _AddProspectPageState extends State<AddProspectPage> {
         fullAddress += ' - ${_streetDetailsController.text.trim()}';
       }
 
-      // ✅ Determine Service Type
+      // Determine Service Type
       String finalServiceType = _selectedServiceType!;
       if (_selectedServiceType == 'Autre') {
         if (_otherServiceController.text.trim().isEmpty) {
@@ -428,30 +566,35 @@ class _AddProspectPageState extends State<AddProspectPage> {
         companyName: _companyNameController.text.trim(),
         contactName: _contactNameController.text.trim(),
         role: _roleController.text.trim(),
-        serviceType: finalServiceType, // ✅ Use calculated type
+        serviceType: finalServiceType,
         phoneNumber: _phoneController.text.trim(),
         email: _emailController.text.trim(),
         address: fullAddress,
-        latitude: _currentPosition?.latitude,
-        longitude: _currentPosition?.longitude,
+        latitude: _currentPosition?.latitude ?? widget.prospectToEdit?.latitude,
+        longitude: _currentPosition?.longitude ?? widget.prospectToEdit?.longitude,
         photoUrls: photoUrls,
         videoUrls: videoUrls,
         notes: _notesController.text.trim(),
-        createdAt: DateTime.now(),
-        createdBy: user.uid,
+        createdAt: widget.prospectToEdit?.createdAt ?? DateTime.now(), // ✅ Keep original date
+        createdBy: widget.prospectToEdit?.createdBy ?? user.uid,
       );
 
-      // 3. Save to Firestore
+      // 3. Save to Firestore (Set with merge covers both create and update)
       await FirebaseFirestore.instance
           .collection('prospects')
           .doc(prospectId)
-          .set(newProspect.toMap());
+          .set(newProspect.toMap(), SetOptions(merge: true));
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Prospect enregistré avec succès!")),
+          SnackBar(content: Text(widget.prospectToEdit != null ? "Prospect mis à jour !" : "Prospect enregistré !")),
         );
         Navigator.pop(context);
+        // If we were in details page, this pop goes back to it.
+        // Note: The details page might need to be refreshed or simply navigating back is enough if it listens to streams.
+        // If it was pushed from Dashboard -> Add, it goes back to Dashboard.
+        // If it was Dashboard -> Details -> Edit, we might need to pop twice or handle the update in Details page.
+        // Usually, simply popping returns to the previous screen. The stream in dashboard updates automatically.
       }
     } catch (e) {
       if (mounted) _showError("Erreur lors de l'enregistrement: $e");
@@ -475,7 +618,7 @@ class _AddProspectPageState extends State<AddProspectPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Nouveau Prospect"),
+        title: Text(widget.prospectToEdit != null ? "Modifier Prospect" : "Nouveau Prospect"),
         backgroundColor: const Color(0xFFFF9966),
         foregroundColor: Colors.white,
       ),
@@ -514,7 +657,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
                 onChanged: (val) => setState(() => _selectedServiceType = val),
               ),
 
-              // ✅ ADDED: Conditional Text Field for "Autre"
               if (_selectedServiceType == 'Autre') ...[
                 const SizedBox(height: 10),
                 TextFormField(
@@ -682,7 +824,7 @@ class _AddProspectPageState extends State<AddProspectPage> {
                       : Text(
                     _isUploadingMedia
                         ? "TÉLÉCHARGEMENT..."
-                        : "ENREGISTRER LE PROSPECT",
+                        : (widget.prospectToEdit != null ? "METTRE À JOUR" : "ENREGISTRER LE PROSPECT"),
                     style: const TextStyle(
                         fontSize: 18, fontWeight: FontWeight.bold),
                   ),

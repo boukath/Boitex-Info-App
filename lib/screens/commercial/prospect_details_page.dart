@@ -5,11 +5,56 @@ import 'package:boitex_info_app/models/prospect.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:http/http.dart' as http; // For downloading PDFs
+import 'package:path/path.dart' as path;
+import 'package:cloud_firestore/cloud_firestore.dart'; // Needed for Delete
+
+// ✅ Viewers
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+import 'package:boitex_info_app/widgets/video_player_page.dart';
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
+
+// ✅ Import AddProspectPage for editing
+import 'package:boitex_info_app/screens/commercial/add_prospect_page.dart';
 
 class ProspectDetailsPage extends StatelessWidget {
   final Prospect prospect;
 
   const ProspectDetailsPage({super.key, required this.prospect});
+
+  // --- Actions ---
+
+  Future<void> _deleteProspect(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer ce prospect ?'),
+        content: const Text('Cette action est irréversible. Toutes les données seront perdues.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      // 🗑 Delete from Firestore
+      await FirebaseFirestore.instance.collection('prospects').doc(prospect.id).delete();
+
+      if (context.mounted) {
+        Navigator.pop(context); // Return to Dashboard
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Prospect supprimé avec succès.")),
+        );
+      }
+    }
+  }
 
   // --- Helper: Launchers ---
   Future<void> _makePhoneCall(String phoneNumber) async {
@@ -28,28 +73,106 @@ class ProspectDetailsPage extends StatelessWidget {
 
   Future<void> _openMap(double? lat, double? lng) async {
     if (lat == null || lng == null) return;
-    // Opens Google Maps or Apple Maps
     final googleMapsUrl = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng");
     if (await canLaunchUrl(googleMapsUrl)) {
       await launchUrl(googleMapsUrl);
     }
   }
 
+  // ✅ PDF Opener Logic (Downloads bytes -> Opens Viewer)
+  Future<void> _openPdf(BuildContext context, String url, String title) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) => const Center(child: CircularProgressIndicator(color: Color(0xFFFF9966))),
+    );
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (context.mounted) Navigator.pop(context); // Close loading
+
+      if (response.statusCode == 200) {
+        if (context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PdfViewerPage(
+                pdfBytes: response.bodyBytes,
+                title: title,
+              ),
+            ),
+          );
+        }
+      } else {
+        throw Exception("Erreur téléchargement: ${response.statusCode}");
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // Close loading if error
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Impossible d'ouvrir le PDF: $e"), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // ✅ File Type Helper
+  bool _isPdf(String url) => url.toLowerCase().contains('.pdf');
+
   @override
   Widget build(BuildContext context) {
-    // Determine header color based on service type
-    final Color headerColor = const Color(0xFFFF9966); // Orange theme for Commercial
+    final Color headerColor = const Color(0xFFFF9966);
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: CustomScrollView(
         slivers: [
-          // 1. APP BAR & HEADER
+          // 1. APP BAR
           SliverAppBar(
             expandedHeight: 200.0,
             floating: false,
             pinned: true,
             backgroundColor: headerColor,
+            // ✅ ADDED ACTIONS HERE
+            actions: [
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    // Navigate to Edit Mode
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AddProspectPage(prospectToEdit: prospect),
+                      ),
+                    );
+                  } else if (value == 'delete') {
+                    _deleteProspect(context);
+                  }
+                },
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text('Modifier'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Supprimer'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
                 prospect.companyName,
@@ -64,10 +187,7 @@ class ProspectDetailsPage extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topRight,
                     end: Alignment.bottomLeft,
-                    colors: [
-                      headerColor,
-                      Colors.deepOrange.shade400,
-                    ],
+                    colors: [headerColor, Colors.deepOrange.shade400],
                   ),
                 ),
                 child: Center(
@@ -88,7 +208,7 @@ class ProspectDetailsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- QUICK ACTIONS ROW ---
+                  // --- QUICK ACTIONS ---
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -116,7 +236,7 @@ class ProspectDetailsPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
 
-                  // --- STATUS & INFO ---
+                  // --- INFO CARD ---
                   _buildSectionTitle('Informations Générales'),
                   Card(
                     elevation: 2,
@@ -157,9 +277,9 @@ class ProspectDetailsPage extends StatelessWidget {
                     const SizedBox(height: 24),
                   ],
 
-                  // --- MEDIA GALLERY ---
+                  // 📷 --- MEDIA SECTION: PHOTOS ---
                   if (prospect.photoUrls.isNotEmpty) ...[
-                    _buildSectionTitle('Photos du Site (${prospect.photoUrls.length})'),
+                    _buildSectionTitle('Photos (${prospect.photoUrls.length})'),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 120,
@@ -169,17 +289,106 @@ class ProspectDetailsPage extends StatelessWidget {
                         itemBuilder: (context, index) {
                           return Padding(
                             padding: const EdgeInsets.only(right: 8.0),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                prospect.photoUrls[index],
-                                width: 120,
-                                height: 120,
-                                fit: BoxFit.cover,
-                                errorBuilder: (c, e, s) => Container(
-                                  width: 120,
-                                  color: Colors.grey[300],
-                                  child: const Icon(Icons.broken_image),
+                            child: GestureDetector(
+                              onTap: () {
+                                // ✅ Open Image Gallery
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ImageGalleryPage(
+                                      imageUrls: prospect.photoUrls,
+                                      initialIndex: index,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Hero(
+                                  tag: prospect.photoUrls[index],
+                                  child: Image.network(
+                                    prospect.photoUrls[index],
+                                    width: 120,
+                                    height: 120,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (c, e, s) => Container(
+                                      width: 120,
+                                      color: Colors.grey[300],
+                                      child: const Icon(Icons.broken_image),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+
+                  // 🎥 --- MEDIA SECTION: VIDEOS & DOCS ---
+                  if (prospect.videoUrls.isNotEmpty) ...[
+                    _buildSectionTitle('Vidéos & Documents (${prospect.videoUrls.length})'),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 80,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: prospect.videoUrls.length,
+                        itemBuilder: (context, index) {
+                          final url = prospect.videoUrls[index];
+                          final isPdf = _isPdf(url);
+                          final fileName = path.basename(Uri.parse(url).path);
+
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 12.0),
+                            child: InkWell(
+                              onTap: () {
+                                if (isPdf) {
+                                  // ✅ Open PDF
+                                  _openPdf(context, url, fileName);
+                                } else {
+                                  // ✅ Open Video
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => VideoPlayerPage(videoUrl: url),
+                                    ),
+                                  );
+                                }
+                              },
+                              child: Container(
+                                width: 200,
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  border: Border.all(color: Colors.grey.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: isPdf ? Colors.red.shade50 : Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Icon(
+                                        isPdf ? Icons.picture_as_pdf : Icons.play_circle_fill,
+                                        color: isPdf ? Colors.red : Colors.blue,
+                                        size: 24,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        isPdf ? "Document PDF" : "Vidéo / Média",
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
