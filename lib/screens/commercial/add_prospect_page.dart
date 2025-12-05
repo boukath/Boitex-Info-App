@@ -71,6 +71,15 @@ class _AddProspectPageState extends State<AddProspectPage> {
     'Autre',
   ];
 
+  // ⚡ PIPELINE STATUS
+  String _selectedStatus = 'Nouveau';
+  final List<String> _statusOptions = [
+    'Nouveau',
+    'Intéressé',
+    'Gagné / Client',
+    'Perdu',
+  ];
+
   Position? _currentPosition;
   bool _gettingLocation = false;
 
@@ -97,6 +106,11 @@ class _AddProspectPageState extends State<AddProspectPage> {
     _emailController.text = p.email;
     _notesController.text = p.notes;
 
+    // ⚡ Load existing status
+    if (_statusOptions.contains(p.status)) {
+      _selectedStatus = p.status;
+    }
+
     if (p.latitude != null && p.longitude != null) {
       _currentPosition = Position(
           longitude: p.longitude!,
@@ -112,14 +126,12 @@ class _AddProspectPageState extends State<AddProspectPage> {
       );
     }
 
-    // ⚡ FIX: Use the 'commune' field directly
     if (_communesAlger.contains(p.commune)) {
       _selectedCommune = p.commune;
     } else {
       _selectedCommune = null;
     }
 
-    // Extract street details
     if (p.address.startsWith(p.commune)) {
       String details = p.address.substring(p.commune.length).trim();
       if (details.startsWith('- ')) {
@@ -505,23 +517,18 @@ class _AddProspectPageState extends State<AddProspectPage> {
 
       final prospectId = widget.prospectToEdit?.id ?? const Uuid().v4();
 
-      // ⚡ IMPROVEMENT: Fetch Author Name (for Ranking)
       String authorName = 'Commercial';
 
       if (widget.prospectToEdit != null) {
-        // Keep original author if editing
         authorName = widget.prospectToEdit!.authorName;
       } else {
-        // Fetch User's name from Firestore for new prospects
         try {
           final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
           if (userDoc.exists) {
             final data = userDoc.data()!;
-            // ⚡ FIX: Use 'fullName' as requested
             if (data.containsKey('fullName')) {
               authorName = data['fullName'];
             } else if (data.containsKey('name')) {
-              // Fallback just in case
               authorName = data['name'];
             }
           }
@@ -533,7 +540,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
       List<String> photoUrls = List.from(_existingPhotoUrls);
       List<String> videoUrls = List.from(_existingVideoUrls);
 
-      // 1. Upload New Media (Parallel Uploads)
       if (_localFilesToUpload.isNotEmpty) {
         final b2Credentials = await _getB2UploadCredentials();
         if (b2Credentials == null) {
@@ -594,10 +600,10 @@ class _AddProspectPageState extends State<AddProspectPage> {
         notes: _notesController.text.trim(),
         createdAt: widget.prospectToEdit?.createdAt ?? DateTime.now(),
         createdBy: widget.prospectToEdit?.createdBy ?? user.uid,
-        authorName: authorName, // ⚡ Saving the fetched name!
+        authorName: authorName,
+        status: _selectedStatus, // ⚡ SAVE STATUS
       );
 
-      // 3. Save to Firestore
       await FirebaseFirestore.instance
           .collection('prospects')
           .doc(prospectId)
@@ -644,6 +650,22 @@ class _AddProspectPageState extends State<AddProspectPage> {
             children: [
               _buildSectionTitle("🏢 Identité"),
               const SizedBox(height: 10),
+
+              // ⚡ NEW STATUS DROPDOWN
+              DropdownButtonFormField<String>(
+                decoration: const InputDecoration(
+                  labelText: "État du Prospect (Pipeline)",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.flag),
+                ),
+                value: _selectedStatus,
+                items: _statusOptions.map((status) {
+                  return DropdownMenuItem(value: status, child: Text(status));
+                }).toList(),
+                onChanged: (val) => setState(() => _selectedStatus = val!),
+              ),
+              const SizedBox(height: 15),
+
               TextFormField(
                 controller: _companyNameController,
                 decoration: const InputDecoration(

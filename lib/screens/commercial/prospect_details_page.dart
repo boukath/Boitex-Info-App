@@ -17,12 +17,66 @@ import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 // ✅ Import AddProspectPage for editing
 import 'package:boitex_info_app/screens/commercial/add_prospect_page.dart';
 
-class ProspectDetailsPage extends StatelessWidget {
+class ProspectDetailsPage extends StatefulWidget {
   final Prospect prospect;
 
   const ProspectDetailsPage({super.key, required this.prospect});
 
+  @override
+  State<ProspectDetailsPage> createState() => _ProspectDetailsPageState();
+}
+
+class _ProspectDetailsPageState extends State<ProspectDetailsPage> {
+  late Prospect _prospect;
+
+  @override
+  void initState() {
+    super.initState();
+    _prospect = widget.prospect;
+  }
+
   // --- Actions ---
+
+  Future<void> _updateStatus(String newStatus) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('prospects')
+          .doc(_prospect.id)
+          .update({'status': newStatus});
+
+      setState(() {
+        // Update local object to reflect change immediately
+        _prospect = Prospect(
+          id: _prospect.id,
+          companyName: _prospect.companyName,
+          contactName: _prospect.contactName,
+          role: _prospect.role,
+          serviceType: _prospect.serviceType,
+          phoneNumber: _prospect.phoneNumber,
+          email: _prospect.email,
+          commune: _prospect.commune,
+          address: _prospect.address,
+          latitude: _prospect.latitude,
+          longitude: _prospect.longitude,
+          photoUrls: _prospect.photoUrls,
+          videoUrls: _prospect.videoUrls,
+          notes: _prospect.notes,
+          createdAt: _prospect.createdAt,
+          createdBy: _prospect.createdBy,
+          authorName: _prospect.authorName,
+          status: newStatus, // Updated status
+        );
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Statut mis à jour : $newStatus")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erreur mise à jour : $e"), backgroundColor: Colors.red),
+      );
+    }
+  }
 
   Future<void> _deleteProspect(BuildContext context) async {
     final confirm = await showDialog<bool>(
@@ -44,8 +98,7 @@ class ProspectDetailsPage extends StatelessWidget {
     );
 
     if (confirm == true) {
-      // 🗑 Delete from Firestore
-      await FirebaseFirestore.instance.collection('prospects').doc(prospect.id).delete();
+      await FirebaseFirestore.instance.collection('prospects').doc(_prospect.id).delete();
 
       if (context.mounted) {
         Navigator.pop(context); // Return to Dashboard
@@ -79,7 +132,6 @@ class ProspectDetailsPage extends StatelessWidget {
     }
   }
 
-  // ✅ PDF Opener Logic (Downloads bytes -> Opens Viewer)
   Future<void> _openPdf(BuildContext context, String url, String title) async {
     showDialog(
       context: context,
@@ -89,7 +141,7 @@ class ProspectDetailsPage extends StatelessWidget {
 
     try {
       final response = await http.get(Uri.parse(url));
-      if (context.mounted) Navigator.pop(context); // Close loading
+      if (context.mounted) Navigator.pop(context);
 
       if (response.statusCode == 200) {
         if (context.mounted) {
@@ -108,7 +160,7 @@ class ProspectDetailsPage extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.pop(context); // Close loading if error
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Impossible d'ouvrir le PDF: $e"), backgroundColor: Colors.red),
         );
@@ -116,8 +168,17 @@ class ProspectDetailsPage extends StatelessWidget {
     }
   }
 
-  // ✅ File Type Helper
   bool _isPdf(String url) => url.toLowerCase().contains('.pdf');
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'Nouveau': return Colors.blue;
+      case 'Intéressé': return Colors.orange;
+      case 'Gagné / Client': return Colors.green;
+      case 'Perdu': return Colors.red;
+      default: return Colors.grey;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,18 +194,25 @@ class ProspectDetailsPage extends StatelessWidget {
             floating: false,
             pinned: true,
             backgroundColor: headerColor,
-            // ✅ ADDED ACTIONS HERE
             actions: [
               PopupMenuButton<String>(
                 onSelected: (value) {
                   if (value == 'edit') {
-                    // Navigate to Edit Mode
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => AddProspectPage(prospectToEdit: prospect),
+                        builder: (context) => AddProspectPage(prospectToEdit: _prospect),
                       ),
-                    );
+                    ).then((_) {
+                      // Refresh data after returning from edit
+                      FirebaseFirestore.instance.collection('prospects').doc(_prospect.id).get().then((doc) {
+                        if (doc.exists) {
+                          setState(() {
+                            _prospect = Prospect.fromMap({...doc.data()!, 'id': doc.id});
+                          });
+                        }
+                      });
+                    });
                   } else if (value == 'delete') {
                     _deleteProspect(context);
                   }
@@ -175,7 +243,7 @@ class ProspectDetailsPage extends StatelessWidget {
             ],
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
-                prospect.companyName,
+                _prospect.companyName,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -208,6 +276,53 @@ class ProspectDetailsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // --- PIPELINE STATUS CARD ---
+                  Card(
+                    color: _getStatusColor(_prospect.status).withOpacity(0.1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: _getStatusColor(_prospect.status), width: 1.5),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.flag, color: _getStatusColor(_prospect.status)),
+                              const SizedBox(width: 10),
+                              const Text("STATUT ACTUEL : ", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ],
+                          ),
+                          DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _prospect.status,
+                              icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
+                              style: TextStyle(
+                                color: _getStatusColor(_prospect.status),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                              items: ['Nouveau', 'Intéressé', 'Gagné / Client', 'Perdu'].map((String value) {
+                                return DropdownMenuItem<String>(
+                                  value: value,
+                                  child: Text(value),
+                                );
+                              }).toList(),
+                              onChanged: (newValue) {
+                                if (newValue != null && newValue != _prospect.status) {
+                                  _updateStatus(newValue);
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
                   // --- QUICK ACTIONS ---
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -216,21 +331,21 @@ class ProspectDetailsPage extends StatelessWidget {
                         icon: Icons.phone,
                         label: 'Appeler',
                         color: Colors.green,
-                        onTap: () => _makePhoneCall(prospect.phoneNumber),
+                        onTap: () => _makePhoneCall(_prospect.phoneNumber),
                       ),
-                      if (prospect.email.isNotEmpty)
+                      if (_prospect.email.isNotEmpty)
                         _buildActionButton(
                           icon: Icons.email,
                           label: 'Email',
                           color: Colors.blue,
-                          onTap: () => _sendEmail(prospect.email),
+                          onTap: () => _sendEmail(_prospect.email),
                         ),
-                      if (prospect.latitude != null && prospect.longitude != null)
+                      if (_prospect.latitude != null && _prospect.longitude != null)
                         _buildActionButton(
                           icon: Icons.map,
                           label: 'Itinéraire',
                           color: Colors.orange,
-                          onTap: () => _openMap(prospect.latitude, prospect.longitude),
+                          onTap: () => _openMap(_prospect.latitude, _prospect.longitude),
                         ),
                     ],
                   ),
@@ -245,14 +360,16 @@ class ProspectDetailsPage extends StatelessWidget {
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         children: [
-                          _buildInfoRow(Icons.category, 'Activité', prospect.serviceType),
+                          _buildInfoRow(Icons.category, 'Activité', _prospect.serviceType),
                           const Divider(),
-                          _buildInfoRow(Icons.person, 'Contact', '${prospect.contactName} (${prospect.role})'),
+                          _buildInfoRow(Icons.person, 'Contact', '${_prospect.contactName} (${_prospect.role})'),
                           const Divider(),
-                          _buildInfoRow(Icons.location_on, 'Adresse', prospect.address),
+                          _buildInfoRow(Icons.location_on, 'Adresse', _prospect.address),
+                          const Divider(),
+                          _buildInfoRow(Icons.badge, 'Commercial', _prospect.authorName),
                           const Divider(),
                           _buildInfoRow(Icons.calendar_today, 'Créé',
-                              '${DateFormat('dd/MM/yyyy').format(prospect.createdAt)} (${timeago.format(prospect.createdAt, locale: 'fr')})'),
+                              '${DateFormat('dd/MM/yyyy').format(_prospect.createdAt)} (${timeago.format(_prospect.createdAt, locale: 'fr')})'),
                         ],
                       ),
                     ),
@@ -260,7 +377,7 @@ class ProspectDetailsPage extends StatelessWidget {
                   const SizedBox(height: 24),
 
                   // --- NOTES ---
-                  if (prospect.notes.isNotEmpty) ...[
+                  if (_prospect.notes.isNotEmpty) ...[
                     _buildSectionTitle('Notes & Observations'),
                     Card(
                       color: Colors.yellow[50],
@@ -269,7 +386,7 @@ class ProspectDetailsPage extends StatelessWidget {
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Text(
-                          prospect.notes,
+                          _prospect.notes,
                           style: TextStyle(fontSize: 15, color: Colors.grey[800], height: 1.4),
                         ),
                       ),
@@ -278,25 +395,24 @@ class ProspectDetailsPage extends StatelessWidget {
                   ],
 
                   // 📷 --- MEDIA SECTION: PHOTOS ---
-                  if (prospect.photoUrls.isNotEmpty) ...[
-                    _buildSectionTitle('Photos (${prospect.photoUrls.length})'),
+                  if (_prospect.photoUrls.isNotEmpty) ...[
+                    _buildSectionTitle('Photos (${_prospect.photoUrls.length})'),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 120,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
-                        itemCount: prospect.photoUrls.length,
+                        itemCount: _prospect.photoUrls.length,
                         itemBuilder: (context, index) {
                           return Padding(
                             padding: const EdgeInsets.only(right: 8.0),
                             child: GestureDetector(
                               onTap: () {
-                                // ✅ Open Image Gallery
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => ImageGalleryPage(
-                                      imageUrls: prospect.photoUrls,
+                                      imageUrls: _prospect.photoUrls,
                                       initialIndex: index,
                                     ),
                                   ),
@@ -305,9 +421,9 @@ class ProspectDetailsPage extends StatelessWidget {
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
                                 child: Hero(
-                                  tag: prospect.photoUrls[index],
+                                  tag: _prospect.photoUrls[index],
                                   child: Image.network(
-                                    prospect.photoUrls[index],
+                                    _prospect.photoUrls[index],
                                     width: 120,
                                     height: 120,
                                     fit: BoxFit.cover,
@@ -328,16 +444,16 @@ class ProspectDetailsPage extends StatelessWidget {
                   ],
 
                   // 🎥 --- MEDIA SECTION: VIDEOS & DOCS ---
-                  if (prospect.videoUrls.isNotEmpty) ...[
-                    _buildSectionTitle('Vidéos & Documents (${prospect.videoUrls.length})'),
+                  if (_prospect.videoUrls.isNotEmpty) ...[
+                    _buildSectionTitle('Vidéos & Documents (${_prospect.videoUrls.length})'),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 80,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
-                        itemCount: prospect.videoUrls.length,
+                        itemCount: _prospect.videoUrls.length,
                         itemBuilder: (context, index) {
-                          final url = prospect.videoUrls[index];
+                          final url = _prospect.videoUrls[index];
                           final isPdf = _isPdf(url);
                           final fileName = path.basename(Uri.parse(url).path);
 
@@ -346,10 +462,8 @@ class ProspectDetailsPage extends StatelessWidget {
                             child: InkWell(
                               onTap: () {
                                 if (isPdf) {
-                                  // ✅ Open PDF
                                   _openPdf(context, url, fileName);
                                 } else {
-                                  // ✅ Open Video
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -401,24 +515,41 @@ class ProspectDetailsPage extends StatelessWidget {
 
                   // --- FOOTER BUTTON ---
                   const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Fonctionnalité "Convertir en Client" à venir...')),
-                        );
-                      },
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('CONVERTIR EN CLIENT'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green[600],
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  if (_prospect.status == 'Gagné / Client')
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green),
+                          SizedBox(width: 10),
+                          Text("Ce prospect est un CLIENT", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          // Shortcut to convert
+                          _updateStatus('Gagné / Client');
+                        },
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('CONVERTIR EN CLIENT'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[600],
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 40),
                 ],
               ),

@@ -17,8 +17,9 @@ import 'package:boitex_info_app/screens/administration/activity_log_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
-// ✅ ADDED IMPORT FOR ANALYTICS
 import 'package:boitex_info_app/screens/administration/analytics_dashboard_page.dart';
+// ✅ ADDED IMPORT FOR UNIVERSAL MAP PAGE
+import 'package:boitex_info_app/screens/administration/universal_map_page.dart';
 import 'dart:math' as math;
 
 class AdministrationDashboardPage extends StatefulWidget {
@@ -69,7 +70,6 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
 
-      // *** THIS IS THE FIRST FIX: Removed the stray "WELCOME_MSG" line ***
       final canSeeMgmt = <String>{
         'PDG',
         'Admin',
@@ -486,7 +486,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
     );
   }
 
-  // Mobile actions grid (taller tiles to avoid bottom overflow)
+  // Mobile actions grid
   Widget _buildActionsGrid(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -507,7 +507,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
-          childAspectRatio: 0.90, // taller tiles (was ~1.1)
+          childAspectRatio: 0.90,
           children: _buildQuickActions(context),
         ),
       ],
@@ -584,9 +584,19 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
       _ActionData(
         'Analytics',
         Icons.analytics_rounded,
-        const Color(0xFFEC4899), // Pink/Rose Color to stand out
+        const Color(0xFFEC4899),
             () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => const AnalyticsDashboardPage())),
+      ),
+      // 🗺️ MAPS ACTION (UPDATED)
+      _ActionData(
+        'Carte',
+        Icons.map_rounded,
+        const Color(0xFF0284C7),
+            () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const UniversalMapPage()),
+        ),
       ),
     ];
 
@@ -712,12 +722,12 @@ class _ActionCard extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(24),
           child: Padding(
-            padding: const EdgeInsets.all(14), // slightly tighter
+            padding: const EdgeInsets.all(14),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(14), // slightly tighter
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     gradient:
                     LinearGradient(colors: [color, color.withOpacity(0.7)]),
@@ -729,7 +739,7 @@ class _ActionCard extends StatelessWidget {
                           offset: const Offset(0, 8)),
                     ],
                   ),
-                  child: Icon(icon, color: Colors.white, size: 28), // was 32
+                  child: Icon(icon, color: Colors.white, size: 28),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -871,7 +881,6 @@ class _RequisitionPipelineCard extends StatelessWidget {
               builder: (c, s) {
                 final cnt = s.hasData ? s.data!.docs.length : 0;
                 return const Text(
-                  // placeholder while loading; value is in ShaderMask in real cards
                   '',
                 );
               },
@@ -970,7 +979,6 @@ class _PendingReplacementsCard extends StatelessWidget {
 class _LivraisonsCard extends StatelessWidget {
   const _LivraisonsCard();
 
-  // *** THIS IS THE SECOND FIX: Changed BuildContextContext to BuildContext ***
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(

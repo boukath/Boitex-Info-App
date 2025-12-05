@@ -29,6 +29,9 @@ class Prospect {
   // ⚡ NEW: Store the name so we can display "Commercial: John Doe" easily
   final String authorName;
 
+  // ⚡ NEW: Sales Pipeline Status
+  final String status;
+
   Prospect({
     required this.id,
     required this.companyName,
@@ -46,7 +49,8 @@ class Prospect {
     required this.notes,
     required this.createdAt,
     required this.createdBy,
-    required this.authorName, // ⚡ Required now
+    required this.authorName,
+    required this.status, // ⚡ Required now
   });
 
   // Convertir en Map pour Firebase
@@ -68,7 +72,8 @@ class Prospect {
       'notes': notes,
       'createdAt': Timestamp.fromDate(createdAt),
       'createdBy': createdBy,
-      'authorName': authorName, // ⚡ Saved to Firestore
+      'authorName': authorName,
+      'status': status, // ⚡ Saved to Firestore
     };
   }
 
@@ -102,8 +107,9 @@ class Prospect {
       notes: map['notes'] ?? '',
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       createdBy: map['createdBy'] ?? '',
-      // ⚡ Default to 'Commercial' if the field doesn't exist in old data
       authorName: map['authorName'] ?? 'Commercial',
+      // ⚡ Default to 'Nouveau' if status doesn't exist yet
+      status: map['status'] ?? 'Nouveau',
     );
   }
 }
