@@ -1,8 +1,4 @@
 // lib/screens/service_technique/installation_list_page.dart
-// UPDATED: Filters out 'Terminée' installations (they go to history)
-// ADDED: Slidable action to edit installations
-// ADDED: FloatingActionButton to create new installations
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -10,7 +6,7 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
-// ✅ 1. ADD IMPORT for the new page
+// Import for the edit page
 import 'package:boitex_info_app/screens/service_technique/add_installation_page.dart';
 
 class InstallationListPage extends StatelessWidget {
@@ -36,7 +32,7 @@ class InstallationListPage extends StatelessWidget {
     }
   }
 
-  // Helper method for navigation
+  // Navigate to Details (Read-only / Execution View)
   void _navigateToDetails(BuildContext context, DocumentSnapshot doc) {
     Navigator.push(
       context,
@@ -49,6 +45,67 @@ class InstallationListPage extends StatelessWidget {
     );
   }
 
+  // Navigate to Edit (Modify Data)
+  void _navigateToEdit(BuildContext context, DocumentSnapshot doc) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddInstallationPage(
+          userRole: userRole,
+          serviceType: serviceType,
+          installationToEdit: doc, // Pass the existing doc to enable Edit Mode
+        ),
+      ),
+    );
+  }
+
+  // ✅ NEW: Delete Confirmation Logic
+  Future<void> _confirmDelete(BuildContext context, String docId) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer l\'installation ?'),
+        content: const Text(
+            'Cette action est irréversible. Voulez-vous vraiment supprimer cette installation ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('installations')
+            .doc(docId)
+            .delete();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Installation supprimée avec succès.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e')),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Check edit permission
@@ -58,9 +115,6 @@ class InstallationListPage extends StatelessWidget {
       appBar: AppBar(
         title: Text('Installations $serviceType'),
       ),
-      // -----------------------------------------------------------------
-      // VVV THIS IS THE MODIFIED BODY VVV
-      // -----------------------------------------------------------------
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('installations')
@@ -123,7 +177,6 @@ class InstallationListPage extends StatelessWidget {
               final storeName = data['storeName'] ?? 'Magasin inconnu';
               final status = data['status'] ?? 'À Planifier';
 
-              // This logic for date display is from our previous change
               final DateTime? installationDate =
               (data['installationDate'] as Timestamp?)?.toDate();
               final String dateDisplay;
@@ -141,11 +194,20 @@ class InstallationListPage extends StatelessWidget {
                   motion: const StretchMotion(),
                   children: [
                     SlidableAction(
-                      onPressed: (ctx) => _navigateToDetails(context, doc),
+                      onPressed: (ctx) => _navigateToEdit(context, doc),
                       backgroundColor: Colors.blue.shade700,
                       foregroundColor: Colors.white,
-                      icon: Icons.edit_calendar_outlined,
+                      icon: Icons.edit,
                       label: 'Modifier',
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    // Optional: Add Delete to slide as well
+                    SlidableAction(
+                      onPressed: (ctx) => _confirmDelete(context, doc.id),
+                      backgroundColor: Colors.red.shade700,
+                      foregroundColor: Colors.white,
+                      icon: Icons.delete,
+                      label: 'Supprimer',
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ],
@@ -165,72 +227,131 @@ class InstallationListPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Installation Code & Status
+                          // Header Row
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Installation Code & Date
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue.shade50,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Icon(
-                                      Icons.router_outlined,
-                                      color: Colors.blue.shade700,
-                                      size: 20,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        installationCode,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                              // LEFT: Icon + Code + Date
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
-                                      Text(
-                                        dateDisplay, // Date logic
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: installationDate != null
-                                              ? Colors.grey.shade600
-                                              : Colors.blue.shade700,
-                                          fontWeight: installationDate != null
-                                              ? FontWeight.normal
-                                              : FontWeight.w500,
-                                        ),
+                                      child: Icon(
+                                        Icons.router_outlined,
+                                        color: Colors.blue.shade700,
+                                        size: 20,
                                       ),
-                                    ],
-                                  ),
-                                ],
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            installationCode,
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            dateDisplay,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: installationDate != null
+                                                  ? Colors.grey.shade600
+                                                  : Colors.blue.shade700,
+                                              fontWeight: installationDate != null
+                                                  ? FontWeight.normal
+                                                  : FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
 
-                              // Status Badge
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _getStatusColor(status),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  status,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
+                              // RIGHT: Status Badge + 3-Dot Menu
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _getStatusColor(status),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      status,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ),
-                                ),
+
+                                  // ✅ UPDATED MENU
+                                  if (canEdit) ...[
+                                    const SizedBox(width: 4),
+                                    PopupMenuButton<String>(
+                                      padding: EdgeInsets.zero,
+                                      icon: const Icon(Icons.more_vert,
+                                          color: Colors.grey),
+                                      onSelected: (value) {
+                                        if (value == 'edit') {
+                                          _navigateToEdit(context, doc);
+                                        } else if (value == 'delete') {
+                                          // Trigger Delete
+                                          _confirmDelete(context, doc.id);
+                                        }
+                                      },
+                                      itemBuilder: (BuildContext context) =>
+                                      <PopupMenuEntry<String>>[
+                                        const PopupMenuItem<String>(
+                                          value: 'edit',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.edit,
+                                                  color: Colors.blueGrey),
+                                              SizedBox(width: 10),
+                                              Text('Modifier tout'),
+                                            ],
+                                          ),
+                                        ),
+                                        const PopupMenuDivider(),
+                                        // ✅ DELETE OPTION ADDED HERE
+                                        const PopupMenuItem<String>(
+                                          value: 'delete',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.delete_outline,
+                                                  color: Colors.red),
+                                              SizedBox(width: 10),
+                                              Text(
+                                                'Supprimer',
+                                                style: TextStyle(
+                                                    color: Colors.red),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
                               ),
                             ],
                           ),
@@ -283,9 +404,6 @@ class InstallationListPage extends StatelessWidget {
           );
         },
       ),
-      // -----------------------------------------------------------------
-      // VVV THIS IS THE NEW FLOATING ACTION BUTTON VVV
-      // -----------------------------------------------------------------
       floatingActionButton: canEdit
           ? FloatingActionButton.extended(
         onPressed: () {
@@ -295,15 +413,16 @@ class InstallationListPage extends StatelessWidget {
               builder: (_) => AddInstallationPage(
                 userRole: userRole,
                 serviceType: serviceType,
+                // No installationToEdit passed here = Create Mode
               ),
             ),
           );
         },
         icon: const Icon(Icons.add),
         label: const Text('Nouvelle'),
-        backgroundColor: Colors.green, // Match your theme
+        backgroundColor: Colors.green,
       )
-          : null, // Hide button if user has no permission
+          : null,
     );
   }
 }

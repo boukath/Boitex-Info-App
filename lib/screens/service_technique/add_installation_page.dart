@@ -11,7 +11,7 @@ import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 // Technician Multi-Select Import
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 
-// ✅ 1. B2 IMPORTS & HTTP
+// ✅ B2 IMPORTS & HTTP
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
@@ -68,11 +68,14 @@ class AppUser {
 class AddInstallationPage extends StatefulWidget {
   final String userRole;
   final String serviceType;
+  // 👇 Added to support Editing
+  final DocumentSnapshot? installationToEdit;
 
   const AddInstallationPage({
     super.key,
     required this.userRole,
     required this.serviceType,
+    this.installationToEdit,
   });
 
   @override
@@ -88,7 +91,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
 
-  // ✅ NEW: GPS Link Controller
+  // ✅ GPS Link Controller
   final _gpsLinkController = TextEditingController();
 
   final _newClientNameController = TextEditingController();
@@ -98,10 +101,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   Client? _selectedClient;
   Store? _selectedStore;
 
-  // ✅ NEW: Parsed Coordinates State
+  // ✅ GPS Parsed State
   double? _parsedLat;
   double? _parsedLng;
   bool _isResolvingLink = false;
+
+  // Mode flag
+  bool _isEditing = false;
 
   List<Client> _clients = [];
   List<Store> _stores = [];
@@ -121,10 +127,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   File? _pickedFile;
   String? _pickedFileName;
   bool _isUploadingFile = false;
+  // Keep track of existing file url if editing
+  String? _existingFileUrl;
 
-  static const Color primaryColor = Colors.green; // Match your details page
+  static const Color primaryColor = Colors.green;
 
-  // ✅ 2. B2 CONSTANT
+  // ✅ B2 CONSTANT
   static const String _b2UploadCredentialUrl =
       "https://europe-west1-your-firebase-project.cloudfunctions.net/b2GetUploadCredentials";
 
@@ -133,6 +141,74 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     super.initState();
     _fetchClients();
     _fetchTechnicians();
+
+    // ✅ CHECK FOR EDIT MODE
+    if (widget.installationToEdit != null) {
+      _isEditing = true;
+      _loadExistingData();
+    }
+  }
+
+  void _loadExistingData() {
+    final data = widget.installationToEdit!.data() as Map<String, dynamic>;
+
+    // 1. Text Fields
+    _requestController.text = data['initialRequest'] ?? '';
+    _clientPhoneController.text = data['clientPhone'] ?? '';
+    _clientEmailController.text = data['clientEmail'] ?? '';
+    _contactNameController.text = data['contactName'] ?? '';
+
+    // 2. Client
+    if (data['clientId'] != null) {
+      _selectedClient = Client(id: data['clientId'], name: data['clientName'] ?? '');
+      _clientSearchController.text = data['clientName'] ?? '';
+      // Fetch stores immediately so logic works
+      _fetchStores(data['clientId']);
+    }
+
+    // 3. Store & GPS
+    if (data['storeId'] != null) {
+      double? lat = data['storeLatitude'];
+      double? lng = data['storeLongitude'];
+
+      _selectedStore = Store(
+        id: data['storeId'],
+        name: data['storeName'] ?? '',
+        location: data['storeLocation'] ?? '',
+        latitude: lat,
+        longitude: lng,
+      );
+      _storeSearchController.text = '${data['storeName']} (${data['storeLocation']})';
+
+      // If no lat/lng, we don't set anything, user can add link
+    }
+
+    // 4. Products
+    if (data['orderedProducts'] != null) {
+      var list = List<Map<String, dynamic>>.from(data['orderedProducts']);
+      _selectedProducts = list.map((p) => ProductSelection(
+        productId: p['productId'],
+        productName: p['productName'],
+        quantity: p['quantity'],
+        partNumber: p['reference'] ?? '',
+        marque: p['marque'] ?? '',
+      )).toList();
+    }
+
+    // 5. Technicians
+    if (data['assignedTechnicians'] != null) {
+      var list = List<Map<String, dynamic>>.from(data['assignedTechnicians']);
+      _selectedTechnicians = list.map((t) => AppUser(
+        uid: t['uid'],
+        displayName: t['displayName'] ?? '',
+      )).toList();
+    }
+
+    // 6. File
+    if (data['preliminaryFileUrl'] != null) {
+      _existingFileUrl = data['preliminaryFileUrl'];
+      _pickedFileName = data['preliminaryFileName'];
+    }
   }
 
   @override
@@ -146,12 +222,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     _newClientNameController.dispose();
     _newStoreNameController.dispose();
     _newStoreLocationController.dispose();
-    _gpsLinkController.dispose(); // Dispose GPS controller
+    _gpsLinkController.dispose();
     super.dispose();
   }
 
   // ----------------------------------------------------------------------
-  // 🔗 GPS LINK PARSER LOGIC (Ported from AddInterventionPage)
+  // 🔗 GPS LINK PARSER LOGIC
   // ----------------------------------------------------------------------
   Future<void> _extractCoordinatesFromLink() async {
     String url = _gpsLinkController.text.trim();
@@ -174,7 +250,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       }
 
       // 2. Regex to find coordinates in the full URL
-      // Matches patterns like @36.75,3.04 or q=36.75,3.04
       RegExp regExp = RegExp(r'(@|q=)([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
       Match? match = regExp.firstMatch(url);
 
@@ -236,11 +311,14 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   Future<void> _fetchStores(String clientId) async {
     setState(() {
       _isFetchingStores = true;
-      _selectedStore = null;
-      _parsedLat = null; // Reset GPS state
-      _parsedLng = null;
-      _gpsLinkController.clear();
-      _storeSearchController.clear();
+      // Do not clear selected store if in edit mode and IDs match
+      if (!_isEditing) {
+        _selectedStore = null;
+        _parsedLat = null;
+        _parsedLng = null;
+        _gpsLinkController.clear();
+        _storeSearchController.clear();
+      }
       _stores = [];
     });
     try {
@@ -252,7 +330,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           .get();
       _stores = snapshot.docs.map((doc) {
         final data = doc.data();
-        // ✅ MAP LAT/LNG FROM FIRESTORE
         double? lat;
         double? lng;
         if (data['latitude'] != null) lat = (data['latitude'] as num).toDouble();
@@ -313,12 +390,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       setState(() {
         _pickedFile = File(result.files.single.path!);
         _pickedFileName = result.files.single.name;
+        _existingFileUrl = null; // Clear existing if new picked
       });
     }
   }
 
-  Future<String?> _uploadFileToB2(String installationCode) async {
-    if (_pickedFile == null) return null;
+  Future<String?> _uploadFileToB2(String installationCodeOrTempId) async {
+    if (_pickedFile == null) return _existingFileUrl; // Return existing if no new file
 
     setState(() => _isUploadingFile = true);
 
@@ -339,7 +417,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           ? 'application/pdf'
           : 'image/jpeg';
       final fileName =
-          'installation_files/${installationCode}_${DateTime.now().millisecondsSinceEpoch}_${_pickedFileName}';
+          'installation_files/${installationCodeOrTempId}_${DateTime.now().millisecondsSinceEpoch}_${_pickedFileName}';
 
       final uploadResponse = await http.post(
         Uri.parse(uploadUrl),
@@ -376,7 +454,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // -----------------------------------------------------------------
-  // ⭐️ _saveInstallation (With GPS Dual-Write Logic)
+  // ⭐️ _saveInstallation (UPDATED FOR EDIT & GPS)
   // -----------------------------------------------------------------
   Future<void> _saveInstallation() async {
     if (!_formKey.currentState!.validate()) return;
@@ -390,7 +468,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       return;
     }
 
-    // ✅ AUTO-EXTRACT: If user pasted a link but forgot to click extract button
+    // ✅ AUTO-EXTRACT
     if (_gpsLinkController.text.trim().isNotEmpty && _parsedLat == null) {
       await _extractCoordinatesFromLink();
     }
@@ -399,20 +477,19 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erreur: Utilisateur non trouvé')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur: Utilisateur non trouvé')));
       setState(() => _isLoading = false);
       return;
     }
 
     final currentYear = DateTime.now().year.toString();
-    final counterRef = FirebaseFirestore.instance
-        .collection('counters')
-        .doc('installation_counter_$currentYear');
-    final installationRef = FirebaseFirestore.instance.collection('installations').doc();
+    final counterRef = FirebaseFirestore.instance.collection('counters').doc('installation_counter_$currentYear');
 
-    // ✅ REFERENCE TO STORE (For Dual-Write)
+    // ✅ Logic: Create New Ref or Use Existing
+    final DocumentReference installationRef = _isEditing
+        ? widget.installationToEdit!.reference
+        : FirebaseFirestore.instance.collection('installations').doc();
+
     final storeRef = FirebaseFirestore.instance
         .collection('clients')
         .doc(_selectedClient!.id)
@@ -420,18 +497,26 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         .doc(_selectedStore!.id);
 
     try {
-      String? preliminaryFileUrl;
-      String? preliminaryFileName;
-      final tempId = DateTime.now().millisecondsSinceEpoch.toString();
+      // Handle File
+      String? fileUrl;
+      String? fileName;
+
+      // If editing, use existing ID or Temp ID for filename purposes (optional)
+      final tempId = _isEditing ? widget.installationToEdit!.id : DateTime.now().millisecondsSinceEpoch.toString();
 
       if (_pickedFile != null) {
-        preliminaryFileUrl = await _uploadFileToB2(tempId);
-        if (preliminaryFileUrl != null) {
-          preliminaryFileName = _pickedFileName;
-        } else {
-          setState(() => _isLoading = false);
-          return;
-        }
+        fileUrl = await _uploadFileToB2(tempId);
+        fileName = _pickedFileName;
+      } else {
+        // Keep existing if no new file
+        fileUrl = _existingFileUrl;
+        fileName = _pickedFileName; // might be old filename
+      }
+
+      if (_pickedFile != null && fileUrl == null) {
+        // Upload failed
+        setState(() => _isLoading = false);
+        return;
       }
 
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -445,6 +530,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         String reference = p.partNumber;
         String brand = p.marque;
 
+        // Note: For optimization, you might cache these or just store basic info
         try {
           final doc = await FirebaseFirestore.instance.collection('produits').doc(p.productId).get();
           if (doc.exists) {
@@ -469,10 +555,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'category': category,
           'image': imageUrl,
           'quantity': p.quantity,
-          'serialNumbers': [],
+          'serialNumbers': [], // Reset serials on edit? Usually safer unless you map them back deeply
         });
       }
 
+      // Re-generate systems list if products changed (in edit mode this might reset system status)
+      // For simple edit logic, we regenerate. Ideally, you merge existing progress.
       final systems = enrichedProducts.map((p) {
         return {
           'id': p['productId'],
@@ -490,27 +578,30 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           .map((user) => {'uid': user.uid, 'displayName': user.displayName})
           .toList();
 
-      // ✅ EXECUTE TRANSACTION
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final counterDoc = await transaction.get(counterRef);
+        String installationCode;
 
-        int newCount = 1;
-        if (counterDoc.exists) {
-          final data = counterDoc.data();
-          if (data != null && data.containsKey('count')) {
-            newCount = data['count'] + 1;
+        if (_isEditing) {
+          // Keep existing code
+          installationCode = widget.installationToEdit!.get('installationCode');
+        } else {
+          // Generate New Code
+          final counterDoc = await transaction.get(counterRef);
+          int newCount = 1;
+          if (counterDoc.exists) {
+            final data = counterDoc.data();
+            if (data != null && data.containsKey('count')) {
+              newCount = data['count'] + 1;
+            }
           }
+          installationCode = 'INST-$newCount/$currentYear';
+          transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
         }
 
-        final String installationCode = 'INST-$newCount/$currentYear';
-
-        // ✅ Determine Coordinates Priority
-        // 1. New parsed coordinates (User just added a link)
-        // 2. Existing store coordinates
+        // GPS Logic
         final double? finalLat = _parsedLat ?? _selectedStore!.latitude;
         final double? finalLng = _parsedLng ?? _selectedStore!.longitude;
 
-        // ✅ AUTO-UPDATE STORE if new coordinates were parsed
         if (_parsedLat != null && _parsedLng != null) {
           transaction.update(storeRef, {
             'latitude': _parsedLat,
@@ -518,7 +609,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           });
         }
 
-        transaction.set(installationRef, {
+        // Prepare Data Map
+        final Map<String, dynamic> dataToSave = {
           'installationCode': installationCode,
           'clientName': _selectedClient!.name,
           'clientId': _selectedClient!.id,
@@ -528,32 +620,39 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'storeName': _selectedStore!.name,
           'storeId': _selectedStore!.id,
           'storeLocation': _selectedStore!.location,
-          // ✅ Save GPS in Installation Document
           'storeLatitude': finalLat,
           'storeLongitude': finalLng,
           'initialRequest': _requestController.text.trim(),
           'serviceType': widget.serviceType,
-          'preliminaryFileUrl': preliminaryFileUrl,
-          'preliminaryFileName': preliminaryFileName,
-          'status': 'À Planifier',
-          'createdAt': Timestamp.now(),
-          'createdById': user.uid,
-          'createdByName': createdByName,
-          'installationDate': null,
+          'preliminaryFileUrl': fileUrl,
+          'preliminaryFileName': fileName,
           'assignedTechnicians': techniciansToSave,
           'orderedProducts': enrichedProducts,
+          // Only update systems if creating, OR if you want to reset them on edit.
+          // For now, let's overwrite to ensure new products are reflected.
           'systems': systems,
-          'mediaUrls': [],
-          'technicalEvaluation': [],
-          'itEvaluation': [],
-        });
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
 
-        transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
+        if (!_isEditing) {
+          dataToSave['status'] = 'À Planifier';
+          dataToSave['createdAt'] = FieldValue.serverTimestamp();
+          dataToSave['createdById'] = user.uid;
+          dataToSave['createdByName'] = createdByName;
+          dataToSave['mediaUrls'] = [];
+          dataToSave['technicalEvaluation'] = [];
+          dataToSave['itEvaluation'] = [];
+
+          transaction.set(installationRef, dataToSave);
+        } else {
+          // If editing, use update (merge) to avoid deleting status/history
+          transaction.update(installationRef, dataToSave);
+        }
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Installation créée et GPS mis à jour!'), backgroundColor: Colors.green),
+          SnackBar(content: Text(_isEditing ? 'Modification enregistrée!' : 'Installation créée!'), backgroundColor: Colors.green),
         );
         Navigator.of(context).pop();
       }
@@ -567,9 +666,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
-  // ... (Add Client/Store Dialogs omitted for brevity, they remain unchanged) ...
-  // Keeping the original helper methods below for completeness
 
   /// Shows a dialog to add a new client
   Future<void> _showAddClientDialog() async {
@@ -793,7 +889,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Créer Installation Directe'),
+        title: Text(_isEditing ? 'Modifier Installation' : 'Créer Installation Directe'),
         backgroundColor: primaryColor,
       ),
       body: Form(
@@ -1046,7 +1142,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                       onPressed: _isUploadingFile ? null : _pickFile,
                       icon: Icon(_pickedFile == null ? Icons.attach_file : Icons.file_present, color: primaryColor),
                       label: Text(
-                        _pickedFile == null ? 'Joindre un fichier (PDF/Image)' : _pickedFileName!,
+                        _pickedFile == null
+                            ? (_existingFileUrl != null ? 'Fichier existant (Toucher pour changer)' : 'Joindre un fichier (PDF/Image)')
+                            : _pickedFileName!,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: primaryColor),
                       ),
@@ -1128,7 +1226,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   ),
                   child: (_isLoading || _isUploadingFile)
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Créer l\'Installation'),
+                      : Text(_isEditing ? 'Modifier l\'Installation' : 'Créer l\'Installation'),
                 ),
               ),
             ],
