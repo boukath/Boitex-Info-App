@@ -34,12 +34,21 @@ class Client {
   int get hashCode => id.hashCode;
 }
 
-// Simple data model for a Store
+// ✅ UPDATED STORE MODEL: Now includes Coordinates
 class Store {
   final String id;
   final String name;
   final String location;
-  Store({required this.id, required this.name, required this.location});
+  final double? latitude;
+  final double? longitude;
+
+  Store({
+    required this.id,
+    required this.name,
+    required this.location,
+    this.latitude,
+    this.longitude,
+  });
 
   @override
   bool operator ==(Object other) => other is Store && other.id == id;
@@ -67,6 +76,9 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   final _clientPhoneController = TextEditingController();
   final _requestController = TextEditingController();
 
+  // ✅ NEW: GPS Link Controller
+  final _gpsLinkController = TextEditingController();
+
   // Search Controllers for Autocomplete
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
@@ -78,6 +90,11 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   String? _selectedInterventionPriority;
   Client? _selectedClient;
   Store? _selectedStore;
+
+  // ✅ NEW: Temporary storage for parsed coordinates
+  double? _parsedLat;
+  double? _parsedLng;
+  bool _isResolvingLink = false;
 
   // Data and Loading States
   List<Client> _clients = [];
@@ -105,7 +122,75 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     _requestController.dispose();
     _clientSearchController.dispose();
     _storeSearchController.dispose();
+    _gpsLinkController.dispose();
     super.dispose();
+  }
+
+  // ----------------------------------------------------------------------
+  // 🔗 GPS LINK PARSER LOGIC
+  // ----------------------------------------------------------------------
+  Future<void> _extractCoordinatesFromLink() async {
+    String url = _gpsLinkController.text.trim();
+    if (url.isEmpty) return;
+
+    setState(() => _isResolvingLink = true);
+
+    try {
+      // 1. Resolve Short Links (e.g. goo.gl, bit.ly)
+      if (url.contains('goo.gl') ||
+          url.contains('maps.app.goo.gl') ||
+          url.contains('bit.ly')) {
+        final client = http.Client();
+        var request = http.Request('HEAD', Uri.parse(url));
+        request.followRedirects = false;
+        var response = await client.send(request);
+        if (response.headers['location'] != null) {
+          url = response.headers['location']!;
+        }
+      }
+
+      // 2. Regex to find coordinates in the full URL
+      // Matches patterns like @36.75,3.04 or q=36.75,3.04
+      RegExp regExp = RegExp(r'(@|q=)([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
+      Match? match = regExp.firstMatch(url);
+
+      if (match != null && match.groupCount >= 3) {
+        setState(() {
+          _parsedLat = double.parse(match.group(2)!);
+          _parsedLng = double.parse(match.group(3)!);
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  "✅ Coordonnées extraites ! Elles seront sauvegardées avec l'intervention."),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("❌ Impossible de trouver les coordonnées dans ce lien."),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Erreur lors de l'analyse : $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isResolvingLink = false);
+    }
   }
 
   // ----------------------------------------------------------------------
@@ -343,6 +428,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       _isLoadingStores = true;
       _stores = [];
       _selectedStore = null;
+      _parsedLat = null; // Reset manual coordinates
+      _parsedLng = null;
     });
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -353,10 +440,19 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           .get();
       final stores = snapshot.docs.map((doc) {
         final data = doc.data();
+
+        // ✅ FETCH LAT/LNG IF EXISTS IN FIRESTORE
+        double? lat;
+        double? lng;
+        if (data['latitude'] != null) lat = (data['latitude'] as num).toDouble();
+        if (data['longitude'] != null) lng = (data['longitude'] as num).toDouble();
+
         return Store(
           id: doc.id,
           name: data['name'],
           location: data['location'],
+          latitude: lat,
+          longitude: lng,
         );
       }).toList();
       if (mounted) {
@@ -543,6 +639,12 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       return;
     }
 
+    // ✅ FIX: Auto-extract coordinates if link provided but not parsed
+    if (_gpsLinkController.text.trim().isNotEmpty && _parsedLat == null) {
+      // We await the extraction to ensure _parsedLat is set before proceeding
+      await _extractCoordinatesFromLink();
+    }
+
     setState(() {
       _isLoading = true;
       _isUploadingMedia = true;
@@ -599,6 +701,13 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     final interventionRef =
     FirebaseFirestore.instance.collection('interventions').doc();
 
+    // ✅ Reference to the store to allow dual-write
+    final storeRef = FirebaseFirestore.instance
+        .collection('clients')
+        .doc(_selectedClient!.id)
+        .collection('stores')
+        .doc(_selectedStore!.id);
+
     try {
       final userDoc =
       await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -625,6 +734,20 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
         finalInterventionCode = 'INT-$newCount/$currentYear';
 
+        // ✅ Determine Coordinates Priority
+        // 1. New parsed coordinates (User just added a link)
+        // 2. Existing store coordinates
+        final double? finalLat = _parsedLat ?? _selectedStore!.latitude;
+        final double? finalLng = _parsedLng ?? _selectedStore!.longitude;
+
+        // ✅ AUTO-UPDATE STORE if new coordinates were found
+        if (_parsedLat != null && _parsedLng != null) {
+          transaction.update(storeRef, {
+            'latitude': _parsedLat,
+            'longitude': _parsedLng,
+          });
+        }
+
         final interventionData = {
           'interventionCode': finalInterventionCode,
           'serviceType': widget.serviceType,
@@ -633,6 +756,9 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           'clientPhone': _clientPhoneController.text.trim(),
           'storeId': _selectedStore!.id,
           'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
+          // ✅ Save coordinates in intervention snapshot
+          'storeLatitude': finalLat,
+          'storeLongitude': finalLng,
           'requestDescription': _requestController.text.trim(),
           'interventionType': _selectedInterventionType,
           'priority': _selectedInterventionPriority,
@@ -653,7 +779,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Intervention $finalInterventionCode créée avec succès!'),
+            content: Text('Intervention $finalInterventionCode créée et GPS mis à jour!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -862,7 +988,12 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                     displayStringForOption: (store) =>
                     '${store.name} - ${store.location}',
                     onSelected: (store) {
-                      setState(() => _selectedStore = store);
+                      setState(() {
+                        _selectedStore = store;
+                        _parsedLat = null;
+                        _parsedLng = null;
+                        _gpsLinkController.clear();
+                      });
                     },
                     fieldViewBuilder: (context, controller, focusNode,
                         onFieldSubmitted) {
@@ -891,6 +1022,89 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
               ],
             ),
           ),
+
+          // 🌟🌟 GPS LINK SECTION 🌟🌟
+          if (_selectedStore != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blueGrey.shade100),
+              ),
+              child: Column(
+                children: [
+                  // Status Row
+                  Row(
+                    children: [
+                      Icon(
+                        (_selectedStore!.latitude != null || _parsedLat != null)
+                            ? Icons.check_circle
+                            : Icons.warning_amber_rounded,
+                        color: (_selectedStore!.latitude != null || _parsedLat != null)
+                            ? Colors.green
+                            : Colors.orange,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          (_selectedStore!.latitude != null)
+                              ? "Position Magasin Synchronisée"
+                              : (_parsedLat != null)
+                              ? "Position prête à être sauvegardée"
+                              : "Position GPS manquante",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: (_selectedStore!.latitude != null || _parsedLat != null)
+                                ? Colors.green.shade700
+                                : Colors.orange.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Input Field (Visible if missing or wants update)
+                  if (_selectedStore!.latitude == null || _parsedLat != null) ...[
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _gpsLinkController,
+                            decoration: const InputDecoration(
+                              labelText: 'Coller un lien Google Maps ici',
+                              hintText: 'https://goo.gl/maps/...',
+                              prefixIcon: Icon(Icons.link),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _isResolvingLink ? null : _extractCoordinatesFromLink,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                          child: _isResolvingLink
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : const Icon(Icons.search),
+                        ),
+                      ],
+                    ),
+                    if (_parsedLat != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text("📍 Coordonnées détectées : $_parsedLat, $_parsedLng", style: const TextStyle(fontSize: 12, color: Colors.teal)),
+                      ),
+                  ],
+                ],
+              ),
+            ),
 
           // Type Dropdown
           Padding(

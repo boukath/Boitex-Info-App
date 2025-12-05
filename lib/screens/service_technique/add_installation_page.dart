@@ -11,7 +11,7 @@ import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 // Technician Multi-Select Import
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 
-// ✅ 1. B2 IMPORTS
+// ✅ 1. B2 IMPORTS & HTTP
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
@@ -31,11 +31,21 @@ class Client {
   int get hashCode => id.hashCode;
 }
 
+// ✅ UPDATED STORE MODEL: Added Lat/Lng
 class Store {
   final String id;
   final String name;
   final String location;
-  Store({required this.id, required this.name, required this.location});
+  final double? latitude;
+  final double? longitude;
+
+  Store({
+    required this.id,
+    required this.name,
+    required this.location,
+    this.latitude,
+    this.longitude,
+  });
 
   @override
   bool operator ==(Object other) => other is Store && other.id == id;
@@ -73,11 +83,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   final _formKey = GlobalKey<FormState>();
   final _requestController = TextEditingController();
   final _clientPhoneController = TextEditingController();
-  // ✅ ADDED: Email Controller
   final _clientEmailController = TextEditingController();
   final _contactNameController = TextEditingController();
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
+
+  // ✅ NEW: GPS Link Controller
+  final _gpsLinkController = TextEditingController();
 
   final _newClientNameController = TextEditingController();
   final _newStoreNameController = TextEditingController();
@@ -85,6 +97,11 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
   Client? _selectedClient;
   Store? _selectedStore;
+
+  // ✅ NEW: Parsed Coordinates State
+  double? _parsedLat;
+  double? _parsedLng;
+  bool _isResolvingLink = false;
 
   List<Client> _clients = [];
   List<Store> _stores = [];
@@ -107,7 +124,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
   static const Color primaryColor = Colors.green; // Match your details page
 
-  // ✅ 2. B2 CONSTANT - MUST BE UPDATED BY USER
+  // ✅ 2. B2 CONSTANT
   static const String _b2UploadCredentialUrl =
       "https://europe-west1-your-firebase-project.cloudfunctions.net/b2GetUploadCredentials";
 
@@ -122,7 +139,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   void dispose() {
     _requestController.dispose();
     _clientPhoneController.dispose();
-    // ✅ ADDED: Dispose Email Controller
     _clientEmailController.dispose();
     _contactNameController.dispose();
     _clientSearchController.dispose();
@@ -130,7 +146,74 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     _newClientNameController.dispose();
     _newStoreNameController.dispose();
     _newStoreLocationController.dispose();
+    _gpsLinkController.dispose(); // Dispose GPS controller
     super.dispose();
+  }
+
+  // ----------------------------------------------------------------------
+  // 🔗 GPS LINK PARSER LOGIC (Ported from AddInterventionPage)
+  // ----------------------------------------------------------------------
+  Future<void> _extractCoordinatesFromLink() async {
+    String url = _gpsLinkController.text.trim();
+    if (url.isEmpty) return;
+
+    setState(() => _isResolvingLink = true);
+
+    try {
+      // 1. Resolve Short Links (e.g. goo.gl, bit.ly)
+      if (url.contains('goo.gl') ||
+          url.contains('maps.app.goo.gl') ||
+          url.contains('bit.ly')) {
+        final client = http.Client();
+        var request = http.Request('HEAD', Uri.parse(url));
+        request.followRedirects = false;
+        var response = await client.send(request);
+        if (response.headers['location'] != null) {
+          url = response.headers['location']!;
+        }
+      }
+
+      // 2. Regex to find coordinates in the full URL
+      // Matches patterns like @36.75,3.04 or q=36.75,3.04
+      RegExp regExp = RegExp(r'(@|q=)([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
+      Match? match = regExp.firstMatch(url);
+
+      if (match != null && match.groupCount >= 3) {
+        setState(() {
+          _parsedLat = double.parse(match.group(2)!);
+          _parsedLng = double.parse(match.group(3)!);
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✅ Coordonnées extraites ! Elles seront sauvegardées."),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("❌ Impossible de trouver les coordonnées dans ce lien."),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Erreur lors de l'analyse : $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isResolvingLink = false);
+    }
   }
 
   Future<void> _fetchClients() async {
@@ -154,6 +237,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     setState(() {
       _isFetchingStores = true;
       _selectedStore = null;
+      _parsedLat = null; // Reset GPS state
+      _parsedLng = null;
+      _gpsLinkController.clear();
       _storeSearchController.clear();
       _stores = [];
     });
@@ -164,13 +250,22 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           .collection('stores')
           .orderBy('name')
           .get();
-      _stores = snapshot.docs
-          .map((doc) => Store(
-        id: doc.id,
-        name: doc.data()['name'] ?? 'N/A',
-        location: doc.data()['location'] ?? 'N/A',
-      ))
-          .toList();
+      _stores = snapshot.docs.map((doc) {
+        final data = doc.data();
+        // ✅ MAP LAT/LNG FROM FIRESTORE
+        double? lat;
+        double? lng;
+        if (data['latitude'] != null) lat = (data['latitude'] as num).toDouble();
+        if (data['longitude'] != null) lng = (data['longitude'] as num).toDouble();
+
+        return Store(
+          id: doc.id,
+          name: data['name'] ?? 'N/A',
+          location: data['location'] ?? 'N/A',
+          latitude: lat,
+          longitude: lng,
+        );
+      }).toList();
     } catch (e) {
       print('Error fetching stores: $e');
     } finally {
@@ -219,33 +314,25 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         _pickedFile = File(result.files.single.path!);
         _pickedFileName = result.files.single.name;
       });
-    } else {
-      // User canceled the picker
     }
   }
 
-  // -----------------------------------------------------------------
-  // ✅ 3. REPLACED: B2 Upload Logic
-  // -----------------------------------------------------------------
   Future<String?> _uploadFileToB2(String installationCode) async {
     if (_pickedFile == null) return null;
 
     setState(() => _isUploadingFile = true);
 
     try {
-      // --- STEP 1: Get Upload Credentials from Cloud Function ---
       final authResponse = await http.get(Uri.parse(_b2UploadCredentialUrl));
 
       if (authResponse.statusCode != 200) {
-        throw Exception(
-            'Failed to get B2 credentials: ${authResponse.body}');
+        throw Exception('Failed to get B2 credentials: ${authResponse.body}');
       }
 
       final authData = jsonDecode(authResponse.body);
       final uploadUrl = authData['uploadUrl'] as String;
       final authorizationToken = authData['authorizationToken'] as String;
 
-      // --- STEP 2: Prepare File Data ---
       final fileBytes = await _pickedFile!.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final fileMimeType = _pickedFileName!.endsWith('.pdf')
@@ -254,7 +341,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       final fileName =
           'installation_files/${installationCode}_${DateTime.now().millisecondsSinceEpoch}_${_pickedFileName}';
 
-      // --- STEP 3: Upload Directly to B2 ---
       final uploadResponse = await http.post(
         Uri.parse(uploadUrl),
         headers: {
@@ -269,11 +355,10 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       if (uploadResponse.statusCode == 200) {
         final uploadData = jsonDecode(uploadResponse.body);
         return uploadData['fileId'] != null
-            ? "https://f005.backblazeb2.com/file/boitex-bucket/${fileName}" // Using the common B2 URL pattern (adjust bucket/domain if needed)
+            ? "https://f005.backblazeb2.com/file/boitex-bucket/${fileName}"
             : null;
       } else {
-        throw Exception(
-            'B2 Upload failed: ${uploadResponse.body}');
+        throw Exception('B2 Upload failed: ${uploadResponse.body}');
       }
     } catch (e) {
       print('Error during B2 upload process: $e');
@@ -291,27 +376,23 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // -----------------------------------------------------------------
-  // ⭐️ FIXED: _saveInstallation (With Email & Image Enrichment)
+  // ⭐️ _saveInstallation (With GPS Dual-Write Logic)
   // -----------------------------------------------------------------
   Future<void> _saveInstallation() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-    if (_selectedClient == null) {
+    if (!_formKey.currentState!.validate()) return;
+
+    if (_selectedClient == null || _selectedStore == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Veuillez choisir un client'),
+            content: Text('Veuillez choisir un client et un magasin'),
             backgroundColor: Colors.red),
       );
       return;
     }
-    if (_selectedStore == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Veuillez choisir un magasin'),
-            backgroundColor: Colors.red),
-      );
-      return;
+
+    // ✅ AUTO-EXTRACT: If user pasted a link but forgot to click extract button
+    if (_gpsLinkController.text.trim().isNotEmpty && _parsedLat == null) {
+      await _extractCoordinatesFromLink();
     }
 
     setState(() => _isLoading = true);
@@ -325,19 +406,22 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       return;
     }
 
-    // ✅ FIX 1: PREPARE COUNTER REFERENCES
     final currentYear = DateTime.now().year.toString();
     final counterRef = FirebaseFirestore.instance
         .collection('counters')
-        .doc('installation_counter_$currentYear'); // Dedicated counter for installations
+        .doc('installation_counter_$currentYear');
     final installationRef = FirebaseFirestore.instance.collection('installations').doc();
 
+    // ✅ REFERENCE TO STORE (For Dual-Write)
+    final storeRef = FirebaseFirestore.instance
+        .collection('clients')
+        .doc(_selectedClient!.id)
+        .collection('stores')
+        .doc(_selectedStore!.id);
+
     try {
-      // 1. Upload File (if any)
       String? preliminaryFileUrl;
       String? preliminaryFileName;
-
-      // We generate a temporary ID just for the filename, the real ID comes later
       final tempId = DateTime.now().millisecondsSinceEpoch.toString();
 
       if (_pickedFile != null) {
@@ -346,41 +430,35 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           preliminaryFileName = _pickedFileName;
         } else {
           setState(() => _isLoading = false);
-          return; // Stop if upload fails
+          return;
         }
       }
 
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final createdByName = userDoc.data()?['displayName'] ?? 'N/A';
 
-      // 🔹 A: PREPARE "ENRICHED" PRODUCTS (The Plan)
+      // Prepare Products
       List<Map<String, dynamic>> enrichedProducts = [];
-
       for (var p in _selectedProducts) {
         String category = 'Autre';
         String? imageUrl;
-        String reference = p.partNumber; // Default from model
-        String brand = p.marque;         // Default from model
+        String reference = p.partNumber;
+        String brand = p.marque;
 
         try {
-          // Fetch fresh data from Firestore to ensure we have Image and Category
           final doc = await FirebaseFirestore.instance.collection('produits').doc(p.productId).get();
           if (doc.exists) {
             final data = doc.data()!;
             category = data['categorie'] ?? data['category'] ?? 'Autre';
-
-            // Handle image array
             final List<dynamic>? images = data['imageUrls'];
             if (images != null && images.isNotEmpty) {
               imageUrl = images.first as String;
             }
-
-            // Update ref/brand if available (better source of truth)
             reference = data['reference'] ?? reference;
             brand = data['marque'] ?? brand;
           }
         } catch (e) {
-          print("Error fetching product details for ${p.productName}: $e");
+          print("Error fetching product: $e");
         }
 
         enrichedProducts.add({
@@ -389,13 +467,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'reference': reference,
           'marque': brand,
           'category': category,
-          'image': imageUrl, // ✅ Now populated!
+          'image': imageUrl,
           'quantity': p.quantity,
           'serialNumbers': [],
         });
       }
 
-      // 🔹 B: PREPARE "SYSTEMS" (The Execution Checklist)
       final systems = enrichedProducts.map((p) {
         return {
           'id': p['productId'],
@@ -405,7 +482,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'category': p['category'],
           'image': p['image'],
           'quantity': p['quantity'],
-          'serialNumbers': List<String>.filled(p['quantity'] as int, ''), // Empty slots for scanning
+          'serialNumbers': List<String>.filled(p['quantity'] as int, ''),
         };
       }).toList();
 
@@ -413,7 +490,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           .map((user) => {'uid': user.uid, 'displayName': user.displayName})
           .toList();
 
-      // ✅ FIX 2: USE TRANSACTION
+      // ✅ EXECUTE TRANSACTION
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final counterDoc = await transaction.get(counterRef);
 
@@ -425,21 +502,35 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           }
         }
 
-        // Format: INST-1/2025
         final String installationCode = 'INST-$newCount/$currentYear';
 
-        // Write the Installation
+        // ✅ Determine Coordinates Priority
+        // 1. New parsed coordinates (User just added a link)
+        // 2. Existing store coordinates
+        final double? finalLat = _parsedLat ?? _selectedStore!.latitude;
+        final double? finalLng = _parsedLng ?? _selectedStore!.longitude;
+
+        // ✅ AUTO-UPDATE STORE if new coordinates were parsed
+        if (_parsedLat != null && _parsedLng != null) {
+          transaction.update(storeRef, {
+            'latitude': _parsedLat,
+            'longitude': _parsedLng,
+          });
+        }
+
         transaction.set(installationRef, {
           'installationCode': installationCode,
           'clientName': _selectedClient!.name,
           'clientId': _selectedClient!.id,
           'clientPhone': _clientPhoneController.text.trim(),
-          // ✅ ADDED: Client Email
           'clientEmail': _clientEmailController.text.trim(),
           'contactName': _contactNameController.text.trim(),
           'storeName': _selectedStore!.name,
           'storeId': _selectedStore!.id,
           'storeLocation': _selectedStore!.location,
+          // ✅ Save GPS in Installation Document
+          'storeLatitude': finalLat,
+          'storeLongitude': finalLng,
           'initialRequest': _requestController.text.trim(),
           'serviceType': widget.serviceType,
           'preliminaryFileUrl': preliminaryFileUrl,
@@ -450,22 +541,19 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'createdByName': createdByName,
           'installationDate': null,
           'assignedTechnicians': techniciansToSave,
-
-          'orderedProducts': enrichedProducts, // 🔹 The Full Plan (With Images)
-          'systems': systems,                  // 🔹 The Checklist
-
+          'orderedProducts': enrichedProducts,
+          'systems': systems,
           'mediaUrls': [],
           'technicalEvaluation': [],
           'itEvaluation': [],
         });
 
-        // Update the Counter
         transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Installation créée avec succès.'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Installation créée et GPS mis à jour!'), backgroundColor: Colors.green),
         );
         Navigator.of(context).pop();
       }
@@ -479,9 +567,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-  // -----------------------------------------------------------------
-  // ^^^ END FIXED FUNCTION ^^^
-  // -----------------------------------------------------------------
+
+  // ... (Add Client/Store Dialogs omitted for brevity, they remain unchanged) ...
+  // Keeping the original helper methods below for completeness
 
   /// Shows a dialog to add a new client
   Future<void> _showAddClientDialog() async {
@@ -564,7 +652,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     );
   }
 
-  /// Shows a dialog to add a new store for the selected client
+  /// Shows a dialog to add a new store
   Future<void> _showAddStoreDialog() async {
     if (_selectedClient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -727,17 +815,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                       hintText: 'Rechercher un client...',
                       expandedInsets: EdgeInsets.zero,
                       leadingIcon: _isFetchingClients
-                          ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.person_outline),
                       dropdownMenuEntries: _clients
                           .map((client) => DropdownMenuEntry<Client>(
                         value: client,
                         label: client.name,
-                      ))
-                          .toList(),
+                      )).toList(),
                       onSelected: (Client? client) {
                         setState(() {
                           _selectedClient = client;
@@ -756,19 +840,16 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon:
-                    Icon(Icons.add_business_outlined, color: primaryColor),
+                    icon: const Icon(Icons.add_business_outlined, color: primaryColor),
                     onPressed: _showAddClientDialog,
                     tooltip: 'Ajouter un nouveau client',
-                    padding: const EdgeInsets.all(12),
-                    splashRadius: 24,
                   ),
                 ],
               ),
 
               const SizedBox(height: 20),
 
-              // --- Store Dropdown (dependent on Client) ---
+              // --- Store Dropdown ---
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -781,44 +862,120 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                       enabled: _selectedClient != null && !_isFetchingStores,
                       expandedInsets: EdgeInsets.zero,
                       leadingIcon: _isFetchingStores
-                          ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.store_outlined),
                       dropdownMenuEntries: _stores
                           .map((store) => DropdownMenuEntry<Store>(
                         value: store,
                         label: '${store.name} (${store.location})',
-                      ))
-                          .toList(),
+                      )).toList(),
                       onSelected: (Store? store) {
-                        setState(() => _selectedStore = store);
+                        setState(() {
+                          _selectedStore = store;
+                          _parsedLat = null;
+                          _parsedLng = null;
+                          _gpsLinkController.clear();
+                        });
                       },
                       inputDecorationTheme: InputDecorationTheme(
                         filled: true,
                         fillColor: Colors.white,
                         enabledBorder: defaultBorder,
                         focusedBorder: focusedBorder,
-                        disabledBorder: defaultBorder.copyWith(
-                          borderSide: BorderSide(color: Colors.grey.shade300),
-                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: Icon(Icons.add_shopping_cart_outlined,
-                        color: primaryColor),
-                    onPressed: (_selectedClient == null || _isFetchingStores)
-                        ? null
-                        : _showAddStoreDialog,
+                    icon: const Icon(Icons.add_shopping_cart_outlined, color: primaryColor),
+                    onPressed: (_selectedClient == null || _isFetchingStores) ? null : _showAddStoreDialog,
                     tooltip: 'Ajouter un nouveau magasin',
-                    padding: const EdgeInsets.all(12),
-                    splashRadius: 24,
                   ),
                 ],
               ),
+
+              // ✅ 🌟 GPS LINK SECTION 🌟
+              if (_selectedStore != null)
+                Container(
+                  margin: const EdgeInsets.only(top: 20),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blueGrey.shade100),
+                  ),
+                  child: Column(
+                    children: [
+                      // Status Row
+                      Row(
+                        children: [
+                          Icon(
+                            (_selectedStore!.latitude != null || _parsedLat != null)
+                                ? Icons.check_circle
+                                : Icons.warning_amber_rounded,
+                            color: (_selectedStore!.latitude != null || _parsedLat != null)
+                                ? Colors.green
+                                : Colors.orange,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              (_selectedStore!.latitude != null)
+                                  ? "Position Magasin Synchronisée"
+                                  : (_parsedLat != null)
+                                  ? "Position prête à être sauvegardée"
+                                  : "Position GPS manquante",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: (_selectedStore!.latitude != null || _parsedLat != null)
+                                    ? Colors.green.shade700
+                                    : Colors.orange.shade800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Input Field (Visible if missing or wants update)
+                      if (_selectedStore!.latitude == null || _parsedLat != null) ...[
+                        const SizedBox(height: 12),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _gpsLinkController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Coller un lien Google Maps ici',
+                                  hintText: 'https://goo.gl/maps/...',
+                                  prefixIcon: Icon(Icons.link),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: _isResolvingLink ? null : _extractCoordinatesFromLink,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                              ),
+                              child: _isResolvingLink
+                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                  : const Icon(Icons.search),
+                            ),
+                          ],
+                        ),
+                        if (_parsedLat != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text("📍 Coordonnées détectées : $_parsedLat, $_parsedLng", style: const TextStyle(fontSize: 12, color: Colors.teal)),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
 
               const SizedBox(height: 20),
 
@@ -831,14 +988,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   prefixIcon: const Icon(Icons.phone_outlined),
                   enabledBorder: defaultBorder,
                   focusedBorder: focusedBorder,
-                  floatingLabelStyle: const TextStyle(color: primaryColor),
                 ),
                 keyboardType: TextInputType.phone,
               ),
 
               const SizedBox(height: 20),
 
-              // ✅ ADDED: Client Email Field
+              // --- Client Email ---
               TextFormField(
                 controller: _clientEmailController,
                 decoration: InputDecoration(
@@ -847,7 +1003,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   prefixIcon: const Icon(Icons.alternate_email),
                   enabledBorder: defaultBorder,
                   focusedBorder: focusedBorder,
-                  floatingLabelStyle: const TextStyle(color: primaryColor),
                 ),
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
@@ -860,7 +1015,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
               const SizedBox(height: 20),
 
-              // --- Contact Name Field ---
+              // --- Contact Name ---
               TextFormField(
                 controller: _contactNameController,
                 decoration: InputDecoration(
@@ -869,14 +1024,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   prefixIcon: const Icon(Icons.person_pin_outlined),
                   enabledBorder: defaultBorder,
                   focusedBorder: focusedBorder,
-                  floatingLabelStyle: const TextStyle(color: primaryColor),
                 ),
                 keyboardType: TextInputType.text,
               ),
 
               const SizedBox(height: 20),
 
-              // --- Preliminary File Attachment ---
+              // --- File Attachment ---
               Text(
                 'Fichier Préliminaire (Optionnel)',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -890,31 +1044,21 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: _isUploadingFile ? null : _pickFile,
-                      icon: Icon(
-                        _pickedFile == null
-                            ? Icons.attach_file
-                            : Icons.file_present,
-                        color: primaryColor,
-                      ),
+                      icon: Icon(_pickedFile == null ? Icons.attach_file : Icons.file_present, color: primaryColor),
                       label: Text(
-                        _pickedFile == null
-                            ? 'Joindre un fichier (PDF/Image)'
-                            : _pickedFileName!,
+                        _pickedFile == null ? 'Joindre un fichier (PDF/Image)' : _pickedFileName!,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: primaryColor),
+                        style: const TextStyle(color: primaryColor),
                       ),
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: primaryColor.withOpacity(0.5)),
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   ),
                   if (_pickedFile != null && !_isUploadingFile) ...[
                     const SizedBox(width: 8),
-                    // Clear file button
                     IconButton(
                       icon: const Icon(Icons.delete_forever, color: Colors.red),
                       onPressed: () {
@@ -924,21 +1068,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                         });
                       },
                     ),
-                  ] else if (_isUploadingFile) ...[
-                    const SizedBox(width: 8),
-                    // Upload spinner
-                    const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
                   ],
                 ],
               ),
 
               const SizedBox(height: 20),
 
-              // --- Initial Request ---
+              // --- Description ---
               TextFormField(
                 controller: _requestController,
                 decoration: InputDecoration(
@@ -946,51 +1082,25 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   hintText: 'Matériel à installer, problème...',
                   enabledBorder: defaultBorder,
                   focusedBorder: focusedBorder,
-                  floatingLabelStyle: const TextStyle(color: primaryColor),
                   alignLabelWithHint: true,
                 ),
                 maxLines: 5,
-                validator: (value) => value == null || value.isEmpty
-                    ? 'Veuillez décrire la demande'
-                    : null,
+                validator: (value) => value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,
               ),
 
               const SizedBox(height: 20),
 
               // --- Technician Multi-Select ---
-              Text(
-                'Assigner des Techniciens (Optionnel)',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
               MultiSelectDialogField<AppUser>(
-                items: _allTechnicians
-                    .map(
-                        (user) => MultiSelectItem<AppUser>(user, user.displayName))
-                    .toList(),
+                items: _allTechnicians.map((user) => MultiSelectItem<AppUser>(user, user.displayName)).toList(),
                 initialValue: _selectedTechnicians,
                 title: const Text("Sélectionner Techniciens"),
-                buttonText: Text(
-                  "Assigner à",
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 16),
-                ),
-
-                buttonIcon: Icon(
-                  _isFetchingTechnicians
-                      ? Icons.hourglass_top_outlined
-                      : Icons.engineering_outlined,
-                  color: Colors.grey.shade700,
-                ),
-
+                buttonText: Text("Assigner à", style: TextStyle(color: Colors.grey.shade700, fontSize: 16)),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: Colors.grey.shade400),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                chipDisplay: MultiSelectChipDisplay<AppUser>(),
                 onConfirm: (results) {
                   setState(() {
                     _selectedTechnicians = results.cast<AppUser>();
@@ -1000,7 +1110,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
               const SizedBox(height: 20),
 
-              // --- Product List Display ---
+              // --- Product List ---
               _buildProductList(),
 
               const SizedBox(height: 32),
@@ -1014,8 +1124,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                     backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12.0)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
                   ),
                   child: (_isLoading || _isUploadingFile)
                       ? const CircularProgressIndicator(color: Colors.white)
@@ -1029,17 +1138,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     );
   }
 
-  /// Widget to display the selected product list
   Widget _buildProductList() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Produits à Installer',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         Container(
@@ -1047,28 +1152,18 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             border: Border.all(color: Colors.grey.shade300),
             borderRadius: BorderRadius.circular(12.0),
           ),
-          // Adjust height based on content
           height: _selectedProducts.isEmpty ? 80 : 150,
           child: _selectedProducts.isEmpty
-              ? const Center(
-            child: Text(
-              'Aucun produit sélectionné.',
-              style: TextStyle(color: Colors.grey),
-            ),
-          )
+              ? const Center(child: Text('Aucun produit sélectionné.', style: TextStyle(color: Colors.grey)))
               : ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             itemCount: _selectedProducts.length,
             itemBuilder: (context, index) {
               final product = _selectedProducts[index];
               return ListTile(
-                leading: Icon(Icons.inventory_2_outlined,
-                    color: primaryColor),
+                leading: const Icon(Icons.inventory_2_outlined, color: primaryColor),
                 title: Text(product.productName),
-                trailing: Text(
-                  'Qté: ${product.quantity}',
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
+                trailing: Text('Qté: ${product.quantity}', style: const TextStyle(fontWeight: FontWeight.w500)),
               );
             },
           ),
@@ -1077,18 +1172,11 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         Center(
           child: OutlinedButton.icon(
             onPressed: _showProductSelector,
-            icon: Icon(Icons.add, color: primaryColor),
-            label: Text(
-              _selectedProducts.isEmpty
-                  ? 'Ajouter des Produits'
-                  : 'Modifier les Produits',
-              style: TextStyle(color: primaryColor),
-            ),
+            icon: const Icon(Icons.add, color: primaryColor),
+            label: Text(_selectedProducts.isEmpty ? 'Ajouter des Produits' : 'Modifier les Produits', style: const TextStyle(color: primaryColor)),
             style: OutlinedButton.styleFrom(
               side: BorderSide(color: primaryColor.withOpacity(0.5)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
           ),
         ),
