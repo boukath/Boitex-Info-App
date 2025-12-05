@@ -11,7 +11,10 @@ class Prospect {
 
   final String phoneNumber;
   final String email;
-  final String address;          // Adresse manuelle
+
+  // ⚡ IMPROVEMENT: Store commune separately for fast filtering
+  final String commune;
+  final String address;          // Adresse complète (Commune - Détails)
 
   final double? latitude;        // GPS Lat
   final double? longitude;       // GPS Long
@@ -23,6 +26,9 @@ class Prospect {
   final DateTime createdAt;
   final String createdBy;        // L'ID du commercial qui a créé la fiche
 
+  // ⚡ NEW: Store the name so we can display "Commercial: John Doe" easily
+  final String authorName;
+
   Prospect({
     required this.id,
     required this.companyName,
@@ -31,6 +37,7 @@ class Prospect {
     required this.serviceType,
     required this.phoneNumber,
     required this.email,
+    required this.commune,
     required this.address,
     this.latitude,
     this.longitude,
@@ -39,6 +46,7 @@ class Prospect {
     required this.notes,
     required this.createdAt,
     required this.createdBy,
+    required this.authorName, // ⚡ Required now
   });
 
   // Convertir en Map pour Firebase
@@ -51,6 +59,7 @@ class Prospect {
       'serviceType': serviceType,
       'phoneNumber': phoneNumber,
       'email': email,
+      'commune': commune,
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
@@ -59,11 +68,23 @@ class Prospect {
       'notes': notes,
       'createdAt': Timestamp.fromDate(createdAt),
       'createdBy': createdBy,
+      'authorName': authorName, // ⚡ Saved to Firestore
     };
   }
 
   // Créer un Prospect depuis Firebase
   factory Prospect.fromMap(Map<String, dynamic> map) {
+    // ⚡ Backward Compatibility: Helper to extract commune if missing in old docs
+    String extractCommune(String fullAddress) {
+      if (fullAddress.contains(' - ')) {
+        return fullAddress.split(' - ')[0].trim();
+      }
+      return fullAddress;
+    }
+
+    final address = map['address'] ?? '';
+    final commune = map['commune'] ?? extractCommune(address);
+
     return Prospect(
       id: map['id'] ?? '',
       companyName: map['companyName'] ?? '',
@@ -72,7 +93,8 @@ class Prospect {
       serviceType: map['serviceType'] ?? '',
       phoneNumber: map['phoneNumber'] ?? '',
       email: map['email'] ?? '',
-      address: map['address'] ?? '',
+      commune: commune,
+      address: address,
       latitude: map['latitude']?.toDouble(),
       longitude: map['longitude']?.toDouble(),
       photoUrls: List<String>.from(map['photoUrls'] ?? []),
@@ -80,6 +102,8 @@ class Prospect {
       notes: map['notes'] ?? '',
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       createdBy: map['createdBy'] ?? '',
+      // ⚡ Default to 'Commercial' if the field doesn't exist in old data
+      authorName: map['authorName'] ?? 'Commercial',
     );
   }
 }

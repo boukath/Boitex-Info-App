@@ -17,8 +17,11 @@ import 'package:path/path.dart' as path;
 import 'package:image_picker/image_picker.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
+// ⚡ Cloud Functions Import
+import 'package:cloud_functions/cloud_functions.dart';
+
 class AddProspectPage extends StatefulWidget {
-  final Prospect? prospectToEdit; // ✅ Added: Optional prospect for editing
+  final Prospect? prospectToEdit;
 
   const AddProspectPage({super.key, this.prospectToEdit});
 
@@ -29,9 +32,6 @@ class AddProspectPage extends StatefulWidget {
 class _AddProspectPageState extends State<AddProspectPage> {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
-
-  final String _getB2UploadUrlCloudFunctionUrl =
-      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
   // Controllers
   final _companyNameController = TextEditingController();
@@ -78,14 +78,12 @@ class _AddProspectPageState extends State<AddProspectPage> {
   List<File> _localFilesToUpload = [];
   bool _isUploadingMedia = false;
 
-  // ✅ Added: Lists to hold existing URLs when editing
   List<String> _existingPhotoUrls = [];
   List<String> _existingVideoUrls = [];
 
   @override
   void initState() {
     super.initState();
-    // ✅ Check if we are in Edit Mode
     if (widget.prospectToEdit != null) {
       _initializeEditMode(widget.prospectToEdit!);
     }
@@ -99,7 +97,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
     _emailController.text = p.email;
     _notesController.text = p.notes;
 
-    // Recover Location
     if (p.latitude != null && p.longitude != null) {
       _currentPosition = Position(
           longitude: p.longitude!,
@@ -115,28 +112,26 @@ class _AddProspectPageState extends State<AddProspectPage> {
       );
     }
 
-    // Recover Address Logic
-    // Format: "Commune - Details"
-    if (p.address.contains(' - ')) {
-      final parts = p.address.split(' - ');
-      final potentialCommune = parts[0];
-      if (_communesAlger.contains(potentialCommune)) {
-        _selectedCommune = potentialCommune;
-        // Join the rest back in case the street details also had hyphens
-        _streetDetailsController.text = parts.sublist(1).join(' - ');
-      } else {
-        // Fallback if commune logic changed
-        _streetDetailsController.text = p.address;
-      }
+    // ⚡ FIX: Use the 'commune' field directly
+    if (_communesAlger.contains(p.commune)) {
+      _selectedCommune = p.commune;
     } else {
-      if (_communesAlger.contains(p.address)) {
-        _selectedCommune = p.address;
-      } else {
-        _streetDetailsController.text = p.address;
-      }
+      _selectedCommune = null;
     }
 
-    // Recover Service Type
+    // Extract street details
+    if (p.address.startsWith(p.commune)) {
+      String details = p.address.substring(p.commune.length).trim();
+      if (details.startsWith('- ')) {
+        details = details.substring(2).trim();
+      } else if (details.startsWith('-')) {
+        details = details.substring(1).trim();
+      }
+      _streetDetailsController.text = details;
+    } else {
+      _streetDetailsController.text = p.address;
+    }
+
     if (_serviceTypes.contains(p.serviceType)) {
       _selectedServiceType = p.serviceType;
     } else {
@@ -144,7 +139,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
       _otherServiceController.text = p.serviceType;
     }
 
-    // Recover Media
     _existingPhotoUrls = List.from(p.photoUrls);
     _existingVideoUrls = List.from(p.videoUrls);
   }
@@ -165,14 +159,11 @@ class _AddProspectPageState extends State<AddProspectPage> {
   // --- ☁️ B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final response =
-      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
-      if (response.statusCode == 200) {
-        return json.decode(response.body) as Map<String, dynamic>;
-      } else {
-        debugPrint('Failed to get B2 credentials: ${response.body}');
-        return null;
-      }
+      final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('getB2UploadUrl')
+          .call();
+
+      return Map<String, dynamic>.from(result.data as Map);
     } catch (e) {
       debugPrint('Error calling Cloud Function: $e');
       return null;
@@ -342,7 +333,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
         _buildSectionTitle("📷 Photos & Médias"),
         const SizedBox(height: 10),
 
-        // ✅ Existing Media (Edit Mode)
         if (_existingPhotoUrls.isNotEmpty || _existingVideoUrls.isNotEmpty) ...[
           const Text('Médias existants (sur le serveur) :',
               style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
@@ -360,7 +350,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
           const Divider(),
         ],
 
-        // New Media Actions
         Row(
           children: [
             Expanded(
@@ -399,7 +388,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
         ),
         const SizedBox(height: 12),
 
-        // Local Files List
         if (_localFilesToUpload.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(8),
@@ -515,14 +503,37 @@ class _AddProspectPageState extends State<AddProspectPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("Utilisateur non connecté");
 
-      // ✅ Use existing ID if editing, otherwise generate new
       final prospectId = widget.prospectToEdit?.id ?? const Uuid().v4();
 
-      // ✅ Start with existing URLs
+      // ⚡ IMPROVEMENT: Fetch Author Name (for Ranking)
+      String authorName = 'Commercial';
+
+      if (widget.prospectToEdit != null) {
+        // Keep original author if editing
+        authorName = widget.prospectToEdit!.authorName;
+      } else {
+        // Fetch User's name from Firestore for new prospects
+        try {
+          final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+          if (userDoc.exists) {
+            final data = userDoc.data()!;
+            // ⚡ FIX: Use 'fullName' as requested
+            if (data.containsKey('fullName')) {
+              authorName = data['fullName'];
+            } else if (data.containsKey('name')) {
+              // Fallback just in case
+              authorName = data['name'];
+            }
+          }
+        } catch (e) {
+          debugPrint('Could not fetch user name: $e');
+        }
+      }
+
       List<String> photoUrls = List.from(_existingPhotoUrls);
       List<String> videoUrls = List.from(_existingVideoUrls);
 
-      // 1. Upload New Media
+      // 1. Upload New Media (Parallel Uploads)
       if (_localFilesToUpload.isNotEmpty) {
         final b2Credentials = await _getB2UploadCredentials();
         if (b2Credentials == null) {
@@ -530,28 +541,34 @@ class _AddProspectPageState extends State<AddProspectPage> {
               'Impossible de récupérer les accès B2 pour le téléchargement.');
         }
 
-        for (var file in _localFilesToUpload) {
+        final uploadTasks = _localFilesToUpload.map((file) async {
           final url = await _uploadFileToB2(file, b2Credentials);
           if (url != null) {
             final ext = path.extension(file.path).toLowerCase();
-            if (['.jpg', '.jpeg', '.png'].contains(ext)) {
-              photoUrls.add(url);
+            final isImage = ['.jpg', '.jpeg', '.png'].contains(ext);
+            return MapEntry(isImage ? 'photo' : 'video', url);
+          }
+          return null;
+        });
+
+        final results = await Future.wait(uploadTasks);
+
+        for (var result in results) {
+          if (result != null) {
+            if (result.key == 'photo') {
+              photoUrls.add(result.value);
             } else {
-              videoUrls.add(url);
+              videoUrls.add(result.value);
             }
-          } else {
-            debugPrint('Failed to upload file: ${file.path}');
           }
         }
       }
 
-      // Format Address
       String fullAddress = _selectedCommune!;
       if (_streetDetailsController.text.isNotEmpty) {
         fullAddress += ' - ${_streetDetailsController.text.trim()}';
       }
 
-      // Determine Service Type
       String finalServiceType = _selectedServiceType!;
       if (_selectedServiceType == 'Autre') {
         if (_otherServiceController.text.trim().isEmpty) {
@@ -560,7 +577,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
         finalServiceType = _otherServiceController.text.trim();
       }
 
-      // 2. Create Prospect Object
       final newProspect = Prospect(
         id: prospectId,
         companyName: _companyNameController.text.trim(),
@@ -569,17 +585,19 @@ class _AddProspectPageState extends State<AddProspectPage> {
         serviceType: finalServiceType,
         phoneNumber: _phoneController.text.trim(),
         email: _emailController.text.trim(),
+        commune: _selectedCommune!,
         address: fullAddress,
         latitude: _currentPosition?.latitude ?? widget.prospectToEdit?.latitude,
         longitude: _currentPosition?.longitude ?? widget.prospectToEdit?.longitude,
         photoUrls: photoUrls,
         videoUrls: videoUrls,
         notes: _notesController.text.trim(),
-        createdAt: widget.prospectToEdit?.createdAt ?? DateTime.now(), // ✅ Keep original date
+        createdAt: widget.prospectToEdit?.createdAt ?? DateTime.now(),
         createdBy: widget.prospectToEdit?.createdBy ?? user.uid,
+        authorName: authorName, // ⚡ Saving the fetched name!
       );
 
-      // 3. Save to Firestore (Set with merge covers both create and update)
+      // 3. Save to Firestore
       await FirebaseFirestore.instance
           .collection('prospects')
           .doc(prospectId)
@@ -590,11 +608,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
           SnackBar(content: Text(widget.prospectToEdit != null ? "Prospect mis à jour !" : "Prospect enregistré !")),
         );
         Navigator.pop(context);
-        // If we were in details page, this pop goes back to it.
-        // Note: The details page might need to be refreshed or simply navigating back is enough if it listens to streams.
-        // If it was pushed from Dashboard -> Add, it goes back to Dashboard.
-        // If it was Dashboard -> Details -> Edit, we might need to pop twice or handle the update in Details page.
-        // Usually, simply popping returns to the previous screen. The stream in dashboard updates automatically.
       }
     } catch (e) {
       if (mounted) _showError("Erreur lors de l'enregistrement: $e");
@@ -629,7 +642,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- 1. IDENTITÉ ---
               _buildSectionTitle("🏢 Identité"),
               const SizedBox(height: 10),
               TextFormField(
@@ -643,7 +655,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
               ),
               const SizedBox(height: 10),
 
-              // Service Type Dropdown
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(
                   labelText: "Type d'activité*",
@@ -698,7 +709,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
 
               const SizedBox(height: 25),
 
-              // --- 2. CONTACT & LOCALISATION ---
               _buildSectionTitle("📍 Contact & Localisation"),
               const SizedBox(height: 10),
               TextFormField(
@@ -723,7 +733,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
               ),
 
               const SizedBox(height: 15),
-              // Commune Dropdown
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(
                   labelText: "Commune (Wilaya d'Alger)*",
@@ -739,7 +748,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
               ),
 
               const SizedBox(height: 10),
-              // Street Details
               TextFormField(
                 controller: _streetDetailsController,
                 decoration: const InputDecoration(
@@ -751,7 +759,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
 
               const SizedBox(height: 10),
 
-              // GPS BUTTON
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -792,7 +799,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
 
               const SizedBox(height: 25),
 
-              // --- 3. PHOTOS & NOTES ---
               TextFormField(
                 controller: _notesController,
                 maxLines: 4,
@@ -804,7 +810,6 @@ class _AddProspectPageState extends State<AddProspectPage> {
               ),
               const SizedBox(height: 15),
 
-              // MEDIA SECTION
               _buildMediaSection(),
 
               const SizedBox(height: 30),
