@@ -95,6 +95,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   bool _isGeneratingDiagnostic = false;
   bool _isGeneratingWorkDone = false;
 
+  // ✅ NEW: Store GPS Coordinates
+  double? _storeLat;
+  double? _storeLng;
+  bool _isLoadingGps = false;
+
   // Backblaze B2 helper function endpoint
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
@@ -194,6 +199,62 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     // Check history for auto-suggestion if list is empty
     if (_selectedSystems.isEmpty) {
       _checkForPreviousSystem();
+    }
+
+    // ✅ NEW: Fetch Store GPS Coordinates
+    _fetchStoreCoordinates();
+  }
+
+  // ✅ NEW: Fetch Store GPS Logic
+  Future<void> _fetchStoreCoordinates() async {
+    final data = widget.interventionDoc.data();
+    if (data == null) return;
+
+    final String? clientId = data['clientId'];
+    final String? storeId = data['storeId'];
+
+    if (clientId != null && storeId != null) {
+      setState(() => _isLoadingGps = true);
+      try {
+        final storeDoc = await FirebaseFirestore.instance
+            .collection('clients')
+            .doc(clientId)
+            .collection('stores')
+            .doc(storeId)
+            .get();
+
+        if (storeDoc.exists) {
+          final storeData = storeDoc.data();
+          if (storeData != null && storeData['latitude'] != null && storeData['longitude'] != null) {
+            setState(() {
+              _storeLat = (storeData['latitude'] as num).toDouble();
+              _storeLng = (storeData['longitude'] as num).toDouble();
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint("Error fetching store GPS: $e");
+      } finally {
+        if (mounted) setState(() => _isLoadingGps = false);
+      }
+    }
+  }
+
+  // ✅ NEW: Launch Maps Logic (FIXED VARIABLE NAMES)
+  Future<void> _launchMaps() async {
+    if (_storeLat == null || _storeLng == null) return;
+
+    // Use _storeLat and _storeLng instead of lat/lng
+    final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$_storeLat,$_storeLng");
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Impossible d'ouvrir la carte.")),
+        );
+      }
     }
   }
 
@@ -1378,14 +1439,36 @@ L'équipe BOITEX INFO'''
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Demandé par ${data['createdByName'] ?? 'Inconnu'}',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Client: ${data['clientName'] ?? 'N/A'} - Magasin: ${data['storeName'] ?? 'N/A'}',
-              style: const TextStyle(color: Colors.black54),
+            // ✅ ROW WITH TITLE AND GPS BUTTON
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Demandé par ${data['createdByName'] ?? 'Inconnu'}',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Client: ${data['clientName'] ?? 'N/A'} - Magasin: ${data['storeName'] ?? 'N/A'}',
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+                // GPS Button Logic
+                if (_storeLat != null && _storeLng != null)
+                  IconButton(
+                    icon: const Icon(Icons.directions, color: Color(0xFF667EEA), size: 32),
+                    tooltip: "Y aller (GPS)",
+                    onPressed: _launchMaps,
+                  )
+                else if (_isLoadingGps)
+                  const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
