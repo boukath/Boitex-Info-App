@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/mission.dart';
 import 'package:boitex_info_app/screens/administration/add_mission_page.dart';
 import 'package:boitex_info_app/screens/administration/mission_details_page.dart';
+// ✅ ADDED: Import for Mission History Page
+import 'package:boitex_info_app/screens/administration/mission_history_list_page.dart';
 
 class ManageMissionsPage extends StatefulWidget {
   final String? serviceType;
@@ -67,6 +69,25 @@ class _ManageMissionsPageState extends State<ManageMissionsPage> {
             ),
           ),
         ),
+        // ✅ ADDED: History Action Button
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history_rounded),
+            tooltip: "Historique des Missions",
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MissionHistoryListPage(
+                    // ✅ FIXED: Provide a default value if widget.serviceType is null
+                    serviceType: widget.serviceType ?? 'Service Technique',
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: _missionsStream,

@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/service_technique/add_intervention_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
+// ✅ CHANGED: Import the specific Clients History Page instead of General History
+import 'package:boitex_info_app/screens/service_technique/intervention_history_clients_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
@@ -16,7 +18,7 @@ class InterventionListPage extends StatefulWidget {
   });
 
   @override
-  State createState() => _InterventionListPageState();
+  State<InterventionListPage> createState() => _InterventionListPageState();
 }
 
 class _InterventionListPageState extends State<InterventionListPage> {
@@ -190,6 +192,24 @@ class _InterventionListPageState extends State<InterventionListPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Interventions - $serviceType'),
+        // ✅ HISTORY ACTION BUTTON
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history_rounded),
+            tooltip: "Historique Clients",
+            onPressed: () {
+              // ✅ CHANGED: Navigates directly to Clients History Page
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => InterventionHistoryClientsPage(
+                    serviceType: serviceType,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: query.snapshots(),

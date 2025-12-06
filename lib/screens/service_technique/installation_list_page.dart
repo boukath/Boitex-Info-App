@@ -8,6 +8,8 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 
 // Import for the edit page
 import 'package:boitex_info_app/screens/service_technique/add_installation_page.dart';
+// ✅ ADDED: Import for Installation History Page
+import 'package:boitex_info_app/screens/service_technique/installation_history_list_page.dart';
 
 class InstallationListPage extends StatelessWidget {
   final String userRole;
@@ -114,6 +116,24 @@ class InstallationListPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text('Installations $serviceType'),
+        // ✅ ADDED: History Action Button
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history_rounded),
+            tooltip: "Historique Installations",
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => InstallationHistoryListPage(
+                    serviceType: serviceType,
+                    userRole: userRole,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance

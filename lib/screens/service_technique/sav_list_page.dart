@@ -8,6 +8,8 @@ import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_pag
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/utils/user_roles.dart'; // Import for role check
 import 'package:firebase_auth/firebase_auth.dart'; // Import for current user
+// ✅ ADDED: Import for SAV History Page
+import 'package:boitex_info_app/screens/service_technique/sav_ticket_history_page.dart';
 
 // ✅ MODIFIED: Converted to StatefulWidget to fetch user role
 class SavListPage extends StatefulWidget {
@@ -164,6 +166,23 @@ class _SavListPageState extends State<SavListPage> {
       appBar: AppBar(
         title: Text('Tickets SAV - ${widget.serviceType}'),
         backgroundColor: Colors.orange,
+        // ✅ ADDED: History Action Button
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history_rounded),
+            tooltip: "Historique SAV",
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => SavTicketHistoryPage(
+                    serviceType: widget.serviceType,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
