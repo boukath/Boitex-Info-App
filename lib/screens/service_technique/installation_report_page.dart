@@ -1,0 +1,1021 @@
+// lib/screens/service_technique/installation_report_page.dart
+
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:signature/signature.dart';
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+import 'package:boitex_info_app/widgets/video_player_page.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+// Imports for B2 Upload
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+
+import 'package:video_thumbnail/video_thumbnail.dart';
+
+// Imports for product search & scan
+import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
+import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
+
+class InstallationReportPage extends StatefulWidget {
+  final String installationId;
+  const InstallationReportPage({super.key, required this.installationId});
+
+  @override
+  State<InstallationReportPage> createState() => _InstallationReportPageState();
+}
+
+class _InstallationReportPageState extends State<InstallationReportPage> {
+  DocumentSnapshot? _installationDoc;
+  bool _isLoadingData = true;
+  bool _isSaving = false;
+
+  final _notesController = TextEditingController();
+  final _emailController = TextEditingController();
+  // ✅ ADDED: Controller for the person on site
+  final _signatoryNameController = TextEditingController();
+
+  final ImagePicker _picker = ImagePicker();
+  List<XFile> _mediaFilesToUpload = [];
+  List<String> _existingMediaUrls = [];
+
+  // Fulfillment State
+  List<Map<String, dynamic>> _installedSystems = [];
+
+  final SignatureController _signatureController = SignatureController(
+    penStrokeWidth: 2,
+    penColor: Colors.black,
+    exportBackgroundColor: Colors.white,
+  );
+
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+
+  // File size limit (50MB in bytes)
+  static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchInstallationDetails();
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    _emailController.dispose();
+    // ✅ ADDED: Dispose name controller
+    _signatoryNameController.dispose();
+    _signatureController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchInstallationDetails() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationId)
+          .get();
+
+      if (snapshot.exists) {
+        final data = snapshot.data() as Map<String, dynamic>;
+
+        List<Map<String, dynamic>> initialSystems = [];
+
+        // ✅ LOGIC: Load existing work OR pre-fill from Order
+        if (data['systems'] != null && (data['systems'] as List).isNotEmpty) {
+          // 1. If we already saved work, load it
+          initialSystems = List<Map<String, dynamic>>.from(data['systems']);
+        } else if (data['orderedProducts'] != null) {
+          // 2. If new report, pre-fill with Ordered Products
+          final orders = List<Map<String, dynamic>>.from(data['orderedProducts']);
+
+          initialSystems = orders.map((o) {
+            final int qty = o['quantity'] is int ? o['quantity'] : int.tryParse(o['quantity'].toString()) ?? 1;
+            return {
+              'id': o['productId'] ?? o['id'] ?? '',
+              'name': o['productName'] ?? o['name'] ?? 'Produit Inconnu',
+              'reference': o['reference'] ?? 'N/A',
+              'marque': o['brand'] ?? o['marque'] ?? 'N/A',
+              'category': o['category'] ?? 'N/A',
+              'image': o['imageUrl'] ?? o['image'],
+              'quantity': qty,
+              // Initialize empty serial number slots
+              'serialNumbers': List<String>.filled(qty, ''),
+            };
+          }).toList();
+        }
+
+        setState(() {
+          _installationDoc = snapshot;
+          _notesController.text = data['notes'] ?? '';
+          _emailController.text = data['clientEmail'] ?? '';
+          // ✅ ADDED: Load existing contact name if available
+          _signatoryNameController.text = data['signatoryName'] ?? data['contactName'] ?? '';
+          _existingMediaUrls =
+          List<String>.from(data['mediaUrls'] ?? data['photoUrls'] ?? []);
+          _installedSystems = initialSystems;
+          _isLoadingData = false;
+        });
+      } else {
+        setState(() => _isLoadingData = false);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Installation non trouvée.')));
+      }
+    } catch (e) {
+      setState(() => _isLoadingData = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // SECTION: PRODUCT & SERIAL NUMBER LOGIC
+  // ------------------------------------------------------------------------
+
+  Future<int> _requestQuantity() async {
+    int qty = 1;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Quantité Installée"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Combien d'unités avez-vous installé ?"),
+            const SizedBox(height: 16),
+            TextFormField(
+              autofocus: true,
+              initialValue: "1",
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF667EEA)),
+              decoration: InputDecoration(
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              onChanged: (v) => qty = int.tryParse(v) ?? 1,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK")),
+        ],
+      ),
+    );
+    return qty > 0 ? qty : 1;
+  }
+
+  Future<void> _addProduct(bool isScan) async {
+    Map<String, dynamic>? productData;
+    String? productId;
+
+    if (isScan) {
+      final code = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
+      if (code == null) return;
+
+      // Fetch by reference
+      final query = await FirebaseFirestore.instance.collection('produits').where('reference', isEqualTo: code).limit(1).get();
+      if (query.docs.isNotEmpty) {
+        productData = query.docs.first.data();
+        productId = query.docs.first.id;
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Produit introuvable: $code")));
+        return;
+      }
+    } else {
+      final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const GlobalProductSearchPage(isSelectionMode: true)));
+      if (result != null && result is DocumentSnapshot) {
+        productData = result.data() as Map<String, dynamic>;
+        productId = result.id;
+      }
+    }
+
+    if (productData != null && mounted) {
+      int qty = await _requestQuantity();
+      final images = (productData['imageUrls'] as List?)?.cast<String>() ?? [];
+
+      setState(() {
+        _installedSystems.add({
+          'id': productId,
+          'name': productData!['nom'] ?? 'Produit',
+          'reference': productData['reference'] ?? 'N/A',
+          'marque': productData['marque'],
+          'category': productData['categorie'],
+          'image': images.isNotEmpty ? images.first : null,
+          'quantity': qty,
+          'serialNumbers': List<String>.filled(qty, ''),
+        });
+      });
+    }
+  }
+
+  Future<void> _manageSerialNumbers(int index) async {
+    final system = _installedSystems[index];
+    final int qty = system['quantity'] ?? 1;
+    List<String> currentSerials = List.from(system['serialNumbers'] ?? List.filled(qty, ''));
+
+    // Adjust list size if quantity changed
+    if (currentSerials.length != qty) {
+      if (currentSerials.length < qty) {
+        currentSerials.addAll(List.filled(qty - currentSerials.length, ''));
+      } else {
+        currentSerials = currentSerials.sublist(0, qty);
+      }
+    }
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (context, setStateDialog) {
+          return AlertDialog(
+            title: Text("S/N (${system['name']})"),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 300,
+              child: Column(
+                children: [
+                  const Text("Saisissez ou scannez les numéros de série.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: qty,
+                      itemBuilder: (context, i) {
+                        final controller = TextEditingController(text: currentSerials[i]);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Row(
+                            children: [
+                              Text("#${i + 1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: controller,
+                                  decoration: InputDecoration(
+                                    hintText: "Écrire ou Scan S/N",
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    suffixIcon: IconButton(
+                                      icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF667EEA)),
+                                      onPressed: () async {
+                                        final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
+                                        if (scanned != null) {
+                                          setStateDialog(() {
+                                            currentSerials[i] = scanned;
+                                            controller.text = scanned;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  onChanged: (val) => currentSerials[i] = val,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() => _installedSystems[index]['serialNumbers'] = currentSerials);
+                  Navigator.pop(ctx);
+                },
+                child: const Text("Valider"),
+              ),
+            ],
+          );
+        });
+      },
+    );
+  }
+
+  // Pick media with file size check
+  Future<void> _pickMedia() async {
+    final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
+    if (pickedFiles.isEmpty) return;
+
+    final List<XFile> validFiles = [];
+    final List<String> rejectedFiles = [];
+
+    for (final file in pickedFiles) {
+      final int fileSize = await file.length();
+      final bool isVideo = _isVideoUrl(file.name);
+
+      if (isVideo && fileSize > _maxFileSizeInBytes) {
+        rejectedFiles.add(
+          '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
+        );
+      } else {
+        validFiles.add(file);
+      }
+    }
+
+    if (validFiles.isNotEmpty) {
+      setState(() => _mediaFilesToUpload.addAll(validFiles));
+    }
+
+    if (rejectedFiles.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 5),
+          content: Text(
+            'Fichiers suivants non ajoutés (limite 50 Mo):\n${rejectedFiles.join('\n')}',
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+  }
+
+  // --- B2 UPLOAD LOGIC (Unchanged) ---
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response =
+      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        print('Failed to get B2 credentials: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error calling Cloud Function: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _uploadFileToB2(
+      XFile file, Map<String, dynamic> b2Credentials) async {
+    try {
+      final fileBytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+      final String fileName = file.name.split('/').last;
+
+      final response = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Credentials['authorizationToken'],
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': file.mimeType ?? 'b2/x-auto',
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (response.statusCode == 200) {
+        final responseBody = json.decode(response.body);
+        return b2Credentials['downloadUrlPrefix'] +
+            (responseBody['fileName'] as String)
+                .split('/')
+                .map(Uri.encodeComponent)
+                .join('/');
+      } else {
+        print('Failed to upload to B2: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+  // --- END B2 UPLOAD ---
+
+  Future<void> _saveReport() async {
+    if (_isSaving) return;
+
+    // ✅ CHECK 1: Ensure products exist
+    if (_installedSystems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez ajouter au moins un équipement installé."), backgroundColor: Colors.red));
+      return;
+    }
+
+    // ✅ CHECK 2: MANDATORY NAME VALIDATION
+    if (_signatoryNameController.text.trim().isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nom Requis'),
+          content: const Text(
+              'Veuillez indiquer le nom de la personne responsable (signataire) sur site.'
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // ✅ CHECK 3: MANDATORY EMAIL VALIDATION
+    if (_emailController.text.trim().isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Email Obligatoire'),
+          content: const Text(
+              'L\'email du client est requis pour l\'envoi automatique du rapport PDF.\n\nVeuillez demander l\'email au responsable sur site.'
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('OK, je vais le remplir'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // ✅ CHECK 4: Simple Regex for Email Format
+    if (!_emailController.text.contains('@') || !_emailController.text.contains('.')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Format d'email invalide."), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final signatureBytes = await _signatureController.toPngBytes();
+      String? signatureUrl;
+
+      // 1. Upload Signature
+      if (signatureBytes != null) {
+        final storageRef = FirebaseStorage.instance.ref().child(
+            'signatures/installations/${widget.installationId}_${DateTime.now().millisecondsSinceEpoch}.png');
+        final uploadTask = storageRef.putData(signatureBytes);
+        final snapshot = await uploadTask.whenComplete(() => {});
+        signatureUrl = await snapshot.ref.getDownloadURL();
+      }
+
+      // 2. Upload Media to Backblaze B2
+      List<String> uploadedMediaUrls = List.from(_existingMediaUrls);
+      for (XFile file in _mediaFilesToUpload) {
+        final b2Credentials = await _getB2UploadCredentials();
+        if (b2Credentials == null) {
+          throw Exception('Could not get B2 upload credentials.');
+        }
+        final downloadUrl = await _uploadFileToB2(file, b2Credentials);
+        if (downloadUrl != null) {
+          uploadedMediaUrls.add(downloadUrl);
+        } else {
+          print('Skipping file due to upload failure: ${file.name}');
+        }
+      }
+
+      // 3. Update Firestore Document
+      await FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationId)
+          .update({
+        'status': 'Terminée',
+        'notes': _notesController.text,
+        'clientEmail': _emailController.text.trim(),
+        'signatoryName': _signatoryNameController.text.trim(), // ✅ Saved specific to this report
+        'contactName': _signatoryNameController.text.trim(), // ✅ Update main contact for email template
+        'signatureUrl': signatureUrl,
+        'mediaUrls': uploadedMediaUrls,
+        'photoUrls': FieldValue.delete(),
+        'systems': _installedSystems,
+        'completedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Rapport enregistré et inventaire mis à jour !')));
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoadingData) {
+      return Scaffold(
+          appBar: AppBar(title: const Text('Rapport d\'Installation')),
+          body: const Center(child: CircularProgressIndicator()));
+    }
+
+    final data = _installationDoc?.data() as Map<String, dynamic>?;
+    final clientName = data?['clientName'] ?? 'N/A';
+    final storeName = data?['storeName'] ?? 'N/A';
+    final bool isReadOnly = data?['status'] == 'Terminée';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Rapport d\'Installation'),
+        backgroundColor: const Color(0xFF667EEA),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(clientName,
+                style: Theme.of(context).textTheme.headlineSmall),
+            Text(storeName, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 24),
+
+            // ✅ FULFILLMENT UI (Includes pre-filled Ordered Products)
+            _buildSystemsList(isReadOnly),
+
+            const SizedBox(height: 24),
+            TextField(
+              controller: _notesController,
+              readOnly: isReadOnly,
+              decoration: const InputDecoration(
+                labelText: 'Notes d\'installation',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 5,
+            ),
+            const SizedBox(height: 24),
+
+            _buildMediaSection(isReadOnly),
+
+            const SizedBox(height: 24),
+
+            // ✅ NEW: Name Field (Person on site)
+            TextField(
+              controller: _signatoryNameController,
+              readOnly: isReadOnly,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: 'Nom du Responsable / Signataire *',
+                hintText: 'Personne présente sur site',
+                prefixIcon: const Icon(Icons.person_pin_circle_outlined, color: Colors.blue),
+                border: const OutlineInputBorder(),
+                enabledBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue, width: 1.5),
+                ),
+                suffixIcon: isReadOnly
+                    ? null
+                    : const Tooltip(
+                  message: "Le nom de la personne qui signe le rapport.",
+                  child: Icon(Icons.info_outline, color: Colors.orange),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ✅ EMAIL FIELD UI - Updated Decoration
+            TextField(
+              controller: _emailController,
+              readOnly: isReadOnly,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                labelText: 'Email du Client * (Obligatoire)',
+                hintText: 'Pour l\'envoi automatique du PDF',
+                prefixIcon: const Icon(Icons.email, color: Colors.blue),
+                border: const OutlineInputBorder(),
+                enabledBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue, width: 1.5),
+                ),
+                suffixIcon: isReadOnly
+                    ? null
+                    : const Tooltip(
+                  message: "Ce champ est requis pour envoyer le rapport.",
+                  child: Icon(Icons.info_outline, color: Colors.orange),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Signature du Client',
+                    style:
+                    TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                if (!isReadOnly)
+                  TextButton(
+                      child: const Text('Effacer'),
+                      onPressed: () => _signatureController.clear())
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            _buildSignatureSection(isReadOnly, data?['signatureUrl']),
+
+            const SizedBox(height: 32),
+            if (_isSaving)
+              const Center(child: CircularProgressIndicator())
+            else if (!isReadOnly)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _saveReport,
+                  icon: const Icon(Icons.check_circle),
+                  label: const Text('Terminer l\'Installation'),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ SYSTEMS LIST UI (Handles Adding/Removing/Scanning)
+  Widget _buildSystemsList(bool isReadOnly) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("Matériel Installé (Vérification)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            if (!isReadOnly)
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.qr_code_scanner, color: Colors.black87),
+                    onPressed: () => _addProduct(true),
+                    tooltip: "Scanner produit",
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.search, color: Color(0xFF667EEA)),
+                    onPressed: () => _addProduct(false),
+                    tooltip: "Chercher catalogue",
+                  ),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_installedSystems.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade100),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.inventory_2_outlined, size: 40, color: Colors.blue),
+                const SizedBox(height: 8),
+                const Text("Liste vide.", style: TextStyle(color: Colors.blue)),
+                if (!isReadOnly)
+                  const Text("Ajoutez des produits ou vérifiez la commande.", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          )
+        else
+          ..._installedSystems.asMap().entries.map((entry) {
+            final index = entry.key;
+            final system = entry.value;
+            final qty = system['quantity'];
+            final serials = (system['serialNumbers'] as List).where((s) => s.toString().isNotEmpty).length;
+            final isComplete = serials == qty;
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                leading: CircleAvatar(
+                  backgroundColor: isComplete ? Colors.green.shade100 : Colors.orange.shade100,
+                  child: Icon(isComplete ? Icons.check : Icons.qr_code, color: isComplete ? Colors.green : Colors.orange),
+                ),
+                title: Text(system['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Reference: ${system['reference'] ?? 'N/A'}"),
+                    const SizedBox(height: 4),
+                    Text("Qté: $qty | S/N Scannés: $serials/$qty", style: TextStyle(color: isComplete ? Colors.green : Colors.black87)),
+                    if (!isComplete)
+                      const Text("Touchez pour scanner les S/N", style: TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                // ✅ Permission to remove material
+                trailing: isReadOnly ? null : IconButton(icon: const Icon(Icons.delete, color: Colors.grey), onPressed: () => setState(() => _installedSystems.removeAt(index))),
+                // ✅ Permission to check/scan material
+                onTap: isReadOnly ? null : () => _manageSerialNumbers(index),
+              ),
+            );
+          }).toList(),
+      ],
+    );
+  }
+
+  // --- START: MEDIA SECTION WIDGETS ---
+
+  Widget _buildMediaSection(bool isReadOnly) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Photos & Vidéos',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
+          const Text('Aucun fichier ajouté.',
+              style: TextStyle(color: Colors.grey)),
+
+        // Existing media
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: _existingMediaUrls
+              .asMap()
+              .map((index, url) => MapEntry(
+            index,
+            _buildMediaThumbnail(
+              url: url,
+              isReadOnly: isReadOnly,
+              onTap: () => _openMedia(url),
+            ),
+          ))
+              .values
+              .toList(),
+        ),
+
+        // New media
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: _mediaFilesToUpload
+              .map((file) => _buildMediaThumbnail(
+            file: file,
+            isReadOnly: isReadOnly,
+          ))
+              .toList(),
+        ),
+
+        const SizedBox(height: 16),
+        if (!isReadOnly)
+          Center(
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.add_a_photo),
+              label: const Text('Ajouter Photos/Vidéos'),
+              onPressed: _pickMedia,
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Helper to check for video extensions
+  bool _isVideoUrl(String path) {
+    final lowercasePath = path.toLowerCase();
+    return lowercasePath.endsWith('.mp4') ||
+        lowercasePath.endsWith('.mov') ||
+        lowercasePath.endsWith('.avi') ||
+        lowercasePath.endsWith('.mkv');
+  }
+
+  // Open the correct media player
+  void _openMedia(String url) {
+    if (_isVideoUrl(url)) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => VideoPlayerPage(videoUrl: url),
+        ),
+      );
+    } else {
+      final List<String> imageLinks =
+      _existingMediaUrls.where((link) => !_isVideoUrl(link)).toList();
+      final int initialIndex = imageLinks.indexOf(url);
+      if (imageLinks.isEmpty) return;
+
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ImageGalleryPage(
+            imageUrls: imageLinks,
+            initialIndex: (initialIndex != -1) ? initialIndex : 0,
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget _buildMediaThumbnail({
+    String? url,
+    XFile? file,
+    required bool isReadOnly,
+    VoidCallback? onTap,
+  }) {
+    bool isVideo = (url != null && _isVideoUrl(url)) || (file != null && _isVideoUrl(file.path));
+    Widget mediaContent;
+
+    if (file != null) {
+      if (isVideo) {
+        mediaContent = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(
+            video: file.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 100,
+            quality: 30,
+          ),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasData && snapshot.data != null) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(11),
+                child: Image.memory(
+                  snapshot.data!,
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                ),
+              );
+            }
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+          },
+        );
+      } else {
+        mediaContent = ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Image.file(File(file.path),
+              width: 100, height: 100, fit: BoxFit.cover),
+        );
+      }
+    } else if (url != null && url.isNotEmpty) {
+      if (isVideo) {
+        mediaContent = FutureBuilder<Uint8List?>(
+          future: VideoThumbnail.thumbnailData(
+            video: url,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 100,
+            quality: 30,
+          ),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasData && snapshot.data != null) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(11),
+                child: Image.memory(
+                  snapshot.data!,
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                ),
+              );
+            }
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+          },
+        );
+      } else {
+        mediaContent = Hero(
+          tag: url,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(11),
+            child: Image.network(
+              url,
+              width: 100,
+              height: 100,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progress) =>
+              progress == null
+                  ? child
+                  : const Center(child: CircularProgressIndicator()),
+              errorBuilder: (context, error, stackTrace) =>
+              const Icon(Icons.broken_image, color: Colors.grey),
+            ),
+          ),
+        );
+      }
+    } else {
+      mediaContent = const Icon(Icons.image_not_supported, color: Colors.grey);
+    }
+
+    return GestureDetector(
+      onTap: (onTap != null)
+          ? onTap
+          : () {
+        if (file != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text(
+                    'Veuillez d\'abord enregistrer pour voir ce fichier.')),
+          );
+        }
+      },
+      child: Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
+          color: Colors.grey.shade200,
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            mediaContent,
+            if (!isReadOnly && file != null)
+              Positioned(
+                top: -10,
+                right: -10,
+                child: IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.redAccent),
+                  onPressed: () {
+                    setState(() {
+                      _mediaFilesToUpload.remove(file);
+                    });
+                  },
+                ),
+              ),
+            if (!isReadOnly && url != null)
+              Positioned(
+                top: -10,
+                right: -10,
+                child: IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.redAccent),
+                  onPressed: () {
+                    setState(() {
+                      _existingMediaUrls.remove(url);
+                    });
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSignatureSection(bool isReadOnly, String? signatureUrl) {
+    if (isReadOnly && signatureUrl != null) {
+      return Container(
+        height: 150,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade400),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Center(
+          child: Image.network(
+            signatureUrl,
+            loadingBuilder: (context, child, progress) => progress == null
+                ? child
+                : const Center(child: CircularProgressIndicator()),
+            errorBuilder: (context, error, stackTrace) =>
+            const Text('Impossible de charger la signature'),
+          ),
+        ),
+      );
+    } else {
+      return Container(
+        height: 150,
+        decoration:
+        BoxDecoration(border: Border.all(color: Colors.grey.shade400)),
+        child: Signature(
+            controller: _signatureController,
+            backgroundColor: Colors.grey[200]!),
+      );
+    }
+  }
+}

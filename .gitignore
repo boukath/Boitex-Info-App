@@ -1,0 +1,74 @@
+# -----------------------
+# 🔑 SECURITY & SECRETS (DO NOT REMOVE)
+# -----------------------
+# Firebase Admin Key
+service-account-key.json
+
+# Automation Script (Contains B2 Keys)
+publish_update.js
+
+# Android Signing Keys & Config
+**/android/key.properties
+**/*.keystore
+**/*.jks
+
+# Local configuration
+**/android/local.properties
+
+# -----------------------
+# 📦 BUILD ARTIFACTS
+# -----------------------
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+
+# Android
+**/android/.gradle/
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/**/GeneratedPluginRegistrant.java
+**/android/app/release/
+
+# iOS / macOS
+**/ios/.generated/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Pods/
+**/macos/Pods/
+**/ios/.symlinks/
+**/macos/.symlinks/
+**/ios/Flutter/.last_build_id
+
+# Windows / Linux
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/generated_plugins.cmake
+**/linux/flutter/generated_plugin_registrant.cc
+**/linux/flutter/generated_plugin_registrant.h
+**/linux/flutter/generated_plugins.cmake
+
+# -----------------------
+# 🔧 IDE & MISC
+# -----------------------
+.idea/
+.vscode/
+*.iml
+*.class
+*.log
+*.lock
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.history
+.svn/
+.buildlog/
+migrate_working_dir/
+
+# Node.js dependencies (for the automation script)
+node_modules/
+npm-debug.log
