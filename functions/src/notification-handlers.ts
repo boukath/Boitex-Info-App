@@ -1167,3 +1167,58 @@ export const cleanupOldNotifications = onSchedule({
     logger.error("❌ Error running cleanup:", error);
   }
 });
+
+// ------------------------------------------------------------------
+// 14. AUTO-NOTIFY ON APP UPDATE
+// ------------------------------------------------------------------
+// Triggers when 'settings/app_version' is updated (e.g. by your publish script)
+export const notifyUsersOnAppVersionUpdate = onDocumentUpdated(
+  "settings/app_version",
+  async (event) => {
+    // 1. Validation
+    if (!event.data) return;
+    const oldData = event.data.before.data();
+    const newData = event.data.after.data();
+
+    // 2. Check if version actually changed
+    if (oldData.currentVersion === newData.currentVersion) {
+      return; // It was just a minor edit, ignore.
+    }
+
+    const newVersion = newData.currentVersion;
+    const releaseNotes = newData.releaseNotes || "Nouvelles fonctionnalités et corrections.";
+    const isForced = newData.forceUpdate ? "obligatoire" : "disponible";
+
+    console.log(`🚀 Detected new version: ${newVersion}. Sending notification...`);
+
+    // 3. Prepare Notification
+    const message: admin.messaging.Message = {
+      topic: "GLOBAL_ANNOUNCEMENTS", // Sent to everyone
+      notification: {
+        title: `Mise à jour ${newVersion} disponible 🚀`,
+        body: `Une nouvelle version est ${isForced}. ${releaseNotes}`,
+      },
+      data: {
+        type: "app_update",
+        version: newVersion,
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "high_importance_channel",
+          priority: "max",
+          defaultSound: true,
+        },
+      },
+    };
+
+    // 4. Send
+    try {
+      await admin.messaging().send(message);
+      console.log("✅ Update notification sent successfully.");
+    } catch (error) {
+      console.error("❌ Failed to send update notification:", error);
+    }
+  }
+);

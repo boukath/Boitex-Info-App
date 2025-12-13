@@ -33,6 +33,9 @@ import 'package:boitex_info_app/screens/administration/project_details_page.dart
 import 'package:boitex_info_app/screens/administration/replacement_request_details_page.dart';
 import 'package:boitex_info_app/screens/announce/channel_chat_page.dart';
 
+// ✅ IMPORT UPDATE SERVICE
+import 'package:boitex_info_app/services/update_service.dart';
+
 class FirebaseApi {
   final _firebaseMessaging = FirebaseMessaging.instance;
   final _localNotifications = FlutterLocalNotificationsPlugin();
@@ -188,16 +191,28 @@ class FirebaseApi {
       return;
     }
 
-    final String? collection = data['relatedCollection'];
-    final String? docId = data['relatedDocId'];
+    // --------------------------------------------------------
+    // ✅ 1. HANDLE APP UPDATE NOTIFICATION
+    // --------------------------------------------------------
+    if (data['type'] == 'app_update') {
+      print('🚀 App Update Notification Tapped');
+      // Trigger the Update Dialog immediately
+      UpdateService().checkForUpdate(context, showNoUpdateMessage: true);
+      return;
+    }
 
-    // Specific check for morning briefing
+    // --------------------------------------------------------
+    // ✅ 2. HANDLE MORNING BRIEFING
+    // --------------------------------------------------------
     if (data['type'] == 'morning_briefing') {
       // You can add navigation to a specific briefing page here if needed
       // For now, we just print or return
       print('📊 Morning Briefing tapped');
       return;
     }
+
+    final String? collection = data['relatedCollection'];
+    final String? docId = data['relatedDocId'];
 
     if (docId == null || collection == null) return;
 

@@ -48,6 +48,7 @@ export { onSavTicketCreated } from "./sav-handlers";
 export { onSavTicketReturned } from "./sav-return-handlers";
 export { downloadSavPdf } from "./callable-handlers";
 export * from "./callable-handlers";
+export { notifyUsersOnAppVersionUpdate } from "./notification-handlers";
 
 // ------------------------------------------------------------------
 // 3. AI / LLM FEATURES (GROQ)
