@@ -3,18 +3,33 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-// Import product selector dialog
-import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
-// Import selection model used by the dialog
+import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
-// Import the scanner page/dialog
 import 'package:boitex_info_app/widgets/serial_number_scanner_dialog.dart';
+
+// Helper class: Manages each item in the list independently
+class EquipmentBatchItem {
+  final String id; // Unique ID for UI keys
+  final ProductSelection product;
+  final TextEditingController serialController;
+
+  // Rich data (fetched from DB)
+  String? richCategory;
+  String? richReference;
+  String? richImage;
+  String? richMarque;
+
+  EquipmentBatchItem({
+    required this.id,
+    required this.product,
+    String? initialSerial,
+  }) : serialController = TextEditingController(text: initialSerial);
+}
 
 class AddStoreEquipmentPage extends StatefulWidget {
   final String clientId;
   final String storeId;
-  // Optional: For editing existing equipment
-  final String? equipmentId;
+  final String? equipmentId; // Optional: For editing single item
   final Map<String, dynamic>? initialData;
 
   const AddStoreEquipmentPage({
@@ -30,26 +45,16 @@ class AddStoreEquipmentPage extends StatefulWidget {
 }
 
 class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
-  final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   late bool _isEditMode;
 
-  // Form state variables
-  ProductSelection? _selectedProduct;
-  final _serialNumberController = TextEditingController();
+  final List<EquipmentBatchItem> _batchItems = [];
   DateTime? _installationDate;
-
-  // ✅ NEW: Variables to hold rich data fetched from DB
-  String? _richCategory;
-  String? _richReference;
-  String? _richImage;
-  String? _richMarque;
 
   @override
   void initState() {
     super.initState();
     _isEditMode = widget.equipmentId != null;
-    // Default date to today if adding new
     _installationDate = DateTime.now();
 
     if (_isEditMode && widget.initialData != null) {
@@ -57,123 +62,130 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
     }
   }
 
+  // Handle Edit Mode
   void _populateFormForEdit() {
     final data = widget.initialData!;
-
-    // Populate local rich variables from existing data
-    _richCategory = data['categorie'] ?? data['category'];
-    _richReference = data['reference'] ?? data['partNumber'];
-    _richMarque = data['marque'];
-    _richImage = data['image'];
-
-    // Populate Product Data
-    _selectedProduct = ProductSelection(
+    final product = ProductSelection(
       productId: data['productId'] ?? '',
       productName: data['productName'] ?? data['nom'] ?? 'Produit Inconnu',
-      partNumber: _richReference ?? 'N/A',
-      marque: _richMarque ?? 'N/A',
+      partNumber: data['reference'] ?? data['partNumber'] ?? 'N/A',
+      marque: data['marque'] ?? 'N/A',
       quantity: 1,
-      serialNumbers: List<String>.from(data['serialNumbers'] ?? []),
+      serialNumbers: [],
     );
 
-    // Populate Serial
-    _serialNumberController.text = data['serialNumber'] ?? data['serial'] ?? '';
+    final item = EquipmentBatchItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      product: product,
+      initialSerial: data['serialNumber'] ?? data['serial'],
+    );
 
-    final Timestamp? timestamp = data['installDate'] ?? data['installationDate'];
-    if (timestamp != null) {
-      _installationDate = timestamp.toDate();
-    }
+    // Pre-fill rich data
+    item.richCategory = data['categorie'] ?? data['category'];
+    item.richReference = data['reference'];
+    item.richMarque = data['marque'];
+    item.richImage = data['image'];
+
+    setState(() {
+      _batchItems.add(item);
+      if (data['installDate'] != null) {
+        _installationDate = (data['installDate'] as Timestamp).toDate();
+      }
+    });
   }
 
   @override
   void dispose() {
-    _serialNumberController.dispose();
+    for (var item in _batchItems) {
+      item.serialController.dispose();
+    }
     super.dispose();
   }
 
-  // ✅ NEW: Helper to fetch full details when a product is selected
-  Future<void> _fetchFullProductDetails(String productId) async {
+  Future<void> _enrichItem(EquipmentBatchItem item) async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('produits').doc(productId).get();
-      if (doc.exists) {
+      final doc = await FirebaseFirestore.instance.collection('produits').doc(item.product.productId).get();
+      if (doc.exists && mounted) {
         final data = doc.data()!;
         setState(() {
-          _richMarque = data['marque']; // Ensure we get the canonical brand
-          _richCategory = data['categorie'] ?? data['category']; // Get category
-          _richReference = data['reference'] ?? data['partNumber']; // Get reference
+          item.richMarque = data['marque'];
+          item.richCategory = data['categorie'] ?? data['category'];
+          item.richReference = data['reference'] ?? data['partNumber'];
 
-          // Handle image
           if (data['imageUrls'] is List && (data['imageUrls'] as List).isNotEmpty) {
-            _richImage = (data['imageUrls'] as List).first;
+            item.richImage = (data['imageUrls'] as List).first;
           } else {
-            _richImage = data['image'];
-          }
-
-          // Update visual selection if needed (optional, but keeps UI in sync)
-          if (_selectedProduct != null) {
-            _selectedProduct = ProductSelection(
-                productId: _selectedProduct!.productId,
-                productName: data['nom'] ?? _selectedProduct!.productName,
-                partNumber: _richReference ?? _selectedProduct!.partNumber,
-                marque: _richMarque ?? _selectedProduct!.marque,
-                quantity: 1,
-                serialNumbers: []
-            );
+            item.richImage = data['image'];
           }
         });
       }
     } catch (e) {
-      print("Error fetching product details: $e");
+      print("Error fetching details: $e");
     }
   }
 
-  Future<void> _selectProduct() async {
-    final List<ProductSelection>? result = await showDialog<List<ProductSelection>>(
-      context: context,
-      builder: (_) => ProductSelectorDialog(
-        initialProducts: _selectedProduct != null ? [_selectedProduct!] : [],
+  // ✅ FIXED LOGIC: Loops through quantity to create distinct rows
+  Future<void> _openProductSearch() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GlobalProductSearchPage(
+          isSelectionMode: true,
+          onProductSelected: (productMap) {
+
+            // 1. Get the quantity requested (e.g. 2)
+            final int qty = productMap['quantity'] ?? 1;
+
+            // 2. Loop to create 'qty' separate items
+            for (int i = 0; i < qty; i++) {
+              final newItem = EquipmentBatchItem(
+                // Use a unique ID combination to avoid key collisions
+                id: "${DateTime.now().microsecondsSinceEpoch}_$i",
+                product: ProductSelection(
+                  productId: productMap['productId'],
+                  productName: productMap['productName'] ?? 'Produit Inconnu',
+                  partNumber: productMap['partNumber'] ?? 'N/A',
+                  marque: productMap['marque'] ?? 'N/A',
+                  quantity: 1, // Reset to 1 because this row represents ONE physical unit
+                  serialNumbers: [],
+                ),
+              );
+
+              // 3. Add to list
+              setState(() {
+                _batchItems.add(newItem);
+              });
+
+              // 4. Fetch details
+              _enrichItem(newItem);
+            }
+
+            // Note: We intentionally do NOT pop here so you can add more products.
+          },
+        ),
       ),
     );
-
-    if (result != null && result.isNotEmpty) {
-      final selected = result.first;
-      setState(() {
-        _selectedProduct = selected;
-        // Reset rich variables until fetched
-        _richCategory = null;
-        _richImage = null;
-        _richReference = selected.partNumber;
-        _richMarque = selected.marque;
-      });
-
-      // ✅ Trigger fetch immediately
-      await _fetchFullProductDetails(selected.productId);
-    }
   }
 
-  Future<void> _scanSerialNumber() async {
-    if (_selectedProduct == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Veuillez d\'abord sélectionner un produit.'),
-            backgroundColor: Colors.orange
-        ),
-      );
-      return;
-    }
-
+  Future<void> _scanSerialForItem(EquipmentBatchItem item) async {
     final String? scannedValue = await showDialog<String>(
       context: context,
       builder: (_) => SerialNumberScannerDialog(
-        productSelection: _selectedProduct!.copyWith(quantity: 1),
+        productSelection: item.product,
       ),
     );
 
     if (scannedValue != null && scannedValue.isNotEmpty) {
       setState(() {
-        _serialNumberController.text = scannedValue;
+        item.serialController.text = scannedValue;
       });
     }
+  }
+
+  void _removeItem(int index) {
+    setState(() {
+      _batchItems.removeAt(index);
+    });
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -184,56 +196,33 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
       locale: const Locale('fr', 'FR'),
     );
-    if (picked != null && picked != _installationDate) {
+    if (picked != null) {
       setState(() {
         _installationDate = picked;
       });
     }
   }
 
-  Future<void> _saveEquipment() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    if (_selectedProduct == null) {
+  // ✅ SAVE ALL ITEMS
+  Future<void> _saveBatch() async {
+    if (_batchItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Veuillez sélectionner un produit'),
-            backgroundColor: Colors.redAccent
-        ),
+        const SnackBar(content: Text('Aucun produit ajouté'), backgroundColor: Colors.orange),
       );
       return;
     }
 
     if (_installationDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Veuillez choisir une date'),
-            backgroundColor: Colors.redAccent
-        ),
+        const SnackBar(content: Text('Veuillez choisir une date'), backgroundColor: Colors.redAccent),
       );
       return;
     }
 
     setState(() { _isLoading = true; });
 
-    // ✅ FIXED: Use the fetched rich data and correct keys
-    final dataToSave = {
-      'productId': _selectedProduct!.productId,
-      'productName': _selectedProduct!.productName,
-      'nom': _selectedProduct!.productName,
-      // Save BOTH keys to be safe
-      'partNumber': _richReference ?? _selectedProduct!.partNumber,
-      'reference': _richReference ?? _selectedProduct!.partNumber,
-      'marque': _richMarque ?? _selectedProduct!.marque,
-      'categorie': _richCategory ?? 'N/A', // ✅ Saving Category now
-      'category': _richCategory ?? 'N/A',  // ✅ Saving backup key
-      'serialNumber': _serialNumberController.text.trim(),
-      'serial': _serialNumberController.text.trim(),
-      'installDate': Timestamp.fromDate(_installationDate!),
-      'image': _richImage, // ✅ Saving Image URL
-    };
-
     try {
+      final batch = FirebaseFirestore.instance.batch();
       final collectionRef = FirebaseFirestore.instance
           .collection('clients')
           .doc(widget.clientId)
@@ -241,20 +230,39 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
           .doc(widget.storeId)
           .collection('materiel_installe');
 
-      if (_isEditMode) {
-        await collectionRef.doc(widget.equipmentId!).update(dataToSave);
-      } else {
-        await collectionRef.add(dataToSave);
+      for (var item in _batchItems) {
+        final data = {
+          'productId': item.product.productId,
+          'productName': item.product.productName,
+          'nom': item.product.productName,
+          'partNumber': item.richReference ?? item.product.partNumber,
+          'reference': item.richReference ?? item.product.partNumber,
+          'marque': item.richMarque ?? item.product.marque,
+          'categorie': item.richCategory ?? 'N/A',
+          'category': item.richCategory ?? 'N/A',
+          'serialNumber': item.serialController.text.trim(),
+          'serial': item.serialController.text.trim(),
+          'installDate': Timestamp.fromDate(_installationDate!),
+          'image': item.richImage,
+        };
+
+        if (_isEditMode && widget.equipmentId != null) {
+          batch.update(collectionRef.doc(widget.equipmentId!), data);
+        } else {
+          batch.set(collectionRef.doc(), data);
+        }
       }
+
+      await batch.commit();
 
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_isEditMode ? 'Matériel mis à jour' : 'Matériel ajouté')),
+          SnackBar(content: Text('${_batchItems.length} équipement(s) ajouté(s)')),
         );
       }
     } catch (e) {
-      print("Erreur sauvegarde matériel: $e");
+      print("Error batch saving: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
@@ -274,184 +282,190 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: Text(_isEditMode ? 'Modifier Matériel' : 'Ajouter Matériel'),
+        title: Text(_isEditMode ? 'Modifier' : 'Ajout Multiple'),
         backgroundColor: primaryColor,
-        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: "Ajouter Produit",
+            onPressed: _openProductSearch,
+          )
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // --- Product Selection Card ---
-              const Text(
-                  'INFORMATION PRODUIT',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)
-              ),
-              const SizedBox(height: 8),
-              Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
+      body: Column(
+        children: [
+          // --- 1. Global Settings (Date) ---
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: InkWell(
+              onTap: () => _selectDate(context),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: Colors.grey.shade300),
+                  border: Border.all(color: Colors.grey.shade300),
                 ),
-                child: InkWell(
-                  onTap: _selectProduct,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_today, color: Colors.grey),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ✅ Improved: Show fetched image if available
-                        Container(
-                          width: 50, height: 50,
-                          padding: _richImage == null ? const EdgeInsets.all(12) : null,
-                          decoration: BoxDecoration(
-                              color: primaryColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              image: _richImage != null
-                                  ? DecorationImage(image: NetworkImage(_richImage!), fit: BoxFit.cover)
-                                  : null
-                          ),
-                          child: _richImage == null
-                              ? Icon(Icons.inventory_2, color: primaryColor)
-                              : null,
+                        const Text('Date d\'installation (pour tous)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        Text(
+                          _installationDate == null
+                              ? 'Sélectionner une date'
+                              : DateFormat('dd MMMM yyyy', 'fr_FR').format(_installationDate!),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: primaryColor),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _selectedProduct?.productName ?? 'Sélectionner un produit',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: _selectedProduct != null ? Colors.black87 : Colors.grey,
-                                ),
-                              ),
-                              if (_selectedProduct != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Réf: ${_richReference ?? _selectedProduct!.partNumber} • ${_richMarque ?? _selectedProduct!.marque}',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                ),
-                                if (_richCategory != null)
-                                  Text(
-                                    'Catégorie: $_richCategory',
-                                    style: TextStyle(fontSize: 12, color: primaryColor),
-                                  ),
-                              ]
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                       ],
                     ),
-                  ),
+                  ],
                 ),
               ),
+            ),
+          ),
 
-              const SizedBox(height: 24),
+          const Divider(height: 1),
 
-              const Text(
-                  'DÉTAILS INSTALLATION',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)
+          // --- 2. List of Added Products ---
+          Expanded(
+            child: _batchItems.isEmpty
+                ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.playlist_add, size: 64, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  const Text("Appuyez sur + pour ajouter des produits", style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: _openProductSearch,
+                    icon: const Icon(Icons.search),
+                    label: const Text("Ouvrir le Catalogue"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                    ),
+                  )
+                ],
               ),
-              const SizedBox(height: 8),
+            )
+                : ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: _batchItems.length,
+              separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final item = _batchItems[index];
+                return _buildItemCard(item, index, primaryColor);
+              },
+            ),
+          ),
 
-              TextFormField(
-                controller: _serialNumberController,
-                decoration: InputDecoration(
-                  labelText: 'Numéro de Série (S/N)',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.qr_code_scanner, color: primaryColor),
-                    onPressed: _scanSerialNumber,
-                  ),
-                ),
+          // --- 3. Save Button ---
+          if (_batchItems.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
               ),
-              const SizedBox(height: 16),
-
-              InkWell(
-                onTap: () => _selectDate(context),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calendar_today, color: Colors.grey),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Date d\'installation', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                          Text(
-                            _installationDate == null
-                                ? 'Sélectionner une date'
-                                : DateFormat('dd MMMM yyyy', 'fr_FR').format(_installationDate!),
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              SizedBox(
+              child: SizedBox(
+                width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _saveEquipment,
+                  onPressed: _isLoading ? null : _saveBatch,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
-                    elevation: 2,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   child: _isLoading
                       ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : Text(
-                    _isEditMode ? 'ENREGISTRER' : 'AJOUTER AU MAGASIN',
+                    "ENREGISTRER ${_batchItems.length} ÉLÉMENTS",
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
     );
   }
-}
 
-// Helper extension
-extension ProductSelectionCopy on ProductSelection {
-  ProductSelection copyWith({int? quantity}) {
-    return ProductSelection(
-      productId: productId,
-      productName: productName,
-      partNumber: partNumber,
-      marque: marque,
-      quantity: quantity ?? this.quantity,
-      serialNumbers: List.from(serialNumbers),
+  Widget _buildItemCard(EquipmentBatchItem item, int index, Color color) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            // Row 1: Product Info & Delete
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    image: item.richImage != null
+                        ? DecorationImage(image: NetworkImage(item.richImage!), fit: BoxFit.cover)
+                        : null,
+                  ),
+                  child: item.richImage == null ? Icon(Icons.inventory_2, size: 20, color: color) : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.product.productName,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        '${item.richMarque ?? "N/A"} • ${item.richReference ?? "N/A"}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.redAccent, size: 20),
+                  onPressed: () => _removeItem(index),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Row 2: Serial Input
+            TextFormField(
+              controller: item.serialController,
+              decoration: InputDecoration(
+                labelText: 'Numéro de Série',
+                isDense: true,
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.qr_code_scanner),
+                  color: color,
+                  onPressed: () => _scanSerialForItem(item),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
