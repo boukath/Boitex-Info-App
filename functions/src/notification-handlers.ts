@@ -20,6 +20,10 @@ const ROLES_MANAGERS = [
 "Responsable IT",
 "Chef de Projet",
 ];
+
+// ✅ NEW: Separate list for Commercials (Sales Team)
+const ROLES_COMMERCIAL = ["Commercial"];
+
 const ROLES_TECH_ST = ["Technicien ST"];
 const ROLES_TECH_IT = ["Technicien IT"];
 
@@ -77,6 +81,12 @@ const getUsersForRoles = async (roles: string[]): Promise<UserData[]> => {
   const users: UserData[] = [];
   try {
     // Note: 'in' queries support max 10 values
+    // Safety check for Firestore 'in' limit
+    if (roles.length > 10) {
+        console.warn("⚠️ Warning: Roles list > 10, slicing to first 10 for query safety.");
+        roles = roles.slice(0, 10);
+    }
+
     const usersSnapshot = await admin.firestore()
       .collection("users")
       .where("role", "in", roles)
@@ -105,6 +115,7 @@ const getUsersForRoles = async (roles: string[]): Promise<UserData[]> => {
  * - Checks User Settings first 🛡️
  * - Sends to Inbox
  * - Sends Push to BOTH Mobile and Web tokens
+ * - 🛡️ EXCLUDES specific User ID (The Sender)
  */
 const createNotificationsForRoles = async (
   roles: string[],
@@ -114,21 +125,25 @@ const createNotificationsForRoles = async (
     relatedDocId?: string;
     relatedCollection?: string;
   },
-  category?: string
+  category?: string,
+  excludeUserId?: string // ⚡ NEW: Param to prevent self-notification
 ) => {
   let users = await getUsersForRoles(roles);
   if (users.length === 0) return;
 
   // ✅ FILTER: Remove users who turned this category OFF
-  if (category) {
-    users = users.filter((u) => {
-      // If setting exists and is FALSE, we skip.
-      if (u.notificationSettings && u.notificationSettings[category] === false) {
+  // ✅ FILTER: Remove the Actor (Sender)
+  users = users.filter((u) => {
+    // 1. Exclude Sender
+    if (excludeUserId && u.uid === excludeUserId) {
         return false;
-      }
-      return true;
-    });
-  }
+    }
+    // 2. Check Settings
+    if (category && u.notificationSettings && u.notificationSettings[category] === false) {
+      return false;
+    }
+    return true;
+  });
 
   const {title, body, relatedDocId, relatedCollection} = notificationData;
   const tokensToSend: string[] = [];
@@ -199,14 +214,20 @@ const createNotificationsForAllUsers = async (
     relatedDocId?: string;
     relatedCollection?: string;
   },
-  category?: string
+  category?: string,
+  excludeUserId?: string // ⚡ NEW: Param to prevent self-notification
 ) => {
   let users = await getUsersForAllUsers();
   if (users.length === 0) return;
 
-  if (category) {
+  if (category || excludeUserId) {
     users = users.filter((u) => {
-      if (u.notificationSettings && u.notificationSettings[category] === false) {
+      // 1. Exclude Sender
+      if (excludeUserId && u.uid === excludeUserId) {
+        return false;
+      }
+      // 2. Check Settings
+      if (category && u.notificationSettings && u.notificationSettings[category] === false) {
         return false;
       }
       return true;
@@ -261,8 +282,15 @@ const createNotificationsForUsers = async (
     relatedDocId?: string;
     relatedCollection?: string;
   },
-  category?: string
+  category?: string,
+  excludeUserId?: string // ⚡ NEW: Param to prevent self-notification
 ) => {
+  if (uids.length === 0) return;
+
+  // 1. Filter out the sender immediately
+  if (excludeUserId) {
+    uids = uids.filter(id => id !== excludeUserId);
+  }
   if (uids.length === 0) return;
 
   const {title, body, relatedDocId, relatedCollection} = notificationData;
@@ -328,6 +356,9 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
   const logService = data.serviceType === "Service IT" ? "it" : "technique";
 
+  // ⚡ FIX: Added check for 'createdByUid' because your Flutter app uses that name
+  const actorId = data.createdByUid || data.createdBy;
+
   createActivityLog({
     service: logService,
     taskType: "Intervention",
@@ -344,12 +375,12 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "interventions" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions");
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions", actorId);
 
   if (data.serviceType === "Service IT") {
-    await createNotificationsForRoles(ROLES_TECH_IT, notificationData, "interventions");
+    await createNotificationsForRoles(ROLES_TECH_IT, notificationData, "interventions", actorId);
   } else {
-    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "interventions");
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "interventions", actorId);
   }
 });
 
@@ -361,6 +392,9 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
   if (before.status === after.status) return;
 
   const logService = after.serviceType === "Service IT" ? "it" : "technique";
+
+  // ✅ UPDATE: Try to find an actor from various common fields
+  const actorId = after.modifiedBy || after.updatedBy || after.lastModifiedBy;
 
   createActivityLog({
     service: logService,
@@ -382,11 +416,12 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
   const body = `Statut: '${before.status}' -> '${after.status}'`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "interventions" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions");
+  // ✅ FIX: Pass actorId (will only work if App saves it)
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions", actorId);
   if (logService === "it") {
-    await createNotificationsForRoles(ROLES_TECH_IT, notificationData, "interventions");
+    await createNotificationsForRoles(ROLES_TECH_IT, notificationData, "interventions", actorId);
   } else {
-    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "interventions");
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "interventions", actorId);
   }
 });
 
@@ -400,6 +435,9 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
   const storeName = data.storeName || "Magasin Inconnu";
   const title = `Nouveau Ticket SAV : ${storeName}`;
   const body = `Client: ${data.clientName} - Produit: ${data.productName}`;
+
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
 
   createActivityLog({
     service: "technique",
@@ -417,8 +455,8 @@ export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}",
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "sav_tickets" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
-  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets");
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets", actorId);
+  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets", actorId);
 });
 
 export const onSavTicketUpdate_v2 = onDocumentUpdated("sav_tickets/{ticketId}", async (event) => {
@@ -427,6 +465,9 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated("sav_tickets/{ticketId}", 
   const after = event.data.after.data();
 
   if (before.status === after.status) return;
+
+  // ✅ UPDATE: Try to find an actor from various common fields
+  const actorId = after.modifiedBy || after.updatedBy || after.lastModifiedBy;
 
   // ✅ CHANGED: Use Store Name
   const storeName = after.storeName || "Magasin Inconnu";
@@ -449,9 +490,10 @@ export const onSavTicketUpdate_v2 = onDocumentUpdated("sav_tickets/{ticketId}", 
 
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "sav_tickets" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
+  // ✅ FIX: Pass actorId
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets", actorId);
   if (["En attente de pièce", "Terminé"].includes(after.status)) {
-    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets");
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets", actorId);
   }
 });
 
@@ -465,7 +507,10 @@ export const onReplacementRequestCreated_v2 = onDocumentCreated("replacement_req
   const body = `Demandé par: ${data.technicianName} pour ${data.clientName}`;
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "replacement_requests" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
+
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets", actorId);
 });
 
 export const onReplacementRequestUpdate_v2 = onDocumentUpdated("replacement_requests/{requestId}", async (event) => {
@@ -477,19 +522,22 @@ export const onReplacementRequestUpdate_v2 = onDocumentUpdated("replacement_requ
   const afterStatus = after.requestStatus;
   const requestCode = after.replacementRequestCode;
 
+  // ⚡ FIX: Check updated fields
+  const actorId = after.modifiedBy || after.updatedBy;
+
   if (beforeStatus !== "Approuvé" && afterStatus === "Approuvé") {
     const title = `Remplacement Approuvé: ${requestCode}`;
     const body = `Préparez la pièce pour ${after.clientName} | Produit: ${after.productName}`;
     const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "replacement_requests" };
 
-    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets");
-    await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets");
+    await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "sav_tickets", actorId);
+    await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "sav_tickets", actorId);
   }
 
   if (beforeStatus !== afterStatus) {
     const title = "Mise à Jour: Demande de Remplacement";
     const body = `Le statut pour ${after.replacementRequestCode || "N/A"} est maintenant: ${afterStatus}.`;
-    await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "replacement_requests" }, "sav_tickets");
+    await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "replacement_requests" }, "sav_tickets", actorId);
   }
 });
 
@@ -503,10 +551,13 @@ export const onRequisitionCreated_v2 = onDocumentCreated("requisitions/{requisit
   const requestedBy = data.requestedBy || "Inconnu";
   const itemCount = (data.items as Array<Record<string, unknown>>)?.length || 0;
 
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
+
   const title = `Nouvelle Demande d'Achat: ${requisitionCode}`;
   const body = `Demandée par: ${requestedBy} - ${itemCount} article(s)`;
 
-  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "requisitions" }, "requisitions");
+  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "requisitions" }, "requisitions", actorId);
 });
 
 export const onRequisitionStatusUpdate_v2 = onDocumentUpdated("requisitions/{requisitionId}", async (event) => {
@@ -518,8 +569,9 @@ export const onRequisitionStatusUpdate_v2 = onDocumentUpdated("requisitions/{req
 
   const title = `Mise à Jour: ${after.requisitionCode || "N/A"}`;
   const body = `Statut: ${after.status || "Inconnu"} - Demandé par: ${after.requestedBy}`;
+  const actorId = after.modifiedBy || after.updatedBy; // ✅ FIX
 
-  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "requisitions" }, "requisitions");
+  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "requisitions" }, "requisitions", actorId);
 });
 
 // 5. PROJECTS
@@ -531,13 +583,17 @@ export const onProjectCreated_v2 = onDocumentCreated("projects/{projectId}", asy
   const title = `Nouveau Projet: ${data.projectName || "Nouveau Projet"}`;
   const body = `Client: ${data.clientName || "N/A"}`;
 
-  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "projects" }, "projects");
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
+
+  await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: snapshot.id, relatedCollection: "projects" }, "projects", actorId);
 });
 
 export const onProjectStatusUpdate_v2 = onDocumentUpdated("projects/{projectId}", async (event) => {
   if (!event.data) return;
   const before = event.data.before.data();
   const after = event.data.after.data();
+  const actorId = after.modifiedBy || after.updatedBy; // ✅ FIX
 
   // IT Evaluation Logic
   if (!before.it_evaluation && after.it_evaluation) {
@@ -560,14 +616,14 @@ export const onProjectStatusUpdate_v2 = onDocumentUpdated("projects/{projectId}"
       body: `Client: ${after.clientName} - Magasin: ${after.storeName}`,
       relatedDocId: event.data.after.id,
       relatedCollection: "projects",
-    }, "projects");
+    }, "projects", actorId);
   }
 
   // Status Change Logic
   if (before.status !== after.status) {
     const title = `Mise à Jour Projet: ${after.projectName}`;
     const body = `Client: ${after.clientName} - Statut: ${after.status}`;
-    await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "projects" }, "projects");
+    await createNotificationsForRoles(ROLES_MANAGERS, { title, body, relatedDocId: event.data.after.id, relatedCollection: "projects" }, "projects", actorId);
   }
 });
 
@@ -579,6 +635,9 @@ export const onMissionCreated_v2 = onDocumentCreated("missions/{missionId}", asy
 
   const title = `Nouvelle Mission: ${data.missionCode || "N/A"}`;
   const body = `${data.title} - ${data.destinations?.length || 0} Destination(s)`;
+
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
 
   createActivityLog({
     service: data.serviceType === "Service IT" ? "it" : "technique",
@@ -594,12 +653,13 @@ export const onMissionCreated_v2 = onDocumentCreated("missions/{missionId}", asy
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "missions" };
 
   // Notify Managers
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "missions");
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "missions", actorId);
 
   // Notify Assigned Technicians
   const assignedIds = data.assignedTechniciansIds as string[];
   if (assignedIds && assignedIds.length > 0) {
-    await createNotificationsForUsers(assignedIds, notificationData, "missions");
+    // Note: If the creator assigned themselves, we exclude them here too
+    await createNotificationsForUsers(assignedIds, notificationData, "missions", actorId);
   }
 });
 
@@ -613,6 +673,9 @@ export const onInstallationCreated_v2 = onDocumentCreated("installations/{instal
   const storeName = data.storeName || "Magasin Inconnu";
   const title = `Nouvelle Installation : ${storeName}`;
   const body = `Client: ${data.clientName} - Magasin: ${data.storeName}`;
+
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
 
   createActivityLog({
     service: "technique",
@@ -630,8 +693,8 @@ export const onInstallationCreated_v2 = onDocumentCreated("installations/{instal
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "installations" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "installations");
-  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations");
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "installations", actorId);
+  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations", actorId);
 });
 
 export const onInstallationStatusUpdate_v2 = onDocumentUpdated("installations/{installationId}", async (event) => {
@@ -640,6 +703,8 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated("installations/{i
   const after = event.data.after.data();
 
   if (before.status === after.status) return;
+
+  const actorId = after.modifiedBy || after.updatedBy; // ✅ FIX
 
   createActivityLog({
     service: "technique",
@@ -661,8 +726,8 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated("installations/{i
   const body = `Client: ${after.clientName} - Statut: ${after.status}`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "installations" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "installations");
-  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations");
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "installations", actorId);
+  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations", actorId);
 });
 
 // 8. LIVRAISONS
@@ -675,6 +740,9 @@ export const onLivraisonCreated_v2 = onDocumentCreated("livraisons/{livraisonId}
   const storeName = data.storeName || "Magasin Inconnu";
   const title = `Nouvelle Livraison : ${storeName}`;
   const body = `Client: ${data.clientName} | Service: ${data.serviceType}`;
+
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
 
   createActivityLog({
     service: "technique",
@@ -692,7 +760,7 @@ export const onLivraisonCreated_v2 = onDocumentCreated("livraisons/{livraisonId}
 
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "livraisons" };
 
-  await createNotificationsForRoles([...ROLES_MANAGERS, ...ROLES_TECH_ST, ...ROLES_TECH_IT], notificationData, "livraisons");
+  await createNotificationsForRoles([...ROLES_MANAGERS, ...ROLES_TECH_ST, ...ROLES_TECH_IT], notificationData, "livraisons", actorId);
 });
 
 export const onLivraisonStatusUpdate_v2 = onDocumentUpdated("livraisons/{livraisonId}", async (event) => {
@@ -701,6 +769,8 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated("livraisons/{livrais
   const after = event.data.after.data();
 
   if (before.status === after.status) return;
+
+  const actorId = after.modifiedBy || after.updatedBy; // ✅ FIX
 
   createActivityLog({
     service: "technique",
@@ -722,8 +792,8 @@ export const onLivraisonStatusUpdate_v2 = onDocumentUpdated("livraisons/{livrais
   const body = `Client: ${after.clientName} - Statut: ${after.status}`;
   const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "livraisons" };
 
-  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "livraisons");
-  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "livraisons");
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "livraisons", actorId);
+  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "livraisons", actorId);
 });
 
 // 9. IT SUPPORT & MAINTENANCE
@@ -749,7 +819,10 @@ export const onSupportTicketCreated_v2 = onDocumentCreated("support_tickets/{tic
   const title = `Nouveau Ticket Support: ${data.clientName || ""}`;
   const body = data.subject || "Nouveau ticket de support IT";
 
-  await createNotificationsForRoles(ROLES_TECH_IT, { title, body, relatedDocId: snapshot.id, relatedCollection: "support_tickets" }, "interventions");
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
+
+  await createNotificationsForRoles(ROLES_TECH_IT, { title, body, relatedDocId: snapshot.id, relatedCollection: "support_tickets" }, "interventions", actorId);
 });
 
 export const onSupportTicketUpdated_v2 = onDocumentUpdated("support_tickets/{ticketId}", async (event) => {
@@ -758,6 +831,8 @@ export const onSupportTicketUpdated_v2 = onDocumentUpdated("support_tickets/{tic
   const after = event.data.after.data();
 
   if (before.status === after.status) return;
+
+  const actorId = after.modifiedBy || after.updatedBy; // ✅ FIX
 
   createActivityLog({
     service: "it",
@@ -778,7 +853,7 @@ export const onSupportTicketUpdated_v2 = onDocumentUpdated("support_tickets/{tic
     body: `Statut: '${before.status}' -> '${after.status}'`,
     relatedDocId: event.data.after.id,
     relatedCollection: "support_tickets",
-  }, "interventions");
+  }, "interventions", actorId);
 });
 
 export const onMaintenanceTaskCreated_v2 = onDocumentCreated("maintenance_it/{taskId}", async (event) => {
@@ -803,7 +878,10 @@ export const onMaintenanceTaskCreated_v2 = onDocumentCreated("maintenance_it/{ta
   const title = `Maintenance IT: ${data.taskName || "Nouvelle Tâche"}`;
   const body = data.description || "Une nouvelle tâche de maintenance a été créée.";
 
-  await createNotificationsForRoles(ROLES_TECH_IT, { title, body, relatedDocId: snapshot.id, relatedCollection: "maintenance_it" }, "interventions");
+  // ⚡ FIX: Check both field names
+  const actorId = data.createdByUid || data.createdBy;
+
+  await createNotificationsForRoles(ROLES_TECH_IT, { title, body, relatedDocId: snapshot.id, relatedCollection: "maintenance_it" }, "interventions", actorId);
 });
 
 export const onMaintenanceTaskUpdated_v2 = onDocumentUpdated("maintenance_it/{taskId}", async (event) => {
@@ -812,6 +890,8 @@ export const onMaintenanceTaskUpdated_v2 = onDocumentUpdated("maintenance_it/{ta
   const after = event.data.after.data();
 
   if (before.status === after.status) return;
+
+  const actorId = after.modifiedBy || after.updatedBy; // ✅ FIX
 
   createActivityLog({
     service: "it",
@@ -832,7 +912,7 @@ export const onMaintenanceTaskUpdated_v2 = onDocumentUpdated("maintenance_it/{ta
     body: `Statut: '${before.status}' -> '${after.status}'`,
     relatedDocId: event.data.after.id,
     relatedCollection: "maintenance_it",
-  }, "interventions");
+  }, "interventions", actorId);
 });
 
 // 10. ANNOUNCEMENTS
@@ -844,6 +924,7 @@ export const onNewAnnouncementMessage = onDocumentCreated("channels/{channelId}/
   const messageText: string = message.text || "Nouveau message";
   const senderName: string = message.senderName || "Boitex Info";
   let channelName = "Annonces";
+  const senderId = message.senderId; // ⚡ Capture Sender of Message
 
   try {
     const channelDoc = await admin.firestore().collection("channels").doc(params.channelId).get();
@@ -858,8 +939,74 @@ export const onNewAnnouncementMessage = onDocumentCreated("channels/{channelId}/
   // We pass "announcements" as the category so the filtering logic applies.
   await createNotificationsForAllUsers(
     { title, body, relatedDocId: params.channelId, relatedCollection: "channels" },
-    "announcements" // <--- This enables the filtering logic!
+    "announcements", // <--- This enables the filtering logic!
+    senderId // <--- EXCLUDE SENDER
   );
+});
+
+// 15. COMMERCIAL PROSPECTS (NEW)
+export const onProspectCreated = onDocumentCreated("prospects/{prospectId}", async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) return;
+  const data = snapshot.data();
+
+  const title = `Nouveau Prospect : ${data.companyName || "Inconnu"}`;
+  const body = `📍 Situé à ${data.commune || "Alger"} - Ajouté par ${data.authorName || "Commercial"}`;
+
+  // ⚡ FIX: Check both field names (Prospects usually use createdBy)
+  const actorId = data.createdByUid || data.createdBy;
+
+  createActivityLog({
+    service: "commercial",
+    taskType: "Prospect",
+    taskTitle: data.companyName || "Nouveau Prospect",
+    storeName: data.companyName || "",
+    storeLocation: data.commune || "",
+    displayName: data.authorName || "Commercial",
+    createdByName: data.authorName || "Commercial",
+    details: `Prospect ajouté à ${data.commune}`,
+    status: data.status || "Nouveau",
+    relatedDocId: snapshot.id,
+    relatedCollection: "prospects",
+  });
+
+  const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "prospects" };
+
+  // ✅ UPDATED: Include Commercials for gamification, BUT EXCLUDE SELF
+  await createNotificationsForRoles([...ROLES_MANAGERS, ...ROLES_COMMERCIAL], notificationData, "commercial", actorId);
+});
+
+export const onProspectStatusUpdate = onDocumentUpdated("prospects/{prospectId}", async (event) => {
+  if (!event.data) return;
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+
+  if (before.status === after.status) return;
+
+  const title = `Pipeline Commercial 🚀`;
+  const body = `${after.companyName} est maintenant "${after.status}"`;
+
+  // ✅ UPDATE: Try to find an actor from various common fields
+  const actorId = after.modifiedBy || after.updatedBy || after.lastModifiedBy;
+
+  createActivityLog({
+    service: "commercial",
+    taskType: "Prospect",
+    taskTitle: after.companyName || "Prospect",
+    storeName: after.companyName || "",
+    storeLocation: after.commune || "",
+    displayName: after.authorName || "Commercial",
+    createdByName: after.authorName || "Commercial",
+    details: `Statut changé: ${before.status} -> ${after.status}`,
+    status: after.status,
+    relatedDocId: event.data.after.id,
+    relatedCollection: "prospects",
+  });
+
+  const notificationData = { title, body, relatedDocId: event.data.after.id, relatedCollection: "prospects" };
+
+  // ✅ FIX: Pass actorId (will only work if App saves it)
+  await createNotificationsForRoles([...ROLES_MANAGERS, ...ROLES_COMMERCIAL], notificationData, "commercial", actorId);
 });
 
 // 11. REMINDERS (SCHEDULER)
