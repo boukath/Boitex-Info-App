@@ -399,25 +399,66 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       ),
     );
 
-    if (result != null && result is DocumentSnapshot) {
+    if (result == null) return;
+
+    // ✅ FIXED: Support both DocumentSnapshot (old) and Map (new from GlobalProductSearchPage)
+    String? id;
+    String name = 'Produit sans nom';
+    String reference = 'Ref: N/A';
+    String? marque;
+    String? category;
+    String? image;
+    int qty = 1;
+
+    if (result is DocumentSnapshot) {
+      // Logic A: Received a snapshot (standard)
       final data = result.data() as Map<String, dynamic>;
+      id = result.id;
+      name = data['nom'] ?? name;
+      reference = data['reference'] ?? reference;
+      marque = data['marque'];
+      category = data['categorie'] ?? data['category'];
       final images = (data['imageUrls'] as List?)?.cast<String>() ?? [];
+      if (images.isNotEmpty) image = images.first;
 
-      int qty = await _requestQuantity();
+      qty = await _requestQuantity();
 
-      setState(() {
-        _selectedSystems.add({
-          'id': result.id,
-          'name': data['nom'] ?? 'Produit sans nom',
-          'reference': data['reference'] ?? 'Ref: N/A',
-          'marque': data['marque'],
-          'category': data['categorie'],
-          'image': images.isNotEmpty ? images.first : null,
-          'quantity': qty,
-          'serialNumbers': List<String>.filled(qty, ''),
-        });
-      });
+    } else if (result is Map<String, dynamic>) {
+      // Logic B: Received a Map from the new Search Page
+      // Keys expected: productId, productName, quantity, partNumber, marque
+      id = result['productId'] ?? result['id'];
+      name = result['productName'] ?? result['nom'] ?? name;
+      reference = result['partNumber'] ?? result['reference'] ?? reference;
+      marque = result['marque'];
+      category = result['categorie'] ?? result['category']; // might be null in map
+      image = result['image'] ?? result['imageUrl']; // might be null in map
+
+      if (result.containsKey('quantity')) {
+        qty = result['quantity'] is int ? result['quantity'] : (int.tryParse(result['quantity'].toString()) ?? 1);
+      } else {
+        qty = await _requestQuantity();
+      }
     }
+
+    setState(() {
+      _selectedSystems.add({
+        'id': id,
+        'name': name,
+        'reference': reference,
+        'marque': marque,
+        'category': category,
+        'image': image,
+        'quantity': qty,
+        'serialNumbers': List<String>.filled(qty, ''),
+      });
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Produit ajouté depuis le catalogue !'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   Future<void> _scanSystem() async {
