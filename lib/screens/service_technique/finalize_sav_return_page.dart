@@ -42,7 +42,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   bool _isSaving = false;
 
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
 
   @override

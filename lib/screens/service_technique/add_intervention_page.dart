@@ -70,7 +70,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
   // ✅ NEW: B2 Cloud Function URL
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
   // Existing Controllers
   final _clientPhoneController = TextEditingController();

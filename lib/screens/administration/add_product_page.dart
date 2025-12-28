@@ -53,7 +53,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   late Animation<double> _fadeAnimation;
 
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
   final List<Map<String, dynamic>> _mainCategories = [
     {'name': 'Antivol', 'icon': Icons.shield_rounded, 'color': const Color(0xFF6366F1)},

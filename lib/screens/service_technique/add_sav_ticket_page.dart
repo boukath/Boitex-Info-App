@@ -107,7 +107,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   List<TicketItem> _addedItems = [];
 
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
   // --- DRAFT LOGIC START ---
   final _draftService = SavDraftService();

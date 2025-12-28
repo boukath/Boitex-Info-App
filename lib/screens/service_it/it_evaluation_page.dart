@@ -30,7 +30,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
 
   // ✅ ADDED: B2 Cloud Function URL constant (cloned from technical_evaluation_page.dart)
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void dispose() {
