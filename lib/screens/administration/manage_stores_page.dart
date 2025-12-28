@@ -2,9 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:uuid/uuid.dart'; // ✅ Added for token generation
 import 'package:boitex_info_app/screens/administration/add_store_page.dart';
-// ✅ THIS IMPORT WAS MISSING:
 import 'package:boitex_info_app/screens/administration/store_equipment_page.dart';
+// ✅ Added Service Import
+import 'package:boitex_info_app/services/store_qr_pdf_service.dart';
 
 class ManageStoresPage extends StatelessWidget {
   final String clientId;
@@ -12,6 +14,38 @@ class ManageStoresPage extends StatelessWidget {
 
   const ManageStoresPage(
       {super.key, required this.clientId, required this.clientName});
+
+  /// ✅ Logic to handle QR printing & Token Generation
+  Future<void> _handlePrintQr(BuildContext context, DocumentSnapshot doc) async {
+    final data = doc.data() as Map<String, dynamic>;
+    String storeId = doc.id;
+    String storeName = data['name'] ?? 'Magasin';
+
+    // 1. Check if token exists
+    String? token = data['qr_access_token'];
+
+    if (token == null || token.isEmpty) {
+      // 2. If not, generate and save it immediately
+      token = const Uuid().v4();
+
+      // Show loading feedback
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Génération du token de sécurité...")),
+      );
+
+      await doc.reference.update({'qr_access_token': token});
+    }
+
+    // 3. Generate PDF
+    if (context.mounted) {
+      await StoreQrPdfService.generateStoreQr(
+        storeName,
+        clientName,
+        storeId,
+        token,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +158,16 @@ class ManageStoresPage extends StatelessWidget {
                             ],
                           ),
                         ),
+
+                        // ✅ ADDED: QR Print Button
+                        IconButton(
+                          icon: const Icon(Icons.qr_code_2, color: Colors.black87),
+                          tooltip: "Imprimer le QR Code",
+                          onPressed: () => _handlePrintQr(context, storeDoc),
+                        ),
+
+                        const SizedBox(width: 8),
+
                         // --- Arrow Icon (no action, just visual) ---
                         const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
                       ],
