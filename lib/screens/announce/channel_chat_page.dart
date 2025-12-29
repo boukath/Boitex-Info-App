@@ -548,19 +548,7 @@ class _ChannelChatPageState extends State<ChannelChatPage> with SingleTickerProv
     }
   }
 
-  void _scrollToBottom() {
-    if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    }
-  }
+  // ❌ REMOVED: _scrollToBottom function to prevent fighting the scroll view
 
   Future _launchFile(String url) async {
     final Uri uri = Uri.parse(url);
@@ -651,21 +639,14 @@ class _ChannelChatPageState extends State<ChannelChatPage> with SingleTickerProv
                   if (!snapshot.hasData || snapshot.data!.isEmpty) {
                     return const Center(child: Text("No messages yet."));
                   }
-                  final messages = snapshot.data!;
+                  // ✅ FIX: Reverse the data so Index 0 is the newest message
+                  final messages = snapshot.data!.reversed.toList();
 
-                  bool isAtBottom = true;
-                  if (_scrollController.hasClients) {
-                    isAtBottom = _scrollController.position.atEdge &&
-                        _scrollController.position.pixels ==
-                            _scrollController.position.maxScrollExtent;
-                  }
-
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (isAtBottom) _scrollToBottom();
-                  });
+                  // ❌ REMOVED: Auto-scroll logic
 
                   return ListView.builder(
                     controller: _scrollController,
+                    reverse: true, // ✅ FIX: Invert list to start from bottom
                     itemCount: messages.length,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemBuilder: (context, index) {

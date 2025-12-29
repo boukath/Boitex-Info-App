@@ -36,10 +36,7 @@ class _ProjectListPageState extends State<ProjectListPage>
       'title': 'Éval. Terminée',
       'statuses': ['Évaluation Technique Terminé', 'Évaluation IT Terminé']
     },
-    {
-      'title': 'Devis Envoyé',
-      'statuses': ['Devis Envoyé']
-    },
+    // "Devis Envoyé" removed here
     {
       'title': 'Finalisation',
       'statuses': ['Finalisation de la Commande']

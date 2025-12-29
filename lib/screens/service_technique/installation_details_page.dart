@@ -92,29 +92,42 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }
   }
 
+  // ✅ UPDATED: Handle logic for un-setting a date
   Future<void> _saveSchedule() async {
-    if (_scheduledDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Veuillez sélectionner une date.')));
-      return;
-    }
+    // Note: Removed the check for _scheduledDate == null to allow clearing the date
+
     setState(() => _isLoading = true);
     try {
       final techniciansToSave = _selectedTechnicians
           .map((user) => {'uid': user.uid, 'displayName': user.displayName})
           .toList();
+
+      final Map<String, dynamic> updateData = {
+        'assignedTechnicians': techniciansToSave,
+      };
+
+      if (_scheduledDate != null) {
+        // CASE 1: Date is Set -> Status is 'Planifiée'
+        updateData['installationDate'] = Timestamp.fromDate(_scheduledDate!);
+        updateData['status'] = 'Planifiée';
+      } else {
+        // CASE 2: Date is Null (Postponed) -> Status reverts to 'À Planifier'
+        updateData['installationDate'] = FieldValue.delete(); // Removes the field
+        updateData['status'] = 'À Planifier';
+      }
+
       await FirebaseFirestore.instance
           .collection('installations')
           .doc(widget.installationDoc.id)
-          .update({
-        'installationDate': Timestamp.fromDate(_scheduledDate!),
-        'assignedTechnicians': techniciansToSave,
-        'status': 'Planifiée',
-      });
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Installation planifiée avec succès'),
-            backgroundColor: Colors.green));
+          .update(updateData);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_scheduledDate != null
+                ? 'Installation planifiée avec succès'
+                : 'Installation reportée (Date retirée)'),
+            backgroundColor: _scheduledDate != null ? Colors.green : Colors.orange));
+      }
     } catch (e) {
       print("Error: $e");
     } finally {
@@ -122,9 +135,11 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }
   }
 
+  // ✅ UPDATED: Added "Reporter" button to clear date
   void _showSchedulingDialog() {
     DateTime? tempDate = _scheduledDate;
     List<AppUser> tempTechnicians = List.from(_selectedTechnicians);
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -135,10 +150,21 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
-                  title: Text(tempDate == null
-                      ? 'Sélectionner une date'
-                      : DateFormat('dd MMMM yyyy', 'fr_FR').format(tempDate!)),
-                  trailing: const Icon(Icons.calendar_today),
+                  title: Text(
+                      tempDate == null
+                          ? 'Sélectionner une date'
+                          : DateFormat('dd MMMM yyyy', 'fr_FR').format(tempDate!),
+                      style: TextStyle(
+                          color: tempDate == null ? Colors.red : Colors.black
+                      )
+                  ),
+                  trailing: tempDate != null
+                      ? IconButton(
+                    icon: const Icon(Icons.close, color: Colors.red),
+                    onPressed: () => setDialogState(() => tempDate = null),
+                    tooltip: "Retirer la date (Reporter)",
+                  )
+                      : const Icon(Icons.calendar_today),
                   onTap: () async {
                     final picked = await showDatePicker(
                         context: context,
@@ -152,6 +178,18 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                       borderRadius: BorderRadius.circular(8),
                       side: BorderSide(color: Colors.grey.shade400)),
                 ),
+
+                // ✅ ADDED: Explicit "Postpone" button if a date is already set
+                if (tempDate != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: TextButton.icon(
+                        onPressed: () => setDialogState(() => tempDate = null),
+                        icon: const Icon(Icons.event_busy, color: Colors.orange),
+                        label: const Text("Reporter / Date indéterminée", style: TextStyle(color: Colors.orange))
+                    ),
+                  ),
+
                 const SizedBox(height: 16),
                 MultiSelectDialogField<AppUser>(
                   items: _allTechnicians

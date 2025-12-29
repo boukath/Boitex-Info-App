@@ -7,12 +7,10 @@ import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/administration/technical_evaluation_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:file_picker/file_picker.dart';
-// import 'package:firebase_storage/firebase_storage.dart'; // ✅ REMOVED: No longer needed
 import 'package:url_launcher/url_launcher.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
-// import 'package:boitex_info_app/screens/administration/system_proposals_page.dart'; // REMOVED
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/screens/service_it/it_evaluation_page.dart';
 import 'package:path/path.dart' as path;
@@ -123,84 +121,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     }
   }
   // ✅ --- END: B2 HELPER FUNCTIONS ---
-
-  // ✅ CHANGED: Upload Devis using Backblaze B2
-  Future<void> _uploadDevis() async {
-    setState(() {
-      _isActionInProgress = true;
-    });
-
-    final b2Credentials = await _getB2UploadCredentials();
-    if (b2Credentials == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text(
-                  'Erreur: Impossible de contacter le service d\'upload.'),
-              backgroundColor: Colors.red),
-        );
-        setState(() {
-          _isActionInProgress = false;
-        });
-      }
-      return;
-    }
-
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
-        allowMultiple: false,
-      );
-
-      if (result == null || result.files.single.path == null) {
-        setState(() {
-          _isActionInProgress = false;
-        });
-        return;
-      }
-
-      final file = File(result.files.single.path!);
-      final fileName = result.files.single.name;
-      final String b2DevisPath = 'devis/${widget.projectId}/$fileName';
-
-      final downloadUrl = await _uploadFileToB2(
-        file: file,
-        b2Creds: b2Credentials,
-        b2FileName: b2DevisPath,
-      );
-
-      if (downloadUrl != null) {
-        await FirebaseFirestore.instance
-            .collection('projects')
-            .doc(widget.projectId)
-            .update({
-          'devisUrl': downloadUrl, // Store B2 URL
-          'devisFileName': fileName,
-          'status': 'Devis Envoyé',
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Devis ajouté avec succès.')),
-          );
-        }
-      } else {
-        throw Exception('Échec de l\'upload du devis vers B2.');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erreur: ${e.toString()}'),
-            backgroundColor: Colors.red));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isActionInProgress = false;
-        });
-      }
-    }
-  }
 
   // --- Approval Dialogs ---
   void _showApprovalDialog() {
@@ -1300,8 +1220,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   }).toList(),
                 ),
 
-              if (projectData['devisUrl'] != null ||
-                  projectData['bonDeCommandeUrl'] != null ||
+              if (projectData['bonDeCommandeUrl'] != null ||
                   projectData['approvalNotes'] != null ||
                   projectFiles.isNotEmpty)
                 _buildInfoCard(
@@ -1309,18 +1228,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   title: 'Documents et Fichiers',
                   icon: Icons.attach_file,
                   children: [
-                    // Devis (Now uses B2 URL, PDF viewer)
-                    if (projectData['devisUrl'] != null)
-                      ListTile(
-                        leading: const Icon(Icons.request_quote_outlined,
-                            color: Colors.red),
-                        title: Text(projectData['devisFileName'] ?? 'Devis.pdf'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _isPdf(projectData['devisUrl'])
-                            ? _openPdfViewer(projectData['devisUrl'],
-                            projectData['devisFileName'] ?? 'Devis')
-                            : _openUrl(projectData['devisUrl']),
-                      ),
+                    // Devis REMOVED
+
                     // Bon de Commande (Now uses B2 URL, PDF viewer)
                     if (projectData['bonDeCommandeUrl'] != null)
                       ListTile(
@@ -1419,10 +1328,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         icon = Icons.network_check_outlined;
         color = itPrimaryColor; // Use the blue IT color
         break;
-      case 'Devis Envoyé':
-        icon = Icons.send_outlined;
-        color = Colors.purple;
-        break;
+    // DEVIS REMOVED
       case 'Finalisation de la Commande':
         icon = Icons.playlist_add_check_outlined;
         color = Colors.teal;
@@ -1565,24 +1471,17 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           )));
       buttons.add(const SizedBox(height: 12));
 
-      // Button now calls the B2 version of _uploadDevis
+      // ✅ SKIP DEVIS - GO DIRECTLY TO CLIENT APPROVAL
       buttons.add(SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-              onPressed: _uploadDevis, // Calls the modified B2 version
-              icon: const Icon(Icons.upload_file_outlined),
-              label: const Text('Devis'))));
-    }
-
-    if (status == 'Devis Envoyé' && RolePermissions.canUploadDevis(userRole)) {
-      buttons.add(SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-              onPressed:
-              _showApprovalDialog, // _uploadBonDeCommande inside now uses B2
+              onPressed: _showApprovalDialog,
               icon: const Icon(Icons.check),
               label: const Text('Confirmer l\'Approbation Client'))));
     }
+
+    // "Devis Envoyé" block removed
+
     if (status == 'Finalisation de la Commande' &&
         RolePermissions.canUploadDevis(userRole)) {
       buttons.add(SizedBox(
@@ -1616,7 +1515,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   }
 }
 
-// --- Order Finalization Dialog (Unchanged) ---
+// --- Order Finalization Dialog with Stock Warning ---
 class _OrderFinalizationDialog extends StatefulWidget {
   final String projectId;
   final List<dynamic> existingItems;
@@ -1630,6 +1529,7 @@ class _OrderFinalizationDialog extends StatefulWidget {
 class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
   late List<ProductSelection> _selectedProducts;
   bool _isSaving = false;
+
   @override
   void initState() {
     super.initState();
@@ -1645,49 +1545,133 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
     }).toList();
   }
 
-  Future<void> _finalizeOrder() async {
+  // ✅ New Method: Checks stock levels first
+  Future<void> _checkStockAndProceed() async {
+    setState(() => _isSaving = true);
+    List<String> warnings = [];
+
+    try {
+      // 1. Pre-fetch stock levels to check for shortages
+      for (var product in _selectedProducts) {
+        final doc = await FirebaseFirestore.instance
+            .collection('produits')
+            .doc(product.productId)
+            .get();
+
+        if (doc.exists) {
+          final currentStock = (doc.data()?['quantiteEnStock'] as num?)?.toInt() ?? 0;
+          if (currentStock < product.quantity) {
+            final deficit = currentStock - product.quantity; // e.g., 5 - 10 = -5
+            warnings.add('- ${product.productName}: Stock actuel $currentStock ➔ Nouveau stock $deficit');
+          }
+        }
+      }
+
+      // 2. Decision Logic
+      if (warnings.isNotEmpty) {
+        // Show Warning Dialog
+        if (mounted) {
+          // Hide loading temporarily to show dialog
+          setState(() => _isSaving = false);
+          _showStockWarningDialog(warnings);
+        }
+      } else {
+        // Proceed directly
+        await _executeFinalizationTransaction();
+      }
+
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur de vérification: $e"), backgroundColor: Colors.red));
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  // ✅ New Method: Shows the Warning Dialog
+  void _showStockWarningDialog(List<String> warnings) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('⚠️ Stock Insuffisant', style: TextStyle(color: Colors.orange)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Certains produits n\'ont pas assez de stock. Si vous continuez, les stocks passeront en négatif :'),
+              const SizedBox(height: 12),
+              ...warnings.map((w) => Padding(
+                padding: const EdgeInsets.only(bottom: 4.0),
+                child: Text(w, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              )),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.of(ctx).pop(); // Close dialog
+              _executeFinalizationTransaction(); // FORCE Transaction
+            },
+            child: const Text('Forcer la Commande'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ Renamed Method: Executes transaction without stock blocking
+  Future<void> _executeFinalizationTransaction() async {
     setState(() => _isSaving = true);
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         Map<String, DocumentSnapshot> productSnaps = {};
+
+        // Read all
         for (var product in _selectedProducts) {
-          final productRef = FirebaseFirestore.instance
-              .collection('produits')
-              .doc(product.productId);
+          final productRef = FirebaseFirestore.instance.collection('produits').doc(product.productId);
           productSnaps[product.productId] = await transaction.get(productRef);
         }
+
+        // Write all (Allowing negatives)
         for (var product in _selectedProducts) {
           final snap = productSnaps[product.productId]!;
-          final currentStock =
-              (snap.data() as Map<String, dynamic>?)?['quantiteEnStock'] ?? 0;
-          if (currentStock < product.quantity) {
-            throw Exception('Stock insuffisant pour ${product.productName}');
-          }
+          if (!snap.exists) continue;
+
+          final currentStock = (snap.data() as Map<String, dynamic>?)?['quantiteEnStock'] ?? 0;
+
+          // ✅ STOCK CHECK REMOVED HERE - We allow negative stock now
+
           transaction.update(snap.reference,
               {'quantiteEnStock': currentStock - product.quantity});
         }
-        final projectRef = FirebaseFirestore.instance
-            .collection('projects')
-            .doc(widget.projectId);
+
+        // Update Project
+        final projectRef = FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
         transaction.update(projectRef, {
-          'orderedProducts': _selectedProducts
-              .map((p) => {
+          'orderedProducts': _selectedProducts.map((p) => {
             'productId': p.productId,
             'productName': p.productName,
             'quantity': p.quantity
-          })
-              .toList(),
+          }).toList(),
           'status': 'À Planifier',
         });
       });
-      if (mounted) Navigator.of(context).pop();
+
+      if (mounted) Navigator.of(context).pop(); // Close Main Dialog
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
+        setState(() => _isSaving = false);
       }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -1746,7 +1730,7 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Annuler')),
         ElevatedButton(
-            onPressed: _isSaving ? null : _finalizeOrder,
+            onPressed: _isSaving ? null : _checkStockAndProceed, // ✅ Changed to new check method
             child: _isSaving
                 ? const CircularProgressIndicator(color: Colors.white)
                 : const Text('Enregistrer')),
