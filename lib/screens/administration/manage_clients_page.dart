@@ -8,6 +8,11 @@ import 'package:google_fonts/google_fonts.dart'; // Added for modern fonts
 import 'dart:ui'; // Added for frosted glass effect
 import 'dart:async'; // --- ADVANCED SEARCH ADDED --- For debounce Timer
 
+// ✅ NEW IMPORTS FOR REPORT GENERATION
+import 'package:printing/printing.dart'; // For opening the PDF
+import 'package:boitex_info_app/services/client_report_service.dart';
+import 'package:boitex_info_app/services/client_report_pdf_service.dart';
+
 class ManageClientsPage extends StatefulWidget {
   final String userRole;
   const ManageClientsPage({super.key, required this.userRole});
@@ -199,6 +204,82 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     // return name.contains(_storeSearchQuery); // OLD
   }
   // --- End of Original Logic ---
+
+  // ---------------------------------------------------------------------------
+  // 📊 REPORT GENERATION LOGIC
+  // ---------------------------------------------------------------------------
+  Future<void> _handleGenerateReport(String clientId, String clientName) async {
+    try {
+      // 1. Pick Date Range
+      final DateTimeRange? dateRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2020),
+        lastDate: DateTime.now(),
+        initialDateRange: DateTimeRange(
+          start: DateTime.now().subtract(const Duration(days: 30)),
+          end: DateTime.now(),
+        ),
+        builder: (context, child) {
+          return Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: const ColorScheme.light(
+                primary: kPrimaryColor,
+                onPrimary: Colors.white,
+                surface: kCardColor,
+                onSurface: kTextPrimary,
+              ),
+            ),
+            child: child!,
+          );
+        },
+      );
+
+      if (dateRange == null) return; // User cancelled
+
+      // 2. Show Loading Indicator
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(color: kPrimaryColor),
+        ),
+      );
+
+      // 3. Fetch Data (The Heavy Lifting)
+      final reportService = ClientReportService();
+      final reportData = await reportService.fetchReportData(
+        clientId: clientId,
+        clientName: clientName,
+        dateRange: dateRange,
+      );
+
+      // 4. Generate PDF (The Painting)
+      final pdfService = ClientReportPdfService();
+      final pdfBytes = await pdfService.generateReport(reportData);
+
+      // 5. Close Loading Indicator
+      if (mounted) Navigator.pop(context);
+
+      // 6. Open PDF Share/Print Dialog
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+        name:
+        'Rapport_${clientName}_${DateTime.now().millisecondsSinceEpoch}.pdf',
+      );
+    } catch (e) {
+      // Handle Errors
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context); // Close loading if open
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur lors de la génération: $e"),
+          backgroundColor: kErrorColor,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -693,8 +774,7 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                               fontWeight: FontWeight.w700, // Bold
                               color: kPrimaryColor, // Accent color
                               fontSize: 16,
-                              backgroundColor:
-                              kPrimaryColor.withOpacity(0.15),
+                              backgroundColor: kPrimaryColor.withOpacity(0.15),
                             ),
                           ),
                           // --- ADVANCED SEARCH END ---
@@ -702,7 +782,8 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                           // ✅ ADDED: Fiscal Info Display
                           if (data['nif'] != null || data['rc'] != null)
                             Padding(
-                              padding: const EdgeInsets.only(top: 2.0, bottom: 2.0),
+                              padding:
+                              const EdgeInsets.only(top: 2.0, bottom: 2.0),
                               child: Text(
                                 "NIF: ${data['nif'] ?? '-'} | RC: ${data['rc'] ?? '-'}",
                                 style: GoogleFonts.poppins(
@@ -736,6 +817,14 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // ✅ REPORT BUTTON
+                        IconButton(
+                          icon: const Icon(Icons.picture_as_pdf_rounded,
+                              color: kPrimaryColor),
+                          tooltip: "Générer Rapport Global",
+                          onPressed: () => _handleGenerateReport(doc.id, name),
+                        ),
+
                         IconButton(
                           icon: Icon(Icons.edit_outlined,
                               color: kAccentColor.withOpacity(0.8)),
@@ -979,8 +1068,7 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                               fontWeight: FontWeight.w700,
                               color: kPrimaryColor,
                               fontSize: 16,
-                              backgroundColor:
-                              kPrimaryColor.withOpacity(0.15),
+                              backgroundColor: kPrimaryColor.withOpacity(0.15),
                             ),
                           ),
                           // --- ADVANCED SEARCH END ---
@@ -1007,8 +1095,7 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                                 color: kPrimaryColor.withOpacity(0.9),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
-                                backgroundColor:
-                                kPrimaryColor.withOpacity(0.1),
+                                backgroundColor: kPrimaryColor.withOpacity(0.1),
                               ),
                             ),
                           // --- ADVANCED SEARCH END ---
@@ -1213,8 +1300,8 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     // Build TextSpans from the original string using merged indices
     for (final match in mergedMatches) {
       if (match[0] > start) {
-        spans.add(
-            TextSpan(text: text.substring(start, match[0]), style: defaultStyle));
+        spans.add(TextSpan(
+            text: text.substring(start, match[0]), style: defaultStyle));
       }
       // Ensure match indices are within bounds of the original string
       final int end = match[1] < text.length ? match[1] : text.length;
