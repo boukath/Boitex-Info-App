@@ -18,8 +18,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class AddProductPage extends StatefulWidget {
   final DocumentSnapshot? productDoc;
+  final String? scannedCode; // ✅ NEW: Optional parameter for pre-filling
 
-  const AddProductPage({super.key, this.productDoc});
+  const AddProductPage({super.key, this.productDoc, this.scannedCode});
 
   @override
   State<AddProductPage> createState() => _AddProductPageState();
@@ -76,6 +77,11 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       curve: Curves.easeInOut,
     );
     _animationController.forward();
+
+    // ✅ NEW: Pre-fill reference if scanned code provided
+    if (widget.scannedCode != null) {
+      _referenceController.text = widget.scannedCode!;
+    }
 
     if (_isEditing) {
       final data = widget.productDoc!.data() as Map<String, dynamic>;
