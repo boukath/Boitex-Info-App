@@ -10,6 +10,16 @@ import 'package:boitex_info_app/services/client_report_service.dart';
 
 class ClientReportPdfService {
 
+  // 🎨 Chart Color Palette (Professional Tones)
+  static const List<PdfColor> _chartColors = [
+    PdfColor.fromInt(0xFF7B61FF), // Primary Purple
+    PdfColor.fromInt(0xFF00B4D8), // Cyan
+    PdfColor.fromInt(0xFFFF6F91), // Pink/Red
+    PdfColor.fromInt(0xFFFFC75F), // Orange/Yellow
+    PdfColor.fromInt(0xFF4D96FF), // Blue
+    PdfColor.fromInt(0xFF6BCB77), // Green
+  ];
+
   Future<Uint8List> generateReport(ClientReportData data) async {
     final pdf = pw.Document();
 
@@ -31,12 +41,20 @@ class ClientReportPdfService {
         header: (context) => _buildHeader(context, data, logoImage),
         footer: (context) => _buildFooter(context),
         build: (context) => [
+          // --- PAGE 1: DASHBOARD ---
           _buildDashboard(data),
+
+          // ✅ NEW: Charts Section
+          if (data.interventionsByMonth.isNotEmpty) ...[
+            pw.SizedBox(height: 20),
+            _buildChartsRow(data),
+          ],
 
           pw.SizedBox(height: 20),
           pw.Divider(),
           pw.SizedBox(height: 20),
 
+          // --- PAGE 2+: DETAILS ---
           ...data.stores.map((store) {
             if (!store.hasActivity) return pw.Container();
 
@@ -128,9 +146,113 @@ class ClientReportPdfService {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // 📈 CHARTS IMPLEMENTATION
+  // ---------------------------------------------------------------------------
+  pw.Widget _buildChartsRow(ClientReportData data) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        // --- 1. BAR CHART (Monthly Trend) ---
+        pw.Expanded(
+          flex: 3,
+          child: pw.Container(
+            height: 150,
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey300),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text("📅 Évolution Mensuelle", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 10),
+                pw.Expanded(
+                  child: pw.Chart(
+                    grid: pw.CartesianGrid(
+                      xAxis: pw.FixedAxis(
+                        List.generate(data.interventionsByMonth.length, (i) => i.toDouble()),
+                        // ✅ FIX: Used 'format' (returns String) instead of 'tick'
+                        format: (v) {
+                          final index = v.toInt();
+                          if (index < 0 || index >= data.interventionsByMonth.length) {
+                            return '';
+                          }
+                          return data.interventionsByMonth.keys.elementAt(index);
+                        },
+                        textStyle: const pw.TextStyle(fontSize: 8), // Styling applied here
+                      ),
+                      yAxis: pw.FixedAxis(
+                        [0, 5, 10, 15, 20], // Adjust scale based on volume
+                        divisions: true,
+                        textStyle: const pw.TextStyle(fontSize: 8, color: PdfColors.grey),
+                      ),
+                    ),
+                    datasets: [
+                      pw.BarDataSet(
+                        color: PdfColors.blueAccent,
+                        width: 15,
+                        data: List.generate(data.interventionsByMonth.length, (index) {
+                          final value = data.interventionsByMonth.values.elementAt(index);
+                          return pw.PointChartValue(index.toDouble(), value.toDouble());
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        pw.SizedBox(width: 15),
+
+        // --- 2. PIE CHART (Type Breakdown) ---
+        pw.Expanded(
+          flex: 2,
+          child: pw.Container(
+            height: 150,
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey300),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text("🔧 Répartition par Type", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 10),
+                pw.Expanded(
+                  child: pw.Chart(
+                    title: pw.Text(""), // Hide title inside chart
+                    grid: pw.PieGrid(),
+                    datasets: List.generate(data.interventionsByType.length, (index) {
+                      final key = data.interventionsByType.keys.elementAt(index);
+                      final value = data.interventionsByType.values.elementAt(index);
+                      // Cycle through colors
+                      final color = _chartColors[index % _chartColors.length];
+
+                      return pw.PieDataSet(
+                        legend: "$key ($value)",
+                        value: value,
+                        color: color,
+                        legendStyle: const pw.TextStyle(fontSize: 8),
+                        legendPosition: pw.PieLegendPosition.inside, // Keep it compact
+                      );
+                    }),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   pw.Widget _buildStoreSection(StoreReportData store) {
     final headerColor = store.interventions.isNotEmpty ? PdfColors.blue800 : PdfColors.grey700;
-
     final groupedEquipment = _groupEquipment(store.equipment);
 
     return pw.Container(
@@ -150,7 +272,6 @@ class ClientReportPdfService {
           ),
           pw.SizedBox(height: 10),
 
-          // --- SECTION: EQUIPMENT ---
           if (groupedEquipment.isNotEmpty) ...[
             pw.Text("📦 Parc Équipements (Synthèse)", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
             pw.SizedBox(height: 4),
@@ -173,25 +294,23 @@ class ClientReportPdfService {
             pw.SizedBox(height: 10),
           ],
 
-          // --- SECTION: INTERVENTIONS ---
           if (store.interventions.isNotEmpty) ...[
             pw.Text("🛠️ Historique Interventions Détaillé", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
             pw.SizedBox(height: 4),
             pw.Table.fromTextArray(
-              // ✅ ADDED 'Responsable'
               headers: ['Date', 'Tech', 'Responsable', 'Demande', 'Diagnostic', 'Solution / Travaux'],
               columnWidths: {
-                0: const pw.FixedColumnWidth(50), // Date
-                1: const pw.FixedColumnWidth(55), // Tech
-                2: const pw.FixedColumnWidth(60), // Manager (Responsable)
-                3: const pw.FlexColumnWidth(1),   // Request
-                4: const pw.FlexColumnWidth(1),   // Diagnostic
-                5: const pw.FlexColumnWidth(1.2), // Work Done
+                0: const pw.FixedColumnWidth(50),
+                1: const pw.FixedColumnWidth(55),
+                2: const pw.FixedColumnWidth(60),
+                3: const pw.FlexColumnWidth(1),
+                4: const pw.FlexColumnWidth(1),
+                5: const pw.FlexColumnWidth(1.2),
               },
               data: store.interventions.map((i) => [
                 DateFormat('dd/MM/yy').format(i.date),
                 i.technician,
-                i.managerName, // ✅ DISPLAYING MANAGER NAME
+                i.managerName,
                 i.summary.isEmpty ? '-' : i.summary,
                 i.diagnostic.isEmpty ? '-' : i.diagnostic,
                 i.workDone.isEmpty ? '-' : i.workDone,
@@ -211,7 +330,6 @@ class ClientReportPdfService {
     );
   }
 
-  // ✅ HELPER: Groups equipment by Name + Brand
   List<Map<String, dynamic>> _groupEquipment(List<EquipmentReportItem> items) {
     if (items.isEmpty) return [];
 

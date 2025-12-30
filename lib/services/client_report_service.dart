@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart'; // Needed for date formatting
 
 // -----------------------------------------------------------------------------
 // 📝 HELPER MODELS (DTOs)
@@ -16,6 +17,10 @@ class ClientReportData {
   final int totalInterventions;
   final int totalEquipment;
 
+  // ✅ NEW: Data for Charts
+  final Map<String, int> interventionsByMonth;
+  final Map<String, int> interventionsByType;
+
   ClientReportData({
     required this.clientName,
     required this.startDate,
@@ -24,6 +29,8 @@ class ClientReportData {
     required this.topProblematicStores,
     required this.totalInterventions,
     required this.totalEquipment,
+    required this.interventionsByMonth,
+    required this.interventionsByType,
   });
 }
 
@@ -62,9 +69,9 @@ class EquipmentReportItem {
 class InterventionReportItem {
   final DateTime date;
   final String technician;
-  final String managerName; // ✅ ADDED: Manager who signed
+  final String managerName;
   final String type;
-  final String summary; // Request
+  final String summary;
   final String status;
   final String diagnostic;
   final String workDone;
@@ -116,6 +123,10 @@ class ClientReportService {
 
       final Map<String, List<InterventionReportItem>> interventionsByStore = {};
 
+      // ✅ NEW: Aggregation Maps
+      final Map<String, int> statsByMonth = {};
+      final Map<String, int> statsByType = {};
+
       for (var doc in interventionsSnapshot.docs) {
         final data = doc.data();
         final String? sId = data['storeId'];
@@ -131,12 +142,21 @@ class ClientReportService {
           date = (data['createdAt'] as Timestamp).toDate();
         }
 
+        // ✅ AGGREGATION LOGIC
+        // 1. By Month (e.g., "Oct 2025")
+        final String monthKey = DateFormat('MMM yyyy', 'fr_FR').format(date);
+        statsByMonth[monthKey] = (statsByMonth[monthKey] ?? 0) + 1;
+
+        // 2. By Type (e.g., "Maintenance")
+        final String typeKey = data['interventionType'] ?? 'Autre';
+        statsByType[typeKey] = (statsByType[typeKey] ?? 0) + 1;
+
         interventionsByStore[sId]!.add(
           InterventionReportItem(
             date: date,
             technician: data['createdByName'] ?? 'Technicien',
-            managerName: data['managerName'] ?? 'Non signé', // ✅ FETCH MANAGER
-            type: data['interventionType'] ?? 'Intervention',
+            managerName: data['managerName'] ?? 'Non signé',
+            type: typeKey,
             summary: data['requestDescription'] ?? '',
             status: data['status'] ?? 'Terminé',
             diagnostic: data['diagnostic'] ?? '',
@@ -179,7 +199,7 @@ class ClientReportService {
 
       final List<StoreReportData> allStoresData = await Future.wait(storeFutures);
 
-      // 4. Calculate Stats
+      // 4. Calculate Stats & Sort
       final List<StoreReportData> sortedByIssues = List.from(allStoresData);
       sortedByIssues.sort((a, b) => b.interventions.length.compareTo(a.interventions.length));
 
@@ -198,6 +218,9 @@ class ClientReportService {
         topProblematicStores: top3,
         totalInterventions: totalInterventions,
         totalEquipment: totalEquipment,
+        // ✅ PASS DATA TO MODEL
+        interventionsByMonth: statsByMonth,
+        interventionsByType: statsByType,
       );
 
     } catch (e) {
