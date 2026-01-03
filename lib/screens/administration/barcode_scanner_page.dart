@@ -1,7 +1,10 @@
+// lib/screens/administration/barcode_scanner_page.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:just_audio/just_audio.dart';
 
 class BarcodeScannerPage extends StatefulWidget {
   const BarcodeScannerPage({super.key});
@@ -11,50 +14,70 @@ class BarcodeScannerPage extends StatefulWidget {
 }
 
 class _BarcodeScannerPageState extends State<BarcodeScannerPage> {
-  // Controller for the camera (Engine A)
-  final MobileScannerController _cameraController = MobileScannerController();
+  final MobileScannerController _cameraController = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+  );
 
-  // Buffer to capture rapid keystrokes from the Yokoscan (Engine B)
+  final AudioPlayer _audioPlayer = AudioPlayer();
   final StringBuffer _keyBuffer = StringBuffer();
   Timer? _bufferTimer;
 
   bool _isPopped = false;
 
   @override
+  void initState() {
+    super.initState();
+    _initAudio();
+  }
+
+  Future<void> _initAudio() async {
+    try {
+      await _audioPlayer.setAsset('assets/sounds/beep.mp3');
+      await _audioPlayer.setVolume(1.0);
+    } catch (e) {
+      debugPrint("Error loading beep sound: $e");
+    }
+  }
+
+  @override
   void dispose() {
     _cameraController.dispose();
     _bufferTimer?.cancel();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
-  // Unified handler for both Camera and Hardware scans
   void _handleScan(String code) {
     if (!mounted || _isPopped) return;
     if (code.isEmpty) return;
+
+    _playSuccessFeedback();
 
     setState(() {
       _isPopped = true;
     });
 
-    // Play a little beep or haptic feedback if you want (optional)
-    HapticFeedback.lightImpact();
-
-    // Return the code to the previous screen
     Navigator.of(context).pop(code);
   }
 
-  // 👇 The "Magic": Captures hardware keystrokes
+  void _playSuccessFeedback() {
+    try {
+      _audioPlayer.seek(Duration.zero);
+      _audioPlayer.play();
+    } catch (e) {
+      // Ignore
+    }
+    HapticFeedback.heavyImpact();
+  }
+
   void _onKeyEvent(KeyEvent event) {
-    // We only care about key DOWN events
     if (event is! KeyDownEvent) return;
 
     final String? character = event.character;
 
-    // 1. Detect the "Enter" key (signal that scan is complete)
     if (event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter) {
       if (_keyBuffer.isNotEmpty) {
-        // We have a full barcode in the buffer!
         String scanData = _keyBuffer.toString().trim();
         _keyBuffer.clear();
         _handleScan(scanData);
@@ -62,12 +85,8 @@ class _BarcodeScannerPageState extends State<BarcodeScannerPage> {
       return;
     }
 
-    // 2. Accumulate characters (numbers/letters)
     if (character != null && character.isNotEmpty) {
       _keyBuffer.write(character);
-
-      // Security Timer: If we don't get another key within 200ms,
-      // it's likely manual typing, not a scanner. Clear the buffer.
       _bufferTimer?.cancel();
       _bufferTimer = Timer(const Duration(milliseconds: 200), () {
         _keyBuffer.clear();
@@ -77,20 +96,51 @@ class _BarcodeScannerPageState extends State<BarcodeScannerPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 🛡️ The Focus widget is the "Trap" that catches the keystrokes
+    // ✅ 1. Define Scan Window
+    final double scanWindowWidth = 280;
+    final double scanWindowHeight = 280;
+
+    final scanWindow = Rect.fromCenter(
+      center: MediaQuery.sizeOf(context).center(Offset.zero),
+      width: scanWindowWidth,
+      height: scanWindowHeight,
+    );
+
     return Focus(
-      autofocus: true, // Auto-focus immediately so we are ready to scan
+      autofocus: true,
       onKeyEvent: (node, event) {
         _onKeyEvent(event);
-        return KeyEventResult.handled; // Stop the keys from triggering other things
+        return KeyEventResult.handled;
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('Scanner le code-barres')),
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          title: const Text('Scanner le code-barres'),
+          actions: [
+            ValueListenableBuilder(
+              valueListenable: _cameraController,
+              builder: (context, state, child) {
+                final bool isTorchOn = state.torchState == TorchState.on;
+
+                return IconButton(
+                  icon: Icon(
+                    isTorchOn ? Icons.flash_on : Icons.flash_off,
+                    color: isTorchOn ? Colors.yellowAccent : Colors.grey,
+                  ),
+                  tooltip: 'Lampe Torche',
+                  onPressed: () => _cameraController.toggleTorch(),
+                );
+              },
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
         body: Stack(
           children: [
-            // ENGINE 1: Camera Scanner (Backup for standard phones)
             MobileScanner(
               controller: _cameraController,
+              // ✅ 2. Apply Scan Window
+              scanWindow: scanWindow,
               onDetect: (capture) {
                 final List<Barcode> barcodes = capture.barcodes;
                 if (barcodes.isNotEmpty) {
@@ -100,7 +150,32 @@ class _BarcodeScannerPageState extends State<BarcodeScannerPage> {
               },
             ),
 
-            // ENGINE 2: UI Overlay telling the user what to do
+            // ✅ 3. Visual Overlay
+            CustomPaint(
+              painter: ScannerOverlayPainter(scanWindow), // Using the same painter class
+              child: Container(),
+            ),
+
+            // ✅ 4. Red Box
+            Center(
+              child: Container(
+                width: scanWindowWidth,
+                height: scanWindowHeight,
+                decoration: BoxDecoration(
+                    border: Border.all(color: Colors.redAccent, width: 2),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.redAccent.withOpacity(0.2),
+                        blurRadius: 10,
+                        spreadRadius: 2,
+                      )
+                    ]
+                ),
+              ),
+            ),
+
+            // Mode Indicator
             Positioned(
               bottom: 40,
               left: 20,
@@ -125,11 +200,9 @@ class _BarcodeScannerPageState extends State<BarcodeScannerPage> {
                           fontSize: 16,
                         ),
                       ),
-                      SizedBox(height: 4),
                       Text(
-                        "1. Visez avec la caméra\nOU\n2. Appuyez sur le bouton latéral (Laser)",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white, fontSize: 13),
+                        "Caméra (Cadre) + Laser",
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                     ],
                   ),
@@ -141,4 +214,32 @@ class _BarcodeScannerPageState extends State<BarcodeScannerPage> {
       ),
     );
   }
+}
+
+// ✅ Reusable Painter (Can be copied to both files or put in a shared file)
+class ScannerOverlayPainter extends CustomPainter {
+  final Rect scanWindow;
+
+  ScannerOverlayPainter(this.scanWindow);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final backgroundPath = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    final cutoutPath = Path()
+      ..addRRect(RRect.fromRectAndRadius(scanWindow, const Radius.circular(12)));
+
+    canvas.drawPath(
+      Path.combine(
+        PathOperation.difference,
+        backgroundPath,
+        cutoutPath,
+      ),
+      Paint()..color = Colors.black.withOpacity(0.5),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
