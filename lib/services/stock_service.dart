@@ -152,4 +152,88 @@ class StockService {
       });
     });
   }
+
+  // ✅ EDIT: Manually adjust the broken quantity
+  Future<void> updateBrokenQuantity({
+    required String productId,
+    required int newQuantity,
+    required String reason,
+    required String userName,
+  }) async {
+    final productRef = _db.collection('produits').doc(productId);
+
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(productRef);
+      if (!snapshot.exists) throw Exception("Produit introuvable");
+
+      final int currentBroken = snapshot.data()?['quantiteDefectueuse'] ?? 0;
+      final int diff = newQuantity - currentBroken;
+
+      if (diff == 0) return; // No change
+
+      transaction.update(productRef, {
+        'quantiteDefectueuse': newQuantity,
+        'lastModifiedBy': userName,
+        'lastModifiedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Log the correction
+      final movementRef = _db.collection('stock_movements').doc();
+      transaction.set(movementRef, {
+        'productId': productId,
+        'quantityChange': 0,
+        'brokenStockChange': diff,
+        'type': 'BROKEN_STOCK_CORRECTION',
+        'reason': reason,
+        'user': userName,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  // ✅ DELETE: Resolve the broken item (Restock or Destroy)
+  Future<void> resolveBrokenItem({
+    required String productId,
+    required int quantityToRemove, // Usually the total broken count
+    required bool restoreToHealthyStock, // TRUE = Fix/Mistake, FALSE = Trash
+    required String userName,
+  }) async {
+    final productRef = _db.collection('produits').doc(productId);
+
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(productRef);
+      if (!snapshot.exists) throw Exception("Produit introuvable");
+
+      final int currentStock = snapshot.data()?['quantiteEnStock'] ?? 0;
+      final int currentBroken = snapshot.data()?['quantiteDefectueuse'] ?? 0;
+
+      // Calculate new values
+      final int newBroken = currentBroken - quantityToRemove;
+      // If restoring, we add back to healthy stock. If destroying, healthy stock stays same.
+      final int newStock = restoreToHealthyStock
+          ? currentStock + quantityToRemove
+          : currentStock;
+
+      if (newBroken < 0) throw Exception("Impossible de retirer plus que le stock actuel");
+
+      transaction.update(productRef, {
+        'quantiteEnStock': newStock,
+        'quantiteDefectueuse': newBroken,
+        'lastModifiedBy': userName,
+        'lastModifiedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Log the resolution
+      final movementRef = _db.collection('stock_movements').doc();
+      transaction.set(movementRef, {
+        'productId': productId,
+        'quantityChange': restoreToHealthyStock ? quantityToRemove : 0,
+        'brokenStockChange': -quantityToRemove,
+        'type': restoreToHealthyStock ? 'BROKEN_RESTORED' : 'BROKEN_DESTROYED',
+        'reason': restoreToHealthyStock ? 'Remise en stock (Réparé/Erreur)' : 'Mise au rebut (Destruction)',
+        'user': userName,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    });
+  }
 }

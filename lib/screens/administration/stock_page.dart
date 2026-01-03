@@ -20,9 +20,9 @@ import 'package:boitex_info_app/screens/administration/inventory_report_page.dar
 import 'package:boitex_info_app/screens/administration/stock_audit_page.dart';
 import 'package:boitex_info_app/screens/administration/inventory_session_page.dart';
 import 'package:boitex_info_app/screens/administration/inventory_approval_list_page.dart';
-import 'package:boitex_info_app/screens/service_technique/add_sav_ticket_page.dart';
+// ❌ REMOVED: add_sav_ticket_page.dart (No longer needed here)
 import 'package:boitex_info_app/screens/administration/add_product_page.dart';
-// ✅ IMPORT THE BROKEN STOCK PAGE
+// ✅ IMPORT THE BROKEN STOCK PAGE (Quarantine Zone)
 import 'package:boitex_info_app/screens/administration/broken_stock_list_page.dart';
 
 import 'package:boitex_info_app/utils/user_roles.dart';
@@ -354,7 +354,9 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     final clientNameController = TextEditingController();
     String reason = 'Rétractation';
     bool isResellable = true;
-    final String productCategory = data['mainCategory'] ?? 'Antivol';
+
+    // Removed unused variable
+    // final String productCategory = data['mainCategory'] ?? 'Antivol';
 
     showDialog(
       context: context,
@@ -413,7 +415,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     child: Column(
                       children: [
                         Text(
-                          isResellable ? "✅ ETAT VENDABLE (Remise en Stock)" : "⚠️ DÉFECTUEUX / SAV (Quarantaine)",
+                          isResellable ? "✅ ETAT VENDABLE (Remise en Stock)" : "⚠️ DÉFECTUEUX (Zone Quarantaine)",
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: isResellable ? Colors.green.shade800 : Colors.red.shade800,
@@ -433,11 +435,11 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                             padding: const EdgeInsets.only(top: 8.0),
                             child: Row(
                               children: [
-                                Icon(Icons.info_outline, size: 16, color: Colors.red.shade800),
+                                Icon(Icons.arrow_forward, size: 16, color: Colors.red.shade800),
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
-                                    "Stock inchangé. Un ticket SAV sera proposé.",
+                                    "Redirection automatique vers la Zone de Quarantaine.",
                                     style: TextStyle(fontSize: 12, color: Colors.red.shade800, fontStyle: FontStyle.italic),
                                   ),
                                 ),
@@ -476,12 +478,20 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
 
                     if (ctx.mounted) {
                       Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Retour enregistré avec succès !"), backgroundColor: Colors.green),
-                      );
 
-                      if (!isResellable) {
-                        _askToCreateSavTicket(productCategory);
+                      if (isResellable) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Retour enregistré ! Stock mis à jour."), backgroundColor: Colors.green),
+                        );
+                      } else {
+                        // ✅ AUTOMATIC NAVIGATION TO QUARANTINE ZONE
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Produit marqué défectueux."), backgroundColor: Colors.orange),
+                        );
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const BrokenStockListPage()),
+                        );
                       }
                     }
                   } catch(e) {
@@ -498,31 +508,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     );
   }
 
-  Future<void> _askToCreateSavTicket(String serviceType) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Créer un Ticket SAV ?"),
-        content: const Text("Cet article est marqué comme défectueux. Voulez-vous ouvrir un dossier SAV immédiatement ?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Plus tard")),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
-            child: const Text("Oui, ouvrir SAV"),
-          )
-        ],
-      ),
-    );
-
-    if (confirm == true && mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => AddSavTicketPage(serviceType: serviceType),
-        ),
-      );
-    }
-  }
+  // 🗑️ REMOVED: _askToCreateSavTicket function
 
   // ===========================================================================
   // 🚀 LOGIC 1: INVENTORY SESSION MANAGEMENT
@@ -1107,7 +1093,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                   },
                 ),
 
-                // ✅ NEW: ADDED QUARANTINE MENU ITEM
+                // ✅ QUARANTINE MENU ITEM
                 _buildMenuItem(
                   icon: Icons.broken_image_rounded,
                   text: 'Zone de Quarantaine',
