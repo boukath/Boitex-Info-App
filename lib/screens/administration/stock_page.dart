@@ -559,7 +559,26 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-      final userName = user?.displayName ?? "Technicien";
+      // ✅ UPDATED: Robust Name Capture
+      // 1. Try to get name from Auth
+      String userName = user?.displayName ?? "";
+
+      // 2. If Auth name is empty, try to fetch from 'users' collection
+      if (userName.isEmpty && user != null) {
+        try {
+          final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+          if (userDoc.exists) {
+            final data = userDoc.data();
+            userName = data?['fullName'] ?? data?['name'] ?? "Technicien";
+          }
+        } catch (e) {
+          // Ignore error, fallback to default
+          print("Error fetching user name: $e");
+        }
+      }
+
+      // 3. Final Fallback
+      if (userName.isEmpty) userName = "Technicien";
 
       final sessionId = await InventoryService().startSession(
           scope: scope,

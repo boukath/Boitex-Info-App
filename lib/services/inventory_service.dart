@@ -22,14 +22,14 @@ class InventoryService {
     final session = InventorySession(
       id: docRef.id,
       createdByUid: user.uid,
-      createdByName: userName,
+      createdByName: userName, // <--- Writing it to the document
       createdAt: DateTime.now(),
       status: InventoryStatus.inProgress,
       scope: scope,
       totalItemsScanned: 0,
     );
 
-    await docRef.set(session.toMap());
+    await docRef.set(session.toMap()); // Saved!
     return docRef.id;
   }
 
@@ -51,11 +51,26 @@ class InventoryService {
   }
 
   /// 3. Finish Session (Move to 'Reviewing')
+  /// ⚠️ MODIFIED: If empty (0 items), delete the session instead.
   Future<void> finishSession(String sessionId) async {
-    await _db.collection(_collection).doc(sessionId).update({
-      'status': InventoryStatus.reviewing.name,
-      'completedAt': FieldValue.serverTimestamp(),
-    });
+    final docRef = _db.collection(_collection).doc(sessionId);
+
+    // 1. Fetch current data to check item count
+    final docSnapshot = await docRef.get();
+    if (!docSnapshot.exists) return;
+
+    final int totalScanned = docSnapshot.data()?['totalItemsScanned'] ?? 0;
+
+    if (totalScanned > 0) {
+      // ✅ Normal flow: Items were scanned, move to review list
+      await docRef.update({
+        'status': InventoryStatus.reviewing.name,
+        'completedAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      // 🗑️ Empty session: Delete it to keep the list clean
+      await docRef.delete();
+    }
   }
 
   // ===========================================================================

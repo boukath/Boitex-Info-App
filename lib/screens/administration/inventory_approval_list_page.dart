@@ -65,6 +65,7 @@ class InventoryApprovalListPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 6),
+                      // 🚀 FAST: No 'await', no 'FutureBuilder', just text.
                       Row(
                         children: [
                           Icon(Icons.person, size: 14, color: Colors.grey.shade600),
