@@ -7,15 +7,14 @@ class StockService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   /// Handles the logic for a Client Return (Triage System)
-  /// Returns [true] if the operation was successful.
   Future<void> processClientReturn({
     required String productId,
     required String productName,
     required String productReference,
     required int quantityReturned,
-    required bool isResellable, // ✅ The Triage Decision
-    required String reason,     // e.g., "Change of mind", "Broken"
-    String? clientId,           // Optional: Link to a client
+    required bool isResellable,
+    required String reason,
+    String? clientId,
     String? clientName,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -23,39 +22,32 @@ class StockService {
     final String userId = user?.uid ?? "unknown";
 
     await _db.runTransaction((transaction) async {
-      // 1. Reference to the product
       final productRef = _db.collection('produits').doc(productId);
-
-      // 2. Reference to the history log
       final movementRef = _db.collection('stock_movements').doc();
 
-      // 3. LOGIC FORK:
       if (isResellable) {
-        // ✅ CASE A: RESELLABLE (Back to Stock)
-        // We read the product first to ensure safety
+        // CASE A: RESELLABLE (Back to Stock)
         final snapshot = await transaction.get(productRef);
         if (!snapshot.exists) throw Exception("Produit introuvable!");
 
         final int currentStock = snapshot.data()?['quantiteEnStock'] ?? 0;
         final int newStock = currentStock + quantityReturned;
 
-        // Update Stock
         transaction.update(productRef, {
           'quantiteEnStock': newStock,
           'lastModifiedBy': userName,
           'lastModifiedAt': FieldValue.serverTimestamp(),
         });
 
-        // Log Movement (Type: RETURN_OK)
         transaction.set(movementRef, {
           'productId': productId,
           'productName': productName,
           'productRef': productReference,
-          'quantityChange': quantityReturned, // Positive because it enters stock
+          'quantityChange': quantityReturned,
           'oldQuantity': currentStock,
           'newQuantity': newStock,
           'type': 'CLIENT_RETURN_OK',
-          'condition': 'Resellable', // ✨ Metadata
+          'condition': 'Resellable',
           'reason': reason,
           'clientId': clientId,
           'clientName': clientName,
@@ -65,28 +57,99 @@ class StockService {
         });
 
       } else {
-        // ⚠️ CASE B: DEFECTIVE (Quarantine / SAV)
-        // We do NOT update 'quantiteEnStock' because it's broken.
+        // CASE B: DEFECTIVE RETURN
+        final snapshot = await transaction.get(productRef);
+        if (!snapshot.exists) throw Exception("Produit introuvable!");
 
-        // Log Movement (Type: RETURN_DEFECTIVE)
-        // quantityChange is 0 regarding "Sellable Stock", but we record the event.
+        final int currentBrokenStock = snapshot.data()?['quantiteDefectueuse'] ?? 0;
+        final int newBrokenStock = currentBrokenStock + quantityReturned;
+
+        transaction.update(productRef, {
+          'quantiteDefectueuse': newBrokenStock,
+          'lastModifiedBy': userName,
+          'lastModifiedAt': FieldValue.serverTimestamp(),
+        });
+
         transaction.set(movementRef, {
           'productId': productId,
           'productName': productName,
           'productRef': productReference,
-          'quantityChange': 0, // Stock didn't change
-          'affectedQuantity': quantityReturned, // But 1 item came back
-          'type': 'CLIENT_RETURN_DEFECTIVE',
-          'condition': 'Defective', // ✨ Metadata
+          'quantityChange': 0,
+          'brokenStockChange': quantityReturned,
+          'type': 'CLIENT_RETURN_BROKEN',
+          'condition': 'Defective',
           'reason': reason,
           'clientId': clientId,
           'clientName': clientName,
           'user': userName,
           'userId': userId,
           'timestamp': FieldValue.serverTimestamp(),
-          'notes': 'Article défectueux - Ne pas remettre en rayon',
+          'notes': 'Retour client (Non Vendable) -> Stock Défectueux',
         });
       }
+    });
+  }
+
+  // ✅ NEW FUNCTION: Internal Breakage Report
+  // Moves stock from "Good" -> "Defective" and saves the B2 Photo URL
+  Future<void> reportInternalBreakage({
+    required String productId,
+    required String productName,
+    required String productReference,
+    required int quantityBroken,
+    required String reason, // The description of how it broke
+    required String? photoUrl, // 📸 The B2 Image Link
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final String userName = user?.displayName ?? "Technicien";
+    final String userId = user?.uid ?? "unknown";
+
+    await _db.runTransaction((transaction) async {
+      final productRef = _db.collection('produits').doc(productId);
+      final movementRef = _db.collection('stock_movements').doc();
+
+      // 1. Read Product State
+      final snapshot = await transaction.get(productRef);
+      if (!snapshot.exists) throw Exception("Produit introuvable !");
+
+      final int currentStock = snapshot.data()?['quantiteEnStock'] ?? 0;
+      final int currentBroken = snapshot.data()?['quantiteDefectueuse'] ?? 0;
+
+      // 2. Validate Inventory
+      if (currentStock < quantityBroken) {
+        throw Exception("Stock insuffisant ! (Dispo: $currentStock, Demandé: $quantityBroken)");
+      }
+
+      // 3. Calculate New Values
+      final int newStock = currentStock - quantityBroken; // Decrease Good
+      final int newBroken = currentBroken + quantityBroken; // Increase Bad
+
+      // 4. Update Product
+      transaction.update(productRef, {
+        'quantiteEnStock': newStock,
+        'quantiteDefectueuse': newBroken,
+        'lastModifiedBy': userName,
+        'lastModifiedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 5. Log Movement
+      transaction.set(movementRef, {
+        'productId': productId,
+        'productName': productName,
+        'productRef': productReference,
+        'quantityChange': -quantityBroken, // Negative because it left sellable stock
+        'brokenStockChange': quantityBroken, // Positive because it entered broken stock
+        'oldQuantity': currentStock,
+        'newQuantity': newStock,
+        'type': 'INTERNAL_BREAKAGE', // ⚠️ Specific Type
+        'condition': 'Damaged',
+        'reason': reason,
+        'photoUrl': photoUrl, // 📸 Save the B2 Link here
+        'user': userName,
+        'userId': userId,
+        'timestamp': FieldValue.serverTimestamp(),
+        'notes': 'Casse interne déclarée',
+      });
     });
   }
 }

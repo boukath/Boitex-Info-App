@@ -22,6 +22,8 @@ import 'package:boitex_info_app/screens/administration/inventory_session_page.da
 import 'package:boitex_info_app/screens/administration/inventory_approval_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/add_sav_ticket_page.dart';
 import 'package:boitex_info_app/screens/administration/add_product_page.dart';
+// ✅ IMPORT THE BROKEN STOCK PAGE
+import 'package:boitex_info_app/screens/administration/broken_stock_list_page.dart';
 
 import 'package:boitex_info_app/utils/user_roles.dart';
 
@@ -151,7 +153,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     }
   }
 
-  // ✅ 3. BUILD METHOD (This was likely missing or malformed)
+  // ✅ 3. BUILD METHOD
   @override
   Widget build(BuildContext context) {
     // 🎨 Dynamic Colors based on Mode
@@ -198,6 +200,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                   _buildModeBanner("MODE RETOUR CLIENT ACTIF", Icons.assignment_return, Colors.deepPurple, Colors.purple.shade100),
 
                 _buildSearchBar(primaryColor),
+
                 Expanded(
                   child: FadeTransition(
                     opacity: _fadeAnimation,
@@ -1103,6 +1106,20 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     });
                   },
                 ),
+
+                // ✅ NEW: ADDED QUARANTINE MENU ITEM
+                _buildMenuItem(
+                  icon: Icons.broken_image_rounded,
+                  text: 'Zone de Quarantaine',
+                  iconColor: Colors.red,
+                  color: Colors.red.shade900,
+                  onTap: () {
+                    Future.delayed(Duration.zero, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const BrokenStockListPage()));
+                    });
+                  },
+                ),
+
                 const PopupMenuDivider(),
 
                 _buildMenuItem(
