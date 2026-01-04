@@ -1,3 +1,5 @@
+// lib/screens/service_technique/intervention_list_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -177,6 +179,33 @@ class _InterventionListPageState extends State<InterventionListPage> {
     }
   }
 
+  // 🟢 NEW: BUILD SMART BADGES FOR BILLING
+  Widget _buildBillingBadge(String? status) {
+    if (status == 'GRATUIT') {
+      return Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(color: Colors.green.shade100, shape: BoxShape.circle),
+        child: Icon(Icons.verified_user, size: 16, color: Colors.green.shade800),
+      );
+    } else if (status == 'FACTURABLE') {
+      return Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(color: Colors.red.shade100, shape: BoxShape.circle),
+        child: Icon(Icons.attach_money, size: 16, color: Colors.red.shade800),
+      );
+    } else if (status == 'INCLUS') {
+      return Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(color: Colors.blue.shade100, shape: BoxShape.circle),
+        child: Icon(Icons.assignment_turned_in, size: 16, color: Colors.blue.shade800),
+      );
+    }
+    return const SizedBox.shrink(); // Hidden if unknown
+  }
+
   @override
   Widget build(BuildContext context) {
     final serviceType = widget.serviceType;
@@ -237,6 +266,9 @@ class _InterventionListPageState extends State<InterventionListPage> {
               final String timeAgoDate = createdAt != null ? timeago.format(createdAt, locale: 'fr') : 'N/A';
               final String priority = interventionData['priority'] ?? 'Basse';
 
+              // 🟢 NEW: Billing Status
+              final String? billingStatus = interventionData['billingStatus'];
+
               // --- ⚡️ FLASH NOTE DATA ---
               final String? flashNote = interventionData['lastFollowUpNote'];
               final DateTime? flashDate = (interventionData['lastFollowUpDate'] as Timestamp?)?.toDate();
@@ -285,13 +317,19 @@ class _InterventionListPageState extends State<InterventionListPage> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
-                                      child: Text(
-                                        interventionCode,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          color: Colors.deepPurple.shade700,
-                                        ),
+                                      child: Row(
+                                        children: [
+                                          // 🟢 SHOW SMART BADGE HERE
+                                          _buildBillingBadge(billingStatus),
+                                          Text(
+                                            interventionCode,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                              color: Colors.deepPurple.shade700,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                     Chip(
