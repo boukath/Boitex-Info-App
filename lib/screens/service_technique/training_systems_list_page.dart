@@ -1,6 +1,6 @@
 // lib/screens/service_technique/training_systems_list_page.dart
 
-// ✅ 1. NOUVEL IMPORT AJOUTÉ
+import 'dart:ui'; // Required for ImageFilter
 import 'package:boitex_info_app/screens/service_technique/training_system_detail_page.dart';
 
 import 'package:boitex_info_app/utils/user_roles.dart';
@@ -9,12 +9,12 @@ import 'package:flutter/material.dart';
 
 class TrainingSystemsListPage extends StatefulWidget {
   final String categoryName;
-  final String categoryId; // <-- ID de la catégorie parente
+  final String categoryId;
 
   const TrainingSystemsListPage({
     super.key,
     required this.categoryName,
-    required this.categoryId, // <-- Requis maintenant
+    required this.categoryId,
   });
 
   @override
@@ -70,27 +70,46 @@ class _TrainingSystemsListPageState extends State<TrainingSystemsListPage> {
     return managerRoles.contains(role);
   }
 
-  /// Affiche la boîte de dialogue pour ajouter un nouveau système
+  // ===========================================================================
+  // 🎨 THEMED DIALOGS
+  // ===========================================================================
+
   void _showAddSystemDialog() {
     _systemNameController.clear();
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Nouveau Système'),
+        return _buildModernDialog(
+          title: 'Nouveau Système',
           content: TextField(
             controller: _systemNameController,
-            decoration: const InputDecoration(
-              labelText: 'Nom du système',
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Nom du système (ex: Essentials...)',
+              labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.05),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF00F0FF)),
+              ),
+              prefixIcon: const Icon(Icons.grid_view_rounded, color: Colors.white54),
             ),
             autofocus: true,
           ),
           actions: [
             TextButton(
-              child: const Text('Annuler'),
+              child: Text('Annuler', style: TextStyle(color: Colors.white.withOpacity(0.6))),
               onPressed: () => Navigator.pop(context),
             ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00F0FF),
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
               child: const Text('Ajouter'),
               onPressed: () {
                 final name = _systemNameController.text.trim();
@@ -106,37 +125,26 @@ class _TrainingSystemsListPageState extends State<TrainingSystemsListPage> {
     );
   }
 
-  /// Ajoute le nouveau système à la sous-collection Firestore
-  Future<void> _addSystem(String name) async {
-    try {
-      await _systemsCollection.add({
-        'name': name,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    }
-  }
-
-  /// Affiche la confirmation de suppression
   void _showDeleteConfirmDialog(String docId, String systemName) {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Supprimer le Système'),
+        return _buildModernDialog(
+          title: 'Supprimer',
           content: Text(
-              'Êtes-vous sûr de vouloir supprimer le système "$systemName" ?'),
+              'Voulez-vous vraiment supprimer le système "$systemName" ?\nCette action est irréversible.',
+              style: const TextStyle(color: Colors.white70)),
           actions: [
             TextButton(
-              child: const Text('Annuler'),
+              child: const Text('Annuler', style: TextStyle(color: Colors.white54)),
               onPressed: () => Navigator.pop(context),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Supprimer'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF2E63),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Supprimer', style: TextStyle(color: Colors.white)),
               onPressed: () {
                 _deleteSystem(docId);
                 Navigator.pop(context);
@@ -148,92 +156,255 @@ class _TrainingSystemsListPageState extends State<TrainingSystemsListPage> {
     );
   }
 
-  /// Supprime le système de Firestore
+  Widget _buildModernDialog({required String title, required Widget content, required List<Widget> actions}) {
+    return BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+      child: AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2C).withOpacity(0.95),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(color: Colors.white.withOpacity(0.1)),
+        ),
+        title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+        content: content,
+        actions: actions,
+        actionsPadding: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // 💾 FIRESTORE ACTIONS
+  // ===========================================================================
+
+  Future<void> _addSystem(String name) async {
+    try {
+      await _systemsCollection.add({
+        'name': name,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent),
+      );
+    }
+  }
+
   Future<void> _deleteSystem(String docId) async {
     try {
       await _systemsCollection.doc(docId).delete();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
+        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent),
       );
     }
+  }
+
+  // ===========================================================================
+  // 💎 GLASSMORPHIC LIST ITEM
+  // ===========================================================================
+
+  Widget _buildSystemCard(String docId, String name, VoidCallback onTap, VoidCallback onDelete) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.white.withOpacity(0.1), Colors.white.withOpacity(0.02)],
+        ),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Row(
+                  children: [
+                    // Icon Box
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00F0FF).withOpacity(0.1),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(color: const Color(0xFF00F0FF).withOpacity(0.2), blurRadius: 15),
+                        ],
+                        border: Border.all(color: const Color(0xFF00F0FF).withOpacity(0.3)),
+                      ),
+                      child: const Icon(Icons.dns_rounded, color: Color(0xFF00F0FF), size: 24),
+                    ),
+                    const SizedBox(width: 20),
+
+                    // Text
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+
+                    // Chevron or Delete
+                    if (_isManager)
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                        tooltip: 'Supprimer',
+                        onPressed: onDelete,
+                      )
+                    else
+                      Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withOpacity(0.3), size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text(widget.categoryName), // Titre dynamique (ex: "Antivol")
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 1,
+        title: Text(widget.categoryName.toUpperCase()),
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(color: Colors.black.withOpacity(0.2)),
+          ),
+        ),
+        titleTextStyle: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1.5,
+          color: Colors.white,
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
-      // Affiche le bouton "Ajouter" (+) uniquement pour les managers
       floatingActionButton: _isManager
-          ? FloatingActionButton(
-        onPressed: _showAddSystemDialog,
-        child: const Icon(Icons.add),
-        tooltip: 'Ajouter un système',
+          ? InkWell(
+        onTap: _showAddSystemDialog,
+        borderRadius: BorderRadius.circular(50),
+        child: Container(
+          width: 56, height: 56,
+          decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFF00F0FF), Color(0xFF0077FF)]),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: const Color(0xFF00F0FF).withOpacity(0.4), blurRadius: 20, spreadRadius: 2)
+              ]
+          ),
+          child: const Icon(Icons.add, color: Colors.black),
+        ),
       )
           : null,
-      body: StreamBuilder<QuerySnapshot>(
-        // Lit le flux de données depuis la sous-collection
-        stream: _systemsCollection.orderBy('name').snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return const Center(
-                child: Text('Erreur de chargement des systèmes.'));
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-                child:
-                Text('Aucun système trouvé pour ${widget.categoryName}.'));
-          }
+      body: Stack(
+        children: [
+          // 🌌 Background
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF0F172A), Color(0xFF000000)],
+              ),
+            ),
+          ),
 
-          final docs = snapshot.data!.docs;
+          // 💡 Ambient Effects
+          Positioned(
+            bottom: 100, right: -50,
+            child: Container(
+              width: 300, height: 300,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF00F0FF).withOpacity(0.05),
+                boxShadow: [BoxShadow(color: const Color(0xFF00F0FF).withOpacity(0.1), blurRadius: 150)],
+              ),
+            ),
+          ),
 
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              final systemName = data['name'] ?? 'Sans nom';
-
-              return ListTile(
-                title: Text(systemName),
-                // ✅ 2. LOGIQUE 'ONTAP' MISE À JOUR
-                onTap: () {
-                  // Naviguer vers la page de détails du système
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TrainingSystemDetailPage(
-                        // Nous passons tous les IDs et noms nécessaires
-                        categoryId: widget.categoryId,
-                        systemId: doc.id,
-                        systemName: systemName,
-                      ),
+          // 📄 List
+          SafeArea(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _systemsCollection.orderBy('name').snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(color: Color(0xFF00F0FF)));
+                }
+                if (snapshot.hasError) {
+                  return const Center(child: Text('Erreur de chargement.', style: TextStyle(color: Colors.white54)));
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.grid_off_rounded, size: 64, color: Colors.white.withOpacity(0.2)),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Aucun système trouvé.',
+                          style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 16),
+                        ),
+                      ],
                     ),
                   );
-                },
-                // Affiche le bouton de suppression uniquement pour les managers
-                trailing: _isManager
-                    ? IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded,
-                      color: Colors.red),
-                  tooltip: 'Supprimer le système',
-                  onPressed: () {
-                    _showDeleteConfirmDialog(doc.id, systemName);
+                }
+
+                final docs = snapshot.data!.docs;
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final systemName = data['name'] ?? 'Sans nom';
+
+                    return _buildSystemCard(
+                      doc.id,
+                      systemName,
+                          () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => TrainingSystemDetailPage(
+                              categoryId: widget.categoryId,
+                              systemId: doc.id,
+                              systemName: systemName,
+                            ),
+                          ),
+                        );
+                      },
+                          () => _showDeleteConfirmDialog(doc.id, systemName),
+                    );
                   },
-                )
-                    : null,
-              );
-            },
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
