@@ -9,6 +9,9 @@ import 'package:boitex_info_app/screens/administration/add_store_equipment_page.
 import 'package:boitex_info_app/screens/administration/store_equipment_details_page.dart';
 import 'package:boitex_info_app/screens/administration/add_store_page.dart';
 
+// ✅ NEW: Import Service Contracts for logic
+import 'package:boitex_info_app/models/service_contracts.dart';
+
 class StoreEquipmentPage extends StatelessWidget {
   final String clientId;
   final String storeId;
@@ -107,6 +110,62 @@ class StoreEquipmentPage extends StatelessWidget {
           equipmentId: equipmentId,
           initialData: data, // Pass existing data to populate the form
         ),
+      ),
+    );
+  }
+
+  // 🟢 NEW: Build the Traffic Light Badge for Warranty
+  Widget _buildWarrantyBadge(Map<String, dynamic> data) {
+    EquipmentWarranty? warranty;
+
+    // 1. Try to parse explicit warranty data
+    if (data['warranty'] != null) {
+      try {
+        warranty = EquipmentWarranty.fromMap(data['warranty']);
+      } catch (e) {
+        // Fallback if data is malformed
+      }
+    }
+    // 2. Legacy Fallback: If no explicit warranty data, assume 1 year from install date
+    if (warranty == null && data['installDate'] != null) {
+      final installDate = (data['installDate'] as Timestamp).toDate();
+      warranty = EquipmentWarranty.defaultOneYear(installDate);
+    }
+
+    // 3. Render Badge based on status
+    if (warranty == null) {
+      // If we have no dates at all, don't show anything
+      return const SizedBox.shrink();
+    }
+
+    if (warranty.isValid) {
+      if (warranty.isExpiringSoon) {
+        return _buildStatusChip(Colors.orange, "Expire bientôt", Icons.access_time);
+      }
+      return _buildStatusChip(Colors.green, "Sous Garantie", Icons.verified_user);
+    } else {
+      return _buildStatusChip(Colors.redAccent, "Expirée", Icons.highlight_off);
+    }
+  }
+
+  Widget _buildStatusChip(Color color, String text, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 10, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+          ),
+        ],
       ),
     );
   }
@@ -308,21 +367,33 @@ class StoreEquipmentPage extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
+
+                                // 🟢 MODIFIED: Info Row with Warranty Badge
                                 Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    if (lastSeen != null)
-                                      _buildInfoTag(
-                                          Icons.history,
-                                          "Vu ${timeago.format(lastSeen.toDate(), locale: 'fr_short')}",
-                                          Colors.grey.shade600
-                                      ),
-                                    const SizedBox(width: 12),
-                                    if (installDate != null)
-                                      _buildInfoTag(
-                                          Icons.calendar_today,
-                                          DateFormat('yyyy').format(installDate.toDate()),
-                                          Colors.grey.shade600
-                                      ),
+                                    // Left side: Dates
+                                    Row(
+                                      children: [
+                                        if (lastSeen != null)
+                                          _buildInfoTag(
+                                              Icons.history,
+                                              "Vu ${timeago.format(lastSeen.toDate(), locale: 'fr_short')}",
+                                              Colors.grey.shade600
+                                          ),
+                                        if (lastSeen != null && installDate != null)
+                                          const SizedBox(width: 8),
+                                        if (installDate != null)
+                                          _buildInfoTag(
+                                              Icons.calendar_today,
+                                              DateFormat('yyyy').format(installDate.toDate()),
+                                              Colors.grey.shade600
+                                          ),
+                                      ],
+                                    ),
+
+                                    // Right side: Warranty Badge
+                                    _buildWarrantyBadge(data),
                                   ],
                                 ),
                               ],

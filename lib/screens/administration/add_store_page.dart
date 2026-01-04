@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http; // ✅ 1. ADDED HTTP FOR LINK RESOLVING
+import 'package:intl/intl.dart'; // ✅ NEW: For Date Formatting
 import 'package:boitex_info_app/screens/administration/add_client_page.dart' show ContactInfo;
 import 'package:boitex_info_app/screens/widgets/location_picker_page.dart';
 import 'package:latlong2/latlong.dart';
+
+// ✅ NEW: Import Service Contracts
+import 'package:boitex_info_app/models/service_contracts.dart';
 
 class AddStorePage extends StatefulWidget {
   final String clientId;
@@ -42,6 +46,13 @@ class _AddStorePageState extends State<AddStorePage> {
   bool _gettingLocation = false;
   bool _isResolvingLink = false; // Loading state for link extraction
 
+  // ✅ NEW: Contract State
+  bool _hasContract = false;
+  String _contractType = 'Standard';
+  DateTime? _contractStartDate;
+  DateTime? _contractEndDate;
+  final TextEditingController _contractDocUrlController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +81,27 @@ class _AddStorePageState extends State<AddStorePage> {
           .entries
           .map((entry) => ContactInfo.fromMap(entry.value as Map<String, dynamic>, entry.key.toString()))
           .toList();
+
+      // ✅ NEW: Load Contract Data
+      if (widget.initialData!['maintenance_contract'] != null) {
+        try {
+          final contractMap = widget.initialData!['maintenance_contract'];
+          final contract = MaintenanceContract.fromMap(contractMap);
+          _hasContract = true; // If data exists, assume tracking is on
+          _contractType = contract.type;
+          _contractStartDate = contract.startDate;
+          _contractEndDate = contract.endDate;
+          _contractDocUrlController.text = contract.docUrl ?? '';
+        } catch (e) {
+          print("Error loading contract: $e");
+        }
+      }
+    }
+
+    // Default dates if new or not set
+    if (_contractStartDate == null) {
+      _contractStartDate = DateTime.now();
+      _contractEndDate = DateTime.now().add(const Duration(days: 365));
     }
   }
 
@@ -80,6 +112,7 @@ class _AddStorePageState extends State<AddStorePage> {
     _latController.dispose();
     _lngController.dispose();
     _linkController.dispose();
+    _contractDocUrlController.dispose();
     super.dispose();
   }
 
@@ -216,6 +249,31 @@ class _AddStorePageState extends State<AddStorePage> {
     );
   }
 
+  // ✅ NEW: Date Picker Helper
+  Future<void> _pickDate(bool isStart) async {
+    final initial = isStart ? _contractStartDate : _contractEndDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      locale: const Locale('fr', 'FR'),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isStart) {
+          _contractStartDate = picked;
+          // Auto adjust end date if it's before start
+          if (_contractEndDate != null && _contractEndDate!.isBefore(picked)) {
+            _contractEndDate = picked.add(const Duration(days: 365));
+          }
+        } else {
+          _contractEndDate = picked;
+        }
+      });
+    }
+  }
+
   // ... (Contact Dialog Logic) ...
   Future<void> _showContactDialog({ContactInfo? existingContact, int? index}) async {
     final GlobalKey<FormState> dialogFormKey = GlobalKey<FormState>();
@@ -307,6 +365,15 @@ class _AddStorePageState extends State<AddStorePage> {
 
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
+
+      // ✅ NEW: Validate Contract Dates if enabled
+      if (_hasContract && (_contractStartDate == null || _contractEndDate == null)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Veuillez définir les dates du contrat'), backgroundColor: Colors.red),
+        );
+        return;
+      }
+
       setState(() { _isLoading = true; });
 
       final List<Map<String, dynamic>> contactsForDb = _storeContacts.map((c) => c.toMap()).toList();
@@ -314,12 +381,29 @@ class _AddStorePageState extends State<AddStorePage> {
       double? lat = double.tryParse(_latController.text);
       double? lng = double.tryParse(_lngController.text);
 
+      // ✅ NEW: Prepare Contract Data
+      Map<String, dynamic>? contractData;
+      if (_hasContract) {
+        final contract = MaintenanceContract(
+          id: widget.initialData?['maintenance_contract']?['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+          type: _contractType,
+          startDate: _contractStartDate!,
+          endDate: _contractEndDate!,
+          isActive: true, // If saved here, it is considered active
+          docUrl: _contractDocUrlController.text.trim().isEmpty ? null : _contractDocUrlController.text.trim(),
+        );
+        contractData = contract.toMap();
+      }
+
       final storeData = {
         'name': _nameController.text.trim(),
         'location': _locationController.text.trim(),
         'latitude': lat,
         'longitude': lng,
         'storeContacts': contactsForDb,
+
+        // ✅ NEW: Save or Remove Contract
+        'maintenance_contract': _hasContract ? contractData : FieldValue.delete(),
       };
 
       try {
@@ -511,6 +595,91 @@ class _AddStorePageState extends State<AddStorePage> {
               ),
 
               const SizedBox(height: 24),
+              const Divider(),
+
+              // --- ✅ NEW: Contrat de Maintenance ---
+              const Text("Contrat de Maintenance", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text("Contrat Actif", style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text("Ce magasin dispose-t-il d'un contrat de maintenance ?"),
+                value: _hasContract,
+                onChanged: (val) => setState(() => _hasContract = val),
+                activeColor: primaryColor,
+              ),
+
+              if (_hasContract) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.shade100),
+                  ),
+                  child: Column(
+                    children: [
+                      DropdownButtonFormField<String>(
+                        value: _contractType,
+                        decoration: const InputDecoration(labelText: 'Type de Contrat', filled: true, fillColor: Colors.white),
+                        items: ['Standard', 'Gold', 'Platinum', 'Préventif', 'Sur Devis']
+                            .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                        onChanged: (v) => setState(() => _contractType = v!),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _pickDate(true),
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'Date de Début',
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  prefixIcon: Icon(Icons.calendar_today, size: 18),
+                                ),
+                                child: Text(_contractStartDate != null
+                                    ? DateFormat('dd/MM/yyyy').format(_contractStartDate!)
+                                    : 'Choisir'),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _pickDate(false),
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'Date de Fin',
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  prefixIcon: Icon(Icons.event_busy, size: 18),
+                                ),
+                                child: Text(_contractEndDate != null
+                                    ? DateFormat('dd/MM/yyyy').format(_contractEndDate!)
+                                    : 'Choisir'),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _contractDocUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Lien du document (PDF/Drive)',
+                          filled: true,
+                          fillColor: Colors.white,
+                          prefixIcon: Icon(Icons.attach_file),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 24),
+              const Divider(),
 
               const Text('Contacts du Magasin:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 8),

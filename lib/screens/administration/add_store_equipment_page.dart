@@ -7,6 +7,9 @@ import 'package:boitex_info_app/screens/administration/global_product_search_pag
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/widgets/serial_number_scanner_dialog.dart';
 
+// ✅ NEW: Import the Service Contracts model
+import 'package:boitex_info_app/models/service_contracts.dart';
+
 // Helper class: Manages each item in the list independently
 class EquipmentBatchItem {
   final String id; // Unique ID for UI keys
@@ -231,6 +234,11 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
           .collection('materiel_installe');
 
       for (var item in _batchItems) {
+
+        // 🟢 NEW: Create Warranty Automatically
+        // Using the factory method we created in Step 1
+        final warranty = EquipmentWarranty.defaultOneYear(_installationDate!);
+
         final data = {
           'productId': item.product.productId,
           'productName': item.product.productName,
@@ -244,6 +252,10 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
           'serial': item.serialController.text.trim(),
           'installDate': Timestamp.fromDate(_installationDate!),
           'image': item.richImage,
+
+          // 👇 NEW: Attach Warranty Data
+          'warranty': warranty.toMap(),
+          'warrantyStatus': 'active', // Helps with quick filtering
         };
 
         if (_isEditMode && widget.equipmentId != null) {

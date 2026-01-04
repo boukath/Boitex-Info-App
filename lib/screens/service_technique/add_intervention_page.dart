@@ -21,6 +21,9 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 // ✅ ADDED: Import for AI Keyword Enhancement
 import 'package:cloud_functions/cloud_functions.dart';
 
+// ✅ STEP 5: Import Service Contracts
+import 'package:boitex_info_app/models/service_contracts.dart';
+
 // Simple data model for a Client
 class Client {
   final String id;
@@ -34,13 +37,14 @@ class Client {
   int get hashCode => id.hashCode;
 }
 
-// ✅ UPDATED STORE MODEL: Now includes Coordinates
+// ✅ UPDATED STORE MODEL: Now includes Contract
 class Store {
   final String id;
   final String name;
   final String location;
   final double? latitude;
   final double? longitude;
+  final MaintenanceContract? contract; // 👈 Added Contract
 
   Store({
     required this.id,
@@ -48,10 +52,32 @@ class Store {
     required this.location,
     this.latitude,
     this.longitude,
+    this.contract,
   });
 
   @override
   bool operator ==(Object other) => other is Store && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
+}
+
+// ✅ NEW EQUIPMENT MODEL (Local for this dropdown)
+class Equipment {
+  final String id;
+  final String name;
+  final String serial;
+  final EquipmentWarranty? warranty; // 👈 Added Warranty
+
+  Equipment({
+    required this.id,
+    required this.name,
+    required this.serial,
+    this.warranty,
+  });
+
+  @override
+  bool operator ==(Object other) => other is Equipment && other.id == id;
 
   @override
   int get hashCode => id.hashCode;
@@ -82,6 +108,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   // Search Controllers for Autocomplete
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
+  final _equipmentSearchController = TextEditingController(); // 👈 New
 
   bool _isLoading = false;
 
@@ -90,6 +117,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   String? _selectedInterventionPriority;
   Client? _selectedClient;
   Store? _selectedStore;
+  Equipment? _selectedEquipment; // 👈 New
 
   // ✅ NEW: Temporary storage for parsed coordinates
   double? _parsedLat;
@@ -99,8 +127,10 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   // Data and Loading States
   List<Client> _clients = [];
   List<Store> _stores = [];
+  List<Equipment> _equipments = []; // 👈 New
   bool _isLoadingClients = true;
   bool _isLoadingStores = false;
+  bool _isLoadingEquipments = false; // 👈 New
 
   // ✅ NEW: State for Media Upload
   List<File> _localFilesToUpload = [];
@@ -122,8 +152,53 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     _requestController.dispose();
     _clientSearchController.dispose();
     _storeSearchController.dispose();
+    _equipmentSearchController.dispose(); // 👈 New
     _gpsLinkController.dispose();
     super.dispose();
+  }
+
+  // ----------------------------------------------------------------------
+  // 💰 BILLING LOGIC ENGINE
+  // ----------------------------------------------------------------------
+  Map<String, dynamic> _calculateBillingStatus() {
+    // 1. Check Equipment Warranty (Highest Priority)
+    if (_selectedEquipment != null && _selectedEquipment!.warranty != null) {
+      if (_selectedEquipment!.warranty!.isValid) {
+        return {
+          'status': 'GRATUIT',
+          'reason': 'Sous Garantie Constructeur',
+          'color': Colors.green,
+          'icon': Icons.verified_user,
+        };
+      }
+    }
+
+    // 2. Check Store Contract (Medium Priority)
+    if (_selectedStore != null && _selectedStore!.contract != null) {
+      if (_selectedStore!.contract!.isValidNow) {
+        return {
+          'status': 'INCLUS',
+          'reason': 'Contrat: ${_selectedStore!.contract!.type}',
+          'color': Colors.teal,
+          'icon': Icons.assignment_turned_in,
+        };
+      } else {
+        return {
+          'status': 'FACTURABLE',
+          'reason': 'Contrat Expiré',
+          'color': Colors.redAccent,
+          'icon': Icons.attach_money,
+        };
+      }
+    }
+
+    // 3. Default (Billable)
+    return {
+      'status': 'FACTURABLE',
+      'reason': 'Hors Garantie / Hors Contrat',
+      'color': Colors.orange.shade800,
+      'icon': Icons.monetization_on_outlined,
+    };
   }
 
   // ----------------------------------------------------------------------
@@ -428,7 +503,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       _isLoadingStores = true;
       _stores = [];
       _selectedStore = null;
-      _parsedLat = null; // Reset manual coordinates
+      _selectedEquipment = null; // Reset equipment
+      _parsedLat = null;
       _parsedLng = null;
     });
     try {
@@ -447,12 +523,21 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         if (data['latitude'] != null) lat = (data['latitude'] as num).toDouble();
         if (data['longitude'] != null) lng = (data['longitude'] as num).toDouble();
 
+        // 🟢 Extract Contract Data
+        MaintenanceContract? contract;
+        if (data['maintenance_contract'] != null) {
+          try {
+            contract = MaintenanceContract.fromMap(data['maintenance_contract']);
+          } catch (_) {}
+        }
+
         return Store(
           id: doc.id,
           name: data['name'],
           location: data['location'],
           latitude: lat,
           longitude: lng,
+          contract: contract, // 👈 Populate Contract
         );
       }).toList();
       if (mounted) {
@@ -467,6 +552,56 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur de chargement des magasins: $e')),
         );
+      }
+    }
+  }
+
+  // ✅ NEW: Fetch Equipment for Store
+  Future<void> _fetchEquipments(String storeId) async {
+    setState(() {
+      _isLoadingEquipments = true;
+      _equipments = [];
+      _selectedEquipment = null;
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('clients')
+          .doc(_selectedClient!.id)
+          .collection('stores')
+          .doc(storeId)
+          .collection('materiel_installe')
+          .get();
+
+      final equipments = snapshot.docs.map((doc) {
+        final data = doc.data();
+
+        // 🟢 Extract Warranty Data
+        EquipmentWarranty? warranty;
+        if (data['warranty'] != null) {
+          try {
+            warranty = EquipmentWarranty.fromMap(data['warranty']);
+          } catch (_) {}
+        }
+
+        return Equipment(
+          id: doc.id,
+          name: data['nom'] ?? data['name'] ?? 'Inconnu',
+          serial: data['serialNumber'] ?? data['serial'] ?? 'N/A',
+          warranty: warranty,
+        );
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _equipments = equipments;
+          _isLoadingEquipments = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingEquipments = false);
+        // Fail silently or show toast
       }
     }
   }
@@ -748,6 +883,9 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           });
         }
 
+        // 🟢 Calculate Billing Status
+        final billingInfo = _calculateBillingStatus();
+
         final interventionData = {
           'interventionCode': finalInterventionCode,
           'serviceType': widget.serviceType,
@@ -756,6 +894,13 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           'clientPhone': _clientPhoneController.text.trim(),
           'storeId': _selectedStore!.id,
           'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
+
+          // ✅ New fields for Equipment and Billing
+          'equipmentId': _selectedEquipment?.id,
+          'equipmentName': _selectedEquipment?.name,
+          'billingStatus': billingInfo['status'], // GRATUIT / FACTURABLE
+          'billingReason': billingInfo['reason'],
+
           // ✅ Save coordinates in intervention snapshot
           'storeLatitude': finalLat,
           'storeLongitude': finalLng,
@@ -908,6 +1053,10 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
   @override
   Widget build(BuildContext context) {
+
+    // 🟢 Prepare Billing Status Data
+    final billingInfo = _calculateBillingStatus();
+
     // FORM CONTENT
     final formContent = Form(
       key: _formKey,
@@ -994,6 +1143,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                         _parsedLng = null;
                         _gpsLinkController.clear();
                       });
+                      _fetchEquipments(store.id); // 👈 Fetch equipment on select
                     },
                     fieldViewBuilder: (context, controller, focusNode,
                         onFieldSubmitted) {
@@ -1022,6 +1172,85 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
               ],
             ),
           ),
+
+          // 🟢 Equipment Autocomplete (New)
+          if (_selectedStore != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: _isLoadingEquipments
+                  ? const LinearProgressIndicator()
+                  : Autocomplete<Equipment>(
+                optionsBuilder: (textEditingValue) {
+                  if (textEditingValue.text.isEmpty) {
+                    return _equipments;
+                  }
+                  return _equipments.where((eq) =>
+                  eq.name.toLowerCase().contains(textEditingValue.text.toLowerCase()) ||
+                      eq.serial.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                },
+                displayStringForOption: (eq) => '${eq.name} (${eq.serial})',
+                onSelected: (eq) {
+                  setState(() => _selectedEquipment = eq);
+                },
+                fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
+                  _equipmentSearchController.text = controller.text;
+                  return TextFormField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: const InputDecoration(
+                      labelText: 'Machine / Équipement (Optionnel)',
+                      prefixIcon: Icon(Icons.settings_input_component),
+                      suffixIcon: Icon(Icons.arrow_drop_down),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+          // 🟢 BILLING STATUS CARD (New)
+          if (_selectedStore != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: (billingInfo['color'] as Color).withOpacity(0.1),
+                border: Border.all(color: billingInfo['color'] as Color),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: billingInfo['color'] as Color,
+                    radius: 24,
+                    child: Icon(billingInfo['icon'] as IconData, color: Colors.white, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          billingInfo['status'] as String,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: billingInfo['color'] as Color,
+                          ),
+                        ),
+                        Text(
+                          billingInfo['reason'] as String,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
 
           // 🌟🌟 GPS LINK SECTION 🌟🌟
           if (_selectedStore != null)

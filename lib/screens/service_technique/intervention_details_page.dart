@@ -1517,6 +1517,28 @@ L'équipe BOITEX INFO'''
     final createdAtTimestamp = data['createdAt'] as Timestamp?;
     final createdAt = createdAtTimestamp?.toDate() ?? DateTime.now();
 
+    // 🟢 Step 6: Get Billing Data
+    final String billingStatus = data['billingStatus'] ?? 'INCONNU';
+    final String billingReason = data['billingReason'] ?? 'Non spécifié';
+
+    // 🎨 Determine Colors for Billing Banner
+    Color billingColor;
+    IconData billingIcon;
+
+    if (billingStatus == 'GRATUIT') {
+      billingColor = Colors.green;
+      billingIcon = Icons.verified_user;
+    } else if (billingStatus == 'INCLUS') {
+      billingColor = Colors.teal;
+      billingIcon = Icons.assignment_turned_in;
+    } else if (billingStatus == 'FACTURABLE') {
+      billingColor = Colors.redAccent;
+      billingIcon = Icons.attach_money;
+    } else {
+      billingColor = Colors.grey;
+      billingIcon = Icons.help_outline;
+    }
+
     return Theme(
       data: _interventionTheme(context),
       child: Scaffold(
@@ -1572,6 +1594,54 @@ L'équipe BOITEX INFO'''
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 🛑🛑 NEW: BILLING STATUS BANNER 🛑🛑
+                  if (billingStatus != 'INCONNU')
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: billingColor,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: billingColor.withOpacity(0.4),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          )
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(billingIcon, color: Colors.white, size: 32),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  billingStatus,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 20,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                Text(
+                                  billingReason,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   // Suggestion Banner (if found)
                   if (_suggestedSystemsFromHistory != null &&
                       _selectedSystems.isEmpty)
@@ -1693,6 +1763,20 @@ L'équipe BOITEX INFO'''
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(data['interventionType'] ?? 'Non spécifié'),
+
+            // 🟢 NEW: Contract / Warranty Info Section
+            if (data['equipmentName'] != null) ...[
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.settings_input_component, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text("Équipement: ${data['equipmentName']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ],
 
             if (clientPhone != null && clientPhone.isNotEmpty) ...[
               const SizedBox(height: 12),
