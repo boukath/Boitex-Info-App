@@ -24,6 +24,8 @@ import 'package:boitex_info_app/screens/administration/inventory_approval_list_p
 import 'package:boitex_info_app/screens/administration/add_product_page.dart';
 // ✅ IMPORT THE BROKEN STOCK PAGE (Quarantine Zone)
 import 'package:boitex_info_app/screens/administration/broken_stock_list_page.dart';
+// ✅ IMPORT THE NEW MAINTENANCE STOCK PAGE
+import 'package:boitex_info_app/screens/administration/maintenance_stock_list_page.dart';
 
 import 'package:boitex_info_app/utils/user_roles.dart';
 
@@ -1102,6 +1104,19 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                   onTap: () {
                     Future.delayed(Duration.zero, () {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => const BrokenStockListPage()));
+                    });
+                  },
+                ),
+
+                // ✅ NEW: STOCK SAV / MAINTENANCE
+                _buildMenuItem(
+                  icon: Icons.recycling_rounded,
+                  text: 'Stock SAV / Pièces',
+                  iconColor: Colors.amber.shade800,
+                  color: Colors.amber.shade900,
+                  onTap: () {
+                    Future.delayed(Duration.zero, () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const MaintenanceStockListPage()));
                     });
                   },
                 ),

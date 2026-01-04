@@ -158,26 +158,28 @@ class _ReportBreakagePageState extends State<ReportBreakagePage> {
 
   // Option B: Manual Search (Global Search)
   Future<void> _searchProductManually() async {
-    // We navigate to the Global Search Page in "Selection Mode"
-    // Note: GlobalProductSearchPage needs to support 'onProductSelected'
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => GlobalProductSearchPage(
           isSelectionMode: true,
           onProductSelected: (productMap) {
-            // Callback when user taps a product
             setState(() {
               _productData = productMap;
-              // Note: Global search might return data without the Doc ID if not handled carefully
-              // Ideally, your GlobalSearch passes the full Map AND ID, or we fetch it here.
-              // Assuming the map contains 'id' or we need to query it.
-              // For safety, let's query by reference if ID is missing
-              if (productMap['reference'] != null) {
-                _fetchProductByReference(productMap['reference']);
+              // ✅ FIX 1: Capture the ID reliably
+              if (productMap.containsKey('productId')) {
+                _productId = productMap['productId'];
+              } else if (productMap.containsKey('id')) {
+                _productId = productMap['id'];
+              }
+
+              // Optional: Re-fetch only if necessary, but don't block
+              if (productMap['reference'] != null || productMap['partNumber'] != null) {
+                String ref = productMap['reference'] ?? productMap['partNumber'];
+                _fetchProductByReference(ref);
               }
             });
-            Navigator.pop(context); // Close the search page
+            Navigator.pop(context);
           },
         ),
       ),
@@ -199,11 +201,10 @@ class _ReportBreakagePageState extends State<ReportBreakagePage> {
           _productData = snapshot.docs.first.data();
           _productId = snapshot.docs.first.id;
         });
-      } else {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Produit introuvable")));
       }
+      // Removed the Snackbar "Product Introuvable" because it was confusing when offline
     } catch (e) {
-      print(e);
+      print("Offline or Error fetching product details: $e");
     } finally {
       if(mounted) setState(() => _isLoading = false);
     }
@@ -213,7 +214,10 @@ class _ReportBreakagePageState extends State<ReportBreakagePage> {
   // 🚀 4. SUBMIT REPORT
   // ===========================================================================
   Future<void> _submitReport() async {
-    if (_productId == null) return;
+    if (_productId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur: Aucun produit sélectionné (ID manquant)"), backgroundColor: Colors.red));
+      return;
+    }
     if (_reasonController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez décrire la cause de la casse.")));
       return;
@@ -231,11 +235,16 @@ class _ReportBreakagePageState extends State<ReportBreakagePage> {
         }
       }
 
+      // ✅ FIX 2: Handle Key Mismatch (Search vs Scan)
+      // Search page uses 'productName'/'partNumber', Scan uses 'nom'/'reference'
+      String safeName = _productData?['nom'] ?? _productData?['productName'] ?? 'Inconnu';
+      String safeRef = _productData?['reference'] ?? _productData?['partNumber'] ?? 'N/A';
+
       // B. Update Database
       await StockService().reportInternalBreakage(
         productId: _productId!,
-        productName: _productData?['nom'] ?? 'Inconnu',
-        productReference: _productData?['reference'] ?? 'N/A',
+        productName: safeName,
+        productReference: safeRef,
         quantityBroken: _quantityBroken,
         reason: _reasonController.text.trim(),
         photoUrl: photoUrl,
@@ -416,12 +425,18 @@ class _ReportBreakagePageState extends State<ReportBreakagePage> {
   }
 
   Widget _buildProductCard() {
+    // ✅ FIX 3: Also fix the display card so the user sees the name before submitting
+    String displayName = _productData?['nom'] ?? _productData?['productName'] ?? 'Inconnu';
+    String displayRef = _productData?['reference'] ?? _productData?['partNumber'] ?? 'N/A';
+    // If quantity is missing (e.g. from GlobalSearch), show '?'
+    String displayStock = _productData?['quantiteEnStock']?.toString() ?? '?';
+
     return Card(
       elevation: 2,
       child: ListTile(
         leading: const Icon(Icons.inventory_2, color: Colors.indigo),
-        title: Text(_productData!['nom'] ?? 'Inconnu', style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text("Réf: ${_productData!['reference']}\nStock Sain: ${_productData!['quantiteEnStock']}"),
+        title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text("Réf: $displayRef\nStock Sain: $displayStock"),
         trailing: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => setState(() { _productData = null; _productId = null; }),

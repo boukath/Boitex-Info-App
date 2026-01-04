@@ -671,7 +671,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                   ),
                 ),
                 const SizedBox(width: 16),
-                // Product Info
+
+                // ✅ VISUAL FIX: Wrapped Text Info in Expanded to fix RenderFlex Overflow
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -692,11 +693,15 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                           children: [
                             Icon(Icons.business_rounded, size: 14, color: Colors.grey.shade600),
                             const SizedBox(width: 6),
-                            Text(
-                              data['marque'],
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade600,
+                            // ✅ Fix for "Right overflow" in Row
+                            Expanded(
+                              child: Text(
+                                data['marque'],
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
@@ -707,65 +712,75 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                           children: [
                             Icon(Icons.qr_code_rounded, size: 14, color: Colors.grey.shade600),
                             const SizedBox(width: 6),
-                            Text(
-                              data['reference'],
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade500,
-                                fontFamily: 'monospace',
+                            // ✅ Fix for "Right overflow" in Row
+                            Expanded(
+                              child: Text(
+                                data['reference'],
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade500,
+                                  fontFamily: 'monospace',
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
                       const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: categoryColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(categoryIcon, size: 12, color: categoryColor),
-                                const SizedBox(width: 6),
-                                Text(
-                                  mainCategory ?? 'N/A',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: categoryColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (data['origine'] != null) ...[
-                            const SizedBox(width: 8),
+                      // ✅ Fix for category pills overflow
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
+                                color: categoryColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Text(
-                                data['origine'],
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade600,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(categoryIcon, size: 12, color: categoryColor),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    mainCategory ?? 'N/A',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: categoryColor,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
+                            if (data['origine'] != null) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  data['origine'],
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ],
                   ),
                 ),
-                // ✅ NEW: Visual indicator for selection mode
+
+                // Indicator
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(

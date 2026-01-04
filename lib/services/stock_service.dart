@@ -2,11 +2,44 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+// ✅ IMPORT YOUR NEW MODEL
+import 'package:boitex_info_app/models/quarantine_item.dart';
 
 class StockService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  /// Handles the logic for a Client Return (Triage System)
+  // ===========================================================================
+  // 👤 HELPER: GET REAL USER NAME FROM FIRESTORE
+  // ===========================================================================
+  Future<String> _fetchUserName() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return "Inconnu";
+
+    // 1. Default to Auth display name or "Technicien"
+    String finalName = user.displayName ?? "Technicien";
+
+    try {
+      // 2. Try to fetch from 'users' collection for accurate name
+      final doc = await _db.collection('users').doc(user.uid).get();
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        // Check 'displayName' first, then 'fullName' as requested
+        if (data['displayName'] != null && data['displayName'].toString().isNotEmpty) {
+          finalName = data['displayName'];
+        } else if (data['fullName'] != null && data['fullName'].toString().isNotEmpty) {
+          finalName = data['fullName'];
+        }
+      }
+    } catch (e) {
+      print("⚠️ Error fetching user name from Firestore: $e");
+    }
+    return finalName;
+  }
+
+  // ===========================================================================
+  // 1. CLIENT RETURN (EXISTING LOGIC)
+  // ===========================================================================
+
   Future<void> processClientReturn({
     required String productId,
     required String productName,
@@ -18,15 +51,16 @@ class StockService {
     String? clientName,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    final String userName = user?.displayName ?? "Technicien";
     final String userId = user?.uid ?? "unknown";
+    final String userName = await _fetchUserName();
+    final DateTime now = DateTime.now();
 
     await _db.runTransaction((transaction) async {
       final productRef = _db.collection('produits').doc(productId);
       final movementRef = _db.collection('stock_movements').doc();
 
       if (isResellable) {
-        // CASE A: RESELLABLE (Back to Stock)
+        // CASE A: RESELLABLE (Back to Healthy Stock)
         final snapshot = await transaction.get(productRef);
         if (!snapshot.exists) throw Exception("Produit introuvable!");
 
@@ -57,19 +91,48 @@ class StockService {
         });
 
       } else {
-        // CASE B: DEFECTIVE RETURN
+        // CASE B: DEFECTIVE RETURN (Quarantine)
         final snapshot = await transaction.get(productRef);
         if (!snapshot.exists) throw Exception("Produit introuvable!");
 
         final int currentBrokenStock = snapshot.data()?['quantiteDefectueuse'] ?? 0;
         final int newBrokenStock = currentBrokenStock + quantityReturned;
 
+        // 1. Update Product Counter
         transaction.update(productRef, {
           'quantiteDefectueuse': newBrokenStock,
           'lastModifiedBy': userName,
           'lastModifiedAt': FieldValue.serverTimestamp(),
         });
 
+        // 2. CREATE QUARANTINE CASE FILE
+        final quarantineRef = _db.collection('quarantine_items').doc();
+
+        final newItem = QuarantineItem(
+          id: quarantineRef.id,
+          productId: productId,
+          productName: productName,
+          productReference: productReference,
+          quantity: quantityReturned,
+          reason: "Retour Client (${clientName ?? 'Inconnu'}) - $reason",
+          photoUrl: null,
+          reportedBy: userName,
+          reportedByUid: userId,
+          reportedAt: now,
+          status: 'PENDING',
+          history: [
+            {
+              'action': 'CLIENT_RETURN',
+              'by': userName,
+              'date': Timestamp.fromDate(now),
+              'note': "Retour SAV Client: $reason"
+            }
+          ],
+        );
+
+        transaction.set(quarantineRef, newItem.toMap());
+
+        // 3. Log Movement
         transaction.set(movementRef, {
           'productId': productId,
           'productName': productName,
@@ -85,46 +148,48 @@ class StockService {
           'userId': userId,
           'timestamp': FieldValue.serverTimestamp(),
           'notes': 'Retour client (Non Vendable) -> Stock Défectueux',
+          'quarantineId': quarantineRef.id,
         });
       }
     });
   }
 
-  // ✅ NEW FUNCTION: Internal Breakage Report
-  // Moves stock from "Good" -> "Defective" and saves the B2 Photo URL
+  // ===========================================================================
+  // 2. INTERNAL BREAKAGE (CASE MANAGEMENT)
+  // ===========================================================================
+
   Future<void> reportInternalBreakage({
     required String productId,
     required String productName,
     required String productReference,
     required int quantityBroken,
-    required String reason, // The description of how it broke
-    required String? photoUrl, // 📸 The B2 Image Link
+    required String reason,
+    required String? photoUrl,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
-    final String userName = user?.displayName ?? "Technicien";
     final String userId = user?.uid ?? "unknown";
+    final DateTime now = DateTime.now();
+    final String userName = await _fetchUserName();
 
     await _db.runTransaction((transaction) async {
       final productRef = _db.collection('produits').doc(productId);
-      final movementRef = _db.collection('stock_movements').doc();
 
-      // 1. Read Product State
+      // A. Read Product State
       final snapshot = await transaction.get(productRef);
       if (!snapshot.exists) throw Exception("Produit introuvable !");
 
       final int currentStock = snapshot.data()?['quantiteEnStock'] ?? 0;
       final int currentBroken = snapshot.data()?['quantiteDefectueuse'] ?? 0;
 
-      // 2. Validate Inventory
+      // B. Validate
       if (currentStock < quantityBroken) {
-        throw Exception("Stock insuffisant ! (Dispo: $currentStock, Demandé: $quantityBroken)");
+        throw Exception("Stock insuffisant ! (Dispo: $currentStock)");
       }
 
-      // 3. Calculate New Values
-      final int newStock = currentStock - quantityBroken; // Decrease Good
-      final int newBroken = currentBroken + quantityBroken; // Increase Bad
+      // C. Update Main Inventory Counters
+      final int newStock = currentStock - quantityBroken;
+      final int newBroken = currentBroken + quantityBroken;
 
-      // 4. Update Product
       transaction.update(productRef, {
         'quantiteEnStock': newStock,
         'quantiteDefectueuse': newBroken,
@@ -132,107 +197,225 @@ class StockService {
         'lastModifiedAt': FieldValue.serverTimestamp(),
       });
 
-      // 5. Log Movement
+      // D. Create the "Quarantine Case"
+      final quarantineRef = _db.collection('quarantine_items').doc();
+
+      final newItem = QuarantineItem(
+        id: quarantineRef.id,
+        productId: productId,
+        productName: productName,
+        productReference: productReference,
+        quantity: quantityBroken,
+        reason: reason,
+        photoUrl: photoUrl,
+        reportedBy: userName,
+        reportedByUid: userId,
+        reportedAt: now,
+        status: 'PENDING',
+        history: [
+          {
+            'action': 'CREATED',
+            'by': userName,
+            'date': Timestamp.fromDate(now),
+            'note': 'Déclaration initiale: $reason'
+          }
+        ],
+      );
+
+      transaction.set(quarantineRef, newItem.toMap());
+
+      // E. Audit Log
+      final movementRef = _db.collection('stock_movements').doc();
       transaction.set(movementRef, {
         'productId': productId,
         'productName': productName,
         'productRef': productReference,
-        'quantityChange': -quantityBroken, // Negative because it left sellable stock
-        'brokenStockChange': quantityBroken, // Positive because it entered broken stock
-        'oldQuantity': currentStock,
-        'newQuantity': newStock,
-        'type': 'INTERNAL_BREAKAGE', // ⚠️ Specific Type
-        'condition': 'Damaged',
+        'quantityChange': -quantityBroken,
+        'brokenStockChange': quantityBroken,
+        'type': 'INTERNAL_BREAKAGE',
         'reason': reason,
-        'photoUrl': photoUrl, // 📸 Save the B2 Link here
-        'user': userName,
-        'userId': userId,
-        'timestamp': FieldValue.serverTimestamp(),
-        'notes': 'Casse interne déclarée',
-      });
-    });
-  }
-
-  // ✅ EDIT: Manually adjust the broken quantity
-  Future<void> updateBrokenQuantity({
-    required String productId,
-    required int newQuantity,
-    required String reason,
-    required String userName,
-  }) async {
-    final productRef = _db.collection('produits').doc(productId);
-
-    await _db.runTransaction((transaction) async {
-      final snapshot = await transaction.get(productRef);
-      if (!snapshot.exists) throw Exception("Produit introuvable");
-
-      final int currentBroken = snapshot.data()?['quantiteDefectueuse'] ?? 0;
-      final int diff = newQuantity - currentBroken;
-
-      if (diff == 0) return; // No change
-
-      transaction.update(productRef, {
-        'quantiteDefectueuse': newQuantity,
-        'lastModifiedBy': userName,
-        'lastModifiedAt': FieldValue.serverTimestamp(),
-      });
-
-      // Log the correction
-      final movementRef = _db.collection('stock_movements').doc();
-      transaction.set(movementRef, {
-        'productId': productId,
-        'quantityChange': 0,
-        'brokenStockChange': diff,
-        'type': 'BROKEN_STOCK_CORRECTION',
-        'reason': reason,
+        'quarantineId': quarantineRef.id,
         'user': userName,
         'timestamp': FieldValue.serverTimestamp(),
       });
     });
   }
 
-  // ✅ DELETE: Resolve the broken item (Restock or Destroy)
-  Future<void> resolveBrokenItem({
-    required String productId,
-    required int quantityToRemove, // Usually the total broken count
-    required bool restoreToHealthyStock, // TRUE = Fix/Mistake, FALSE = Trash
-    required String userName,
+  // ===========================================================================
+  // 3. MANAGEMENT (UPDATE STATUS)
+  // ===========================================================================
+
+  Future<void> updateQuarantineStatus({
+    required String quarantineId,
+    required String newStatus,
+    required String note,
   }) async {
-    final productRef = _db.collection('produits').doc(productId);
+    final String userName = await _fetchUserName();
+    final docRef = _db.collection('quarantine_items').doc(quarantineId);
+
+    await docRef.update({
+      'status': newStatus,
+      'history': FieldValue.arrayUnion([
+        {
+          'action': 'STATUS_CHANGE',
+          'newStatus': newStatus,
+          'by': userName,
+          'date': Timestamp.now(),
+          'note': note
+        }
+      ])
+    });
+  }
+
+  // ===========================================================================
+  // 4. RESOLUTION & SALVAGE (FINALIZE)
+  // ===========================================================================
+
+  Future<void> resolveQuarantineItem({
+    required QuarantineItem item,
+    required String resolutionType, // 'RESTORE', 'DESTROY'
+    required String note,
+  }) async {
+    final String userName = await _fetchUserName();
 
     await _db.runTransaction((transaction) async {
-      final snapshot = await transaction.get(productRef);
-      if (!snapshot.exists) throw Exception("Produit introuvable");
+      final productRef = _db.collection('produits').doc(item.productId);
+      final quarantineRef = _db.collection('quarantine_items').doc(item.id);
 
-      final int currentStock = snapshot.data()?['quantiteEnStock'] ?? 0;
-      final int currentBroken = snapshot.data()?['quantiteDefectueuse'] ?? 0;
+      final productSnap = await transaction.get(productRef);
+      if (!productSnap.exists) throw Exception("Produit original introuvable");
 
-      // Calculate new values
-      final int newBroken = currentBroken - quantityToRemove;
-      // If restoring, we add back to healthy stock. If destroying, healthy stock stays same.
-      final int newStock = restoreToHealthyStock
-          ? currentStock + quantityToRemove
-          : currentStock;
+      final int currentBroken = productSnap.data()?['quantiteDefectueuse'] ?? 0;
+      final int currentStock = productSnap.data()?['quantiteEnStock'] ?? 0;
 
-      if (newBroken < 0) throw Exception("Impossible de retirer plus que le stock actuel");
+      if (resolutionType == 'RESTORE') {
+        transaction.update(productRef, {
+          'quantiteDefectueuse': currentBroken - item.quantity,
+          'quantiteEnStock': currentStock + item.quantity,
+        });
+      } else {
+        transaction.update(productRef, {
+          'quantiteDefectueuse': currentBroken - item.quantity,
+        });
+      }
 
-      transaction.update(productRef, {
-        'quantiteEnStock': newStock,
-        'quantiteDefectueuse': newBroken,
-        'lastModifiedBy': userName,
-        'lastModifiedAt': FieldValue.serverTimestamp(),
+      transaction.update(quarantineRef, {
+        'status': 'RESOLVED',
+        'resolutionType': resolutionType,
+        'history': FieldValue.arrayUnion([
+          {
+            'action': 'RESOLVED',
+            'type': resolutionType,
+            'by': userName,
+            'date': Timestamp.now(),
+            'note': note
+          }
+        ])
       });
 
-      // Log the resolution
       final movementRef = _db.collection('stock_movements').doc();
       transaction.set(movementRef, {
-        'productId': productId,
-        'quantityChange': restoreToHealthyStock ? quantityToRemove : 0,
-        'brokenStockChange': -quantityToRemove,
-        'type': restoreToHealthyStock ? 'BROKEN_RESTORED' : 'BROKEN_DESTROYED',
-        'reason': restoreToHealthyStock ? 'Remise en stock (Réparé/Erreur)' : 'Mise au rebut (Destruction)',
+        'productId': item.productId,
+        'productName': item.productName,
+        'brokenStockChange': -item.quantity,
+        'quantityChange': resolutionType == 'RESTORE' ? item.quantity : 0,
+        'type': 'QUARANTINE_RESOLVED',
+        'resolution': resolutionType,
+        'quarantineId': item.id,
         'user': userName,
         'timestamp': FieldValue.serverTimestamp(),
+        'note': note,
+      });
+    });
+  }
+
+  // ✅ NEW: SALVAGE PROCESS (Transform Broken -> Maintenance Stock)
+  // Creates new "Spare Parts" from the dead item
+  Future<void> processSalvage({
+    required QuarantineItem item,
+    required List<Map<String, dynamic>> recoveredParts, // List of {productId, quantity, productName}
+    required String note,
+  }) async {
+    final String userName = await _fetchUserName();
+
+    await _db.runTransaction((transaction) async {
+      // 1. Get Refs
+      final mainProductRef = _db.collection('produits').doc(item.productId);
+      final quarantineRef = _db.collection('quarantine_items').doc(item.id);
+
+      // 2. Read Main Product (The broken one)
+      final mainSnap = await transaction.get(mainProductRef);
+      if (!mainSnap.exists) throw Exception("Produit original introuvable");
+
+      final int currentBroken = mainSnap.data()?['quantiteDefectueuse'] ?? 0;
+      if (currentBroken < item.quantity) throw Exception("Erreur stock (Déjà traité ?)");
+
+      // 3. Read All Spare Parts (To ensure they exist and get current stock)
+      // NOTE: We do this inside transaction to be safe
+      for (var part in recoveredParts) {
+        final partRef = _db.collection('produits').doc(part['productId']);
+        final partSnap = await transaction.get(partRef);
+        if (!partSnap.exists) throw Exception("Pièce détachée introuvable: ${part['productName']}");
+      }
+
+      // --- WRITES START HERE ---
+
+      // 4. Decrease Broken Stock (Main Item is destroyed/consumed)
+      transaction.update(mainProductRef, {
+        'quantiteDefectueuse': currentBroken - item.quantity,
+      });
+
+      // 5. Increase Maintenance Stock for each Part
+      for (var part in recoveredParts) {
+        final partRef = _db.collection('produits').doc(part['productId']);
+        // We use FieldValue.increment because we already validated existence
+        transaction.update(partRef, {
+          'quantiteMaintenance': FieldValue.increment(part['quantity']), // ✅ ADDS TO NEW STOCK
+        });
+
+        // Log movement for the PART
+        final partLogRef = _db.collection('stock_movements').doc();
+        transaction.set(partLogRef, {
+          'productId': part['productId'],
+          'productName': part['productName'],
+          'quantityChange': 0, // Not commercial stock
+          'maintenanceStockChange': part['quantity'], // ✅ Track this new flow
+          'type': 'SALVAGE_RECOVERY',
+          'sourceItemId': item.productId,
+          'sourceItemName': item.productName,
+          'user': userName,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // 6. Close the Quarantine Case
+      transaction.update(quarantineRef, {
+        'status': 'RESOLVED',
+        'resolutionType': 'SALVAGE',
+        'salvagedParts': recoveredParts, // Save what we got
+        'history': FieldValue.arrayUnion([
+          {
+            'action': 'SALVAGE_COMPLETED',
+            'type': 'SALVAGE',
+            'by': userName,
+            'date': Timestamp.now(),
+            'note': "Récupération pièces: $note"
+          }
+        ])
+      });
+
+      // 7. Log movement for the Main Item (Destroyed)
+      final mainLogRef = _db.collection('stock_movements').doc();
+      transaction.set(mainLogRef, {
+        'productId': item.productId,
+        'productName': item.productName,
+        'brokenStockChange': -item.quantity,
+        'type': 'QUARANTINE_SALVAGED',
+        'resolution': 'SALVAGE',
+        'quarantineId': item.id,
+        'user': userName,
+        'timestamp': FieldValue.serverTimestamp(),
+        'note': "Démantelé pour pièces. $note",
       });
     });
   }
