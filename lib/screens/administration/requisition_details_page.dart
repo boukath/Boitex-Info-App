@@ -7,6 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/screens/administration/add_requisition_page.dart';
 import 'package:boitex_info_app/screens/administration/confirm_receipt_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
+// ✅ IMPORT PRODUCT DETAILS PAGE
+import 'package:boitex_info_app/screens/administration/product_details_page.dart';
 
 class RequisitionDetailsPage extends StatefulWidget {
   final String requisitionId;
@@ -113,8 +115,10 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception('Utilisateur non connecté.');
 
-      final userDoc =
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       final userName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
 
       final updateData = <String, dynamic>{
@@ -272,8 +276,8 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
           _quantityControllers
               .add(TextEditingController(text: result.quantity.toString()));
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Ce produit est déjà dans la liste.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Ce produit est déjà dans la liste.')));
         }
       });
     }
@@ -306,8 +310,10 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final userDoc =
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       final userName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
 
       final logEntry = {
@@ -577,7 +583,8 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
                       decoration: BoxDecoration(
                           color: Colors.white24,
                           borderRadius: BorderRadius.circular(4)),
-                      child: const Icon(Icons.edit, color: Colors.white, size: 16),
+                      child:
+                      const Icon(Icons.edit, color: Colors.white, size: 16),
                     ),
                   ),
               ]),
@@ -652,58 +659,120 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
               final int receivedQty = item['receivedQuantity'] ?? 0;
               final bool isComplete = receivedQty >= orderedQty;
 
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isComplete
-                      ? Colors.teal.withOpacity(0.1)
-                      : Colors.indigo.withOpacity(0.1),
-                  child: Icon(
-                      isComplete
-                          ? Icons.check_circle_outline
-                          : Icons.inventory_2_outlined,
-                      color: isComplete ? Colors.teal : Colors.indigo),
-                ),
-                title: Text(item['productName']),
-                subtitle: _isEditMode
-                    ? null
-                    : Padding(
-                  padding: const EdgeInsets.only(top: 4.0),
-                  child:
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    LinearProgressIndicator(
-                      value: (orderedQty == 0) ? 0 : (receivedQty / orderedQty),
-                      backgroundColor: Colors.grey.shade300,
-                      color: isComplete ? Colors.teal : Colors.blue,
+              // ✅ MODIFICATION: Fetch product to show image and enable navigation
+              return FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance
+                    .collection('produits')
+                    .doc(item['productId'])
+                    .get(),
+                builder: (context, snapshot) {
+                  // 1. Determine Leading Widget (Image or Icon)
+                  Widget leadingWidget;
+                  DocumentSnapshot? productDoc = snapshot.data;
+
+                  if (snapshot.hasData && snapshot.data!.exists) {
+                    final data = snapshot.data!.data() as Map<String, dynamic>;
+                    if (data.containsKey('imageUrls') &&
+                        (data['imageUrls'] as List).isNotEmpty) {
+                      leadingWidget = CircleAvatar(
+                        backgroundImage:
+                        NetworkImage((data['imageUrls'] as List).first),
+                        backgroundColor: Colors.transparent,
+                      );
+                    } else {
+                      // Fallback icon if no image
+                      leadingWidget = CircleAvatar(
+                        backgroundColor: isComplete
+                            ? Colors.teal.withOpacity(0.1)
+                            : Colors.indigo.withOpacity(0.1),
+                        child: Icon(
+                            isComplete
+                                ? Icons.check_circle_outline
+                                : Icons.inventory_2_outlined,
+                            color: isComplete ? Colors.teal : Colors.indigo),
+                      );
+                    }
+                  } else {
+                    // Loading or Error or Not Found state
+                    leadingWidget = CircleAvatar(
+                      backgroundColor: isComplete
+                          ? Colors.teal.withOpacity(0.1)
+                          : Colors.indigo.withOpacity(0.1),
+                      child: Icon(
+                          isComplete
+                              ? Icons.check_circle_outline
+                              : Icons.inventory_2_outlined,
+                          color: isComplete ? Colors.teal : Colors.indigo),
+                    );
+                  }
+
+                  // 2. Build Tile
+                  return ListTile(
+                    leading: leadingWidget,
+                    title: Text(item['productName']),
+                    subtitle: _isEditMode
+                        ? null
+                        : Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            LinearProgressIndicator(
+                              value: (orderedQty == 0)
+                                  ? 0
+                                  : (receivedQty / orderedQty),
+                              backgroundColor: Colors.grey.shade300,
+                              color:
+                              isComplete ? Colors.teal : Colors.blue,
+                            ),
+                            const SizedBox(height: 4),
+                            Text('Reçu: $receivedQty / $orderedQty',
+                                style: TextStyle(
+                                    color: isComplete
+                                        ? Colors.teal
+                                        : Colors.black87,
+                                    fontWeight: isComplete
+                                        ? FontWeight.bold
+                                        : FontWeight.normal)),
+                          ]),
                     ),
-                    const SizedBox(height: 4),
-                    Text('Reçu: $receivedQty / $orderedQty',
-                        style: TextStyle(
-                            color: isComplete
-                                ? Colors.teal
-                                : Colors.black87,
-                            fontWeight: isComplete
-                                ? FontWeight.bold
-                                : FontWeight.normal)),
-                  ]),
-                ),
-                trailing: _isEditMode
-                    ? Row(mainAxisSize: MainAxisSize.min, children: [
-                  SizedBox(
-                    width: 60,
-                    child: TextFormField(
-                      controller: _quantityControllers[index],
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      decoration: const InputDecoration(labelText: 'Qté'),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        color: Colors.red),
-                    onPressed: () => _deleteItem(index),
-                  ),
-                ])
-                    : null,
+                    // ✅ 3. Navigation to ProductDetailsPage
+                    onTap: () {
+                      if (productDoc != null && productDoc.exists) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ProductDetailsPage(productDoc: productDoc),
+                          ),
+                        );
+                      } else {
+                        // Optional: Show feedback if still loading or not found
+                      }
+                    },
+                    trailing: _isEditMode
+                        ? Row(mainAxisSize: MainAxisSize.min, children: [
+                      SizedBox(
+                        width: 60,
+                        child: TextFormField(
+                          controller: _quantityControllers[index],
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
+                          decoration:
+                          const InputDecoration(labelText: 'Qté'),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red),
+                        onPressed: () => _deleteItem(index),
+                      ),
+                    ])
+                    // Show chevron to indicate it is clickable when not in edit mode
+                        : const Icon(Icons.arrow_forward_ios,
+                        size: 14, color: Colors.grey),
+                  );
+                },
               );
             },
           ),
@@ -770,8 +839,7 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
             ),
           ]);
         }
-        return const Center(
-            child: Text("En attente de l'approbation du PDG."));
+        return const Center(child: Text("En attente de l'approbation du PDG."));
 
       case 'Approuvée':
         if (isManager || isPdg) {
@@ -793,8 +861,8 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                    builder: (context) =>
-                        ConfirmReceiptPage(requisitionId: widget.requisitionId)),
+                    builder: (context) => ConfirmReceiptPage(
+                        requisitionId: widget.requisitionId)),
               ); // Removed .then() call as StreamBuilder handles updates
             },
             icon: const Icon(Icons.inventory_2_outlined),
@@ -804,7 +872,8 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
           );
         }
         // Show nothing if the user doesn't have permission
-        return const SizedBox.shrink(); // Or return null if appropriate for the layout
+        return const SizedBox
+            .shrink(); // Or return null if appropriate for the layout
 
       default:
         return Center(child: Chip(label: Text('Statut: $status')));
@@ -838,8 +907,8 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
             if (receptionDocs.isEmpty) {
               return const Card(
                   child: ListTile(
-                      title:
-                      Text('Aucune réception enregistrée pour le moment.')));
+                      title: Text(
+                          'Aucune réception enregistrée pour le moment.')));
             }
 
             return ListView.builder(
@@ -868,23 +937,27 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.all(16.0),
-                        child:
-                        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          if (data['notes'] != null && data['notes'].isNotEmpty)
-                            Text('Notes: ${data['notes']}',
-                                style: const TextStyle(fontStyle: FontStyle.italic)),
-                          if (data['notes'] != null && data['notes'].isNotEmpty)
-                            const Divider(height: 16),
-                          ...items.map((item) {
-                            return ListTile(
-                              dense: true,
-                              title: Text(item['productName']),
-                              trailing: Text('Qté: ${item['quantity']}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold)),
-                            );
-                          }).toList(),
-                        ]),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (data['notes'] != null &&
+                                  data['notes'].isNotEmpty)
+                                Text('Notes: ${data['notes']}',
+                                    style: const TextStyle(
+                                        fontStyle: FontStyle.italic)),
+                              if (data['notes'] != null &&
+                                  data['notes'].isNotEmpty)
+                                const Divider(height: 16),
+                              ...items.map((item) {
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(item['productName']),
+                                  trailing: Text('Qté: ${item['quantity']}',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold)),
+                                );
+                              }).toList(),
+                            ]),
                       ),
                     ],
                   ),
@@ -949,18 +1022,19 @@ class _TimelineTile extends StatelessWidget {
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SizedBox(
           width: 50,
-          child:
-          Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             Expanded(
                 child: Container(
                     width: 2,
-                    color: isFirst ? Colors.transparent : Colors.grey.shade300)),
+                    color:
+                    isFirst ? Colors.transparent : Colors.grey.shade300)),
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: isFirst ? style.color : Colors.grey.shade300),
-              child: Icon(style.icon, color: Colors.white, size: isFirst ? 20 : 12),
+              child: Icon(style.icon,
+                  color: Colors.white, size: isFirst ? 20 : 12),
             ),
             Expanded(
                 child: Container(
@@ -985,8 +1059,7 @@ class _TimelineTile extends StatelessWidget {
               ]),
               const SizedBox(height: 4),
               Text('Par: ${log['user'] ?? 'Utilisateur inconnu'}',
-                  style:
-                  TextStyle(fontSize: 14, color: Colors.grey.shade700)),
+                  style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
               if (poRef != null && poRef.isNotEmpty && canAccessPORef)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -1039,7 +1112,8 @@ class _TimelineStyle {
         return _TimelineStyle(
             icon: Icons.inventory_2_outlined, color: Colors.orange.shade300);
       case 'Reçue':
-        return _TimelineStyle(icon: Icons.inventory_2_outlined, color: Colors.teal);
+        return _TimelineStyle(
+            icon: Icons.inventory_2_outlined, color: Colors.teal);
       case 'Reçue avec Écarts':
         return _TimelineStyle(
             icon: Icons.warning_amber_rounded, color: Colors.orange);
@@ -1176,7 +1250,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               items: _subCategories
                   .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                   .toList(),
-              onChanged: _selectedMainCategory == null || _isLoadingSubCategories
+              onChanged:
+              _selectedMainCategory == null || _isLoadingSubCategories
                   ? null
                   : (val) {
                 if (val != null) {
@@ -1221,8 +1296,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
           onPressed: () {
             if (_dialogFormKey.currentState!.validate()) {
               final quantity = int.tryParse(_quantityController.text) ?? 0;
-              Navigator.of(context).pop(
-                  RequisitionItem(productDoc: _selectedProduct!, quantity: quantity));
+              Navigator.of(context).pop(RequisitionItem(
+                  productDoc: _selectedProduct!, quantity: quantity));
             }
           },
           child: const Text('Ajouter'),
