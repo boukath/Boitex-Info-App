@@ -25,6 +25,15 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
   bool _isSearching = false;
   DocumentSnapshot? _lastDocument;
 
+  // ✅ STATE: Year Selection (Default to current year)
+  int _selectedYear = DateTime.now().year;
+
+  // Generate a list of years (Current year back 4 years)
+  List<int> get _availableYears {
+    final currentYear = DateTime.now().year;
+    return List.generate(4, (index) => currentYear - index);
+  }
+
   // Constants
   static const int _limit = 15;
 
@@ -52,7 +61,7 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
     super.dispose();
   }
 
-  /// Fetches data from Firestore with Pagination
+  /// Fetches data from Firestore with Pagination AND Year Filter
   Future<void> _fetchLivraisons({bool isRefresh = false}) async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
@@ -64,10 +73,18 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
         _hasMore = true;
       }
 
+      // ✅ LOGIC: Define the Date Range for the selected year
+      final startOfYear = DateTime(_selectedYear, 1, 1);
+      final endOfYear = DateTime(_selectedYear, 12, 31, 23, 59, 59);
+
       Query query = FirebaseFirestore.instance
           .collection('livraisons')
           .where('serviceType', isEqualTo: widget.serviceType)
           .where('status', isEqualTo: 'Livré')
+      // ✅ QUERY: Filter by Date Range (Time Machine Logic)
+          .where('createdAt', isGreaterThanOrEqualTo: startOfYear)
+          .where('createdAt', isLessThanOrEqualTo: endOfYear)
+      // ✅ SORT: Must sort by 'createdAt' first for range filter
           .orderBy('createdAt', descending: true)
           .limit(_limit);
 
@@ -101,7 +118,6 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
   }
 
   /// Performs a specific search (Server-Side)
-  /// Note: Firestore search is limited. We search by Exact BL Code or Client Name.
   Future<void> _performSearch(String queryText) async {
     if (queryText.trim().isEmpty) {
       // If empty, go back to normal list
@@ -124,14 +140,14 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
           .where('bonLivraisonCode', isEqualTo: queryText.trim())
           .get();
 
-      // 2. Search by Client Name (Exact match or simple prefix if configured)
+      // 2. Search by Client Name
       final clientQuery = await FirebaseFirestore.instance
           .collection('livraisons')
           .where('serviceType', isEqualTo: widget.serviceType)
           .where('clientName', isEqualTo: queryText.trim())
           .get();
 
-      // Combine results (removing duplicates manually)
+      // Combine results
       final Set<String> docIds = {};
       final List<DocumentSnapshot> combinedResults = [];
 
@@ -161,6 +177,40 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
         title: Text('Historique - ${widget.serviceType}'),
         centerTitle: false,
         elevation: 2,
+        actions: [
+          // ✅ UI: Year Selector Dropdown
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _selectedYear,
+                dropdownColor: Colors.blue.shade700, // Matches AppBar usually
+                icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 24),
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold),
+                items: _availableYears.map((year) {
+                  return DropdownMenuItem(
+                    value: year,
+                    child: Text("Année $year"),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selectedYear = val;
+                      _fetchLivraisons(isRefresh: true); // Reload on change
+                    });
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -204,7 +254,9 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                     Icon(Icons.history_toggle_off, size: 64, color: Colors.grey[300]),
                     const SizedBox(height: 16),
                     Text(
-                      _isSearching ? 'Aucun résultat trouvé.' : 'Aucun historique disponible.',
+                      _isSearching
+                          ? 'Aucun résultat trouvé.'
+                          : 'Aucune livraison en $_selectedYear.',
                       style: TextStyle(color: Colors.grey[600]),
                     ),
                   ],
@@ -214,10 +266,8 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                 controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
-                // Add +1 item for the loading indicator at bottom
                 itemCount: _livraisons.length + (_hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
-
                   // Show Loading Indicator at the bottom
                   if (index == _livraisons.length) {
                     return const Padding(

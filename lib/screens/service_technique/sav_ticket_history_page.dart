@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
 
-// ✅ MODIFIED: Converted to a StatefulWidget
 class SavTicketHistoryPage extends StatefulWidget {
   final String serviceType;
 
@@ -16,19 +15,63 @@ class SavTicketHistoryPage extends StatefulWidget {
 }
 
 class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
-  // ✅ ADDED: State variable for the search query
+  // ✅ STATE: Search Query
   String _searchQuery = '';
+
+  // ✅ STATE: Year Selection (Default to current year)
+  int _selectedYear = DateTime.now().year;
+
+  // Generate a list of years (Current year back 4 years)
+  List<int> get _availableYears {
+    final currentYear = DateTime.now().year;
+    return List.generate(4, (index) => currentYear - index);
+  }
 
   @override
   Widget build(BuildContext context) {
+    // ✅ LOGIC: Define the Date Range for the selected year
+    final startOfYear = DateTime(_selectedYear, 1, 1);
+    final endOfYear = DateTime(_selectedYear, 12, 31, 23, 59, 59);
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Historique SAV - ${widget.serviceType}'),
         backgroundColor: Colors.orange,
+        actions: [
+          // ✅ UI: Year Selector Dropdown
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _selectedYear,
+                dropdownColor: Colors.orange.shade700,
+                icon: const Icon(Icons.calendar_today, color: Colors.white, size: 18),
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold),
+                items: _availableYears.map((year) {
+                  return DropdownMenuItem(
+                    value: year,
+                    child: Text("Année $year"),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedYear = val);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
-          // ✅ ADDED: Search bar UI
+          // Search bar UI (Unchanged)
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: TextField(
@@ -46,30 +89,33 @@ class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
               ),
             ),
           ),
-          // ✅ ADDED: Expanded to make the list scrollable within the Column
+          // Expanded List
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('sav_tickets')
                   .where('serviceType', isEqualTo: widget.serviceType)
-              // ✅ STEP 3 CHANGE: Use 'whereIn' to include both statuses
                   .where('status', whereIn: ['Retourné', 'Dépose'])
+              // ✅ QUERY: Filter by Date Range (Time Machine Logic)
+                  .where('createdAt', isGreaterThanOrEqualTo: startOfYear)
+                  .where('createdAt', isLessThanOrEqualTo: endOfYear)
                   .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (BuildContext context,
                   AsyncSnapshot<QuerySnapshot> snapshot) {
                 if (snapshot.hasError) {
+                  debugPrint("Firestore Error: ${snapshot.error}");
                   return const Center(child: Text('Une erreur est survenue.'));
                 }
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(
-                      child: Text('Aucun ticket dans l\'historique.'));
+                  return Center(
+                      child: Text('Aucun ticket SAV en $_selectedYear.'));
                 }
 
-                // ✅ ADDED: Filtering logic
+                // Filtering logic (Search) applied to the Year's data
                 final allTickets = snapshot.data!.docs.map((doc) {
                   return SavTicket.fromFirestore(
                       doc as DocumentSnapshot<Map<String, dynamic>>);
@@ -84,7 +130,7 @@ class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
                 }).toList();
 
                 if (filteredTickets.isEmpty) {
-                  return const Center(child: Text('Aucun résultat trouvé.'));
+                  return const Center(child: Text('Aucun résultat trouvé pour cette recherche.'));
                 }
 
                 return ListView.builder(
@@ -93,7 +139,7 @@ class _SavTicketHistoryPageState extends State<SavTicketHistoryPage> {
                   itemBuilder: (context, index) {
                     final ticket = filteredTickets[index];
 
-                    // Optional: Visual distinction for 'Dépose' vs 'Retourné'
+                    // Visual distinction for 'Dépose' vs 'Retourné'
                     final isDepose = ticket.status == 'Dépose';
 
                     return Card(

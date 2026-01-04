@@ -6,10 +6,24 @@ import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/mission.dart';
 import 'package:boitex_info_app/screens/administration/mission_details_page.dart';
 
-class MissionHistoryListPage extends StatelessWidget {
+class MissionHistoryListPage extends StatefulWidget {
   final String serviceType;
 
   const MissionHistoryListPage({super.key, required this.serviceType});
+
+  @override
+  State<MissionHistoryListPage> createState() => _MissionHistoryListPageState();
+}
+
+class _MissionHistoryListPageState extends State<MissionHistoryListPage> {
+  // ✅ STATE: Default to current year
+  int _selectedYear = DateTime.now().year;
+
+  // Generate a list of years (Current year back 4 years)
+  List<int> get _availableYears {
+    final currentYear = DateTime.now().year;
+    return List.generate(4, (index) => currentYear - index);
+  }
 
   Color _getStatusColor(String status) {
     if (status == 'Terminée') {
@@ -20,22 +34,66 @@ class MissionHistoryListPage extends StatelessWidget {
 
   Widget _getStatusChip(String status) {
     return Chip(
-      label: Text(status, style: const TextStyle(color: Colors.white, fontSize: 12)),
+      label: Text(status,
+          style: const TextStyle(color: Colors.white, fontSize: 12)),
       backgroundColor: _getStatusColor(status),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // ✅ LOGIC: Define the Date Range for the selected year
+    final startOfYear = DateTime(_selectedYear, 1, 1);
+    final endOfYear = DateTime(_selectedYear, 12, 31, 23, 59, 59);
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('Historique Missions - $serviceType'),
+        title: Text('Historique Missions - ${widget.serviceType}'),
+        actions: [
+          // ✅ UI: Year Selector Dropdown
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.blue.shade100),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _selectedYear,
+                dropdownColor: Colors.white,
+                icon: const Icon(Icons.arrow_drop_down,
+                    color: Colors.blue, size: 24),
+                style: const TextStyle(
+                  color: Colors.blue,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+                items: _availableYears.map((year) {
+                  return DropdownMenuItem(
+                    value: year,
+                    child: Text("Année $year"),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedYear = val);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('missions')
-            .where('serviceType', isEqualTo: serviceType)
-            .where('status', isEqualTo: 'Terminée') // <-- The important filter!
+            .where('serviceType', isEqualTo: widget.serviceType)
+            .where('status', isEqualTo: 'Terminée')
+        // ✅ QUERY: Filter by Date Range (Time Machine Logic)
+            .where('createdAt', isGreaterThanOrEqualTo: startOfYear)
+            .where('createdAt', isLessThanOrEqualTo: endOfYear)
             .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -44,6 +102,7 @@ class MissionHistoryListPage extends StatelessWidget {
           }
 
           if (snapshot.hasError) {
+            debugPrint("Firestore Error: ${snapshot.error}");
             return Center(child: Text('Erreur: ${snapshot.error}'));
           }
 
@@ -55,7 +114,7 @@ class MissionHistoryListPage extends StatelessWidget {
                   Icon(Icons.history, size: 64, color: Colors.grey.shade400),
                   const SizedBox(height: 16),
                   Text(
-                    'Aucune mission terminée',
+                    'Aucune mission terminée en $_selectedYear',
                     style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
                   ),
                 ],
@@ -69,13 +128,16 @@ class MissionHistoryListPage extends StatelessWidget {
             itemCount: missions.length,
             itemBuilder: (context, index) {
               final mission = Mission.fromFirestore(missions[index]);
-              final formattedStart = DateFormat('dd/MM/yyyy').format(mission.startDate);
-              final formattedEnd = DateFormat('dd/MM/yyyy').format(mission.endDate);
+              final formattedStart =
+              DateFormat('dd/MM/yyyy').format(mission.startDate);
+              final formattedEnd =
+              DateFormat('dd/MM/yyyy').format(mission.endDate);
 
               return Card(
                 elevation: 3,
                 margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
                 child: InkWell(
                   onTap: () {
                     Navigator.push(
@@ -99,7 +161,8 @@ class MissionHistoryListPage extends StatelessWidget {
                                 color: Colors.green.shade100,
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Icon(Icons.check_circle, color: Colors.green.shade700),
+                              child: Icon(Icons.check_circle,
+                                  color: Colors.green.shade700),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -122,7 +185,8 @@ class MissionHistoryListPage extends StatelessWidget {
                         const Divider(height: 16),
                         Row(
                           children: [
-                            Icon(Icons.location_on, size: 16, color: Colors.red.shade400),
+                            Icon(Icons.location_on,
+                                size: 16, color: Colors.red.shade400),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
@@ -136,7 +200,8 @@ class MissionHistoryListPage extends StatelessWidget {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(Icons.calendar_today, size: 16, color: Colors.blue.shade400),
+                            Icon(Icons.calendar_today,
+                                size: 16, color: Colors.blue.shade400),
                             const SizedBox(width: 4),
                             Text(
                               'Du $formattedStart au $formattedEnd',

@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/universal_installation_search_page.dart';
 
-class InstallationHistoryListPage extends StatelessWidget {
+class InstallationHistoryListPage extends StatefulWidget {
   final String serviceType;
   final String userRole;
 
@@ -17,19 +17,73 @@ class InstallationHistoryListPage extends StatelessWidget {
   });
 
   @override
+  State<InstallationHistoryListPage> createState() =>
+      _InstallationHistoryListPageState();
+}
+
+class _InstallationHistoryListPageState
+    extends State<InstallationHistoryListPage> {
+  // ✅ STATE: Default to current year
+  int _selectedYear = DateTime.now().year;
+
+  // Generate a list of years (Current year back 4 years)
+  List<int> get _availableYears {
+    final currentYear = DateTime.now().year;
+    return List.generate(4, (index) => currentYear - index);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // ✅ LOGIC: Define the Date Range for the selected year
+    final startOfYear = DateTime(_selectedYear, 1, 1);
+    final endOfYear = DateTime(_selectedYear, 12, 31, 23, 59, 59);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Historique des Installations'),
         actions: [
+          // ✅ UI: Year Selector Dropdown (The "Time Machine")
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.blue.shade100),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: _selectedYear,
+                dropdownColor: Colors.white,
+                icon: const Icon(Icons.arrow_drop_down,
+                    color: Colors.blue, size: 24),
+                style: const TextStyle(
+                  color: Colors.blue,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+                items: _availableYears.map((year) {
+                  return DropdownMenuItem(
+                    value: year,
+                    child: Text("Année $year"),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedYear = val);
+                  }
+                },
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => UniversalInstallationSearchPage(
-                    serviceType: serviceType,
-                    userRole: userRole,
+                    serviceType: widget.serviceType,
+                    userRole: widget.userRole,
                   ),
                 ),
               );
@@ -41,8 +95,11 @@ class InstallationHistoryListPage extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('installations')
-            .where('serviceType', isEqualTo: serviceType)
+            .where('serviceType', isEqualTo: widget.serviceType)
             .where('status', isEqualTo: 'Terminée')
+        // ✅ QUERY: Filter by Date Range (Time Machine Logic)
+            .where('createdAt', isGreaterThanOrEqualTo: startOfYear)
+            .where('createdAt', isLessThanOrEqualTo: endOfYear)
             .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -53,8 +110,8 @@ class InstallationHistoryListPage extends StatelessWidget {
             return const Center(child: Text('Une erreur est survenue.'));
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
-                child: Text('Aucune installation terminée trouvée.'));
+            return Center(
+                child: Text('Aucune installation terminée en $_selectedYear.'));
           }
 
           final installationDocs = snapshot.data!.docs;
@@ -85,7 +142,7 @@ class InstallationHistoryListPage extends StatelessWidget {
                     Navigator.of(context).push(MaterialPageRoute(
                       builder: (context) => InstallationDetailsPage(
                         installationDoc: doc,
-                        userRole: userRole,
+                        userRole: widget.userRole,
                       ),
                     ));
                   },

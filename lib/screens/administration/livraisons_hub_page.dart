@@ -2,6 +2,8 @@
 
 import 'package:boitex_info_app/screens/administration/add_livraison_page.dart';
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
+// ✅ ADDED: Import for the history page
+import 'package:boitex_info_app/screens/administration/livraison_history_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -320,6 +322,24 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
         title: Text(widget.serviceType == null
             ? 'Centre de Livraisons'
             : 'Livraisons - ${widget.serviceType}'),
+        // ✅ ADDED: History Icon Action
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Historique des Livraisons',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => LivraisonHistoryPage(
+                    // Pass the service type (default to 'Général' if null)
+                    serviceType: widget.serviceType ?? 'Général',
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
         // ✅ TabBar added to the AppBar
         bottom: TabBar(
           controller: _tabController,
