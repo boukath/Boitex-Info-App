@@ -2,14 +2,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_slidable/flutter_slidable.dart'; // ✅ ADDED: Swipe Actions
 import 'package:boitex_info_app/screens/administration/add_client_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_stores_page.dart';
-import 'package:google_fonts/google_fonts.dart'; // Added for modern fonts
-import 'dart:ui'; // Added for frosted glass effect
-import 'dart:async'; // --- ADVANCED SEARCH ADDED --- For debounce Timer
+import 'package:google_fonts/google_fonts.dart';
+import 'dart:ui';
+import 'dart:async';
 
-// ✅ NEW IMPORTS FOR REPORT GENERATION
-import 'package:printing/printing.dart'; // For opening the PDF
+// ✅ IMPORTS FOR REPORT GENERATION
+import 'package:printing/printing.dart';
 import 'package:boitex_info_app/services/client_report_service.dart';
 import 'package:boitex_info_app/services/client_report_pdf_service.dart';
 
@@ -22,7 +23,6 @@ class ManageClientsPage extends StatefulWidget {
 }
 
 // 🎨 --- DESIGN CONSTANTS --- 🎨
-// Using the 2025 palette you requested
 const kPrimaryColor = Color(0xFF7B61FF);
 const kAccentColor = Color(0xFF00B4D8);
 const kErrorColor = Color(0xFFFF6F91);
@@ -30,26 +30,20 @@ const kBackgroundColorTop = Color(0xFFE8E1FF);
 const kBackgroundColorBottom = Color(0xFFFBEAFF);
 const kTextPrimary = Color(0xFF1E1E2A);
 const kTextSecondary = Color(0xFF7A7A8C);
-const kCardColor = Color.fromRGBO(255, 255, 255, 0.85); // Frosted glass white
+const kCardColor = Color.fromRGBO(255, 255, 255, 0.85);
 
 class _ManageClientsPageState extends State<ManageClientsPage>
     with SingleTickerProviderStateMixin {
-  // --- ⚙️ ORIGINAL LOGIC (PARTIALLY MODIFIED) ⚙️ ---
-  // final TextEditingController _searchController = TextEditingController(); // OLD
-  // String _searchQuery = ''; // OLD
-  final List<String> _selectedServices = []; // Kept for service filter chips
-  // final TextEditingController _storeSearchController = TextEditingController(); // OLD
-  // String _storeSearchQuery = ''; // OLD
-  late TabController _tabController; // Needed for animated tab index
+
+  final List<String> _selectedServices = [];
+  late TabController _tabController;
 
   // --- ADVANCED SEARCH START ---
-  // New controllers and state for advanced search
   final TextEditingController _clientSearchController = TextEditingController();
   final TextEditingController _storeSearchController = TextEditingController();
   final FocusNode _clientFocusNode = FocusNode();
   final FocusNode _storeFocusNode = FocusNode();
 
-  // We store the original query for highlighting and tokens for filtering
   String _clientSearchQuery = '';
   String _storeSearchQuery = '';
   List<String> _clientSearchTokens = [];
@@ -67,14 +61,11 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
-      // Refresh state to animate FAB
       if (_tabController.indexIsChanging) {
         setState(() {});
       }
     });
 
-    // --- ADVANCED SEARCH START ---
-    // Replaced old listeners with debounced advanced search
     _clientSearchController.addListener(_onClientSearchChanged);
     _storeSearchController.addListener(_onStoreSearchChanged);
     _clientFocusNode.addListener(() {
@@ -83,22 +74,10 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     _storeFocusNode.addListener(() {
       setState(() => _isStoreFocused = _storeFocusNode.hasFocus);
     });
-    // --- ADVANCED SEARCH END ---
-
-    // _searchController.addListener(() { // OLD
-    //   setState(() => _searchQuery = _searchController.text.trim().toLowerCase());
-    // });
-    // _storeSearchController.addListener(() { // OLD
-    //   setState(() => _storeSearchQuery = _storeSearchController.text.trim().toLowerCase());
-    // });
   }
 
   @override
   void dispose() {
-    // _searchController.dispose(); // OLD
-    // _storeSearchController.dispose(); // OLD
-
-    // --- ADVANCED SEARCH START ---
     _clientSearchController.removeListener(_onClientSearchChanged);
     _storeSearchController.removeListener(_onStoreSearchChanged);
     _clientSearchController.dispose();
@@ -107,40 +86,31 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     _storeFocusNode.dispose();
     _clientDebounce?.cancel();
     _storeDebounce?.cancel();
-    // --- ADVANCED SEARCH END ---
-
     _tabController.dispose();
     super.dispose();
   }
 
   // --- ADVANCED SEARCH START ---
-
-  /// Debounced handler for the client search input.
   void _onClientSearchChanged() {
     if (_clientDebounce?.isActive ?? false) _clientDebounce!.cancel();
     _clientDebounce = Timer(const Duration(milliseconds: 300), () {
       final query = _clientSearchController.text;
       final normalizedQuery = _normalize(query);
       setState(() {
-        _clientSearchQuery = query; // Keep original case for highlighting
-        _clientSearchTokens =
-            normalizedQuery.split(' ').where((t) => t.isNotEmpty).toList();
+        _clientSearchQuery = query;
+        _clientSearchTokens = normalizedQuery.split(' ').where((t) => t.isNotEmpty).toList();
       });
-      // TODO: For very large lists (>1000), consider moving filtering
-      // to an isolate using compute() here instead of in the StreamBuilder.
     });
   }
 
-  /// Debounced handler for the store search input.
   void _onStoreSearchChanged() {
     if (_storeDebounce?.isActive ?? false) _storeDebounce!.cancel();
     _storeDebounce = Timer(const Duration(milliseconds: 300), () {
       final query = _storeSearchController.text;
       final normalizedQuery = _normalize(query);
       setState(() {
-        _storeSearchQuery = query; // Keep original case for highlighting
-        _storeSearchTokens =
-            normalizedQuery.split(' ').where((t) => t.isNotEmpty).toList();
+        _storeSearchQuery = query;
+        _storeSearchTokens = normalizedQuery.split(' ').where((t) => t.isNotEmpty).toList();
       });
     });
   }
@@ -150,67 +120,156 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     return Colors.primaries[text.hashCode % Colors.primaries.length].shade300;
   }
 
+  // ✅ UPDATED: Added Filter for 'archived' status
   bool _matchesClient(Map data) {
-    // --- ⚙️ ORIGINAL LOGIC (Service filtering) ⚙️ ---
-    // This part is preserved and runs first.
+    // 1. Safety Check: Hide Archived
+    if (data['status'] == 'archived') return false;
+
+    // 2. Service Filter
     final services = List<String>.from(data['services'] ?? []);
     final matchesService = _selectedServices.isEmpty ||
         services.any((s) => _selectedServices.contains(s));
 
     if (!matchesService) return false;
 
-    // --- ADVANCED SEARCH START ---
-    // New token-based search logic
-    if (_clientSearchTokens.isEmpty) return true; // Matches if no search query
+    // 3. Search Filter
+    if (_clientSearchTokens.isEmpty) return true;
 
     final name = data['name'] as String? ?? '';
-
-    // Create a single searchable string from relevant fields.
-    // Using 'name' and 'services' as 'tags' are not in the model.
     final searchable = [
       _normalize(name),
       services.map(_normalize).join(' '),
     ].join(' ');
 
-    // Return true if all tokens are found in the searchable string
     return _clientSearchTokens.every((token) => searchable.contains(token));
-    // --- ADVANCED SEARCH END ---
-
-    // final name = (data['name'] as String? ?? '').toLowerCase(); // OLD
-    // final matchesName = name.contains(_searchQuery); // OLD
-    // return matchesName && matchesService; // OLD
   }
 
   bool _matchesStore(Map data) {
-    // --- ADVANCED SEARCH START ---
-    if (_storeSearchTokens.isEmpty) return true; // Matches if no search query
+    // 1. Safety Check: Hide Archived (Consistent with Manage Stores)
+    if (data['status'] == 'archived') return false;
+
+    if (_storeSearchTokens.isEmpty) return true;
 
     final name = data['name'] as String? ?? '';
     final location = data['location'] as String? ?? '';
 
-    // Create a single searchable string.
-    // Using 'name' and 'location' as 'mall'/'tags' are not in the model.
-    // 'location' likely serves the purpose of 'mall'.
     final searchable = [
       _normalize(name),
       _normalize(location),
     ].join(' ');
 
-    // Return true if all tokens are found in the searchable string
     return _storeSearchTokens.every((token) => searchable.contains(token));
-    // --- ADVANCED SEARCH END ---
-
-    // final name = (data['name'] as String? ?? '').toLowerCase(); // OLD
-    // return name.contains(_storeSearchQuery); // OLD
   }
-  // --- End of Original Logic ---
+
+  // ---------------------------------------------------------------------------
+  // 🗑️ DELETE & ARCHIVE LOGIC
+  // ---------------------------------------------------------------------------
+
+  /// ✅ ACTION 1: Archive (Soft Delete) - Swipe LEFT
+  Future<void> _archiveClient(BuildContext context, DocumentSnapshot doc) async {
+    final data = doc.data() as Map<String, dynamic>;
+    final clientName = data['name'] ?? 'ce client';
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Archiver le client ?"),
+        content: Text(
+            "Êtes-vous sûr de vouloir archiver '$clientName' ?\n\n"
+                "Il disparaîtra de la liste, mais l'historique et les magasins seront conservés."
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text("Archiver"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await doc.reference.update({
+        'status': 'archived',
+        'archivedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Client '$clientName' archivé."), backgroundColor: Colors.orange),
+        );
+      }
+    }
+  }
+
+  /// ✅ ACTION 2: Hard Delete - Swipe RIGHT
+  Future<void> _deleteClient(BuildContext context, DocumentSnapshot doc) async {
+    final data = doc.data() as Map<String, dynamic>;
+    final clientName = data['name'] ?? 'ce client';
+
+    // 🛑 DANGER ALERT DIALOG
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Supprimer DÉFINITIVEMENT ?"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.warning_amber_rounded, size: 48, color: Colors.red),
+              const SizedBox(height: 16),
+              Text(
+                "Vous allez supprimer '$clientName'.",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "⚠️ ATTENTION : Cela supprimera aussi l'accès à tous les magasins et équipements associés. Cette action est irréversible.",
+                style: TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Annuler")
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("SUPPRIMER", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await doc.reference.delete();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Client supprimé définitivement."),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // 📊 REPORT GENERATION LOGIC
   // ---------------------------------------------------------------------------
   Future<void> _handleGenerateReport(String clientId, String clientName) async {
     try {
-      // 1. Pick Date Range
       final DateTimeRange? dateRange = await showDateRangePicker(
         context: context,
         firstDate: DateTime(2020),
@@ -234,9 +293,8 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         },
       );
 
-      if (dateRange == null) return; // User cancelled
+      if (dateRange == null) return;
 
-      // 2. Show Loading Indicator
       if (!mounted) return;
       showDialog(
         context: context,
@@ -246,7 +304,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         ),
       );
 
-      // 3. Fetch Data (The Heavy Lifting)
       final reportService = ClientReportService();
       final reportData = await reportService.fetchReportData(
         clientId: clientId,
@@ -254,23 +311,19 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         dateRange: dateRange,
       );
 
-      // 4. Generate PDF (The Painting)
       final pdfService = ClientReportPdfService();
       final pdfBytes = await pdfService.generateReport(reportData);
 
-      // 5. Close Loading Indicator
       if (mounted) Navigator.pop(context);
 
-      // 6. Open PDF Share/Print Dialog
       await Printing.layoutPdf(
         onLayout: (format) async => pdfBytes,
         name:
         'Rapport_${clientName}_${DateTime.now().millisecondsSinceEpoch}.pdf',
       );
     } catch (e) {
-      // Handle Errors
       if (mounted && Navigator.canPop(context)) {
-        Navigator.pop(context); // Close loading if open
+        Navigator.pop(context);
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -285,13 +338,11 @@ class _ManageClientsPageState extends State<ManageClientsPage>
   Widget build(BuildContext context) {
     const availableServices = ['Service Technique', 'Service IT'];
 
-    // Use LayoutBuilder for responsiveness (List on mobile, Grid on web/tablet)
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isWide = constraints.maxWidth > 700;
 
         return Container(
-          // 🎨 --- BACKGROUND GRADIENT --- 🎨
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               colors: [kBackgroundColorTop, kBackgroundColorBottom],
@@ -300,35 +351,23 @@ class _ManageClientsPageState extends State<ManageClientsPage>
             ),
           ),
           child: Scaffold(
-            backgroundColor: Colors.transparent, // Crucial for gradient
-            // 🎨 --- FLOATING ACTION BUTTON (FAB) --- 🎨
+            backgroundColor: Colors.transparent,
             floatingActionButton: _buildAnimatedFab(),
             body: SafeArea(
               child: GestureDetector(
-                // --- ADVANCED SEARCH START ---
-                // Dismiss keyboard on tap outside
                 onTap: () {
                   _clientFocusNode.unfocus();
                   _storeFocusNode.unfocus();
                 },
-                // --- ADVANCED SEARCH END ---
                 child: Column(
                   children: [
-                    // 🎨 --- MODERN HEADER --- 🎨
                     _buildHeader(),
-
-                    // 🎨 --- STYLED TAB BAR --- 🎨
                     _buildTabBar(),
-
-                    // 🎨 --- TAB BAR VIEW --- 🎨
                     Expanded(
                       child: TabBarView(
                         controller: _tabController,
                         children: [
-                          // --- 🔵 CLIENTS TAB 🔵 ---
                           _buildClientTab(availableServices, isWide),
-
-                          // --- 🟣 STORES TAB 🟣 ---
                           _buildStoreTab(isWide),
                         ],
                       ),
@@ -343,13 +382,11 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Modern Header --- 🎨
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Row(
         children: [
-          // Soft back button
           InkWell(
             onTap: () => Navigator.of(context).pop(),
             borderRadius: BorderRadius.circular(16),
@@ -374,7 +411,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
             ),
           ),
           const SizedBox(width: 16),
-          // Title
           Text(
             'Clients & Magasins',
             style: GoogleFonts.poppins(
@@ -388,7 +424,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Styled TabBar --- 🎨
   Widget _buildTabBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
@@ -441,12 +476,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Gradient Search Bar (OLD) --- 🎨
-  // This is no longer used, replaced by _buildAdvancedSearchBar
-  // Widget _buildSearchBar({ ... }) { ... }
-
-  // --- ADVANCED SEARCH START ---
-  /// A beautiful, animated, and functional search bar.
   Widget _buildAdvancedSearchBar({
     required TextEditingController controller,
     required FocusNode focusNode,
@@ -462,7 +491,7 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
           color: kCardColor,
-          borderRadius: BorderRadius.circular(24), // More rounded
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
               color: isFocused
@@ -483,14 +512,14 @@ class _ManageClientsPageState extends State<ManageClientsPage>
             GoogleFonts.poppins(color: kTextSecondary.withOpacity(0.7)),
             prefixIcon: Container(
               margin: const EdgeInsets.all(6),
-              padding: const EdgeInsets.all(12), // Slightly larger
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   colors: [kPrimaryColor, kAccentColor],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(20), // More rounded
+                borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
                     color: kPrimaryColor.withOpacity(0.3),
@@ -501,14 +530,12 @@ class _ManageClientsPageState extends State<ManageClientsPage>
               ),
               child: Icon(icon, color: Colors.white, size: 22),
             ),
-            // Trailing clear button
             suffixIcon: controller.text.isNotEmpty
                 ? IconButton(
               icon:
               const Icon(Icons.close_rounded, color: kTextSecondary),
               onPressed: () {
                 controller.clear();
-                // The listener will pick this up and update the query
               },
               splashRadius: 20,
               tooltip: 'Effacer',
@@ -516,23 +543,18 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                 : null,
             border: InputBorder.none,
             contentPadding:
-            const EdgeInsets.symmetric(vertical: 22, horizontal: 10), // Taller
+            const EdgeInsets.symmetric(vertical: 22, horizontal: 10),
           ),
         ),
       ),
     );
   }
-  // --- ADVANCED SEARCH END ---
 
-  // 🎨 --- WIDGET: Client Tab Content --- 🎨
   Widget _buildClientTab(List<String> availableServices, bool isWide) {
     return Column(
       children: [
-        // Client search
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          // --- ADVANCED SEARCH START ---
-          // Replaced _buildSearchBar with _buildAdvancedSearchBar
           child: _buildAdvancedSearchBar(
             controller: _clientSearchController,
             focusNode: _clientFocusNode,
@@ -540,15 +562,8 @@ class _ManageClientsPageState extends State<ManageClientsPage>
             icon: Icons.search_rounded,
             isFocused: _isClientFocused,
           ),
-          // --- ADVANCED SEARCH END ---
-          // child: _buildSearchBar( // OLD
-          //   controller: _searchController,
-          //   hintText: 'Rechercher un client...',
-          //   icon: Icons.search_rounded,
-          // ),
         ),
         const SizedBox(height: 16),
-        // Service chips (Original logic unchanged)
         SizedBox(
           height: 40,
           child: ListView(
@@ -566,14 +581,12 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                   ),
                   selected: selected,
                   onSelected: (on) {
-                    // ⚙️ --- ORIGINAL LOGIC --- ⚙️
                     setState(() {
                       if (on)
                         _selectedServices.add(svc);
                       else
                         _selectedServices.remove(svc);
                     });
-                    // ⚙️ ------------------------ ⚙️
                   },
                   backgroundColor: kCardColor,
                   selectedColor: kPrimaryColor.withOpacity(0.2),
@@ -591,10 +604,8 @@ class _ManageClientsPageState extends State<ManageClientsPage>
           ),
         ),
         const SizedBox(height: 12),
-        // Client list
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            // ⚙️ --- ORIGINAL LOGIC --- ⚙️
             stream: FirebaseFirestore.instance
                 .collection('clients')
                 .orderBy('name')
@@ -604,32 +615,21 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                 return const Center(
                     child: CircularProgressIndicator(color: kPrimaryColor));
               }
-              // ⚙️ --- MODIFIED LOGIC --- ⚙️
-              // The filtering logic is now inside _matchesClient,
-              // which is driven by the debounced _clientSearchTokens
+              // ✅ Updated to use _matchesClient which now checks for Archived status
               final docs = snapshot.data?.docs.where((d) {
                 final data = d.data() as Map<String, dynamic>;
                 return _matchesClient(data);
-              }).toList() ??
-                  [];
+              }).toList() ?? [];
 
               if (docs.isEmpty) {
-                // --- ADVANCED SEARCH START ---
-                // Show a friendly "No results" message
                 return _buildNoResultsCard();
-                // --- ADVANCED SEARCH END ---
-                // return Center( // OLD
-                //     child: Text('Aucun client trouvé.',
-                //         style: GoogleFonts.poppins(color: kTextSecondary)));
               }
-              // ⚙️ ------------------------ ⚙️
 
-              // 🎨 --- RESPONSIVE LIST/GRID --- 🎨
               return AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
                 child: isWide
-                    ? _buildClientGrid(docs) // Grid for wide screens
-                    : _buildClientList(docs), // List for mobile
+                    ? _buildClientGrid(docs)
+                    : _buildClientList(docs),
               );
             },
           ),
@@ -638,41 +638,73 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Client List (Mobile) --- 🎨
   Widget _buildClientList(List<QueryDocumentSnapshot> docs) {
     return ListView.builder(
-      key: const ValueKey('client_list'), // Key for AnimatedSwitcher
+      key: const ValueKey('client_list'),
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
       itemCount: docs.length,
       itemBuilder: (context, i) {
         final doc = docs[i];
         final data = doc.data() as Map<String, dynamic>;
 
-        // 🎨 --- LIST ITEM ANIMATION --- 🎨
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: 1.0),
-          duration: Duration(milliseconds: 400 + (i * 50)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Transform.translate(
-              offset: Offset(0, 30 * (1 - value)),
-              child: Opacity(opacity: value, child: child),
-            );
-          },
-          child: _buildClientCard(doc, data),
+        // ✅ ADDED SLIDABLE (SWIPE)
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Slidable(
+            key: Key(doc.id),
+            // Swipe RIGHT -> DELETE
+            startActionPane: ActionPane(
+              motion: const ScrollMotion(),
+              children: [
+                SlidableAction(
+                  onPressed: (context) => _deleteClient(context, doc),
+                  backgroundColor: Colors.red.shade100,
+                  foregroundColor: Colors.red.shade900,
+                  icon: Icons.delete_forever,
+                  label: 'Supprimer',
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ],
+            ),
+            // Swipe LEFT -> ARCHIVE
+            endActionPane: ActionPane(
+              motion: const ScrollMotion(),
+              children: [
+                SlidableAction(
+                  onPressed: (context) => _archiveClient(context, doc),
+                  backgroundColor: Colors.orange.shade100,
+                  foregroundColor: Colors.orange.shade900,
+                  icon: Icons.archive,
+                  label: 'Archiver',
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ],
+            ),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: Duration(milliseconds: 400 + (i * 50)),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) {
+                return Transform.translate(
+                  offset: Offset(0, 30 * (1 - value)),
+                  child: Opacity(opacity: value, child: child),
+                );
+              },
+              child: _buildClientCard(doc, data),
+            ),
+          ),
         );
       },
     );
   }
 
-  // 🎨 --- WIDGET: Client Grid (Web) --- 🎨
   Widget _buildClientGrid(List<QueryDocumentSnapshot> docs) {
     return GridView.builder(
-      key: const ValueKey('client_grid'), // Key for AnimatedSwitcher
+      key: const ValueKey('client_grid'),
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        childAspectRatio: 3.5, // Wider cards
+        childAspectRatio: 3.5,
         mainAxisSpacing: 16,
         crossAxisSpacing: 16,
       ),
@@ -681,7 +713,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         final doc = docs[i];
         final data = doc.data() as Map<String, dynamic>;
 
-        // 🎨 --- GRID ITEM ANIMATION --- 🎨
         return TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.0, end: 1.0),
           duration: Duration(milliseconds: 400 + (i * 50)),
@@ -698,15 +729,13 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Reusable Client Card --- 🎨
   Widget _buildClientCard(DocumentSnapshot doc, Map<String, dynamic> data) {
-    // ⚙️ --- ORIGINAL LOGIC --- ⚙️
     final name = data['name'] as String? ?? '';
     final services = List<String>.from(data['services'] ?? []);
-    // ⚙️ ------------------------ ⚙️
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      // Margin handled by ListView padding/Slidable now for list, Grid for grid
+      // Keeping internal decoration
       decoration: BoxDecoration(
         color: kCardColor,
         borderRadius: BorderRadius.circular(24),
@@ -725,7 +754,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              // ⚙️ --- ORIGINAL LOGIC (Navigation) --- ⚙️
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) =>
@@ -736,7 +764,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                 padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
                 child: Row(
                   children: [
-                    // Avatar
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
@@ -754,14 +781,11 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                       ),
                     ),
                     const SizedBox(width: 12),
-                    // Text Info
                     Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // --- ADVANCED SEARCH START ---
-                          // Replaced Text with _buildHighlightText
                           _buildHighlightText(
                             name,
                             _clientSearchQuery,
@@ -771,15 +795,13 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                               fontSize: 16,
                             ),
                             GoogleFonts.poppins(
-                              fontWeight: FontWeight.w700, // Bold
-                              color: kPrimaryColor, // Accent color
+                              fontWeight: FontWeight.w700,
+                              color: kPrimaryColor,
                               fontSize: 16,
                               backgroundColor: kPrimaryColor.withOpacity(0.15),
                             ),
                           ),
-                          // --- ADVANCED SEARCH END ---
 
-                          // ✅ ADDED: Fiscal Info Display
                           if (data['nif'] != null || data['rc'] != null)
                             Padding(
                               padding:
@@ -798,8 +820,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
 
                           if (services.isNotEmpty)
                             Text(
-                              // Not highlighting services as it's less critical
-                              // and harder to parse from the joined string.
                               'Services: ${services.join(', ')}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -813,11 +833,9 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Trailing Buttons
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // ✅ REPORT BUTTON
                         IconButton(
                           icon: const Icon(Icons.picture_as_pdf_rounded,
                               color: kPrimaryColor),
@@ -828,7 +846,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                         IconButton(
                           icon: Icon(Icons.edit_outlined,
                               color: kAccentColor.withOpacity(0.8)),
-                          // ⚙️ --- ORIGINAL LOGIC (Edit) --- ⚙️
                           onPressed: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => AddClientPage(
@@ -859,15 +876,11 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Store Tab Content --- 🎨
   Widget _buildStoreTab(bool isWide) {
     return Column(
       children: [
-        // Store search
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          // --- ADVANCED SEARCH START ---
-          // Replaced _buildSearchBar with _buildAdvancedSearchBar
           child: _buildAdvancedSearchBar(
             controller: _storeSearchController,
             focusNode: _storeFocusNode,
@@ -875,18 +888,10 @@ class _ManageClientsPageState extends State<ManageClientsPage>
             icon: Icons.storefront_rounded,
             isFocused: _isStoreFocused,
           ),
-          // --- ADVANCED SEARCH END ---
-          // child: _buildSearchBar( // OLD
-          //   controller: _storeSearchController,
-          //   hintText: 'Rechercher un magasin...',
-          //   icon: Icons.storefront_rounded,
-          // ),
         ),
         const SizedBox(height: 20),
-        // Store list
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            // ⚙️ --- ORIGINAL LOGIC --- ⚙️
             stream: FirebaseFirestore.instance
                 .collectionGroup('stores')
                 .orderBy('name')
@@ -896,29 +901,20 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                 return const Center(
                     child: CircularProgressIndicator(color: kPrimaryColor));
               }
-              // ⚙️ --- MODIFIED LOGIC --- ⚙️
               final docs = snapshot.data?.docs.where((d) {
                 final data = d.data() as Map<String, dynamic>;
                 return _matchesStore(data);
-              }).toList() ??
-                  [];
+              }).toList() ?? [];
 
               if (docs.isEmpty) {
-                // --- ADVANCED SEARCH START ---
                 return _buildNoResultsCard();
-                // --- ADVANCED SEARCH END ---
-                // return Center( // OLD
-                //     child: Text('Aucun magasin trouvé.',
-                //         style: GoogleFonts.poppins(color: kTextSecondary)));
               }
-              // ⚙️ ------------------------ ⚙️
 
-              // 🎨 --- RESPONSIVE LIST/GRID --- 🎨
               return AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
                 child: isWide
-                    ? _buildStoreGrid(docs) // Grid for wide screens
-                    : _buildStoreList(docs), // List for mobile
+                    ? _buildStoreGrid(docs)
+                    : _buildStoreList(docs),
               );
             },
           ),
@@ -927,7 +923,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Store List (Mobile) --- 🎨
   Widget _buildStoreList(List<QueryDocumentSnapshot> docs) {
     return ListView.builder(
       key: const ValueKey('store_list'),
@@ -937,7 +932,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         final doc = docs[i];
         final data = doc.data() as Map<String, dynamic>;
 
-        // 🎨 --- LIST ITEM ANIMATION --- 🎨
         return TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.0, end: 1.0),
           duration: Duration(milliseconds: 400 + (i * 50)),
@@ -954,7 +948,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Store Grid (Web) --- 🎨
   Widget _buildStoreGrid(List<QueryDocumentSnapshot> docs) {
     return GridView.builder(
       key: const ValueKey('store_grid'),
@@ -970,7 +963,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         final doc = docs[i];
         final data = doc.data() as Map<String, dynamic>;
 
-        // 🎨 --- GRID ITEM ANIMATION --- 🎨
         return TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.0, end: 1.0),
           duration: Duration(milliseconds: 400 + (i * 50)),
@@ -987,13 +979,10 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Reusable Store Card --- 🎨
   Widget _buildStoreCard(DocumentSnapshot doc, Map<String, dynamic> data) {
-    // ⚙️ --- ORIGINAL LOGIC --- ⚙️
     final name = data['name'] as String? ?? '';
     final location = data['location'] as String? ?? '';
     final clientId = doc.reference.parent.parent?.id;
-    // ⚙️ ------------------------ ⚙️
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -1015,13 +1004,12 @@ class _ManageClientsPageState extends State<ManageClientsPage>
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              // ⚙️ --- ORIGINAL LOGIC (Navigation) --- ⚙️
               onTap: clientId != null
                   ? () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => ManageStoresPage(
                     clientId: clientId,
-                    clientName: '', // Note: Original code passed ''
+                    clientName: '',
                   ),
                 ),
               )
@@ -1030,7 +1018,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                 padding: const EdgeInsets.all(12.0),
                 child: Row(
                   children: [
-                    // Avatar
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
@@ -1048,14 +1035,11 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                       ),
                     ),
                     const SizedBox(width: 12),
-                    // Text Info
                     Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // --- ADVANCED SEARCH START ---
-                          // Replaced Text with _buildHighlightText for name
                           _buildHighlightText(
                             name,
                             _storeSearchQuery,
@@ -1071,18 +1055,7 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                               backgroundColor: kPrimaryColor.withOpacity(0.15),
                             ),
                           ),
-                          // --- ADVANCED SEARCH END ---
-                          // Text( // OLD
-                          //   name,
-                          //   style: GoogleFonts.poppins(
-                          //     fontWeight: FontWeight.w600,
-                          //     color: kTextPrimary,
-                          //     fontSize: 16,
-                          //   ),
-                          // ),
                           if (location.isNotEmpty)
-                          // --- ADVANCED SEARCH START ---
-                          // Replaced Text with _buildHighlightText for location
                             _buildHighlightText(
                               'Lieu: $location',
                               _storeSearchQuery,
@@ -1098,21 +1071,9 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                                 backgroundColor: kPrimaryColor.withOpacity(0.1),
                               ),
                             ),
-                          // --- ADVANCED SEARCH END ---
-                          // Text( // OLD
-                          //   'Lieu: $location',
-                          //   maxLines: 1,
-                          //   overflow: TextOverflow.ellipsis,
-                          //   style: GoogleFonts.poppins(
-                          //     color: kTextSecondary,
-                          //     fontSize: 12,
-                          //     fontWeight: FontWeight.w500,
-                          //   ),
-                          // ),
                         ],
                       ),
                     ),
-                    // Trailing Arrow
                     if (clientId != null)
                       Container(
                         padding: const EdgeInsets.all(4),
@@ -1133,9 +1094,7 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // 🎨 --- WIDGET: Animated Gradient FAB --- 🎨
   Widget _buildAnimatedFab() {
-    // Animate the FAB based on the tab index
     return AnimatedSlide(
       duration: const Duration(milliseconds: 300),
       offset: _tabController.index == 0 ? Offset.zero : const Offset(0, 2),
@@ -1159,12 +1118,10 @@ class _ManageClientsPageState extends State<ManageClientsPage>
             ],
           ),
           child: FloatingActionButton(
-            // ⚙️ --- ORIGINAL LOGIC --- ⚙️
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const AddClientPage()),
             ),
             tooltip: 'Ajouter un client',
-            // 🎨 --- STYLING --- 🎨
             backgroundColor: Colors.transparent,
             foregroundColor: Colors.white,
             elevation: 0,
@@ -1175,9 +1132,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  // --- ADVANCED SEARCH START ---
-
-  /// A helper widget to show when no search results are found.
   Widget _buildNoResultsCard() {
     return Center(
       child: Container(
@@ -1226,7 +1180,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  /// Normalizes a string by lowercasing and removing diacritics (accents).
   String _normalize(String s) {
     const diacritics =
         'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
@@ -1237,11 +1190,9 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     for (int i = 0; i < diacritics.length; i++) {
       normalized = normalized.replaceAll(diacritics[i], nonDiacritics[i]);
     }
-    // Collapse multiple spaces and trim
     return normalized.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// Creates a RichText widget that highlights the search query.
   Widget _buildHighlightText(
       String text,
       String query,
@@ -1265,7 +1216,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     List<TextSpan> spans = [];
     int start = 0;
 
-    // Find all matches for all tokens
     List<List<int>> allMatches = [];
     for (final token in queryTokens) {
       int index = normalizedText.indexOf(token, 0);
@@ -1280,7 +1230,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
           style: defaultStyle, maxLines: 1, overflow: TextOverflow.ellipsis);
     }
 
-    // Sort and merge overlapping matches
     allMatches.sort((a, b) => a[0].compareTo(b[0]));
     List<List<int>> mergedMatches = [];
     if (allMatches.isNotEmpty) {
@@ -1289,7 +1238,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         List<int> current = allMatches[i];
         List<int> last = mergedMatches.last;
         if (current[0] <= last[1]) {
-          // Overlap or contiguous
           last[1] = current[1] > last[1] ? current[1] : last[1];
         } else {
           mergedMatches.add(current);
@@ -1297,13 +1245,11 @@ class _ManageClientsPageState extends State<ManageClientsPage>
       }
     }
 
-    // Build TextSpans from the original string using merged indices
     for (final match in mergedMatches) {
       if (match[0] > start) {
         spans.add(TextSpan(
             text: text.substring(start, match[0]), style: defaultStyle));
       }
-      // Ensure match indices are within bounds of the original string
       final int end = match[1] < text.length ? match[1] : text.length;
       if (match[0] < end) {
         spans.add(TextSpan(
@@ -1321,5 +1267,4 @@ class _ManageClientsPageState extends State<ManageClientsPage>
       overflow: TextOverflow.ellipsis,
     );
   }
-// --- ADVANCED SEARCH END ---
 }

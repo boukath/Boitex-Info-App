@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http; // ✅ 1. ADDED HTTP FOR LINK RESOLVING
+import 'package:http/http.dart' as http; // ✅ ADDED FOR LINK RESOLVING
 import 'package:intl/intl.dart'; // ✅ NEW: For Date Formatting
 import 'package:boitex_info_app/screens/administration/add_client_page.dart' show ContactInfo;
 import 'package:boitex_info_app/screens/widgets/location_picker_page.dart';
@@ -37,7 +37,7 @@ class _AddStorePageState extends State<AddStorePage> {
   late TextEditingController _latController;
   late TextEditingController _lngController;
 
-  // ✅ 2. NEW: Link Controller
+  // ✅ NEW: Link Controller
   late TextEditingController _linkController;
 
   bool _isLoading = false;
@@ -402,9 +402,18 @@ class _AddStorePageState extends State<AddStorePage> {
         'longitude': lng,
         'storeContacts': contactsForDb,
 
+        // ✅ IMPORTANT: Soft Delete Support
+        // If it's a new store, force 'active'. If editing, keep existing or fallback to active.
+        'status': _isEditMode ? (widget.initialData?['status'] ?? 'active') : 'active',
+
         // ✅ NEW: Save or Remove Contract
         'maintenance_contract': _hasContract ? contractData : FieldValue.delete(),
       };
+
+      // ✅ Add creation timestamp only for new stores
+      if (!_isEditMode) {
+        storeData['createdAt'] = FieldValue.serverTimestamp();
+      }
 
       try {
         final storeCollectionRef = FirebaseFirestore.instance
