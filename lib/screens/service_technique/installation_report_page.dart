@@ -82,17 +82,30 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     super.dispose();
   }
 
-  // ✅ ADDED: Fetch users to populate the selection list
+  // ✅ UPDATED: Fetch users and prioritize 'displayName'
   Future<void> _fetchTechnicians() async {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('users').get();
 
       final techs = snapshot.docs.map((doc) {
         final data = doc.data();
-        // Construct a display name
-        String name = data['name'] ?? data['email'] ?? 'Inconnu';
-        if (data['firstName'] != null && data['lastName'] != null) {
+
+        // 1. Try 'displayName' first (as requested)
+        String name = data['displayName'] ?? '';
+
+        // 2. If no displayName, try First + Last Name
+        if (name.isEmpty && data['firstName'] != null && data['lastName'] != null) {
           name = "${data['firstName']} ${data['lastName']}";
+        }
+
+        // 3. If still empty, try 'name' field
+        if (name.isEmpty) {
+          name = data['name'] ?? '';
+        }
+
+        // 4. Fallback to email if absolutely nothing else exists
+        if (name.isEmpty) {
+          name = data['email'] ?? 'Inconnu';
         }
 
         return {
