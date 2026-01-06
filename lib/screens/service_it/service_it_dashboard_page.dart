@@ -69,14 +69,11 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   @override
   Widget build(BuildContext context) {
-    // ✅ REMOVED: Root StreamBuilder is no longer needed
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
       if (width > 900) {
-        // ✅ REMOVED: evaluationCount
         return _buildWebDashboard(context, width);
       } else {
-        // ✅ REMOVED: evaluationCount
         return _buildMobileDashboard(context);
       }
     });
@@ -84,7 +81,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   // ========================= WEB =========================
 
-  // ✅ REMOVED: evaluationCount parameter
   Widget _buildWebDashboard(BuildContext context, double width) {
     return Scaffold(
       body: Container(
@@ -111,8 +107,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                       padding: EdgeInsets.symmetric(
                         horizontal: math.min((width - 1400) / 2, width * 0.1),
                       ),
-                      // ✅ MODIFIED: Removed Row and Stats column
-                      // The Actions Grid now takes all the space
                       child: _buildGlassCard(
                         child: _buildWebActionsGrid(context),
                       ),
@@ -129,7 +123,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   }
 
   Widget _buildWebHeader() {
-    // No changes needed here, keep your original code
     return SliverToBoxAdapter(
       child: Container(
         padding: const EdgeInsets.fromLTRB(40, 20, 40, 32),
@@ -141,7 +134,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
             ),
             const Spacer(),
             Expanded(
-              // Keeping your user info chip
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
@@ -160,7 +152,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                           color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
                     child: Row(
-                      // Keeping inner row
                       children: [
                         Expanded(
                             child: Text(
@@ -204,13 +195,11 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
             ),
             const Spacer(),
             _glassIconButton(
-              // Using computer icon for IT
               icon: Icons.computer_rounded,
               onTap: () {},
             ),
             const SizedBox(width: 12),
             _glassIconButton(
-              // Announcements icon (already present in your code)
               icon: Icons.campaign_outlined,
               tooltip: 'Announcements',
               onTap: () {
@@ -228,7 +217,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   }
 
   Widget _buildWebActionsGrid(BuildContext context) {
-    // No changes needed here, keep your original code
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -248,21 +236,16 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 20,
           crossAxisSpacing: 20,
-          // ✅ ADAPTED FOR WEB: Changed aspect ratio to 1.3 to fit bigger text/icons better
           childAspectRatio: 1.3,
-          children: _buildQuickActions(context), // Uses your builder
+          children: _buildQuickActions(context),
         ),
       ],
     );
   }
 
-  // ✅ REMOVED: _buildWebStatsColumn function
-
   // ========================= MOBILE =========================
 
-  // ✅ REMOVED: evaluationCount parameter
   Widget _buildMobileDashboard(BuildContext context) {
-    // Keeping your original mobile dashboard structure
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -288,9 +271,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildGlassCard(
-                            child:
-                            _buildActionsGrid(context)), // Uses your mobile grid
-                        // ✅ REMOVED: Stats Section and SizedBox
+                            child: _buildActionsGrid(context)),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -305,7 +286,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   }
 
   Widget _buildUltraCompactHeader() {
-    // No changes needed here, keep your original code
     return SliverToBoxAdapter(
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -317,7 +297,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
             ),
             const SizedBox(width: 12),
             Expanded(
-              // Keeping your user info chip
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
@@ -336,7 +315,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                           color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
                     child: Row(
-                      // Keeping inner row
                       children: [
                         Expanded(
                             child: Text(
@@ -380,13 +358,11 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
             ),
             const SizedBox(width: 12),
             _glassIconButton(
-              // Using computer icon for IT
               icon: Icons.computer_rounded,
               onTap: () {},
             ),
             const SizedBox(width: 12),
             _glassIconButton(
-              // Announcements icon (already present in your code)
               icon: Icons.campaign_outlined,
               tooltip: 'Announcements',
               onTap: () {
@@ -405,10 +381,8 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   // ========================= SHARED UI =========================
 
-  // Keeping your original _glassIconButton function
   Widget _glassIconButton(
       {required IconData icon, required VoidCallback onTap, String? tooltip}) {
-    // Added tooltip back
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.2),
@@ -418,12 +392,11 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
       child: IconButton(
         icon: Icon(icon, color: Colors.white, size: 20),
         onPressed: onTap,
-        tooltip: tooltip, // Use tooltip
+        tooltip: tooltip,
       ),
     );
   }
 
-  // Keeping your original _buildGlassCard function
   Widget _buildGlassCard({required Widget child}) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -450,7 +423,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   // ========================= ACTIONS GRID =========================
 
-  // Keeping your original _buildActionsGrid function
   Widget _buildActionsGrid(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,16 +444,15 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
           childAspectRatio: 0.90,
-          children: _buildQuickActions(context), // Uses your builder
+          children: _buildQuickActions(context),
         ),
       ],
     );
   }
 
-  // ✅ MODIFIED: Added streams to _ActionData
   List<Widget> _buildQuickActions(BuildContext context) {
-    // Uses your specific actions for Service IT
     final actions = <_ActionData>[
+      // ✅ INTERVENTIONS
       _ActionData(
         'Interventions',
         Icons.build_rounded,
@@ -493,12 +464,14 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                 userRole: widget.userRole, serviceType: 'Service IT'),
           ),
         ),
+        // Stream: Service IT + Nouvelle Demande
         countStream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: 'Service IT')
-            .where('status', isEqualTo: 'Nouveau')
+            .where('status', isEqualTo: 'Nouvelle Demande')
             .snapshots(),
       ),
+      // ✅ INSTALLATIONS
       _ActionData(
         'Installations',
         Icons.dns_rounded,
@@ -510,12 +483,14 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                 userRole: widget.userRole, serviceType: 'Service IT'),
           ),
         ),
+        // Stream: Service IT + À Planifier
         countStream: FirebaseFirestore.instance
             .collection('installations')
             .where('serviceType', isEqualTo: 'Service IT')
-            .where('status', isEqualTo: 'Nouveau')
+            .where('status', isEqualTo: 'À Planifier')
             .snapshots(),
       ),
+      // ✅ SAV
       _ActionData(
         'Tickets SAV',
         Icons.support_agent_rounded,
@@ -525,12 +500,14 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           MaterialPageRoute(
               builder: (_) => const SavListPage(serviceType: 'Service IT')),
         ),
+        // Stream: Service IT + Nouveau
         countStream: FirebaseFirestore.instance
             .collection('sav_tickets')
             .where('serviceType', isEqualTo: 'Service IT')
             .where('status', isEqualTo: 'Nouveau')
             .snapshots(),
       ),
+      // ✅ REMPLACEMENTS
       _ActionData(
         'Remplacements',
         Icons.swap_horiz_rounded,
@@ -547,6 +524,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
             .where('requestStatus', isEqualTo: 'Prêt pour Technicien')
             .snapshots(),
       ),
+      // ✅ MISSIONS (UPDATED STATUS: "Planifiée")
       _ActionData(
         'Missions',
         Icons.assignment_rounded,
@@ -559,8 +537,10 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
         countStream: FirebaseFirestore.instance
             .collection('missions')
             .where('serviceType', isEqualTo: 'Service IT')
-            .where('status', whereIn: ['En cours', 'Planifiée']).snapshots(),
+            .where('status', isEqualTo: 'Planifiée') // ✅ Checked
+            .snapshots(),
       ),
+      // ✅ LIVRAISONS
       _ActionData(
         'Livraisons',
         Icons.local_shipping_rounded,
@@ -571,12 +551,14 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
               builder: (_) =>
               const LivraisonsHubPage(serviceType: 'Service IT')),
         ),
+        // Stream: Service IT + À Préparer
         countStream: FirebaseFirestore.instance
             .collection('livraisons')
             .where('serviceType', isEqualTo: 'Service IT')
             .where('status', isEqualTo: 'À Préparer')
             .snapshots(),
       ),
+      // ✅ HISTORIQUE
       _ActionData(
         'Historique',
         Icons.history,
@@ -589,24 +571,21 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           ),
         ),
       ),
-
-      // ✅✅✅ NOUVELLE ACTION AJOUTÉE ICI ✅✅✅
+      // ✅ JOURNAL
       _ActionData(
         "Journal d'activité",
-        Icons.timeline_rounded, // Nouvelle icône
-        const Color(0xFFfd746c), // Nouveau dégradé
+        Icons.timeline_rounded,
+        const Color(0xFFfd746c),
             () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const ItActivityFeedPage()),
         ),
       ),
-      // ✅✅✅ FIN DE L'AJOUT ✅✅✅
-
-      // ✅ NEW "ÉVALUATIONS" BUTTON
+      // ✅ EVALUATIONS
       _ActionData(
         'Évaluations',
-        Icons.dns_rounded, // Specific IT icon
-        const Color(0xFFa78bfa), // Purple color
+        Icons.dns_rounded,
+        const Color(0xFFa78bfa),
             () => Navigator.push(
           context,
           MaterialPageRoute(
@@ -614,7 +593,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                 PendingItEvaluationsListPage(userRole: widget.userRole),
           ),
         ),
-        // Stream for pending evaluations
         countStream: FirebaseFirestore.instance
             .collection('projects')
             .where('status', isEqualTo: 'Nouvelle Demande')
@@ -623,7 +601,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
       ),
     ];
 
-    // Keep your animation logic
     return actions.asMap().entries.map((entry) {
       final index = entry.key;
       final action = entry.value;
@@ -641,178 +618,169 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           icon: action.icon,
           color: action.color,
           onTap: action.onTap,
-          countStream: action.countStream, // ✅ Pass the stream
+          countStream: action.countStream,
         ),
       );
     }).toList();
   }
-
-// ✅ REMOVED: _buildStatsSection function
-} // End of State Class
+}
 
 // ========================= MODELS & CARDS =========================
 
-// ✅ MODIFIED: Added countStream
 class _ActionData {
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  final Stream<QuerySnapshot>? countStream; // ✅ New field
+  final Stream<QuerySnapshot>? countStream;
 
   _ActionData(
       this.label,
       this.icon,
       this.color,
       this.onTap, {
-        this.countStream, // ✅ Made optional
+        this.countStream,
       });
 }
 
-// ✅ MODIFIED: Added StreamBuilder, Stack for badge, and alignment fix
 class _ActionCard extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  final Stream<QuerySnapshot>? countStream; // ✅ New field
+  final Stream<QuerySnapshot>? countStream;
 
   const _ActionCard({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
-    this.countStream, // ✅ Added to constructor
+    this.countStream,
   });
 
   @override
   Widget build(BuildContext context) {
-    // StreamBuilder to get the count
+    // If no stream is provided, just return the card
+    if (countStream == null) {
+      return _buildCardContent(0);
+    }
+
+    // If stream is provided, listen to it
     return StreamBuilder<QuerySnapshot>(
       stream: countStream,
       builder: (context, snapshot) {
         final int count =
         snapshot.hasData ? snapshot.data!.docs.length : 0;
-
-        // Stack to overlay the badge
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // The main card
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withOpacity(0.25),
-                    Colors.white.withOpacity(0.15)
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                    color: Colors.white.withOpacity(0.3), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10)),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onTap,
-                  borderRadius: BorderRadius.circular(24),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                                colors: [color, color.withOpacity(0.7)]),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: color.withOpacity(0.4),
-                                  blurRadius: 16,
-                                  offset: const Offset(0, 8)),
-                            ],
-                          ),
-                          // ✅✅✅ MODIFIED: BIGGER ICON ON WEB
-                          child: Icon(icon,
-                              color: Colors.white, size: kIsWeb ? 48 : 28),
-                        ),
-
-                        // ===== START OF ALIGNMENT FIX =====
-                        Container(
-                          // ✅✅✅ MODIFIED: BIGGER CONTAINER HEIGHT ON WEB
-                          height: kIsWeb ? 60.0 : 44.0,
-                          alignment: Alignment.center,
-                          child: Text(
-                            label,
-                            style: TextStyle(
-                              // ✅✅✅ MODIFIED: BIGGER FONT ON WEB
-                              fontSize: kIsWeb ? 18 : 13,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: 0.3,
-                            ),
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        // ===== END OF ALIGNMENT FIX =====
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // The Badge
-            if (count > 0)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: Colors.white.withOpacity(0.5), width: 1.5),
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 22,
-                    minHeight: 22,
-                  ),
-                  child: Center(
-                    child: Text(
-                      count.toString(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
+        return _buildCardContent(count);
       },
     );
   }
-}
 
-// ========================= STAT CARDS =========================
-// ✅ REMOVED: All Stat Card widgets
-// (_ItEvaluationsCard, _InterventionsCard, _InstallationsCard,
-// _SavTicketsCard, _ReadyReplacementsCard, _MissionsCard)
-// and the _buildGlowingCard helper function.
+  Widget _buildCardContent(int count) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // The main card
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.25),
+                Colors.white.withOpacity(0.15)
+              ],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+                color: Colors.white.withOpacity(0.3), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10)),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(24),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                            colors: [color, color.withOpacity(0.7)]),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                              color: color.withOpacity(0.4),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8)),
+                        ],
+                      ),
+                      child: Icon(icon,
+                          color: Colors.white, size: kIsWeb ? 48 : 28),
+                    ),
+                    Container(
+                      height: kIsWeb ? 60.0 : 44.0,
+                      alignment: Alignment.center,
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: kIsWeb ? 18 : 13,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // The Badge
+        if (count > 0)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: Colors.white.withOpacity(0.5), width: 1.5),
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 22,
+                minHeight: 22,
+              ),
+              child: Center(
+                child: Text(
+                  count.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}

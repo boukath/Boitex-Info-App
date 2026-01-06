@@ -10,6 +10,8 @@ import 'package:signature/signature.dart';
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
 import 'package:url_launcher/url_launcher.dart';
+// ✅ ADDED: Import for MultiSelect
+import 'package:multi_select_flutter/multi_select_flutter.dart';
 
 // Imports for B2 Upload
 import 'dart:convert';
@@ -47,6 +49,10 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   // Fulfillment State
   List<Map<String, dynamic>> _installedSystems = [];
 
+  // ✅ ADDED: State for Technicians Selection
+  List<Map<String, dynamic>> _availableTechnicians = [];
+  List<String> _selectedTechnicianIds = [];
+
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 2,
     penColor: Colors.black,
@@ -62,6 +68,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   @override
   void initState() {
     super.initState();
+    _fetchTechnicians(); // ✅ Fetch techs on init
     _fetchInstallationDetails();
   }
 
@@ -73,6 +80,40 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     _signatoryNameController.dispose();
     _signatureController.dispose();
     super.dispose();
+  }
+
+  // ✅ ADDED: Fetch users to populate the selection list
+  Future<void> _fetchTechnicians() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('users').get();
+
+      final techs = snapshot.docs.map((doc) {
+        final data = doc.data();
+        // Construct a display name
+        String name = data['name'] ?? data['email'] ?? 'Inconnu';
+        if (data['firstName'] != null && data['lastName'] != null) {
+          name = "${data['firstName']} ${data['lastName']}";
+        }
+
+        return {
+          'id': doc.id,
+          'name': name,
+          'role': data['role'] ?? '',
+        };
+      }).where((t) {
+        // ✅ FILTER: Exclude PDG from the list as requested
+        final role = t['role'] as String;
+        return role != 'PDG';
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _availableTechnicians = techs;
+        });
+      }
+    } catch (e) {
+      print("Error fetching technicians: $e");
+    }
   }
 
   Future<void> _fetchInstallationDetails() async {
@@ -111,6 +152,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           }).toList();
         }
 
+        // ✅ ADDED: Load previously assigned technicians if any
+        List<String> loadedTechIds = [];
+        if (data['assignedTechnicians'] != null) {
+          loadedTechIds = List<String>.from(data['assignedTechnicians']);
+        }
+
         setState(() {
           _installationDoc = snapshot;
           _notesController.text = data['notes'] ?? '';
@@ -120,6 +167,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           _existingMediaUrls =
           List<String>.from(data['mediaUrls'] ?? data['photoUrls'] ?? []);
           _installedSystems = initialSystems;
+          _selectedTechnicianIds = loadedTechIds; // Set state
           _isLoadingData = false;
         });
       } else {
@@ -492,6 +540,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         }
       }
 
+      // ✅ LOGIC: Get names of selected technicians for easy display later
+      final selectedNames = _availableTechnicians
+          .where((t) => _selectedTechnicianIds.contains(t['id']))
+          .map((t) => t['name'] as String)
+          .toList();
+
       // 3. Update Firestore Document
       await FirebaseFirestore.instance
           .collection('installations')
@@ -506,6 +560,9 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         'mediaUrls': uploadedMediaUrls,
         'photoUrls': FieldValue.delete(),
         'systems': _installedSystems,
+        // ✅ SAVE NEW FIELDS
+        'assignedTechnicians': _selectedTechnicianIds,
+        'assignedTechnicianNames': selectedNames,
         'completedAt': FieldValue.serverTimestamp(),
       });
 
@@ -552,6 +609,45 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             Text(clientName,
                 style: Theme.of(context).textTheme.headlineSmall),
             Text(storeName, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 24),
+
+            // ✅ ADDED: Multi-Select Dialog for Technicians
+            const Text("Techniciens ayant effectué l'installation :", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 8),
+            // ✅ FIX: Wrapped in AbsorbPointer to handle "Read Only" behavior since 'enabled' is missing
+            AbsorbPointer(
+              absorbing: isReadOnly,
+              child: MultiSelectDialogField(
+                items: _availableTechnicians.map((e) => MultiSelectItem(e['id'], e['name'])).toList(),
+                title: const Text("Sélectionner Techniciens"),
+                selectedColor: Colors.blue,
+                decoration: BoxDecoration(
+                  // ✅ VISUAL FEEDBACK: Change color if read-only
+                  color: isReadOnly ? Colors.grey.shade100 : Colors.blue.withOpacity(0.1),
+                  borderRadius: const BorderRadius.all(Radius.circular(10)),
+                  // ✅ VISUAL FEEDBACK: Change border if read-only
+                  border: Border.all(color: isReadOnly ? Colors.grey : Colors.blue, width: 2),
+                ),
+                // ✅ VISUAL FEEDBACK: Change icon color if read-only
+                buttonIcon: Icon(Icons.group_add, color: isReadOnly ? Colors.grey : Colors.blue),
+                buttonText: Text(
+                  _selectedTechnicianIds.isEmpty
+                      ? "Choisir les techniciens..."
+                      : "${_selectedTechnicianIds.length} Technicien(s) sélectionné(s)",
+                  style: TextStyle(
+                    // ✅ VISUAL FEEDBACK: Change text color if read-only
+                    color: isReadOnly ? Colors.grey[600] : Colors.blue[800],
+                    fontSize: 16,
+                  ),
+                ),
+                initialValue: _selectedTechnicianIds,
+                onConfirm: (results) {
+                  setState(() {
+                    _selectedTechnicianIds = results.cast<String>();
+                  });
+                },
+              ),
+            ),
             const SizedBox(height: 24),
 
             // ✅ FULFILLMENT UI (Includes pre-filled Ordered Products)
