@@ -1,13 +1,19 @@
 // lib/screens/portal/store_request_page.dart
 
 import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:uuid/uuid.dart'; // Ensure you have this in pubspec.yaml
 import 'package:flutter/foundation.dart' show kIsWeb;
+
+// ✅ IMPORTS FOR MEDIA & B2
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart'; // For SHA1
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as path;
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 class StoreRequestPage extends StatefulWidget {
   final String storeId;
@@ -24,27 +30,33 @@ class StoreRequestPage extends StatefulWidget {
 }
 
 class _StoreRequestPageState extends State<StoreRequestPage> {
-  // State
+  // --- STATE ---
   bool _isLoading = true;
   bool _isValidSession = false;
   bool _isSubmitting = false;
   String? _errorMessage;
 
-  // Store Data
+  // --- DATA ---
   DocumentSnapshot? _storeDoc;
   DocumentSnapshot? _clientDoc;
-  List<QueryDocumentSnapshot> _equipmentList = [];
 
-  // Form Fields
+  // --- FORM CONTROLLERS ---
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _contactController = TextEditingController();
-  String? _selectedEquipmentId;
-  String? _selectedEquipmentName;
 
-  // Media
-  XFile? _selectedImage;
-  final ImagePicker _picker = ImagePicker();
+  final TextEditingController _clientNameController = TextEditingController();
+  final TextEditingController _storeNameController = TextEditingController();
+  final TextEditingController _contactController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+
+  // --- MEDIA STATE (B2) ---
+  List<PlatformFile> _localFilesToUpload = [];
+  List<String> _uploadedMediaUrls = [];
+  bool _isUploadingMedia = false;
+
+  // ☁️ Cloud Function URL (HTTP Endpoint)
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {
@@ -52,47 +64,63 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
     _verifyAndLoadData();
   }
 
-  /// 1. Security Check & Data Loading
+  @override
+  void dispose() {
+    _clientNameController.dispose();
+    _storeNameController.dispose();
+    _contactController.dispose();
+    _phoneController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  /// --------------------------------------------------------------------------
+  /// 1. SMART DATA LOADING
+  /// --------------------------------------------------------------------------
   Future<void> _verifyAndLoadData() async {
     try {
-      // A. Search for the store across all clients using Collection Group
-      // Note: This requires a Firestore Index if you have many stores.
-      // If it fails, check debug console for the index link.
-      final storeQuery = await FirebaseFirestore.instance
-          .collectionGroup('stores')
-          .where(FieldPath.documentId, isEqualTo: widget.storeId)
-          .get();
+      QuerySnapshot? storeQuery;
+
+      // Attempt 1: Query by 'id'
+      try {
+        storeQuery = await FirebaseFirestore.instance
+            .collectionGroup('stores')
+            .where('id', isEqualTo: widget.storeId)
+            .get();
+      } catch (e) {
+        debugPrint("Primary query failed (Index missing): $e");
+      }
+
+      // Attempt 2: Fallback to 'qr_access_token'
+      if (storeQuery == null || storeQuery.docs.isEmpty) {
+        storeQuery = await FirebaseFirestore.instance
+            .collectionGroup('stores')
+            .where('qr_access_token', isEqualTo: widget.token)
+            .get();
+      }
 
       if (storeQuery.docs.isEmpty) {
-        throw "Magasin introuvable (ID invalide).";
+        throw "Magasin introuvable (ID ou Token invalide).";
       }
 
       final storeDoc = storeQuery.docs.first;
       final storeData = storeDoc.data() as Map<String, dynamic>;
 
-      // B. Verify the Security Token
       if (storeData['qr_access_token'] != widget.token) {
         throw "Lien expiré ou non autorisé.";
       }
 
-      // C. Load Parent Client Info
-      // The store is at clients/{clientId}/stores/{storeId}
-      // So parent().parent() gives us the client doc ref
       final clientRef = storeDoc.reference.parent.parent;
       if (clientRef == null) throw "Structure de données invalide.";
-
       final clientDoc = await clientRef.get();
-
-      // D. Load Equipment List for Dropdown
-      final equipmentQuery = await storeDoc.reference
-          .collection('materiel_installe') // Matches your schema
-          .get();
+      final clientData = clientDoc.data() as Map<String, dynamic>;
 
       if (mounted) {
         setState(() {
           _storeDoc = storeDoc;
           _clientDoc = clientDoc;
-          _equipmentList = equipmentQuery.docs;
+          _clientNameController.text = clientData['name'] ?? 'Client Inconnu';
+          _storeNameController.text = storeData['name'] ?? 'Magasin Inconnu';
           _isValidSession = true;
           _isLoading = false;
         });
@@ -108,126 +136,256 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
     }
   }
 
-  /// 2. Image Picker Logic
-  Future<void> _pickImage() async {
+  /// --------------------------------------------------------------------------
+  /// 2. B2 CLOUD STORAGE LOGIC (HTTP REVERTED & FIXED)
+  /// --------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 50, // Optimize for mobile data
-      );
-      if (image != null) {
-        setState(() => _selectedImage = image);
+      // ✅ FIX: Use http.get because the function is 'onRequest'
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+
+      if (response.statusCode == 200) {
+        // ✅ SECURE DECODING: Handle dynamic types safely
+        final decoded = json.decode(response.body);
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
       }
+      debugPrint('Failed to get B2 credentials: ${response.body}');
+      return null;
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur caméra: $e")),
-      );
+      debugPrint('Error calling Cloud Function: $e');
+      return null;
     }
   }
 
-  /// 3. Submit Logic
-  Future<void> _submitRequest() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_descriptionController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Veuillez décrire le problème.")),
-      );
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-
+  Future<String?> _uploadFileToB2(PlatformFile file, Map<String, dynamic> b2Creds) async {
     try {
-      String? imageUrl;
-
-      // A. Upload Image if exists
-      if (_selectedImage != null) {
-        final storageRef = FirebaseStorage.instance
-            .ref()
-            .child('interventions_media')
-            .child('${const Uuid().v4()}.jpg');
-
-        if (kIsWeb) {
-          await storageRef.putData(await _selectedImage!.readAsBytes());
-        } else {
-          await storageRef.putFile(File(_selectedImage!.path));
-        }
-        imageUrl = await storageRef.getDownloadURL();
+      Uint8List fileBytes;
+      if (kIsWeb) {
+        fileBytes = file.bytes!;
+      } else {
+        fileBytes = await File(file.path!).readAsBytes();
       }
 
-      // B. Create Intervention Ticket
-      // Matches your schema in add_intervention_page.dart
+      final sha1Hash = sha1.convert(fileBytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final fileName = file.name;
+
+      String? mimeType;
+      final extension = path.extension(fileName).toLowerCase();
+      if (extension == '.jpg' || extension == '.jpeg') {
+        mimeType = 'image/jpeg';
+      } else if (extension == '.png') {
+        mimeType = 'image/png';
+      } else if (extension == '.mp4' || extension == '.mov') {
+        mimeType = 'video/mp4';
+      } else if (extension == '.pdf') {
+        mimeType = 'application/pdf';
+      } else {
+        mimeType = 'b2/x-auto';
+      }
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': mimeType,
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileBytes.length.toString(),
+        },
+        body: fileBytes,
+      );
+
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body) as Map<String, dynamic>;
+        final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint('Failed to upload to B2: ${resp.body}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error uploading file to B2: $e');
+      return null;
+    }
+  }
+
+  // --- MEDIA PICKER HELPERS ---
+  Future<void> _pickFiles() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'mp4', 'mov', 'pdf'],
+      allowMultiple: true,
+      withData: kIsWeb,
+    );
+    if (result != null) {
+      setState(() {
+        _localFilesToUpload.addAll(result.files);
+      });
+    }
+  }
+
+  // --- THUMBNAIL GENERATOR ---
+  Future<Widget> _getThumbnail(PlatformFile file) async {
+    final extension = path.extension(file.name).toLowerCase();
+
+    if (extension == '.jpg' || extension == '.jpeg' || extension == '.png') {
+      if (kIsWeb) {
+        return Image.memory(
+          file.bytes!,
+          width: 50,
+          height: 50,
+          fit: BoxFit.cover,
+          errorBuilder: (c, o, s) => const Icon(Icons.broken_image, color: Colors.grey),
+        );
+      } else {
+        return Image.file(
+            File(file.path!),
+            width: 50,
+            height: 50,
+            fit: BoxFit.cover
+        );
+      }
+    } else if (extension == '.mp4' || extension == '.mov') {
+      if (kIsWeb) {
+        return Container(
+          width: 50, height: 50, color: Colors.black12,
+          child: const Icon(Icons.videocam, color: Colors.purple),
+        );
+      }
+      try {
+        final thumbPath = await VideoThumbnail.thumbnailFile(
+          video: file.path!,
+          imageFormat: ImageFormat.JPEG,
+          maxHeight: 64,
+          quality: 50,
+        );
+        if (thumbPath != null) {
+          return Image.file(File(thumbPath), width: 50, height: 50, fit: BoxFit.cover);
+        }
+      } catch (e) {
+        // Fallback
+      }
+      return const Icon(Icons.videocam, color: Colors.purple);
+    } else if (extension == '.pdf') {
+      return const Icon(Icons.picture_as_pdf, color: Colors.red);
+    }
+    return const Icon(Icons.insert_drive_file, color: Colors.blue);
+  }
+
+  /// --------------------------------------------------------------------------
+  /// 3. SUBMIT & UPLOAD LOGIC
+  /// --------------------------------------------------------------------------
+  Future<void> _submitRequest() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isSubmitting = true;
+      _isUploadingMedia = true;
+      _uploadedMediaUrls = [];
+    });
+
+    try {
+      // A. Upload Media to B2
+      if (_localFilesToUpload.isNotEmpty) {
+        final b2Credentials = await _getB2UploadCredentials();
+        if (b2Credentials == null) throw Exception("Impossible de connecter au serveur de fichiers (B2).");
+
+        for (var file in _localFilesToUpload) {
+          final url = await _uploadFileToB2(file, b2Credentials);
+          if (url != null) _uploadedMediaUrls.add(url);
+        }
+      }
+
+      setState(() => _isUploadingMedia = false);
+
+      // B. Prepare Data & Auto-Routing Logic
       final clientData = _clientDoc!.data() as Map<String, dynamic>;
       final storeData = _storeDoc!.data() as Map<String, dynamic>;
 
-      await FirebaseFirestore.instance.collection('interventions').add({
-        // Core linking fields
-        'clientId': _clientDoc!.id,
-        'clientName': clientData['name'] ?? 'Client Inconnu',
-        'storeId': _storeDoc!.id,
-        'storeName': storeData['name'] ?? 'Magasin Inconnu',
-        'storeLocation': storeData['location'] ?? '',
+      final servicesMap = clientData['services'] as Map<String, dynamic>? ?? {};
+      String serviceType = 'Technique';
+      if (servicesMap['Service IT'] == true) {
+        serviceType = 'IT';
+      } else if (servicesMap['Service Technique'] == true) {
+        serviceType = 'Technique';
+      }
 
-        // Request Details
-        'status': 'Nouvelle Demande', // Important trigger status
-        'source': 'QR_Portal', // To track where it came from
-        'priority': 'Moyenne', // Default
+      final String webCode = 'WEB-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+
+      // C. Create Ticket
+      await FirebaseFirestore.instance.collection('interventions').add({
+        'clientId': _clientDoc!.id,
+        'storeId': _storeDoc!.id,
+        'clientName': clientData['name'],
+        'storeName': storeData['name'],
+        'storeLocation': storeData['location'] ?? '',
+        'serviceType': serviceType,
+        'interventionCode': webCode,
+        'interventionType': 'Dépannage',
+        'status': 'Nouvelle Demande',
+        'priority': 'Moyenne',
+        'source': 'QR_Portal',
         'description': _descriptionController.text.trim(),
         'contactName': _contactController.text.trim(),
-
-        // Asset Linking (Crucial for history)
-        'equipmentId': _selectedEquipmentId,
-        'equipmentName': _selectedEquipmentName,
-
-        // Media
-        'photos': imageUrl != null ? [imageUrl] : [],
-
-        // Metadata
+        'clientPhone': _phoneController.text.trim(),
+        'mediaUrls': _uploadedMediaUrls,
         'createdAt': FieldValue.serverTimestamp(),
-        'createdBy': 'Portal Manager', // Since they aren't logged in
+        'createdBy': 'Portal Guest',
       });
 
-      // C. Success UI
       if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Icon(Icons.check_circle, color: Colors.green, size: 50),
-            content: const Text(
-              "Votre demande a été envoyée !\n\nNos techniciens ont été notifiés.",
-              textAlign: TextAlign.center,
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  // Reset form for next request
-                  setState(() {
-                    _descriptionController.clear();
-                    _selectedImage = null;
-                    _selectedEquipmentId = null;
-                    _isSubmitting = false;
-                  });
-                },
-                child: const Text("OK"),
-              )
-            ],
-          ),
-        );
+        _showSuccessDialog();
       }
 
     } catch (e) {
-      setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur d'envoi: $e")),
-      );
+      setState(() {
+        _isSubmitting = false;
+        _isUploadingMedia = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
     }
   }
 
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Icon(Icons.check_circle, color: Colors.green, size: 60),
+        content: const Text(
+          "Demande Envoyée !\n\nNos techniciens ont été notifiés.",
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              setState(() {
+                _descriptionController.clear();
+                _phoneController.clear();
+                _localFilesToUpload.clear();
+                _uploadedMediaUrls.clear();
+                _isSubmitting = false;
+              });
+            },
+            child: const Text("OK", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          )
+        ],
+      ),
+    );
+  }
+
+  /// --------------------------------------------------------------------------
+  /// 4. UI BUILDER
+  /// --------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    // 4. Loading State
     if (_isLoading) {
       return const Scaffold(
         body: Center(
@@ -236,14 +394,13 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 20),
-              Text("Vérification de l'accès sécurisé..."),
+              Text("Chargement du portail..."),
             ],
           ),
         ),
       );
     }
 
-    // 5. Error State (Invalid Token)
     if (!_isValidSession) {
       return Scaffold(
         body: Center(
@@ -254,16 +411,9 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
               children: [
                 const Icon(Icons.security, size: 80, color: Colors.red),
                 const SizedBox(height: 24),
-                Text(
-                  "Accès Refusé",
-                  style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold),
-                ),
+                Text("Accès Refusé", style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                Text(
-                  _errorMessage ?? "Ce QR code est invalide ou a été désactivé.",
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
-                ),
+                Text(_errorMessage ?? "QR Code invalide.", textAlign: TextAlign.center),
               ],
             ),
           ),
@@ -271,183 +421,253 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       );
     }
 
-    // 6. Main Portal UI
-    final storeName = (_storeDoc!.data() as Map<String, dynamic>)['name'] ?? 'Magasin';
-
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: Text("Support: $storeName"),
-        backgroundColor: Colors.white,
-        elevation: 1,
-        centerTitle: true,
-        automaticallyImplyLeading: false, // No back button
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header Card
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.shade100),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, color: Colors.blue),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        "Scannez ce code pour signaler rapidement une panne dans le magasin $storeName.",
-                        style: const TextStyle(color: Colors.blue),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Equipment Dropdown
-              Text("Quel équipement est en panne ?", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    hint: const Text("Sélectionner un appareil (Optionnel)"),
-                    value: _selectedEquipmentId,
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text("Autre / Je ne sais pas"),
-                      ),
-                      ..._equipmentList.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        return DropdownMenuItem(
-                          value: doc.id,
-                          child: Text("${data['nom']} (${data['marque'] ?? ''})"),
-                        );
-                      }),
-                    ],
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedEquipmentId = val;
-                        if (val != null) {
-                          final doc = _equipmentList.firstWhere((d) => d.id == val);
-                          final data = doc.data() as Map<String, dynamic>;
-                          _selectedEquipmentName = "${data['nom']} ${data['marque'] ?? ''}";
-                        } else {
-                          _selectedEquipmentName = null;
-                        }
-                      });
-                    },
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Contact Name
-              Text("Votre Nom / Poste", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _contactController,
-                decoration: InputDecoration(
-                  hintText: "Ex: Manager, Caisse 1...",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                ),
-                validator: (val) => val == null || val.isEmpty ? "Requis" : null,
-              ),
-
-              const SizedBox(height: 20),
-
-              // Description
-              Text("Description du problème", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _descriptionController,
-                maxLines: 4,
-                decoration: InputDecoration(
-                  hintText: "Décrivez la panne (ex: L'écran ne s'allume pas, erreur 404...)",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                ),
-                validator: (val) => val == null || val.isEmpty ? "Requis" : null,
-              ),
-
-              const SizedBox(height: 20),
-
-              // Photo Button
-              Text("Photo (Optionnel)", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: _pickImage,
-                child: Container(
-                  height: 150,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
-                  ),
-                  child: _selectedImage != null
-                      ? ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: kIsWeb
-                        ? Image.network(_selectedImage!.path, fit: BoxFit.cover)
-                        : Image.file(File(_selectedImage!.path), fit: BoxFit.cover),
-                  )
-                      : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.camera_alt, size: 40, color: Colors.grey),
-                      SizedBox(height: 8),
-                      Text("Appuyer pour prendre une photo", style: TextStyle(color: Colors.grey)),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // Submit Button
-              SizedBox(
-                height: 55,
-                child: ElevatedButton(
-                  onPressed: _isSubmitting ? null : _submitRequest,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF667EEA), // Brand Color
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                    "ENVOYER LA DEMANDE",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.blue.shade50,
+              Colors.purple.shade50,
+              Colors.pink.shade50,
             ],
           ),
         ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 600),
+                child: Card(
+                  elevation: 8,
+                  shadowColor: const Color(0x33667EEA),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF667EEA).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.add_task, color: Color(0xFF667EEA), size: 28),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Nouvelle Demande",
+                                      style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
+                                    ),
+                                    const Text(
+                                      "Portail de Support Client",
+                                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 40),
+
+                          _buildSectionTitle("Localisation (Automatique)"),
+                          const SizedBox(height: 12),
+                          _buildReadOnlyField("Client", _clientNameController, Icons.business),
+                          const SizedBox(height: 12),
+                          _buildReadOnlyField("Magasin", _storeNameController, Icons.store),
+                          const SizedBox(height: 24),
+
+                          _buildSectionTitle("Contact & Problème"),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _contactController,
+                            decoration: _buildInputDecoration("Votre Nom / Poste", Icons.person),
+                            validator: (val) => val == null || val.isEmpty ? "Requis" : null,
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _phoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: _buildInputDecoration("Numéro de Téléphone *", Icons.phone),
+                            validator: (val) => val == null || val.length < 9 ? "Numéro valide requis" : null,
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _descriptionController,
+                            maxLines: 4,
+                            decoration: _buildInputDecoration("Description de la panne...", Icons.description),
+                            validator: (val) => val == null || val.isEmpty ? "Veuillez décrire le problème" : null,
+                          ),
+                          const SizedBox(height: 24),
+
+                          _buildSectionTitle("Preuve / Photo / Vidéo"),
+                          const SizedBox(height: 12),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton.icon(
+                              onPressed: _isUploadingMedia || _isSubmitting ? null : _pickFiles,
+                              icon: const Icon(Icons.file_upload_outlined),
+                              label: const Text('Ajouter Photos / Vidéos / Fichiers'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: const Color(0xFF667EEA),
+                                elevation: 0,
+                                side: BorderSide(color: Colors.grey.shade300),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          ),
+
+                          if (_localFilesToUpload.isNotEmpty)
+                            Container(
+                              margin: const EdgeInsets.only(top: 16),
+                              height: 100,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: _localFilesToUpload.length,
+                                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                                itemBuilder: (context, index) {
+                                  final file = _localFilesToUpload[index];
+                                  return Stack(
+                                    children: [
+                                      Container(
+                                        width: 100,
+                                        height: 100,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.grey.shade300),
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(12),
+                                          child: FutureBuilder<Widget>(
+                                            future: _getThumbnail(file),
+                                            builder: (context, snapshot) {
+                                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                                return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                                              }
+                                              return snapshot.data ?? const SizedBox();
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 2,
+                                        right: 2,
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            if (!_isSubmitting) {
+                                              setState(() => _localFilesToUpload.removeAt(index));
+                                            }
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.red,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(Icons.close, color: Colors.white, size: 14),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+
+                          const SizedBox(height: 32),
+
+                          SizedBox(
+                            height: 55,
+                            child: ElevatedButton(
+                              onPressed: _isSubmitting ? null : _submitRequest,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF667EEA),
+                                foregroundColor: Colors.white,
+                                elevation: 4,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: _isSubmitting
+                                  ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                                  const SizedBox(width: 12),
+                                  Text(_isUploadingMedia ? "Envoi des fichiers..." : "Enregistrement..."),
+                                ],
+                              )
+                                  : const Text(
+                                "ENVOYER LA DEMANDE",
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title.toUpperCase(),
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+        color: Colors.grey,
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+
+  Widget _buildReadOnlyField(String label, TextEditingController controller, IconData icon) {
+    return TextFormField(
+      controller: controller,
+      readOnly: true,
+      style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w500),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.grey),
+        filled: true,
+        fillColor: Colors.grey.shade100,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      ),
+    );
+  }
+
+  InputDecoration _buildInputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: const Color(0xFF667EEA)),
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2)),
     );
   }
 }
