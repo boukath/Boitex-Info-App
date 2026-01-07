@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart'; // For SHA1
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
+// Removed image_picker import
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 class StoreRequestPage extends StatefulWidget {
@@ -50,11 +51,12 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
   final TextEditingController _descriptionController = TextEditingController();
 
   // --- MEDIA STATE (B2) ---
+  // Using PlatformFile from file_picker to handle both Web (bytes) and Mobile (path) safely
   List<PlatformFile> _localFilesToUpload = [];
   List<String> _uploadedMediaUrls = [];
   bool _isUploadingMedia = false;
 
-  // ☁️ Cloud Function URL (HTTP Endpoint)
+  // ☁️ Cloud Function for B2 Auth
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
@@ -137,23 +139,18 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
   }
 
   /// --------------------------------------------------------------------------
-  /// 2. B2 CLOUD STORAGE LOGIC (HTTP REVERTED & FIXED)
+  /// 2. B2 CLOUD STORAGE LOGIC
   /// --------------------------------------------------------------------------
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      // ✅ FIX: Use http.get because the function is 'onRequest'
       final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
-
       if (response.statusCode == 200) {
-        // ✅ SECURE DECODING: Handle dynamic types safely
-        final decoded = json.decode(response.body);
-        if (decoded is Map) {
-          return Map<String, dynamic>.from(decoded);
-        }
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint('Failed to get B2 credentials: ${response.body}');
+        return null;
       }
-      debugPrint('Failed to get B2 credentials: ${response.body}');
-      return null;
     } catch (e) {
       debugPrint('Error calling Cloud Function: $e');
       return null;
@@ -162,6 +159,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
 
   Future<String?> _uploadFileToB2(PlatformFile file, Map<String, dynamic> b2Creds) async {
     try {
+      // Handle bytes: Web uses file.bytes, Mobile reads from file.path
       Uint8List fileBytes;
       if (kIsWeb) {
         fileBytes = file.bytes!;
@@ -219,7 +217,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'mp4', 'mov', 'pdf'],
       allowMultiple: true,
-      withData: kIsWeb,
+      withData: kIsWeb, // Crucial for Web
     );
     if (result != null) {
       setState(() {
@@ -232,8 +230,10 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
   Future<Widget> _getThumbnail(PlatformFile file) async {
     final extension = path.extension(file.name).toLowerCase();
 
+    // 1. IMAGES
     if (extension == '.jpg' || extension == '.jpeg' || extension == '.png') {
       if (kIsWeb) {
+        // Use bytes for web preview
         return Image.memory(
           file.bytes!,
           width: 50,
@@ -249,13 +249,17 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
             fit: BoxFit.cover
         );
       }
-    } else if (extension == '.mp4' || extension == '.mov') {
+    }
+
+    // 2. VIDEOS
+    else if (extension == '.mp4' || extension == '.mov') {
       if (kIsWeb) {
         return Container(
           width: 50, height: 50, color: Colors.black12,
           child: const Icon(Icons.videocam, color: Colors.purple),
         );
       }
+
       try {
         final thumbPath = await VideoThumbnail.thumbnailFile(
           video: file.path!,
@@ -270,9 +274,13 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         // Fallback
       }
       return const Icon(Icons.videocam, color: Colors.purple);
-    } else if (extension == '.pdf') {
+    }
+
+    // 3. PDF
+    else if (extension == '.pdf') {
       return const Icon(Icons.picture_as_pdf, color: Colors.red);
     }
+
     return const Icon(Icons.insert_drive_file, color: Colors.blue);
   }
 
@@ -302,19 +310,9 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
 
       setState(() => _isUploadingMedia = false);
 
-      // B. Prepare Data & Auto-Routing Logic
+      // B. Prepare Data
       final clientData = _clientDoc!.data() as Map<String, dynamic>;
       final storeData = _storeDoc!.data() as Map<String, dynamic>;
-
-      final servicesMap = clientData['services'] as Map<String, dynamic>? ?? {};
-      String serviceType = 'Technique';
-      if (servicesMap['Service IT'] == true) {
-        serviceType = 'IT';
-      } else if (servicesMap['Service Technique'] == true) {
-        serviceType = 'Technique';
-      }
-
-      final String webCode = 'WEB-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
 
       // C. Create Ticket
       await FirebaseFirestore.instance.collection('interventions').add({
@@ -323,11 +321,9 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         'clientName': clientData['name'],
         'storeName': storeData['name'],
         'storeLocation': storeData['location'] ?? '',
-        'serviceType': serviceType,
-        'interventionCode': webCode,
-        'interventionType': 'Dépannage',
         'status': 'Nouvelle Demande',
         'priority': 'Moyenne',
+        'type': 'Dépannage',
         'source': 'QR_Portal',
         'description': _descriptionController.text.trim(),
         'contactName': _contactController.text.trim(),
@@ -454,6 +450,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          // --- HEADER ---
                           Row(
                             children: [
                               Container(
@@ -484,6 +481,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
                           ),
                           const Divider(height: 40),
 
+                          // --- SECTIONS ---
                           _buildSectionTitle("Localisation (Automatique)"),
                           const SizedBox(height: 12),
                           _buildReadOnlyField("Client", _clientNameController, Icons.business),
@@ -514,9 +512,11 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
                           ),
                           const SizedBox(height: 24),
 
+                          // --- MEDIA SECTION (Updated) ---
                           _buildSectionTitle("Preuve / Photo / Vidéo"),
                           const SizedBox(height: 12),
 
+                          // Single Upload Button (No Camera)
                           SizedBox(
                             width: double.infinity,
                             height: 50,
@@ -534,6 +534,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
                             ),
                           ),
 
+                          // 📸 THUMBNAIL GRID
                           if (_localFilesToUpload.isNotEmpty)
                             Container(
                               margin: const EdgeInsets.only(top: 16),
@@ -546,6 +547,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
                                   final file = _localFilesToUpload[index];
                                   return Stack(
                                     children: [
+                                      // Thumbnail
                                       Container(
                                         width: 100,
                                         height: 100,
@@ -567,6 +569,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
                                           ),
                                         ),
                                       ),
+                                      // Remove X
                                       Positioned(
                                         top: 2,
                                         right: 2,
@@ -594,6 +597,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
 
                           const SizedBox(height: 32),
 
+                          // --- SUBMIT BUTTON ---
                           SizedBox(
                             height: 55,
                             child: ElevatedButton(
@@ -631,6 +635,8 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       ),
     );
   }
+
+  // --- WIDGET HELPERS ---
 
   Widget _buildSectionTitle(String title) {
     return Text(
