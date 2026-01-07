@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:intl/intl.dart'; // ✅ Added for Date Formatting
 
 // ✅ IMPORTS FOR MEDIA & B2
 import 'package:http/http.dart' as http;
@@ -310,27 +311,79 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
 
       setState(() => _isUploadingMedia = false);
 
-      // B. Prepare Data
+      // B. Prepare References & Data
       final clientData = _clientDoc!.data() as Map<String, dynamic>;
       final storeData = _storeDoc!.data() as Map<String, dynamic>;
 
-      // C. Create Ticket
-      await FirebaseFirestore.instance.collection('interventions').add({
-        'clientId': _clientDoc!.id,
-        'storeId': _storeDoc!.id,
-        'clientName': clientData['name'],
-        'storeName': storeData['name'],
-        'storeLocation': storeData['location'] ?? '',
-        'status': 'Nouvelle Demande',
-        'priority': 'Moyenne',
-        'type': 'Dépannage',
-        'source': 'QR_Portal',
-        'description': _descriptionController.text.trim(),
-        'contactName': _contactController.text.trim(),
-        'clientPhone': _phoneController.text.trim(),
-        'mediaUrls': _uploadedMediaUrls,
-        'createdAt': FieldValue.serverTimestamp(),
-        'createdBy': 'Portal Guest',
+      final currentYear = DateFormat('yyyy').format(DateTime.now());
+      final counterRef = FirebaseFirestore.instance
+          .collection('counters')
+          .doc('intervention_counter_$currentYear');
+      final interventionRef = FirebaseFirestore.instance.collection('interventions').doc();
+
+
+      // 🔍 AUTO-DETECT SERVICE TYPE
+      String detectedServiceType = 'Service Technique'; // Default fallback
+      if (clientData['services'] != null && (clientData['services'] as List).isNotEmpty) {
+        // We take the first service available as the default for this ticket
+        detectedServiceType = (clientData['services'] as List).first.toString();
+      }
+
+      // C. EXECUTE TRANSACTION
+      // This ensures we read the counter, increment it, and save the intervention atomically.
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final counterDoc = await transaction.get(counterRef);
+
+        int newCount;
+        if (counterDoc.exists) {
+          final data = counterDoc.data() as Map<String, dynamic>;
+          final lastResetYear = data['lastReset'] as String?;
+          final currentCount = data['count'] as int? ?? 0;
+
+          if (lastResetYear == currentYear) {
+            newCount = currentCount + 1;
+          } else {
+            // Reset for new year if needed
+            newCount = 1;
+          }
+        } else {
+          // Document doesn't exist yet
+          newCount = 1;
+        }
+
+        // Generate the Code: INT-51/2026
+        final interventionCode = 'INT-$newCount/$currentYear';
+
+        final interventionData = {
+          'interventionCode': interventionCode, // ✅ THE GENERATED CODE
+          'clientId': _clientDoc!.id,
+          'storeId': _storeDoc!.id,
+          'clientName': clientData['name'],
+          'storeName': storeData['name'],
+          'storeLocation': storeData['location'] ?? '',
+          'status': 'Nouvelle Demande',
+          'priority': 'Moyenne',
+          'type': 'Dépannage',
+          'source': 'QR_Portal',
+          'serviceType': detectedServiceType, // ✅ AUTO-ASSIGNED SERVICE TYPE
+
+          // ✅ FIELD NAMES FIXED FOR ADMIN DASHBOARD MAPPING
+          'requestDescription': _descriptionController.text.trim(), // Admin looks for 'requestDescription'
+          'managerName': _contactController.text.trim(),            // Admin looks for 'managerName'
+          'createdByName': _contactController.text.trim(),          // Shows name in "Demandé par"
+
+          'clientPhone': _phoneController.text.trim(),
+          'mediaUrls': _uploadedMediaUrls,
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdBy': 'Portal Guest', // Kept for technical audit
+        };
+
+        // Write both operations
+        transaction.set(interventionRef, interventionData);
+        transaction.set(counterRef, {
+          'count': newCount,
+          'lastReset': currentYear,
+        });
       });
 
       if (mounted) {
