@@ -68,14 +68,14 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   void _initializeData() {
-    final data = widget.installationDoc.data() as Map<String, dynamic>;
+    // ✅ FIX: Safely cast data
+    final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
 
     // ✅ FIX 1: Safe Date Parsing
     if (data['installationDate'] != null) {
       if (data['installationDate'] is Timestamp) {
         _scheduledDate = (data['installationDate'] as Timestamp).toDate();
       } else {
-        // If it's a string or other format, ignore it or parse manually if needed
         _scheduledDate = null;
       }
     }
@@ -97,7 +97,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
     _fetchTechnicians();
 
-    if (data['status'] == 'Terminée' || data.containsKey('signatureUrl')) {
+    // Check for status or signature (handle missing signatureUrl key gracefully)
+    if (data['status'] == 'Terminée' || (data.containsKey('signatureUrl') && data['signatureUrl'] != null)) {
       _fetchReportDetails();
     }
   }
@@ -122,11 +123,13 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             .doc(widget.installationDoc.id)
             .get();
         final mainData = mainDoc.data();
-        if (mainData != null &&
-            (mainData.containsKey('effectiveTechnicians') ||
-                mainData.containsKey('signatureUrl') ||
-                mainData.containsKey('assignedTechnicianNames'))) {
-          reportData = mainData;
+        if (mainData != null) {
+          // Check keys safely
+          if (mainData.containsKey('effectiveTechnicians') ||
+              mainData.containsKey('signatureUrl') ||
+              mainData.containsKey('assignedTechnicianNames')) {
+            reportData = mainData;
+          }
         }
       }
 
@@ -376,7 +379,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   Future<void> _launchMaps(String? address) async {
-    if (address == null) return;
+    if (address == null || address.isEmpty) return;
     final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}");
     if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
   }
@@ -458,7 +461,11 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 ),
                 CircleAvatar(
                   backgroundColor: Colors.white,
-                  child: IconButton(icon: const Icon(Icons.map, color: Colors.blue), onPressed: () => _launchMaps(data['storeName'])),
+                  child: IconButton(
+                    // ✅ FIXED: Check nulls for old installations
+                    icon: const Icon(Icons.map, color: Colors.blue),
+                    onPressed: () => _launchMaps("${data['storeName'] ?? ''} ${data['storeLocation'] ?? ''}"),
+                  ),
                 )
               ],
             ),
@@ -467,12 +474,14 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                // ✅ ADDED: Contact Name
                 _buildInfoRow(Icons.person, data['contactName'] ?? 'Contact non spécifié'),
                 const SizedBox(height: 8),
                 _buildInfoRow(Icons.phone, data['clientPhone'] ?? 'N/A', isLink: true),
                 const SizedBox(height: 8),
                 _buildInfoRow(Icons.store, data['storeName'] ?? 'Magasin Inconnu'),
+                const SizedBox(height: 8),
+                // ✅ ADDED: Store Location Field (Safe)
+                _buildInfoRow(Icons.location_on, data['storeLocation'] ?? 'Ville Inconnue'),
                 const SizedBox(height: 8),
                 _buildInfoRow(Icons.description, data['initialRequest'] ?? 'Pas de description'),
               ],
@@ -500,10 +509,12 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   // ✅ NEW: Completion Report Card (Notes + Signature)
   Widget _buildCompletionReport() {
-    // Only show if we have data
-    final notes = _installationReport?['notes'] ?? widget.installationDoc['notes'];
-    final signName = _installationReport?['signatoryName'] ?? widget.installationDoc['signatoryName'];
-    final signUrl = _installationReport?['signatureUrl'] ?? widget.installationDoc['signatureUrl'];
+    // ✅ FIX: Use data map for safe access on old documents
+    final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
+
+    final notes = _installationReport?['notes'] ?? data['notes'];
+    final signName = _installationReport?['signatoryName'] ?? data['signatoryName'];
+    final signUrl = _installationReport?['signatureUrl'] ?? data['signatureUrl'];
 
     if (notes == null && signUrl == null) return const SizedBox.shrink();
 
@@ -536,7 +547,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 height: 100,
                 width: double.infinity,
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                child: Image.network(signUrl, fit: BoxFit.contain),
+                child: Image.network(signUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Text("Erreur image")),
               ),
               if (signName != null)
                 Padding(
@@ -607,7 +618,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-                    child: Text("x${p['quantity']}", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+                    child: Text("x${p['quantity'] ?? '0'}", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
                   )
                 ],
               ),
@@ -716,7 +727,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.installationDoc.data() as Map<String, dynamic>;
+    final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
     final status = data['status'] ?? 'Inconnu';
     final rawEvals = data['technicalEvaluation'];
     final evals = (rawEvals is List) ? rawEvals : (rawEvals is Map ? [rawEvals] : []);

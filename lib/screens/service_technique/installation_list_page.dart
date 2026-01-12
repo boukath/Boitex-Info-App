@@ -338,7 +338,8 @@ class InstallationListPage extends StatelessWidget {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  storeName,
+                                  // ✅ UPDATED: Added Store Location
+                                  '$storeName ${data['storeLocation'] != null ? "- ${data['storeLocation']}" : ""}',
                                   style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
                                   overflow: TextOverflow.ellipsis,
                                 ),
