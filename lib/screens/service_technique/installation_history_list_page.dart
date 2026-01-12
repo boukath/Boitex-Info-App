@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ Typography
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/universal_installation_search_page.dart';
 
@@ -32,6 +33,12 @@ class _InstallationHistoryListPageState
     return List.generate(4, (index) => currentYear - index);
   }
 
+  // 🎨 THEME COLORS
+  final Color _primaryBlue = const Color(0xFF2962FF);
+  final Color _bgLight = const Color(0xFFF4F6F9);
+  final Color _cardWhite = Colors.white;
+  final Color _textDark = const Color(0xFF2D3436);
+
   @override
   Widget build(BuildContext context) {
     // ✅ LOGIC: Define the Date Range for the selected year
@@ -39,45 +46,27 @@ class _InstallationHistoryListPageState
     final endOfYear = DateTime(_selectedYear, 12, 31, 23, 59, 59);
 
     return Scaffold(
+      backgroundColor: _bgLight,
       appBar: AppBar(
-        title: const Text('Historique des Installations'),
-        actions: [
-          // ✅ UI: Year Selector Dropdown (The "Time Machine")
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.blue.shade100),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: _selectedYear,
-                dropdownColor: Colors.white,
-                icon: const Icon(Icons.arrow_drop_down,
-                    color: Colors.blue, size: 24),
-                style: const TextStyle(
-                  color: Colors.blue,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-                items: _availableYears.map((year) {
-                  return DropdownMenuItem(
-                    value: year,
-                    child: Text("Année $year"),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _selectedYear = val);
-                  }
-                },
-              ),
-            ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'ARCHIVES',
+          style: GoogleFonts.poppins(
+            color: _textDark,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            letterSpacing: 0.5,
           ),
+        ),
+        actions: [
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(Icons.search, color: Colors.black87),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -88,138 +77,229 @@ class _InstallationHistoryListPageState
                 ),
               );
             },
-            tooltip: 'Rechercher une installation',
+            tooltip: 'Rechercher',
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('installations')
-            .where('serviceType', isEqualTo: widget.serviceType)
-            .where('status', isEqualTo: 'Terminée')
-        // ✅ QUERY: Filter by Date Range (Time Machine Logic)
-            .where('createdAt', isGreaterThanOrEqualTo: startOfYear)
-            .where('createdAt', isLessThanOrEqualTo: endOfYear)
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return const Center(child: Text('Une erreur est survenue.'));
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-                child: Text('Aucune installation terminée en $_selectedYear.'));
-          }
-
-          final installationDocs = snapshot.data!.docs;
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(8.0),
-            itemCount: installationDocs.length,
-            itemBuilder: (context, index) {
-              final doc = installationDocs[index];
-              final data = doc.data() as Map<String, dynamic>;
-
-              // ✅ EXTRACTED INSTALLATION CODE
-              final installationCode = data['installationCode'] ?? 'N/A';
-              final clientName = data['clientName'] ?? 'N/A';
-              final storeName = data['storeName'] ?? 'N/A';
-              final storeLocation = data['storeLocation'] ?? '';
-              final createdDate = (data['createdAt'] as Timestamp).toDate();
-              final status = data['status'] ?? 'N/A';
-
-              return Card(
-                elevation: 2,
-                margin: const EdgeInsets.symmetric(vertical: 6.0),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+      body: Column(
+        children: [
+          // ✅ UI: Styled Year Selector (Logic Untouched)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Année sélectionnée:",
+                  style: GoogleFonts.poppins(color: Colors.grey.shade600, fontSize: 14),
                 ),
-                child: InkWell(
-                  onTap: () {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (context) => InstallationDetailsPage(
-                        installationDoc: doc,
-                        userRole: widget.userRole,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: _primaryBlue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _primaryBlue.withOpacity(0.2)),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: _selectedYear,
+                      dropdownColor: Colors.white,
+                      icon: Icon(Icons.arrow_drop_down, color: _primaryBlue),
+                      style: GoogleFonts.poppins(
+                        color: _primaryBlue,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
                       ),
-                    ));
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            // ✅ UPDATED: Title is now the installation code
-                            Flexible(
-                              child: Text(
-                                installationCode,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: Color(0xFF1E3A8A),
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade700,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                status,
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 20),
-                        // ✅ UPDATED: Subtitle now contains store and client info
-                        Text(
-                          '$storeName ${storeLocation.isNotEmpty ? '- $storeLocation' : ''}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade800,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Client: $clientName',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Text(
-                              'Date: ${DateFormat('dd MMM yyyy', 'fr_FR').format(createdDate)}',
-                              style: TextStyle(
-                                  color: Colors.grey.shade500,
-                                  fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ],
+                      items: _availableYears.map((year) {
+                        return DropdownMenuItem(
+                          value: year,
+                          child: Text("$year"),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _selectedYear = val);
+                        }
+                      },
                     ),
                   ),
                 ),
-              );
-            },
-          );
-        },
+              ],
+            ),
+          ),
+
+          // ✅ LIST STREAM
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('installations')
+                  .where('serviceType', isEqualTo: widget.serviceType)
+                  .where('status', isEqualTo: 'Terminée')
+              // ✅ QUERY: Filter by Date Range (Time Machine Logic)
+                  .where('createdAt', isGreaterThanOrEqualTo: startOfYear)
+                  .where('createdAt', isLessThanOrEqualTo: endOfYear)
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator(color: _primaryBlue));
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Une erreur est survenue.', style: GoogleFonts.poppins(color: Colors.red)));
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.history_toggle_off, size: 60, color: Colors.grey.shade300),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Aucune installation en $_selectedYear.',
+                          style: GoogleFonts.poppins(color: Colors.grey.shade500),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                final installationDocs = snapshot.data!.docs;
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16.0),
+                  itemCount: installationDocs.length,
+                  itemBuilder: (context, index) {
+                    final doc = installationDocs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+
+                    // ✅ EXTRACTED DATA (Safe Parsing for UI)
+                    final installationCode = data['installationCode'] ?? 'N/A';
+                    final clientName = data['clientName'] ?? 'N/A';
+                    final storeName = data['storeName'] ?? 'N/A';
+                    final storeLocation = data['storeLocation'] ?? '';
+
+                    // Defensive Date Parsing to prevent crashes on old data
+                    DateTime? createdDate;
+                    if (data['createdAt'] is Timestamp) {
+                      createdDate = (data['createdAt'] as Timestamp).toDate();
+                    }
+
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (context) => InstallationDetailsPage(
+                            installationDoc: doc,
+                            userRole: widget.userRole,
+                          ),
+                        ));
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: _cardWhite,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Row(
+                            children: [
+                              // Icon Box (Completed)
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.check_circle, color: Colors.green, size: 24),
+                              ),
+                              const SizedBox(width: 16),
+
+                              // Info Column
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      installationCode,
+                                      style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: _textDark,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '$storeName ${storeLocation.isNotEmpty ? '- $storeLocation' : ''}',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      clientName,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // Date Column
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  if (createdDate != null)
+                                    Text(
+                                      DateFormat('dd MMM').format(createdDate),
+                                      style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  if (createdDate != null)
+                                    Text(
+                                      DateFormat('yyyy').format(createdDate),
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                    ),
+                                  if (createdDate == null)
+                                    Text("--/--", style: GoogleFonts.poppins(color: Colors.grey)),
+                                  const SizedBox(height: 4),
+                                  Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade300),
+                                ],
+                              )
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

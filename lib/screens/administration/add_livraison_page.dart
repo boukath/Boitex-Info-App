@@ -44,6 +44,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
   List<SelectableItem> _selectedTechnicians = [];
 
+  // ✅ ADDED: Controller for Internal Delivery Address (When Store is null or manual)
+  final _internalDeliveryAddressController = TextEditingController();
+
   final _externalCarrierNameController = TextEditingController();
 
   // ✅ ADDED: New controllers for External Delivery
@@ -87,6 +90,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
   @override
   void dispose() {
+    _internalDeliveryAddressController.dispose();
     _externalCarrierNameController.dispose();
     _externalClientNameController.dispose();
     _externalClientPhoneController.dispose();
@@ -118,8 +122,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       final data = doc.data() as Map<String, dynamic>;
       _selectedServiceType = data['serviceType'];
       _deliveryMethod = data['deliveryMethod'] ?? 'Livraison Interne';
-      _externalCarrierNameController.text = data['externalCarrierName'] ?? '';
 
+      // ✅ Load Internal Address
+      _internalDeliveryAddressController.text = data['deliveryAddress'] ?? '';
+
+      _externalCarrierNameController.text = data['externalCarrierName'] ?? '';
       _externalClientNameController.text = data['externalClientName'] ?? '';
       _externalClientPhoneController.text = data['externalClientPhone'] ?? '';
       _externalClientAddressController.text =
@@ -288,6 +295,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                     _selectedClient = newItem; // Auto-select
                     _selectedStore = null;
                     _stores = [];
+                    // Reset address
+                    _internalDeliveryAddressController.clear();
                   });
                   Navigator.pop(context);
                 } catch (e) {
@@ -358,6 +367,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                   setState(() {
                     _stores.add(newItem);
                     _selectedStore = newItem; // Auto-select
+                    _internalDeliveryAddressController.text =
+                        address; // Auto-fill
                   });
                   Navigator.pop(context);
                 } catch (e) {
@@ -491,46 +502,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
               ));
             });
           },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchableDropdown({
-    required String label,
-    required SelectableItem? value,
-    required IconData icon,
-    required VoidCallback onTap,
-    String? Function(SelectableItem?)? validator,
-  }) {
-    String text = '';
-    if (value != null) {
-      text = value.name;
-      if (value.data != null &&
-          value.data!.containsKey('location') &&
-          value.data!['location'].toString().isNotEmpty) {
-        text += ' - ${value.data!['location']}';
-      }
-    }
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AbsorbPointer(
-        // Prevents keyboard from opening
-        child: TextFormField(
-          controller: TextEditingController(text: text),
-          decoration: InputDecoration(
-            labelText: label,
-            prefixIcon: Icon(icon, color: Colors.grey[600]),
-            suffixIcon: const Icon(Icons.arrow_drop_down),
-            filled: true,
-            fillColor: Colors.grey[200],
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
-          validator: (val) => validator != null ? validator(value) : null,
         ),
       ),
     );
@@ -764,7 +735,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         'clientName': _selectedClient!.name,
         'storeId': _selectedStore?.id,
         'storeName': _selectedStore?.name,
-        'deliveryAddress': _selectedStore?.data?['location'] ?? 'N/A',
+        // ✅ CHANGED: Use the text controller instead of just the store data
+        // This allows manual overrides (Client Office) even if no store is selected.
+        'deliveryAddress': _internalDeliveryAddressController.text.isNotEmpty
+            ? _internalDeliveryAddressController.text
+            : (_selectedStore?.data?['location'] ?? 'Siège Client / N/A'),
         'contactPerson': '',
         'contactPhone': '',
         'products': _selectedProducts.map((p) => p.toJson()).toList(),
@@ -905,11 +880,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                       _buildDropdownField(
                         label: 'Choisir le Service',
                         value: _selectedServiceType,
-                        items: [
-                          'Service Technique',
-                          'Service IT',
-                          'Les Deux'
-                        ],
+                        items: ['Service Technique', 'Service IT', 'Les Deux'],
                         onChanged: (value) {
                           setState(() {
                             _selectedServiceType = value;
@@ -1021,6 +992,14 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                       label: 'Client',
                       value: _selectedClient,
                       icon: Icons.business_center,
+                      onClear: () {
+                        setState(() {
+                          _selectedClient = null;
+                          _selectedStore = null;
+                          _stores = [];
+                          _internalDeliveryAddressController.clear();
+                        });
+                      },
                       onTap: () => _openSearchDialog(
                         title: 'Rechercher un Client',
                         items: _clients,
@@ -1029,6 +1008,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                             _selectedClient = item;
                             _selectedStore = null;
                             _stores = [];
+                            _internalDeliveryAddressController.clear();
                           });
                           _fetchStores(item.id);
                         },
@@ -1042,21 +1022,55 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                     if (_selectedClient != null) ...[
                       const SizedBox(height: 16),
                       _buildSearchableDropdown(
-                        label: 'Magasin / Destination',
+                        label: 'Magasin / Destination (Optionnel)', // ✅ UI hint
                         value: _selectedStore,
                         icon: Icons.store,
+                        onClear: () {
+                          setState(() {
+                            _selectedStore = null;
+                            // We don't necessarily clear the address here,
+                            // user might want to keep the address of the store they just cleared
+                            // but generally it's safer to let them type.
+                            // Let's leave the address as is, or clear it.
+                            // If they clear the store, they probably want to type a different address.
+                            _internalDeliveryAddressController.clear();
+                          });
+                        },
                         onTap: () => _openSearchDialog(
                           title: 'Rechercher un Magasin',
                           items: _stores,
-                          onSelected: (item) =>
-                              setState(() => _selectedStore = item),
+                          onSelected: (item) => setState(() {
+                            _selectedStore = item;
+                            // ✅ Auto-fill address if store selected
+                            if (item.data != null &&
+                                item.data!.containsKey('location')) {
+                              _internalDeliveryAddressController.text =
+                              item.data!['location'];
+                            }
+                          }),
                           onAddPressed: _addNewStore,
                           addButtonLabel: '+ Nouveau Magasin',
                         ),
-                        validator: (val) => val == null
-                            ? 'Veuillez sélectionner un magasin'
-                            : null,
-                      )
+                        // ✅ REMOVED VALIDATOR: Store is now optional
+                        validator: null,
+                      ),
+
+                      // ✅ ADDED: Address field for Internal Delivery
+                      if (_deliveryMethod == 'Livraison Interne') ...[
+                        const SizedBox(height: 16),
+                        _buildTextField(
+                            controller:
+                            _internalDeliveryAddressController,
+                            label: 'Adresse / Lieu de Livraison',
+                            icon: Icons.place,
+                            validator: (val) {
+                              // Optional validation: enforce address if no store
+                              // if (_selectedStore == null && (val == null || val.isEmpty)) {
+                              //    return 'Veuillez préciser le lieu';
+                              // }
+                              return null;
+                            }),
+                      ],
                     ]
                   ]),
               const SizedBox(height: 24),
@@ -1316,42 +1330,50 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     );
   }
 
-  Widget _buildSelectableDropdown({
+  // ✅ UPDATED: Supports Clear Button
+  Widget _buildSearchableDropdown({
     required String label,
     required SelectableItem? value,
-    required List<SelectableItem> items,
-    required void Function(SelectableItem?)? onChanged,
     required IconData icon,
-    bool isLoading = false,
-    Widget Function(SelectableItem)? itemBuilder,
+    required VoidCallback onTap,
+    // ✅ ADDED: Optional callback to clear the selection
+    VoidCallback? onClear,
     String? Function(SelectableItem?)? validator,
   }) {
-    return DropdownButtonFormField<SelectableItem>(
-      value: value,
-      items: items
-          .map((item) => DropdownMenuItem<SelectableItem>(
-        value: item,
-        child: itemBuilder != null
-            ? itemBuilder(item)
-            : Text(item.name,
-            style: GoogleFonts.poppins(fontSize: 16)),
-      ))
-          .toList(),
-      onChanged: onChanged,
-      validator: validator,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: Colors.grey[600]),
-        suffixIcon: isLoading
-            ? const Padding(
-            padding: EdgeInsets.all(12.0),
-            child: CircularProgressIndicator(strokeWidth: 2))
-            : null,
-        filled: true,
-        fillColor: Colors.grey[200],
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
+    String text = '';
+    if (value != null) {
+      text = value.name;
+      if (value.data != null &&
+          value.data!.containsKey('location') &&
+          value.data!['location'].toString().isNotEmpty) {
+        text += ' - ${value.data!['location']}';
+      }
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AbsorbPointer(
+        // Prevents keyboard from opening
+        child: TextFormField(
+          controller: TextEditingController(text: text),
+          decoration: InputDecoration(
+            labelText: label,
+            prefixIcon: Icon(icon, color: Colors.grey[600]),
+            // ✅ CHANGED: Show clear button if value exists and callback provided
+            suffixIcon: (value != null && onClear != null)
+                ? IconButton(
+              icon: const Icon(Icons.clear, color: Colors.red),
+              onPressed: onClear,
+            )
+                : const Icon(Icons.arrow_drop_down),
+            filled: true,
+            fillColor: Colors.grey[200],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          validator: (val) => validator != null ? validator(value) : null,
         ),
       ),
     );
