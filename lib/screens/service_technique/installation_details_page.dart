@@ -1,5 +1,6 @@
 // lib/screens/service_technique/installation_details_page.dart
-import 'package:flutter/foundation.dart'; // ✅ Added for kIsWeb
+
+import 'package:flutter/foundation.dart'; // ✅ For kIsWeb
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -15,17 +16,18 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:file_saver/file_saver.dart'; // ✅ Added for Web Download
+import 'package:file_saver/file_saver.dart'; // ✅ For Web Download
 
 // ✅ Viewers
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 import 'package:boitex_info_app/widgets/video_player_page.dart';
-import 'package:boitex_info_app/widgets/pdf_viewer_page.dart'; // ✅ Added PDF Viewer
+import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 
 class AppUser {
   final String uid;
   final String displayName;
   AppUser({required this.uid, required this.displayName});
+
   @override
   bool operator ==(Object other) => other is AppUser && other.uid == uid;
   @override
@@ -35,8 +37,10 @@ class AppUser {
 class InstallationDetailsPage extends StatefulWidget {
   final DocumentSnapshot installationDoc;
   final String userRole;
+
   const InstallationDetailsPage(
       {super.key, required this.installationDoc, required this.userRole});
+
   @override
   State<InstallationDetailsPage> createState() =>
       _InstallationDetailsPageState();
@@ -45,24 +49,113 @@ class InstallationDetailsPage extends StatefulWidget {
 class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   DateTime? _scheduledDate;
   List<AppUser> _allTechnicians = [];
-  List<AppUser> _selectedTechnicians = [];
+  List<AppUser> _assignedTechnicians = [];
+  List<String> _effectiveTechniciansNames =
+  []; // Technicians who actually did the job
   bool _isLoading = false;
+  Map<String, dynamic>? _installationReport; // Holds the report data if 'Terminée'
   static const Color primaryColor = Colors.green;
 
   @override
   void initState() {
     super.initState();
+    _initializeData();
+  }
+
+  void _initializeData() {
     final data = widget.installationDoc.data() as Map<String, dynamic>;
+
+    // 1. Parse Date
     if (data['installationDate'] != null) {
       _scheduledDate = (data['installationDate'] as Timestamp).toDate();
     }
+
+    // 2. ✅ FIXED: Parse Assigned Technicians (Handles BOTH Old List<String> and New List<Map>)
     if (data['assignedTechnicians'] != null) {
-      _selectedTechnicians = (data['assignedTechnicians'] as List)
-          .map((tech) =>
-          AppUser(uid: tech['uid'], displayName: tech['displayName']))
-          .toList();
+      final rawList = data['assignedTechnicians'] as List;
+      _assignedTechnicians = rawList.map((item) {
+        if (item is String) {
+          // LEGACY DATA: It is just an ID string.
+          // We set a placeholder name. _fetchTechnicians will "heal" this shortly.
+          return AppUser(uid: item, displayName: 'Chargement...');
+        } else if (item is Map) {
+          // NEW DATA: It is a Map object.
+          return AppUser(
+              uid: item['uid'] ?? '',
+              displayName: item['displayName'] ?? 'Inconnu');
+        }
+        return AppUser(uid: 'error', displayName: 'Format Inconnu');
+      }).toList();
     }
+
+    // 3. Fetch list of all techs (and resolve Legacy IDs)
     _fetchTechnicians();
+
+    // 4. If status is completed, fetch the report safely
+    if (data['status'] == 'Terminée') {
+      _fetchReportDetails();
+    }
+  }
+
+  /// ✅ FIXED: Safely fetches report details without hanging indefinitely
+  Future<void> _fetchReportDetails() async {
+    setState(() => _isLoading = true);
+    try {
+      // Attempt 1: Check Subcollection (Standard path)
+      final reportSnapshot = await FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationDoc.id)
+          .collection('reports')
+          .limit(1)
+          .get();
+
+      Map<String, dynamic>? reportData;
+
+      if (reportSnapshot.docs.isNotEmpty) {
+        reportData = reportSnapshot.docs.first.data();
+      } else {
+        // Attempt 2: Fallback to main document (in case data was saved flat)
+        final mainDoc = await FirebaseFirestore.instance
+            .collection('installations')
+            .doc(widget.installationDoc.id)
+            .get();
+        final mainData = mainDoc.data();
+        // Check if main doc has report-like fields
+        if (mainData != null &&
+            (mainData.containsKey('effectiveTechnicians') ||
+                mainData.containsKey('signatureUrl') ||
+                mainData.containsKey('assignedTechnicianNames'))) {
+          reportData = mainData;
+        }
+      }
+
+      if (reportData != null) {
+        // ✅ FIXED: Check BOTH possible field names for technicians
+        if (reportData.containsKey('effectiveTechnicians')) {
+          final rawTechs = reportData['effectiveTechnicians'];
+          if (rawTechs is List) {
+            _effectiveTechniciansNames = List<String>.from(rawTechs);
+          }
+        } else if (reportData.containsKey('assignedTechnicianNames')) {
+          // Fallback for data coming from the Report Page
+          final rawTechs = reportData['assignedTechnicianNames'];
+          if (rawTechs is List) {
+            _effectiveTechniciansNames = List<String>.from(rawTechs);
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _installationReport = reportData;
+          });
+        }
+      }
+    } catch (e) {
+      print("Error fetching report: $e");
+    } finally {
+      // ✅ VITAL: Ensure loading stops no matter what
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _fetchTechnicians() async {
@@ -83,22 +176,46 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       final allTechnicians = snapshot.docs
           .map((doc) => AppUser(
           uid: doc.id,
-          displayName:
-          doc.data()['displayName'] as String? ?? 'Utilisateur Inconnu'))
+          displayName: doc.data()['displayName'] as String? ??
+              'Utilisateur Inconnu'))
           .toList();
-      if (mounted) setState(() => _allTechnicians = allTechnicians);
+
+      // ✅ VISION FIX: "Self-Healing" Legacy Data
+      // If we have "Chargement..." names (from Legacy IDs), we replace them with real names now.
+      List<AppUser> healedAssignedList = [];
+      for (var assigned in _assignedTechnicians) {
+        try {
+          // Try to find the user in the full directory
+          final match =
+          allTechnicians.firstWhere((tech) => tech.uid == assigned.uid);
+          healedAssignedList.add(match);
+        } catch (e) {
+          // If user not found (deleted?), keep original
+          if (assigned.displayName == 'Chargement...') {
+            healedAssignedList.add(AppUser(
+                uid: assigned.uid, displayName: 'Technicien (Ex-employé)'));
+          } else {
+            healedAssignedList.add(assigned);
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _allTechnicians = allTechnicians;
+          _assignedTechnicians = healedAssignedList; // Update UI with real names
+        });
+      }
     } catch (e) {
-      print("Error: $e");
+      print("Error fetching users: $e");
     }
   }
 
-  // ✅ UPDATED: Handle logic for un-setting a date
   Future<void> _saveSchedule() async {
-    // Note: Removed the check for _scheduledDate == null to allow clearing the date
-
     setState(() => _isLoading = true);
     try {
-      final techniciansToSave = _selectedTechnicians
+      // This will overwrite Old IDs with New Objects, effectively migrating the data
+      final techniciansToSave = _assignedTechnicians
           .map((user) => {'uid': user.uid, 'displayName': user.displayName})
           .toList();
 
@@ -107,12 +224,10 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       };
 
       if (_scheduledDate != null) {
-        // CASE 1: Date is Set -> Status is 'Planifiée'
         updateData['installationDate'] = Timestamp.fromDate(_scheduledDate!);
         updateData['status'] = 'Planifiée';
       } else {
-        // CASE 2: Date is Null (Postponed) -> Status reverts to 'À Planifier'
-        updateData['installationDate'] = FieldValue.delete(); // Removes the field
+        updateData['installationDate'] = FieldValue.delete();
         updateData['status'] = 'À Planifier';
       }
 
@@ -126,19 +241,19 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             content: Text(_scheduledDate != null
                 ? 'Installation planifiée avec succès'
                 : 'Installation reportée (Date retirée)'),
-            backgroundColor: _scheduledDate != null ? Colors.green : Colors.orange));
+            backgroundColor:
+            _scheduledDate != null ? Colors.green : Colors.orange));
       }
     } catch (e) {
-      print("Error: $e");
+      print("Error saving schedule: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // ✅ UPDATED: Added "Reporter" button to clear date
   void _showSchedulingDialog() {
     DateTime? tempDate = _scheduledDate;
-    List<AppUser> tempTechnicians = List.from(_selectedTechnicians);
+    List<AppUser> tempTechnicians = List.from(_assignedTechnicians);
 
     showDialog(
       context: context,
@@ -153,15 +268,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                   title: Text(
                       tempDate == null
                           ? 'Sélectionner une date'
-                          : DateFormat('dd MMMM yyyy', 'fr_FR').format(tempDate!),
+                          : DateFormat('dd MMMM yyyy', 'fr_FR')
+                          .format(tempDate!),
                       style: TextStyle(
-                          color: tempDate == null ? Colors.red : Colors.black
-                      )
-                  ),
+                          color: tempDate == null ? Colors.red : Colors.black)),
                   trailing: tempDate != null
                       ? IconButton(
                     icon: const Icon(Icons.close, color: Colors.red),
-                    onPressed: () => setDialogState(() => tempDate = null),
+                    onPressed: () =>
+                        setDialogState(() => tempDate = null),
                     tooltip: "Retirer la date (Reporter)",
                   )
                       : const Icon(Icons.calendar_today),
@@ -171,25 +286,22 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                         initialDate: tempDate ?? DateTime.now(),
                         firstDate: DateTime.now(),
                         lastDate: DateTime(2030));
-                    if (picked != null)
-                      setDialogState(() => tempDate = picked);
+                    if (picked != null) setDialogState(() => tempDate = picked);
                   },
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                       side: BorderSide(color: Colors.grey.shade400)),
                 ),
-
-                // ✅ ADDED: Explicit "Postpone" button if a date is already set
                 if (tempDate != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),
                     child: TextButton.icon(
                         onPressed: () => setDialogState(() => tempDate = null),
-                        icon: const Icon(Icons.event_busy, color: Colors.orange),
-                        label: const Text("Reporter / Date indéterminée", style: TextStyle(color: Colors.orange))
-                    ),
+                        icon:
+                        const Icon(Icons.event_busy, color: Colors.orange),
+                        label: const Text("Reporter / Date indéterminée",
+                            style: TextStyle(color: Colors.orange))),
                   ),
-
                 const SizedBox(height: 16),
                 MultiSelectDialogField<AppUser>(
                   items: _allTechnicians
@@ -217,7 +329,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               onPressed: () {
                 setState(() {
                   _scheduledDate = tempDate;
-                  _selectedTechnicians = tempTechnicians;
+                  _assignedTechnicians = tempTechnicians;
                 });
                 Navigator.of(ctx).pop();
                 _saveSchedule();
@@ -231,11 +343,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   // ----------------------------------------------------------------
-  // ✅ NEW: ROBUST PDF LOGIC (WEB & MOBILE SAFE)
+  // ✅ CLOUD PDF LOGIC
   // ----------------------------------------------------------------
 
-  /// Fetches the PDF bytes from the Cloud Function.
-  /// Returns a Map with 'bytes' (Uint8List) and 'filename' (String).
   Future<Map<String, dynamic>?> _fetchPdfBytes() async {
     setState(() => _isLoading = true);
     try {
@@ -246,15 +356,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       final data = result.data as Map<dynamic, dynamic>;
       final String base64Pdf = data['pdfBase64'];
       final String filename = data['filename'];
-
-      // Decode base64 to bytes
       final bytes = base64Decode(base64Pdf);
 
       return {'bytes': bytes, 'filename': filename};
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur PDF Cloud: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Erreur PDF Cloud: $e'),
+              backgroundColor: Colors.red),
         );
       }
       return null;
@@ -263,7 +373,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }
   }
 
-  /// Helper to save bytes to a local file (MOBILE ONLY)
   Future<File> _saveFileForMobile(Uint8List bytes, String filename) async {
     final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/$filename');
@@ -271,32 +380,28 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     return file;
   }
 
-  // ✅ Button 1: Generate PDF (Smart Action)
   Future<void> _generateAndDownloadPDF() async {
-    // 1. Fetch Data
     final pdfData = await _fetchPdfBytes();
-    if (pdfData == null) return; // Error handled in fetch
+    if (pdfData == null) return;
 
     final bytes = pdfData['bytes'] as Uint8List;
     final filename = pdfData['filename'] as String;
 
     if (kIsWeb) {
-      // 🌍 WEB: Download directly using FileSaver
       await FileSaver.instance.saveFile(
-        name: filename.replaceAll('.pdf', ''), // FileSaver adds extension automatically sometimes
+        name: filename.replaceAll('.pdf', ''),
         bytes: bytes,
         ext: 'pdf',
         mimeType: MimeType.pdf,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Téléchargement démarré...'), backgroundColor: Colors.green),
+          const SnackBar(
+              content: Text('Téléchargement démarré...'),
+              backgroundColor: Colors.green),
         );
       }
     } else {
-      // 📱 MOBILE: Open in PDF Viewer
-      // We don't strictly need to save to file for the viewer, but it's good practice
-      // For now, pass bytes directly to viewer page
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -309,57 +414,38 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }
   }
 
-  // ✅ Button 2: WhatsApp (Mobile Only mostly)
   Future<void> _shareViaWhatsApp() async {
-    if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le partage direct n\'est pas supporté sur le Web. Veuillez télécharger le PDF.')),
-      );
-      return;
-    }
-
+    if (kIsWeb) return;
     final pdfData = await _fetchPdfBytes();
     if (pdfData == null) return;
 
     final bytes = pdfData['bytes'] as Uint8List;
     final filename = pdfData['filename'] as String;
-
-    // Save to temp file for sharing
     final file = await _saveFileForMobile(bytes, filename);
-
     final data = widget.installationDoc.data() as Map<String, dynamic>;
-    final message = "Voici le rapport d'installation pour ${data['clientName'] ?? 'Client'}.";
-
+    final message =
+        "Voici le rapport d'installation pour ${data['clientName'] ?? 'Client'}.";
     await Share.shareXFiles([XFile(file.path)], text: message);
   }
 
-  // ✅ Button 3: Email (Mobile Only mostly)
   Future<void> _shareViaEmail() async {
-    if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le partage direct n\'est pas supporté sur le Web. Veuillez télécharger le PDF.')),
-      );
-      return;
-    }
-
+    if (kIsWeb) return;
     final pdfData = await _fetchPdfBytes();
     if (pdfData == null) return;
 
     final bytes = pdfData['bytes'] as Uint8List;
     final filename = pdfData['filename'] as String;
-
-    // Save to temp file for sharing
     final file = await _saveFileForMobile(bytes, filename);
-
     final data = widget.installationDoc.data() as Map<String, dynamic>;
-    final subject = "Rapport Installation: ${data['installationCode'] ?? 'N/A'}";
-    final body = "Bonjour,\n\nVeuillez trouver ci-joint le rapport d'installation.\n\nCordialement.";
-
+    final subject =
+        "Rapport Installation: ${data['installationCode'] ?? 'N/A'}";
+    final body =
+        "Bonjour,\n\nVeuillez trouver ci-joint le rapport d'installation.\n\nCordialement.";
     await Share.shareXFiles([XFile(file.path)], subject: subject, text: body);
   }
 
   // ----------------------------------------------------------------
-  // REST OF THE FILE REMAINS UNCHANGED
+  // UI BUILDERS
   // ----------------------------------------------------------------
 
   bool _isVideoUrl(String path) {
@@ -382,8 +468,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           Expanded(
             flex: 4,
             child: Text(label,
-                style:
-                TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
           ),
           Expanded(
             flex: 6,
@@ -398,7 +483,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   Widget _buildBooleanRow(String label, dynamic value, [String? notes]) {
     if (value == null) return const SizedBox.shrink();
-
     final bool isYes = value == true;
     final String statusText = isYes ? 'Oui' : 'Non';
     final Color statusColor =
@@ -429,36 +513,25 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       Map<String, dynamic> evalData = (entry.value is Map)
           ? Map<String, dynamic>.from(entry.value as Map)
           : {};
-
-      if (evalData.isEmpty)
-        return const SizedBox.shrink();
+      if (evalData.isEmpty) return const SizedBox.shrink();
 
       List<Widget> details = [
         _buildDetailRow('Type d\'entrée', evalData['entranceType']),
         _buildDetailRow('Type de porte', evalData['doorType']),
         _buildDetailRow(
             'Largeur entrée', '${evalData['entranceWidth'] ?? 'N/A'} m'),
-        _buildDetailRow('Longeur entrée',
-            '${evalData['entranceLength'] ?? 'N/A'} m'),
+        _buildDetailRow(
+            'Longeur entrée', '${evalData['entranceLength'] ?? 'N/A'} m'),
         const Divider(height: 1),
-
-        _buildBooleanRow(
-            'Alimentation disponible', evalData['isPowerAvailable'],
+        _buildBooleanRow('Alimentation', evalData['isPowerAvailable'],
             evalData['powerNotes']),
         _buildBooleanRow('Sol Fini', evalData['isFloorFinalized']),
-        _buildBooleanRow('Conduit disponible', evalData['isConduitAvailable']),
-        _buildBooleanRow('Autorisé à trancher', evalData['canMakeTrench']),
+        _buildBooleanRow('Conduit', evalData['isConduitAvailable']),
+        _buildBooleanRow('Tranchée', evalData['canMakeTrench']),
         _buildBooleanRow(
             'Obstacles', evalData['hasObstacles'], evalData['obstacleNotes']),
-        _buildBooleanRow(
-            'Structures métalliques', evalData['hasMetalStructures']),
-        _buildBooleanRow('Autres systèmes', evalData['hasOtherSystems']),
-
-        if (evalData['generalNotes'] != null &&
-            (evalData['generalNotes'] as String).isNotEmpty) ...[
-          const Divider(height: 1),
-          _buildDetailRow('Notes générales', evalData['generalNotes']),
-        ],
+        if (evalData['generalNotes'] != null)
+          _buildDetailRow('Notes', evalData['generalNotes']),
       ];
 
       return Card(
@@ -482,61 +555,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }).toList();
   }
 
-  List<Widget> _buildItEvaluation(List<dynamic> itItems) {
-    if (itItems.isEmpty) return [];
-
-    List<Widget> children = [];
-
-    itItems.asMap().entries.forEach((entry) {
-      Map<String, dynamic> itemData = (entry.value is Map)
-          ? Map<String, dynamic>.from(entry.value as Map)
-          : {};
-
-      if (itemData.isEmpty) return;
-
-      children.add(
-        ListTile(
-          dense: true,
-          leading: Icon(Icons.computer, color: Colors.blue.shade800),
-          title: Text(itemData['itemType'] ?? 'Équipement Inconnu',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('Marque', itemData['brand']),
-              _buildDetailRow('Modèle', itemData['model']),
-              if (itemData['osType'] != null)
-                _buildDetailRow('OS', itemData['osType']),
-              if (itemData['notes'] != null &&
-                  (itemData['notes'] as String).isNotEmpty)
-                _buildDetailRow('Notes', itemData['notes']),
-            ],
-          ),
-        ),
-      );
-    });
-
-    return [
-      Card(
-        elevation: 2,
-        margin: const EdgeInsets.only(bottom: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: ExpansionTile(
-          initiallyExpanded: false,
-          tilePadding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          leading: Icon(Icons.computer_outlined, color: Colors.blue.shade800),
-          title: const Text('Évaluation IT',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          children: [
-            const Divider(height: 1),
-            Column(
-                crossAxisAlignment: CrossAxisAlignment.start, children: children),
-          ],
-        ),
-      )
-    ];
-  }
-
   @override
   Widget build(BuildContext context) {
     final data = widget.installationDoc.data() as Map<String, dynamic>;
@@ -545,11 +563,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     final List<dynamic> technicalEvaluation = (rawTechnicalData is List)
         ? rawTechnicalData
         : (rawTechnicalData is Map ? [rawTechnicalData] : []);
-
-    dynamic rawItData = data['itEvaluation'];
-    final List<dynamic> itEvaluation = (rawItData is List)
-        ? rawItData
-        : (rawItData is Map ? [rawItData] : []);
 
     final status = data['status'] ?? 'Inconnu';
     final orderedProducts = data['orderedProducts'] as List? ?? [];
@@ -609,7 +622,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                   ),
                 ),
                 subtitle: const Text('Date d\'installation'),
-                visualDensity: VisualDensity.compact,
               ),
             ],
           ),
@@ -630,11 +642,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
           ..._buildTechnicalEvaluation(technicalEvaluation),
           const SizedBox(height: 16),
-
-          if (data['serviceType'] != 'Service Technique') ...[
-            ..._buildItEvaluation(itEvaluation),
-            const SizedBox(height: 16),
-          ],
 
           MediaGalleryWidget(
             photoUrls: sortedPhotoUrls,
@@ -725,37 +732,70 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             ),
           ),
           const Divider(height: 1),
-          ...children.isNotEmpty
-              ? [
+          if (children.isNotEmpty)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: children,
-            )
-          ]
-              : [],
+            ),
         ],
       ),
     );
   }
 
+  /// ✅ UPDATED: Displays Effective Techs if report is loaded, else Assigned Techs
   Widget _buildTechnicianCard() {
-    return _buildInfoCard(
-      title: 'Techniciens Assignés',
-      icon: Icons.engineering_outlined,
-      children: _selectedTechnicians.isEmpty
-          ? [
+    List<Widget> content;
+
+    // 1. If we have effective technicians from the report (Job DONE)
+    if (_effectiveTechniciansNames.isNotEmpty) {
+      content = [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text("Techniciens ayant effectué l'installation:",
+              style:
+              TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+        ),
+        ..._effectiveTechniciansNames
+            .map((name) => ListTile(
+          leading:
+          const Icon(Icons.check_circle, color: Colors.green, size: 20),
+          title: Text(name),
+          dense: true,
+        ))
+            .toList()
+      ];
+    }
+    // 2. If no report yet, show Assigned Techs (Job PLANNED)
+    else if (_assignedTechnicians.isNotEmpty) {
+      content = [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text("Techniciens planifiés:",
+              style: TextStyle(color: Colors.grey, fontSize: 12)),
+        ),
+        ..._assignedTechnicians
+            .map((user) => ListTile(
+          leading: const Icon(Icons.person_outline, size: 20),
+          title: Text(user.displayName),
+          dense: true,
+        ))
+            .toList()
+      ];
+    }
+    // 3. None assigned
+    else {
+      content = [
         const ListTile(
           title: Text('Aucun technicien assigné'),
           subtitle: Text('La planification est requise'),
         )
-      ]
-          : _selectedTechnicians
-          .map(
-            (user) => ListTile(
-          title: Text(user.displayName),
-        ),
-      )
-          .toList(),
+      ];
+    }
+
+    return _buildInfoCard(
+      title: 'Techniciens',
+      icon: Icons.engineering_outlined,
+      children: content,
     );
   }
 
@@ -825,8 +865,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           buttons.add(const SizedBox(height: 12));
           buttons.add(
             ElevatedButton.icon(
-              onPressed:
-              _showSchedulingDialog,
+              onPressed: _showSchedulingDialog,
               icon: const Icon(Icons.edit_calendar_outlined),
               label: const Text('Modifier la Planification'),
               style: ElevatedButton.styleFrom(
@@ -858,7 +897,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           ElevatedButton.icon(
             onPressed: _generateAndDownloadPDF,
             icon: const Icon(Icons.picture_as_pdf),
-            label: const Text('Générer / Voir PDF'), // Changed label
+            label: const Text('Générer / Voir PDF'),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF1E88E5),
               foregroundColor: Colors.white,
@@ -940,9 +979,7 @@ class MediaGalleryWidget extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
-
           _buildPhotoSection(context),
-
           _buildVideoSection(context),
         ],
       ),

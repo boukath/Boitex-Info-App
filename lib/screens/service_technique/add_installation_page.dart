@@ -6,7 +6,8 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 
 // Product Selection Imports
 import 'package:boitex_info_app/models/selection_models.dart';
-import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
+// ✅ Global Search Page
+import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
 
 // Technician Multi-Select Import
 import 'package:multi_select_flutter/multi_select_flutter.dart';
@@ -130,6 +131,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   // Keep track of existing file url if editing
   String? _existingFileUrl;
 
+  // ✅ Prevents double dialogs
+  bool _isDialogShowing = false;
+
   static const Color primaryColor = Colors.green;
 
   // ✅ B2 CONSTANT
@@ -160,9 +164,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
     // 2. Client
     if (data['clientId'] != null) {
-      _selectedClient = Client(id: data['clientId'], name: data['clientName'] ?? '');
+      _selectedClient =
+          Client(id: data['clientId'], name: data['clientName'] ?? '');
       _clientSearchController.text = data['clientName'] ?? '';
-      // Fetch stores immediately so logic works
       _fetchStores(data['clientId']);
     }
 
@@ -178,30 +182,33 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         latitude: lat,
         longitude: lng,
       );
-      _storeSearchController.text = '${data['storeName']} (${data['storeLocation']})';
-
-      // If no lat/lng, we don't set anything, user can add link
+      _storeSearchController.text =
+      '${data['storeName']} (${data['storeLocation']})';
     }
 
     // 4. Products
     if (data['orderedProducts'] != null) {
       var list = List<Map<String, dynamic>>.from(data['orderedProducts']);
-      _selectedProducts = list.map((p) => ProductSelection(
+      _selectedProducts = list
+          .map((p) => ProductSelection(
         productId: p['productId'],
         productName: p['productName'],
         quantity: p['quantity'],
         partNumber: p['reference'] ?? '',
         marque: p['marque'] ?? '',
-      )).toList();
+      ))
+          .toList();
     }
 
     // 5. Technicians
     if (data['assignedTechnicians'] != null) {
       var list = List<Map<String, dynamic>>.from(data['assignedTechnicians']);
-      _selectedTechnicians = list.map((t) => AppUser(
+      _selectedTechnicians = list
+          .map((t) => AppUser(
         uid: t['uid'],
         displayName: t['displayName'] ?? '',
-      )).toList();
+      ))
+          .toList();
     }
 
     // 6. File
@@ -236,7 +243,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     setState(() => _isResolvingLink = true);
 
     try {
-      // 1. Resolve Short Links (e.g. goo.gl, bit.ly)
       if (url.contains('goo.gl') ||
           url.contains('maps.app.goo.gl') ||
           url.contains('bit.ly')) {
@@ -249,7 +255,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         }
       }
 
-      // 2. Regex to find coordinates in the full URL
       RegExp regExp = RegExp(r'(@|q=)([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
       Match? match = regExp.firstMatch(url);
 
@@ -262,7 +267,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("✅ Coordonnées extraites ! Elles seront sauvegardées."),
+              content: Text("✅ Coordonnées extraites !"),
               backgroundColor: Colors.green,
             ),
           );
@@ -271,7 +276,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("❌ Impossible de trouver les coordonnées dans ce lien."),
+              content: Text("❌ Impossible de trouver les coordonnées."),
               backgroundColor: Colors.orange,
             ),
           );
@@ -311,7 +316,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   Future<void> _fetchStores(String clientId) async {
     setState(() {
       _isFetchingStores = true;
-      // Do not clear selected store if in edit mode and IDs match
       if (!_isEditing) {
         _selectedStore = null;
         _parsedLat = null;
@@ -333,7 +337,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         double? lat;
         double? lng;
         if (data['latitude'] != null) lat = (data['latitude'] as num).toDouble();
-        if (data['longitude'] != null) lng = (data['longitude'] as num).toDouble();
+        if (data['longitude'] != null)
+          lng = (data['longitude'] as num).toDouble();
 
         return Store(
           id: doc.id,
@@ -369,8 +374,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       final allTechnicians = snapshot.docs
           .map((doc) => AppUser(
           uid: doc.id,
-          displayName:
-          doc.data()['displayName'] as String? ?? 'Utilisateur Inconnu'))
+          displayName: doc.data()['displayName'] as String? ??
+              'Utilisateur Inconnu'))
           .toList();
       if (mounted) setState(() => _allTechnicians = allTechnicians);
     } catch (e) {
@@ -390,13 +395,13 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       setState(() {
         _pickedFile = File(result.files.single.path!);
         _pickedFileName = result.files.single.name;
-        _existingFileUrl = null; // Clear existing if new picked
+        _existingFileUrl = null;
       });
     }
   }
 
   Future<String?> _uploadFileToB2(String installationCodeOrTempId) async {
-    if (_pickedFile == null) return _existingFileUrl; // Return existing if no new file
+    if (_pickedFile == null) return _existingFileUrl;
 
     setState(() => _isUploadingFile = true);
 
@@ -404,7 +409,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       final authResponse = await http.get(Uri.parse(_b2UploadCredentialUrl));
 
       if (authResponse.statusCode != 200) {
-        throw Exception('Failed to get B2 credentials: ${authResponse.body}');
+        throw Exception('Failed to get B2 credentials');
       }
 
       final authData = jsonDecode(authResponse.body);
@@ -436,10 +441,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             ? "https://f005.backblazeb2.com/file/boitex-bucket/${fileName}"
             : null;
       } else {
-        throw Exception('B2 Upload failed: ${uploadResponse.body}');
+        throw Exception('B2 Upload failed');
       }
     } catch (e) {
-      print('Error during B2 upload process: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -454,7 +458,112 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // -----------------------------------------------------------------
-  // ⭐️ _saveInstallation (UPDATED FOR EDIT & GPS)
+  // 🛍️ NEW: GLOBAL PRODUCT SEARCH INTEGRATION (CONTINUOUS SELECTION)
+  // -----------------------------------------------------------------
+
+  /// Opens the Global Search Page in Selection Mode
+  void _openGlobalProductSearch() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GlobalProductSearchPage(
+          isSelectionMode: true,
+          // ✅ CONTINUOUS SELECTION LOGIC:
+          // The Search Page STAYS OPEN. It calls this function every time
+          // the user picks a product. We show the qty dialog ON TOP of the search page.
+          onProductSelected: (productData) {
+            // Check for double taps
+            if (_isDialogShowing) return;
+            _isDialogShowing = true;
+
+            _showQuantityDialog(productData).then((_) {
+              _isDialogShowing = false;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Shows a dialog to ask for quantity, then adds to list
+  Future<void> _showQuantityDialog(Map<String, dynamic> productData) async {
+    final TextEditingController qtyController =
+    TextEditingController(text: '1');
+
+    // ✅ ROBUST NAME CHECK
+    final String productName = productData['nom'] ??
+        productData['name'] ??
+        productData['productName'] ??
+        'Produit Inconnu';
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false, // Prevent accidental close
+      builder: (ctx) => AlertDialog(
+        title: Text("Quantité: $productName"),
+        content: TextField(
+          controller: qtyController,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: "Nombre d'unités",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text("Annuler"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final int qty = int.tryParse(qtyController.text) ?? 1;
+              _addProductToList(productData, qty);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text("Ajouter"),
+          )
+        ],
+      ),
+    );
+  }
+
+  /// Helper to map Firestore Map -> ProductSelection Model
+  void _addProductToList(Map<String, dynamic> data, int quantity) {
+    // Note: Ensure 'id' is in the map.
+    final productId = data['id'] ?? data['productId'] ?? 'unknown_id';
+
+    // ✅ ROBUST FIELD MAPPING
+    final String productName =
+        data['nom'] ?? data['name'] ?? data['productName'] ?? 'Produit Inconnu';
+    final String partNumber =
+        data['reference'] ?? data['partNumber'] ?? data['ref'] ?? '';
+    final String marque = data['marque'] ?? data['brand'] ?? '';
+
+    final newProduct = ProductSelection(
+      productId: productId,
+      productName: productName,
+      quantity: quantity,
+      partNumber: partNumber,
+      marque: marque,
+    );
+
+    setState(() {
+      _selectedProducts.add(newProduct);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+        Text("${newProduct.quantity}x ${newProduct.productName} ajouté!"),
+        duration: const Duration(milliseconds: 800), // Short duration for rapid adding
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // 💾 SAVE INSTALLATION
   // -----------------------------------------------------------------
   Future<void> _saveInstallation() async {
     if (!_formKey.currentState!.validate()) return;
@@ -468,7 +577,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       return;
     }
 
-    // ✅ AUTO-EXTRACT
     if (_gpsLinkController.text.trim().isNotEmpty && _parsedLat == null) {
       await _extractCoordinatesFromLink();
     }
@@ -477,15 +585,17 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur: Utilisateur non trouvé')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Erreur: Utilisateur non trouvé')));
       setState(() => _isLoading = false);
       return;
     }
 
     final currentYear = DateTime.now().year.toString();
-    final counterRef = FirebaseFirestore.instance.collection('counters').doc('installation_counter_$currentYear');
+    final counterRef = FirebaseFirestore.instance
+        .collection('counters')
+        .doc('installation_counter_$currentYear');
 
-    // ✅ Logic: Create New Ref or Use Existing
     final DocumentReference installationRef = _isEditing
         ? widget.installationToEdit!.reference
         : FirebaseFirestore.instance.collection('installations').doc();
@@ -497,55 +607,32 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         .doc(_selectedStore!.id);
 
     try {
-      // Handle File
       String? fileUrl;
       String? fileName;
-
-      // If editing, use existing ID or Temp ID for filename purposes (optional)
-      final tempId = _isEditing ? widget.installationToEdit!.id : DateTime.now().millisecondsSinceEpoch.toString();
+      final tempId = _isEditing
+          ? widget.installationToEdit!.id
+          : DateTime.now().millisecondsSinceEpoch.toString();
 
       if (_pickedFile != null) {
         fileUrl = await _uploadFileToB2(tempId);
         fileName = _pickedFileName;
       } else {
-        // Keep existing if no new file
         fileUrl = _existingFileUrl;
-        fileName = _pickedFileName; // might be old filename
+        fileName = _pickedFileName;
       }
 
-      if (_pickedFile != null && fileUrl == null) {
-        // Upload failed
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       final createdByName = userDoc.data()?['displayName'] ?? 'N/A';
 
-      // Prepare Products
       List<Map<String, dynamic>> enrichedProducts = [];
       for (var p in _selectedProducts) {
         String category = 'Autre';
         String? imageUrl;
         String reference = p.partNumber;
         String brand = p.marque;
-
-        // Note: For optimization, you might cache these or just store basic info
-        try {
-          final doc = await FirebaseFirestore.instance.collection('produits').doc(p.productId).get();
-          if (doc.exists) {
-            final data = doc.data()!;
-            category = data['categorie'] ?? data['category'] ?? 'Autre';
-            final List<dynamic>? images = data['imageUrls'];
-            if (images != null && images.isNotEmpty) {
-              imageUrl = images.first as String;
-            }
-            reference = data['reference'] ?? reference;
-            brand = data['marque'] ?? brand;
-          }
-        } catch (e) {
-          print("Error fetching product: $e");
-        }
 
         enrichedProducts.add({
           'productId': p.productId,
@@ -555,12 +642,10 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'category': category,
           'image': imageUrl,
           'quantity': p.quantity,
-          'serialNumbers': [], // Reset serials on edit? Usually safer unless you map them back deeply
+          'serialNumbers': [],
         });
       }
 
-      // Re-generate systems list if products changed (in edit mode this might reset system status)
-      // For simple edit logic, we regenerate. Ideally, you merge existing progress.
       final systems = enrichedProducts.map((p) {
         return {
           'id': p['productId'],
@@ -582,10 +667,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         String installationCode;
 
         if (_isEditing) {
-          // Keep existing code
           installationCode = widget.installationToEdit!.get('installationCode');
         } else {
-          // Generate New Code
           final counterDoc = await transaction.get(counterRef);
           int newCount = 1;
           if (counterDoc.exists) {
@@ -595,10 +678,10 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             }
           }
           installationCode = 'INST-$newCount/$currentYear';
-          transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
+          transaction.set(
+              counterRef, {'count': newCount}, SetOptions(merge: true));
         }
 
-        // GPS Logic
         final double? finalLat = _parsedLat ?? _selectedStore!.latitude;
         final double? finalLng = _parsedLng ?? _selectedStore!.longitude;
 
@@ -609,7 +692,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           });
         }
 
-        // Prepare Data Map
         final Map<String, dynamic> dataToSave = {
           'installationCode': installationCode,
           'clientName': _selectedClient!.name,
@@ -628,8 +710,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'preliminaryFileName': fileName,
           'assignedTechnicians': techniciansToSave,
           'orderedProducts': enrichedProducts,
-          // Only update systems if creating, OR if you want to reset them on edit.
-          // For now, let's overwrite to ensure new products are reflected.
           'systems': systems,
           'updatedAt': FieldValue.serverTimestamp(),
         };
@@ -642,17 +722,19 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           dataToSave['mediaUrls'] = [];
           dataToSave['technicalEvaluation'] = [];
           dataToSave['itEvaluation'] = [];
-
           transaction.set(installationRef, dataToSave);
         } else {
-          // If editing, use update (merge) to avoid deleting status/history
           transaction.update(installationRef, dataToSave);
         }
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_isEditing ? 'Modification enregistrée!' : 'Installation créée!'), backgroundColor: Colors.green),
+          SnackBar(
+              content: Text(_isEditing
+                  ? 'Modification enregistrée!'
+                  : 'Installation créée!'),
+              backgroundColor: Colors.green),
         );
         Navigator.of(context).pop();
       }
@@ -667,7 +749,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     }
   }
 
-  /// Shows a dialog to add a new client
+  // --- Client Dialog ---
   Future<void> _showAddClientDialog() async {
     _newClientNameController.clear();
     final formKey = GlobalKey<FormState>();
@@ -690,9 +772,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Annuler'),
-              ),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Annuler')),
               ElevatedButton(
                 onPressed: isSaving
                     ? null
@@ -706,39 +787,23 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                         'name': _newClientNameController.text.trim(),
                         'createdAt': Timestamp.now(),
                       });
-
                       final newClient = Client(
-                        id: docRef.id,
-                        name: _newClientNameController.text.trim(),
-                      );
-
+                          id: docRef.id,
+                          name: _newClientNameController.text.trim());
                       await _fetchClients();
                       setState(() {
                         _selectedClient = newClient;
                         _clientSearchController.text = newClient.name;
                         _fetchStores(newClient.id);
                       });
-
                       Navigator.of(dialogContext).pop();
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Erreur: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    } finally {
-                      if (mounted) {
-                        setDialogState(() => isSaving = false);
-                      }
+                      print(e);
                     }
                   }
                 },
                 child: isSaving
-                    ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const CircularProgressIndicator()
                     : const Text('Enregistrer'),
               ),
             ],
@@ -748,18 +813,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     );
   }
 
-  /// Shows a dialog to add a new store
+  // --- Store Dialog ---
   Future<void> _showAddStoreDialog() async {
-    if (_selectedClient == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez d\'abord sélectionner un client.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
+    if (_selectedClient == null) return;
     _newStoreNameController.clear();
     _newStoreLocationController.clear();
     final formKey = GlobalKey<FormState>();
@@ -780,25 +836,21 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                     controller: _newStoreNameController,
                     decoration:
                     const InputDecoration(labelText: 'Nom du Magasin'),
-                    validator: (value) =>
-                    value == null || value.isEmpty ? 'Nom requis' : null,
+                    validator: (value) => value!.isEmpty ? 'Nom requis' : null,
                   ),
                   TextFormField(
                     controller: _newStoreLocationController,
-                    decoration:
-                    const InputDecoration(labelText: 'Localisation (Ville)'),
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Localisation requise'
-                        : null,
+                    decoration: const InputDecoration(
+                        labelText: 'Localisation (Ville)'),
+                    validator: (value) => value!.isEmpty ? 'Requis' : null,
                   ),
                 ],
               ),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Annuler'),
-              ),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Annuler')),
               ElevatedButton(
                 onPressed: isSaving
                     ? null
@@ -812,43 +864,29 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                           .collection('stores')
                           .add({
                         'name': _newStoreNameController.text.trim(),
-                        'location': _newStoreLocationController.text.trim(),
+                        'location':
+                        _newStoreLocationController.text.trim(),
                         'createdAt': Timestamp.now(),
                       });
-
                       final newStore = Store(
-                        id: docRef.id,
-                        name: _newStoreNameController.text.trim(),
-                        location: _newStoreLocationController.text.trim(),
-                      );
-
+                          id: docRef.id,
+                          name: _newStoreNameController.text.trim(),
+                          location:
+                          _newStoreLocationController.text.trim());
                       await _fetchStores(_selectedClient!.id);
                       setState(() {
                         _selectedStore = newStore;
                         _storeSearchController.text =
                         '${newStore.name} (${newStore.location})';
                       });
-
                       Navigator.of(dialogContext).pop();
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Erreur: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    } finally {
-                      if (mounted) {
-                        setDialogState(() => isSaving = false);
-                      }
+                      print(e);
                     }
                   }
                 },
                 child: isSaving
-                    ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const CircularProgressIndicator()
                     : const Text('Enregistrer'),
               ),
             ],
@@ -858,27 +896,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     );
   }
 
-  /// Shows the product selection dialog
-  Future<void> _showProductSelector() async {
-    final List<ProductSelection>? results = await showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return ProductSelectorDialog(
-          initialProducts: _selectedProducts.map((p) => p.copy()).toList(),
-        );
-      },
-    );
-
-    if (results != null) {
-      setState(() {
-        _selectedProducts = results;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Define border styles
     final defaultBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(12.0),
       borderSide: BorderSide(color: Colors.grey.shade400, width: 1.0),
@@ -889,7 +908,9 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditing ? 'Modifier Installation' : 'Créer Installation Directe'),
+        title: Text(_isEditing
+            ? 'Modifier Installation'
+            : 'Créer Installation Directe'),
         backgroundColor: primaryColor,
       ),
       body: Form(
@@ -899,7 +920,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- Client Dropdown ---
+              // Client Selection
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -911,41 +932,39 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                       hintText: 'Rechercher un client...',
                       expandedInsets: EdgeInsets.zero,
                       leadingIcon: _isFetchingClients
-                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.person_outline),
                       dropdownMenuEntries: _clients
                           .map((client) => DropdownMenuEntry<Client>(
-                        value: client,
-                        label: client.name,
-                      )).toList(),
+                          value: client, label: client.name))
+                          .toList(),
                       onSelected: (Client? client) {
                         setState(() {
                           _selectedClient = client;
-                          if (client != null) {
-                            _fetchStores(client.id);
-                          }
+                          if (client != null) _fetchStores(client.id);
                         });
                       },
                       inputDecorationTheme: InputDecorationTheme(
-                        filled: true,
-                        fillColor: Colors.white,
-                        enabledBorder: defaultBorder,
-                        focusedBorder: focusedBorder,
-                      ),
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: defaultBorder,
+                          focusedBorder: focusedBorder),
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: const Icon(Icons.add_business_outlined, color: primaryColor),
+                    icon: const Icon(Icons.add_business_outlined,
+                        color: primaryColor),
                     onPressed: _showAddClientDialog,
-                    tooltip: 'Ajouter un nouveau client',
                   ),
                 ],
               ),
-
               const SizedBox(height: 20),
 
-              // --- Store Dropdown ---
+              // Store Selection
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -958,13 +977,16 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                       enabled: _selectedClient != null && !_isFetchingStores,
                       expandedInsets: EdgeInsets.zero,
                       leadingIcon: _isFetchingStores
-                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.store_outlined),
                       dropdownMenuEntries: _stores
                           .map((store) => DropdownMenuEntry<Store>(
-                        value: store,
-                        label: '${store.name} (${store.location})',
-                      )).toList(),
+                          value: store,
+                          label: '${store.name} (${store.location})'))
+                          .toList(),
                       onSelected: (Store? store) {
                         setState(() {
                           _selectedStore = store;
@@ -974,23 +996,24 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                         });
                       },
                       inputDecorationTheme: InputDecorationTheme(
-                        filled: true,
-                        fillColor: Colors.white,
-                        enabledBorder: defaultBorder,
-                        focusedBorder: focusedBorder,
-                      ),
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: defaultBorder,
+                          focusedBorder: focusedBorder),
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: const Icon(Icons.add_shopping_cart_outlined, color: primaryColor),
-                    onPressed: (_selectedClient == null || _isFetchingStores) ? null : _showAddStoreDialog,
-                    tooltip: 'Ajouter un nouveau magasin',
+                    icon: const Icon(Icons.add_shopping_cart_outlined,
+                        color: primaryColor),
+                    onPressed: (_selectedClient == null || _isFetchingStores)
+                        ? null
+                        : _showAddStoreDialog,
                   ),
                 ],
               ),
 
-              // ✅ 🌟 GPS LINK SECTION 🌟
+              // GPS Section
               if (_selectedStore != null)
                 Container(
                   margin: const EdgeInsets.only(top: 20),
@@ -1002,14 +1025,15 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   ),
                   child: Column(
                     children: [
-                      // Status Row
                       Row(
                         children: [
                           Icon(
-                            (_selectedStore!.latitude != null || _parsedLat != null)
+                            (_selectedStore!.latitude != null ||
+                                _parsedLat != null)
                                 ? Icons.check_circle
                                 : Icons.warning_amber_rounded,
-                            color: (_selectedStore!.latitude != null || _parsedLat != null)
+                            color: (_selectedStore!.latitude != null ||
+                                _parsedLat != null)
                                 ? Colors.green
                                 : Colors.orange,
                           ),
@@ -1023,7 +1047,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                                   : "Position GPS manquante",
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: (_selectedStore!.latitude != null || _parsedLat != null)
+                                color: (_selectedStore!.latitude != null ||
+                                    _parsedLat != null)
                                     ? Colors.green.shade700
                                     : Colors.orange.shade800,
                               ),
@@ -1031,9 +1056,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                           ),
                         ],
                       ),
-
-                      // Input Field (Visible if missing or wants update)
-                      if (_selectedStore!.latitude == null || _parsedLat != null) ...[
+                      if (_selectedStore!.latitude == null ||
+                          _parsedLat != null) ...[
                         const SizedBox(height: 12),
                         const Divider(),
                         const SizedBox(height: 8),
@@ -1046,19 +1070,26 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                                   labelText: 'Coller un lien Google Maps ici',
                                   hintText: 'https://goo.gl/maps/...',
                                   prefixIcon: Icon(Icons.link),
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
                                 ),
                               ),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
-                              onPressed: _isResolvingLink ? null : _extractCoordinatesFromLink,
+                              onPressed: _isResolvingLink
+                                  ? null
+                                  : _extractCoordinatesFromLink,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.teal,
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                              ),
+                                  backgroundColor: Colors.teal,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16)),
                               child: _isResolvingLink
-                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                  ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                      color: Colors.white, strokeWidth: 2))
                                   : const Icon(Icons.search),
                             ),
                           ],
@@ -1066,7 +1097,10 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                         if (_parsedLat != null)
                           Padding(
                             padding: const EdgeInsets.only(top: 8.0),
-                            child: Text("📍 Coordonnées détectées : $_parsedLat, $_parsedLng", style: const TextStyle(fontSize: 12, color: Colors.teal)),
+                            child: Text(
+                                "📍 Coordonnées détectées : $_parsedLat, $_parsedLng",
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.teal)),
                           ),
                       ],
                     ],
@@ -1075,84 +1109,69 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
               const SizedBox(height: 20),
 
-              // --- Client Phone ---
+              // Other Fields
               TextFormField(
                 controller: _clientPhoneController,
                 decoration: InputDecoration(
-                  labelText: 'Téléphone (Client/Magasin)',
-                  hintText: 'Numéro de contact...',
-                  prefixIcon: const Icon(Icons.phone_outlined),
-                  enabledBorder: defaultBorder,
-                  focusedBorder: focusedBorder,
-                ),
+                    labelText: 'Téléphone (Client/Magasin)',
+                    prefixIcon: const Icon(Icons.phone_outlined),
+                    enabledBorder: defaultBorder,
+                    focusedBorder: focusedBorder),
                 keyboardType: TextInputType.phone,
               ),
-
               const SizedBox(height: 20),
-
-              // --- Client Email ---
               TextFormField(
                 controller: _clientEmailController,
                 decoration: InputDecoration(
-                  labelText: 'Email Client (Pour le rapport)',
-                  hintText: 'email@client.com',
-                  prefixIcon: const Icon(Icons.alternate_email),
-                  enabledBorder: defaultBorder,
-                  focusedBorder: focusedBorder,
-                ),
+                    labelText: 'Email Client',
+                    prefixIcon: const Icon(Icons.alternate_email),
+                    enabledBorder: defaultBorder,
+                    focusedBorder: focusedBorder),
                 keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value != null && value.isNotEmpty && !value.contains('@')) {
-                    return 'Format email invalide';
-                  }
-                  return null;
-                },
               ),
-
               const SizedBox(height: 20),
-
-              // --- Contact Name ---
               TextFormField(
                 controller: _contactNameController,
                 decoration: InputDecoration(
-                  labelText: 'Nom du Contact (sur site)',
-                  hintText: 'Nom de la personne à contacter...',
-                  prefixIcon: const Icon(Icons.person_pin_outlined),
-                  enabledBorder: defaultBorder,
-                  focusedBorder: focusedBorder,
-                ),
-                keyboardType: TextInputType.text,
+                    labelText: 'Nom du Contact (sur site)',
+                    prefixIcon: const Icon(Icons.person_pin_outlined),
+                    enabledBorder: defaultBorder,
+                    focusedBorder: focusedBorder),
               ),
-
               const SizedBox(height: 20),
 
-              // --- File Attachment ---
-              Text(
-                'Fichier Préliminaire (Optionnel)',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              // File
+              Text('Fichier Préliminaire (Optionnel)',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontSize: 18, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: _isUploadingFile ? null : _pickFile,
-                      icon: Icon(_pickedFile == null ? Icons.attach_file : Icons.file_present, color: primaryColor),
+                      icon: Icon(
+                          _pickedFile == null
+                              ? Icons.attach_file
+                              : Icons.file_present,
+                          color: primaryColor),
                       label: Text(
                         _pickedFile == null
-                            ? (_existingFileUrl != null ? 'Fichier existant (Toucher pour changer)' : 'Joindre un fichier (PDF/Image)')
+                            ? (_existingFileUrl != null
+                            ? 'Fichier existant (Toucher pour changer)'
+                            : 'Joindre un fichier (PDF/Image)')
                             : _pickedFileName!,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: primaryColor),
                       ),
                       style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: primaryColor.withOpacity(0.5)),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
+                          side: BorderSide(
+                              color: primaryColor.withOpacity(0.5)),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12))),
                     ),
                   ),
                   if (_pickedFile != null && !_isUploadingFile) ...[
@@ -1169,64 +1188,63 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   ],
                 ],
               ),
-
               const SizedBox(height: 20),
 
-              // --- Description ---
               TextFormField(
                 controller: _requestController,
                 decoration: InputDecoration(
-                  labelText: 'Description de la Demande',
-                  hintText: 'Matériel à installer, problème...',
-                  enabledBorder: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  alignLabelWithHint: true,
-                ),
+                    labelText: 'Description de la Demande',
+                    enabledBorder: defaultBorder,
+                    focusedBorder: focusedBorder,
+                    alignLabelWithHint: true),
                 maxLines: 5,
-                validator: (value) => value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Requis' : null,
               ),
-
               const SizedBox(height: 20),
 
-              // --- Technician Multi-Select ---
               MultiSelectDialogField<AppUser>(
-                items: _allTechnicians.map((user) => MultiSelectItem<AppUser>(user, user.displayName)).toList(),
+                items: _allTechnicians
+                    .map((user) =>
+                    MultiSelectItem<AppUser>(user, user.displayName))
+                    .toList(),
                 initialValue: _selectedTechnicians,
                 title: const Text("Sélectionner Techniciens"),
-                buttonText: Text("Assigner à", style: TextStyle(color: Colors.grey.shade700, fontSize: 16)),
+                buttonText: Text("Assigner à",
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 16)),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: Colors.grey.shade400),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                    color: Colors.white,
+                    border: Border.all(color: Colors.grey.shade400),
+                    borderRadius: BorderRadius.circular(12)),
                 onConfirm: (results) {
                   setState(() {
                     _selectedTechnicians = results.cast<AppUser>();
                   });
                 },
               ),
-
               const SizedBox(height: 20),
 
-              // --- Product List ---
+              // ✅ NEW PRODUCT LIST SECTION
               _buildProductList(),
 
               const SizedBox(height: 32),
 
-              // --- Submit Button ---
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: (_isLoading || _isUploadingFile) ? null : _saveInstallation,
+                  onPressed:
+                  (_isLoading || _isUploadingFile) ? null : _saveInstallation,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                  ),
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16.0),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12.0))),
                   child: (_isLoading || _isUploadingFile)
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(_isEditing ? 'Modifier l\'Installation' : 'Créer l\'Installation'),
+                      : Text(_isEditing
+                      ? 'Modifier l\'Installation'
+                      : 'Créer l\'Installation'),
                 ),
               ),
             ],
@@ -1236,13 +1254,17 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     );
   }
 
+  // ✅ UPDATED: Product List with Delete Button & Global Search Trigger
   Widget _buildProductList() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Produits à Installer',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18, fontWeight: FontWeight.w600),
+          style: Theme.of(context)
+              .textTheme
+              .titleLarge
+              ?.copyWith(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         Container(
@@ -1252,16 +1274,39 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           ),
           height: _selectedProducts.isEmpty ? 80 : 150,
           child: _selectedProducts.isEmpty
-              ? const Center(child: Text('Aucun produit sélectionné.', style: TextStyle(color: Colors.grey)))
-              : ListView.builder(
+              ? const Center(
+              child: Text('Aucun produit sélectionné.',
+                  style: TextStyle(color: Colors.grey)))
+              : ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             itemCount: _selectedProducts.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final product = _selectedProducts[index];
               return ListTile(
-                leading: const Icon(Icons.inventory_2_outlined, color: primaryColor),
-                title: Text(product.productName),
-                trailing: Text('Qté: ${product.quantity}', style: const TextStyle(fontWeight: FontWeight.w500)),
+                dense: true,
+                leading: const Icon(Icons.inventory_2_outlined,
+                    color: primaryColor),
+                title: Text(product.productName,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text("Ref: ${product.partNumber}"),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Qté: ${product.quantity}',
+                        style:
+                        const TextStyle(fontWeight: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline,
+                          color: Colors.red, size: 20),
+                      onPressed: () {
+                        setState(() {
+                          _selectedProducts.removeAt(index);
+                        });
+                      },
+                    ),
+                  ],
+                ),
               );
             },
           ),
@@ -1269,12 +1314,18 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         const SizedBox(height: 8),
         Center(
           child: OutlinedButton.icon(
-            onPressed: _showProductSelector,
-            icon: const Icon(Icons.add, color: primaryColor),
-            label: Text(_selectedProducts.isEmpty ? 'Ajouter des Produits' : 'Modifier les Produits', style: const TextStyle(color: primaryColor)),
+            // ✅ Calls the new Global Search method
+            onPressed: _openGlobalProductSearch,
+            icon: const Icon(Icons.add_circle_outline, color: primaryColor),
+            label: Text(
+                _selectedProducts.isEmpty
+                    ? 'Ajouter des Produits'
+                    : 'Ajouter un autre Produit',
+                style: const TextStyle(color: primaryColor)),
             style: OutlinedButton.styleFrom(
               side: BorderSide(color: primaryColor.withOpacity(0.5)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
             ),
           ),
         ),
