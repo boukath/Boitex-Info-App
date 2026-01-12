@@ -31,6 +31,7 @@ import 'package:url_launcher/url_launcher.dart';
 // ✅ PDF Service & Models
 import 'package:boitex_info_app/services/livraison_pdf_service.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class LivraisonDetailsPage extends StatefulWidget {
   final String livraisonId;
@@ -52,11 +53,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   // -- Picking Mode List --
   List<Map<String, dynamic>> _pickingItems = [];
 
-  // ✅ Controllers for "Keyboard Wedge" Scanning
+  // ✅ Controllers
   final Map<int, TextEditingController> _pickingControllers = {};
   final Map<int, FocusNode> _pickingFocusNodes = {};
 
-  // ✅ State for "Select & Shoot"
+  // ✅ State
   int? _selectedPickingIndex;
   StreamSubscription? _zebraSubscription;
 
@@ -64,8 +65,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   bool _isLoading = true;
   bool _isCompleting = false;
   bool _isLivraisonCompleted = false;
-
-  // ✅ ADDED: Status text for the loading indicator
   String _loadingStatus = '';
 
   List<dynamic> _existingMedia = [];
@@ -81,11 +80,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   double? _storeLat;
   double? _storeLng;
   bool _isLoadingGps = false;
-
-  // ✅ PDF Generation State
   bool _isGeneratingPdf = false;
 
   bool get _isPickingMode => _status == 'À Préparer';
+
+  // ✅ Colors for the "High Quality" Vibe
+  final Color _primaryBlue = const Color(0xFF2962FF); // Premium Blue
+  final Color _accentGreen = const Color(0xFF00E676); // Neon Green
+  final Color _bgLight = const Color(0xFFF4F6F9); // Clean Grey/White
 
   bool get _allCompleted {
     if (_isLivraisonCompleted) return true;
@@ -97,18 +99,15 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     return serializedDone && bulkDone;
   }
 
-  // ✅ Updated Validation Logic to handle both Bulk and Serialized items
   bool get _allPicked {
     if (_pickingItems.isEmpty) return false;
     return _pickingItems.every((item) {
       final int qty = item['quantity'] as int? ?? 0;
       final bool isBulk = item['isBulk'] == true;
       if (isBulk) {
-        // For bulk, check pickedQuantity
         final int picked = item['pickedQuantity'] as int? ?? 0;
         return picked >= qty;
       } else {
-        // For serialized, check list length
         final List serials = item['serialNumbers'] as List? ?? [];
         return serials.length >= qty;
       }
@@ -116,8 +115,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   final SignatureController _signatureController = SignatureController(
-    penStrokeWidth: 5,
-    penColor: Colors.black,
+    penStrokeWidth: 4,
+    penColor: const Color(0xFF2962FF),
     exportBackgroundColor: Colors.white,
   );
 
@@ -126,7 +125,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     super.initState();
     _loadLivraisonDetails();
 
-    // ✅ Initialize Zebra Listener
     _zebraSubscription = ZebraService().onScan.listen((code) {
       if (_isPickingMode && _selectedPickingIndex != null) {
         _processInputScan(_selectedPickingIndex!, code);
@@ -156,69 +154,41 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     super.dispose();
   }
 
-  // ... (Keep existing Fetch/Map/Upload helpers) ...
   Future<void> _fetchStoreCoordinates(String clientId, String storeId) async {
     setState(() => _isLoadingGps = true);
     try {
-      final storeDoc = await FirebaseFirestore.instance
-          .collection('clients')
-          .doc(clientId)
-          .collection('stores')
-          .doc(storeId)
-          .get();
-
+      final storeDoc = await FirebaseFirestore.instance.collection('clients').doc(clientId).collection('stores').doc(storeId).get();
       if (storeDoc.exists) {
         final storeData = storeDoc.data();
-        if (storeData != null &&
-            storeData['latitude'] != null &&
-            storeData['longitude'] != null) {
+        if (storeData != null && storeData['latitude'] != null && storeData['longitude'] != null) {
           setState(() {
             _storeLat = (storeData['latitude'] as num).toDouble();
             _storeLng = (storeData['longitude'] as num).toDouble();
           });
         }
       }
-    } catch (e) {
-      debugPrint("Error fetching store GPS: $e");
-    } finally {
-      if (mounted) setState(() => _isLoadingGps = false);
-    }
+    } catch (e) { debugPrint("Error GPS: $e"); } finally { if (mounted) setState(() => _isLoadingGps = false); }
   }
 
   Future<void> _launchMaps() async {
     if (_storeLat == null || _storeLng == null) return;
     final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$_storeLat,$_storeLng");
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Impossible d'ouvrir la carte.")),
-        );
-      }
-    }
+    if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _loadLivraisonDetails() async {
     setState(() => _isLoading = true);
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('livraisons')
-          .doc(widget.livraisonId)
-          .get();
-
+      final doc = await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).get();
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
         _status = data['status'] ?? 'À Préparer';
-
         if (data['clientId'] != null && data['storeId'] != null) {
           _fetchStoreCoordinates(data['clientId'], data['storeId']);
         }
-
         final rawProducts = data['products'] as List? ?? [];
         final deliveryMedia = data['deliveryMedia'] as List? ?? [];
         final bool isCompleted = _status == 'Livré';
-
         _recipientNameController.text = data['recipientName'] ?? '';
         _recipientPhoneController.text = data['recipientPhone'] ?? '';
         _recipientEmailController.text = data['recipientEmail'] ?? '';
@@ -228,242 +198,102 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         Map<String, Map<String, dynamic>> bulkMap = {};
 
         if (_status == 'À Préparer') {
-          // ** PICKING MODE **
-          pickingList = List<Map<String, dynamic>>.from(
-              rawProducts.map((p) => Map<String, dynamic>.from(p)));
-
-          // Auto-select first item
-          if (pickingList.isNotEmpty) {
-            _selectedPickingIndex = 0;
-          }
+          pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) => Map<String, dynamic>.from(p)));
+          if (pickingList.isNotEmpty) _selectedPickingIndex = 0;
         } else {
-          // ** DELIVERY MODE **
           for (final product in rawProducts) {
-            int quantity = 0;
-            if (product['quantity'] is int) {
-              quantity = product['quantity'];
-            } else if (product['quantity'] is String) {
-              quantity = int.tryParse(product['quantity']) ?? 0;
-            }
-
+            int quantity = product['quantity'] is int ? product['quantity'] : int.tryParse(product['quantity'].toString()) ?? 0;
             final String productName = product['productName'] ?? 'N/A';
-            final String? partNumber = product['partNumber'] as String?;
-            final String? productId = product['productId'] as String?;
-
+            final String? partNumber = product['partNumber'];
+            final String? productId = product['productId'];
             final List serials = product['serialNumbers'] as List? ?? [];
-            final List serialsFound =
-                product['serialNumbersFound'] as List? ?? [];
-            final bool wasDelivered = isCompleted;
-
-            bool isBulkItem = (quantity > 50) ||
-                (quantity > 5 && serials.isEmpty && serialsFound.isEmpty);
-
-            // Also treat as bulk if marked as such during picking
-            if (product['isBulk'] == true) isBulkItem = true;
+            final List serialsFound = product['serialNumbersFound'] as List? ?? [];
+            bool isBulkItem = (quantity > 50) || (quantity > 5 && serials.isEmpty && serialsFound.isEmpty) || product['isBulk'] == true;
 
             if (isBulkItem) {
               String key = productId ?? productName;
               if (bulkMap.containsKey(key)) {
-                bulkMap[key]!['quantity'] =
-                    (bulkMap[key]!['quantity'] as int) + quantity;
+                bulkMap[key]!['quantity'] = (bulkMap[key]!['quantity'] as int) + quantity;
               } else {
                 bulkMap[key] = {
-                  'productName': productName,
-                  'partNumber': partNumber,
-                  'quantity': quantity,
-                  'delivered': wasDelivered,
-                  'type': 'bulk',
-                  'productId': productId,
+                  'productName': productName, 'partNumber': partNumber, 'quantity': quantity,
+                  'delivered': isCompleted, 'type': 'bulk', 'productId': productId,
                 };
               }
             } else {
               int itemsToAdd = serials.isNotEmpty ? serials.length : quantity;
               for (int i = 0; i < itemsToAdd; i++) {
                 serializedList.add({
-                  'productName': productName,
-                  'partNumber': partNumber,
-                  'serialNumber':
-                  (i < serialsFound.length) ? serialsFound[i] : null,
-                  'originalSerialNumber':
-                  (i < serials.length) ? serials[i] : null,
-                  'scanned': wasDelivered,
-                  'type': 'serialized',
-                  'productId': productId,
+                  'productName': productName, 'partNumber': partNumber,
+                  'serialNumber': (i < serialsFound.length) ? serialsFound[i] : null,
+                  'originalSerialNumber': (i < serials.length) ? serials[i] : null,
+                  'scanned': isCompleted, 'type': 'serialized', 'productId': productId,
                 });
               }
             }
           }
         }
-
         setState(() {
-          _livraisonDoc = doc;
-          _isLivraisonCompleted = isCompleted;
-          _pickingItems = pickingList;
-          _serializedItems = serializedList;
-          _bulkItems = bulkMap.values.toList();
-          _existingMedia = deliveryMedia;
-          _isLoading = false;
+          _livraisonDoc = doc; _isLivraisonCompleted = isCompleted; _pickingItems = pickingList;
+          _serializedItems = serializedList; _bulkItems = bulkMap.values.toList();
+          _existingMedia = deliveryMedia; _isLoading = false;
         });
-      } else {
-        setState(() => _isLoading = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Livraison non trouvée.')),
-          );
-        }
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
-      }
-      debugPrint("Error loading livraison details: $e");
-    }
+      } else { setState(() => _isLoading = false); }
+    } catch (e) { setState(() => _isLoading = false); }
   }
-
-  // ===============================================================
-  // ✅ NEW: CLIENT-SIDE ON-DEMAND PDF GENERATION (Web Download Fix)
-  // ===============================================================
 
   Future<void> _generateAndOpenPdf() async {
     if (_livraisonDoc == null) return;
     setState(() => _isGeneratingPdf = true);
-
     try {
-      // 1. Fetch Current Data
       final data = _livraisonDoc!.data() as Map<String, dynamic>;
       final clientId = data['clientId'];
       final bonCode = data['bonLivraisonCode'] ?? 'BL';
-
-      // 2. Fetch Client Info
       final clientDoc = await FirebaseFirestore.instance.collection('clients').doc(clientId).get();
       final clientData = clientDoc.data() ?? {};
-
-      // 3. Prepare Products List
       List<ProductSelection> pdfProducts = [];
-
       if (_status == 'À Préparer') {
         pdfProducts = _pickingItems.map((item) => ProductSelection.fromJson(item)).toList();
       } else {
         final Map<String, Map<String, dynamic>> groupedMap = {};
-
-        // Serialized
         for (var item in _serializedItems) {
           final key = item['partNumber'] ?? item['productName'];
           if (!groupedMap.containsKey(key)) {
-            groupedMap[key] = {
-              'productId': item['productId'],
-              'productName': item['productName'],
-              'partNumber': item['partNumber'],
-              'marque': item['marque'] ?? 'N/A',
-              'quantity': 0,
-              'serialNumbers': <String>[]
-            };
+            groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
           }
           groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + 1;
-
           final sn = item['serialNumber'] ?? item['originalSerialNumber'];
-          if (sn != null) {
-            (groupedMap[key]!['serialNumbers'] as List<String>).add(sn);
-          }
+          if (sn != null) (groupedMap[key]!['serialNumbers'] as List<String>).add(sn);
         }
-
-        // Bulk
         for (var item in _bulkItems) {
           final key = item['partNumber'] ?? item['productName'];
           if (!groupedMap.containsKey(key)) {
-            groupedMap[key] = {
-              'productId': item['productId'],
-              'productName': item['productName'],
-              'partNumber': item['partNumber'],
-              'marque': item['marque'] ?? 'N/A',
-              'quantity': 0,
-              'serialNumbers': <String>[]
-            };
+            groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
           }
           groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + (item['quantity'] as int);
         }
         pdfProducts = groupedMap.values.map((map) => ProductSelection.fromJson(map)).toList();
       }
-
-      // 4. Handle Signature
       Uint8List? signatureBytes;
       if (data['signatureUrl'] != null) {
-        try {
-          final resp = await http.get(Uri.parse(data['signatureUrl']));
-          if (resp.statusCode == 200) {
-            signatureBytes = resp.bodyBytes;
-          }
-        } catch (e) {
-          debugPrint("Could not download signature: $e");
-        }
+        final resp = await http.get(Uri.parse(data['signatureUrl']));
+        if (resp.statusCode == 200) signatureBytes = resp.bodyBytes;
       }
-
-      // 5. Generate PDF in Memory
-      final pdfBytes = await LivraisonPdfService().generateLivraisonPdf(
-        livraisonData: data,
-        products: pdfProducts,
-        clientData: clientData,
-        docId: widget.livraisonId, // ✅ ID passed correctly
-        signatureBytes: signatureBytes,
-      );
-
-      // 6. Handle Output (Web vs Mobile)
+      final pdfBytes = await LivraisonPdfService().generateLivraisonPdf(livraisonData: data, products: pdfProducts, clientData: clientData, docId: widget.livraisonId, signatureBytes: signatureBytes);
       if (mounted) {
         if (kIsWeb) {
-          // ✅ Web: Auto Download
-          // Clean filename (remove slashes from BL code)
-          final safeFileName = bonCode.replaceAll('/', '-');
-
-          await FileSaver.instance.saveFile(
-            name: safeFileName,
-            bytes: pdfBytes,
-            ext: 'pdf',
-            mimeType: MimeType.pdf,
-          );
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Téléchargement du PDF lancé...'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          await FileSaver.instance.saveFile(name: bonCode.replaceAll('/', '-'), bytes: pdfBytes, ext: 'pdf', mimeType: MimeType.pdf);
         } else {
-          // ✅ Mobile: Open Viewer
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PdfViewerPage(
-                pdfBytes: pdfBytes,
-                title: "$bonCode.pdf",
-              ),
-            ),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (context) => PdfViewerPage(pdfBytes: pdfBytes, title: "$bonCode.pdf")));
         }
       }
-
-    } catch (e) {
-      debugPrint("Error generating PDF: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur génération PDF: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isGeneratingPdf = false);
-    }
+    } catch (e) { debugPrint("PDF Error: $e"); } finally { if (mounted) setState(() => _isGeneratingPdf = false); }
   }
-
-  // ... (Rest of existing methods) ...
 
   void _toggleBulkMode(int index) {
     setState(() {
       final isBulk = _pickingItems[index]['isBulk'] == true;
       _pickingItems[index]['isBulk'] = !isBulk;
-
-      // Initialize pickedQuantity if switching to bulk
       if (!isBulk && _pickingItems[index]['pickedQuantity'] == null) {
         final List serials = _pickingItems[index]['serialNumbers'] ?? [];
         _pickingItems[index]['pickedQuantity'] = serials.length;
@@ -476,722 +306,600 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     final item = _pickingItems[index];
     final int quantity = item['quantity'] ?? 0;
     int picked = item['pickedQuantity'] as int? ?? 0;
-
     int newPicked = picked + delta;
     if (newPicked < 0) newPicked = 0;
     if (newPicked > quantity) newPicked = quantity;
-
-    setState(() {
-      _pickingItems[index]['pickedQuantity'] = newPicked;
-    });
+    setState(() => _pickingItems[index]['pickedQuantity'] = newPicked);
     _savePickingState();
   }
 
-  // ✅ NEW: Direct Input Dialog for Large Quantities (e.g. 30,000 cables)
   void _showBulkQuantityDialog(int index) {
     final item = _pickingItems[index];
     final int current = item['pickedQuantity'] as int? ?? 0;
     final int max = item['quantity'] as int? ?? 0;
-    final TextEditingController qtyCtrl =
-    TextEditingController(text: current.toString());
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Définir la Quantité"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("Total requis: $max"),
-            const SizedBox(height: 10),
-            TextField(
-              controller: qtyCtrl,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: "Quantité prélevée",
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Annuler")),
-          ElevatedButton(
-            onPressed: () {
-              int? val = int.tryParse(qtyCtrl.text);
-              if (val != null) {
-                if (val > max) {
-                  val = max;
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text("Ajusté au maximum requis.")));
-                }
-                if (val < 0) val = 0;
-
-                setState(() {
-                  _pickingItems[index]['pickedQuantity'] = val;
-                });
-                _savePickingState();
-              }
-              Navigator.pop(context);
-            },
-            child: const Text("Valider"),
-          )
-        ],
-      ),
-    );
+    final TextEditingController qtyCtrl = TextEditingController(text: current.toString());
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text("Définir la Quantité"),
+      content: TextField(controller: qtyCtrl, keyboardType: TextInputType.number, autofocus: true, decoration: const InputDecoration(labelText: "Quantité", border: OutlineInputBorder())),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+        ElevatedButton(onPressed: () {
+          int? val = int.tryParse(qtyCtrl.text);
+          if (val != null) {
+            if (val > max) val = max; if (val < 0) val = 0;
+            setState(() => _pickingItems[index]['pickedQuantity'] = val);
+            _savePickingState();
+          }
+          Navigator.pop(context);
+        }, child: const Text("Valider"))
+      ],
+    ));
   }
 
   void _processInputScan(int index, String code) {
     if (code.trim().isEmpty) return;
-
     final item = _pickingItems[index];
     final String? partNumber = item['partNumber'];
     final int quantity = item['quantity'] ?? 0;
     final bool isBulk = item['isBulk'] == true;
 
-    // --- BULK MODE LOGIC ---
-    if (isBulk) {
-      int picked = item['pickedQuantity'] as int? ?? 0;
-      if (picked >= quantity) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Quantité atteinte.')));
-        _pickingControllers[index]?.clear();
-        return;
-      }
-
-      // Check Reference
-      if (partNumber != null &&
-          code.trim().toUpperCase() != partNumber.trim().toUpperCase()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Mauvaise Référence! Attendu: $partNumber'),
-              backgroundColor: Colors.red),
-        );
-        _pickingControllers[index]?.clear();
-        _pickingFocusNodes[index]?.requestFocus();
-        return;
-      }
-
-      // Increment
-      setState(() {
-        _pickingItems[index]['pickedQuantity'] = picked + 1;
-      });
-      _pickingControllers[index]?.clear();
-      _pickingFocusNodes[index]?.requestFocus(); // Keep focus for rapid fire
-      _savePickingState();
-      return;
-    }
-
-    // --- SERIAL MODE LOGIC ---
-    List<String> currentSerials =
-    List<String>.from(item['serialNumbers'] ?? []);
-
-    if (currentSerials.length >= quantity) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Quantité atteinte.')));
-      _pickingControllers[index]?.clear();
-      return;
-    }
-
-    // 1. Verification (Part Number check)
-    if (partNumber != null &&
-        code.trim().toUpperCase() == partNumber.trim().toUpperCase()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Référence OK. Scannez le N° de Série.'),
-            backgroundColor: Colors.green),
-      );
-      _pickingControllers[index]?.clear();
-      _pickingFocusNodes[index]?.requestFocus();
-      return;
-    }
-
-    // 2. Serial Number Input
-    final sn = code.trim();
-    if (currentSerials.contains(sn)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Déjà scanné!'), backgroundColor: Colors.orange),
-      );
-      _pickingControllers[index]?.clear();
-      _pickingFocusNodes[index]?.requestFocus();
-      return;
-    }
-
-    // 3. Add & Save
-    setState(() {
-      currentSerials.add(sn);
-      _pickingItems[index]['serialNumbers'] = currentSerials;
-    });
-
-    _savePickingState();
-    _pickingControllers[index]?.clear();
-
-    if (currentSerials.length < quantity) {
-      _pickingFocusNodes[index]?.requestFocus();
-    } else {
-      _pickingFocusNodes[index]?.unfocus();
-    }
-  }
-
-  // Camera Fallback
-  Future<void> _handlePickingScan(int index) async {
-    setState(() => _selectedPickingIndex = index);
-
-    // Check limits before opening camera
-    final item = _pickingItems[index];
-    final bool isBulk = item['isBulk'] == true;
-    final int quantity = item['quantity'] ?? 0;
-
     if (isBulk) {
       int picked = item['pickedQuantity'] as int? ?? 0;
       if (picked >= quantity) return;
+      if (partNumber != null && code.trim().toUpperCase() != partNumber.trim().toUpperCase()) return;
+      setState(() => _pickingItems[index]['pickedQuantity'] = picked + 1);
+      _savePickingState();
     } else {
-      List serials = item['serialNumbers'] ?? [];
-      if (serials.length >= quantity) return;
+      List<String> currentSerials = List<String>.from(item['serialNumbers'] ?? []);
+      if (currentSerials.length >= quantity) return;
+      if (partNumber != null && code.trim().toUpperCase() == partNumber.trim().toUpperCase()) return;
+      if (currentSerials.contains(code.trim())) return;
+      setState(() { currentSerials.add(code.trim()); _pickingItems[index]['serialNumbers'] = currentSerials; });
+      _savePickingState();
     }
+    _pickingControllers[index]?.clear();
+    _pickingFocusNodes[index]?.requestFocus();
+  }
 
+  Future<void> _handlePickingScan(int index) async {
+    setState(() => _selectedPickingIndex = index);
     String? scannedSN;
     if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ScannerPage(
-          onScan: (code) => scannedSN = code,
-        ),
-      ),
-    );
-
-    if (scannedSN != null) {
-      _processInputScan(index, scannedSN!);
-    }
+    await Navigator.push(context, MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedSN = code)));
+    if (scannedSN != null) _processInputScan(index, scannedSN!);
   }
 
   Future<void> _savePickingState() async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('livraisons')
-          .doc(widget.livraisonId)
-          .update({'products': _pickingItems});
-    } catch (e) {
-      debugPrint("Error saving picking state: $e");
-    }
+    try { await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({'products': _pickingItems}); } catch (e) { debugPrint("Error saving: $e"); }
   }
 
   Future<void> _validatePreparation() async {
-    if (!_allPicked) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez scanner tous les articles.')),
-      );
-      return;
-    }
-
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
-
+    if (!_allPicked) return;
     setState(() => _isCompleting = true);
-
+    final currentUser = FirebaseAuth.instance.currentUser;
     try {
       final bonLivraisonCode = _livraisonDoc?.get('bonLivraisonCode') ?? 'N/A';
-
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final livraisonRef = FirebaseFirestore.instance
-            .collection('livraisons')
-            .doc(widget.livraisonId);
-
-        // ============================================================
-        // 1️⃣ PHASE 1: PRE-READ ALL DATA (Reads ONLY)
-        // ============================================================
-        // We store the snapshots in a list to use them later in Phase 2
-        List<Map<String, dynamic>> transactionOperations = [];
-
+        final livraisonRef = FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId);
+        List<Map<String, dynamic>> ops = [];
         for (final item in _pickingItems) {
-          final productId = item['productId'] as String?;
-          final quantity = item['quantity'] as int? ?? 0;
-          final productName = item['productName'] ?? 'Produit Inconnu';
-
-          if (productId != null && quantity > 0) {
-            final productDocRef = FirebaseFirestore.instance
-                .collection('produits')
-                .doc(productId);
-
-            // READ OPERATION
-            final productSnapshot = await transaction.get(productDocRef);
-
-            if (!productSnapshot.exists) {
-              throw Exception(
-                  'Produit "$productName" introuvable dans la base.');
-            }
-
-            // Store the data we need for the write phase
-            transactionOperations.add({
-              'type': 'product_update',
-              'productRef': productDocRef,
-              'snapshot': productSnapshot,
-              'item': item,
-            });
+          if (item['productId'] != null) {
+            final ref = FirebaseFirestore.instance.collection('produits').doc(item['productId']);
+            final snap = await transaction.get(ref);
+            if (snap.exists) ops.add({'ref': ref, 'snap': snap, 'item': item});
           }
         }
-
-        // ============================================================
-        // 2️⃣ PHASE 2: EXECUTE WRITES (Writes ONLY)
-        // ============================================================
-        for (final operation in transactionOperations) {
-          final DocumentReference productRef = operation['productRef'];
-          final DocumentSnapshot snapshot = operation['snapshot'];
-          final Map<String, dynamic> item = operation['item'];
-
-          final int quantity = item['quantity'] as int? ?? 0;
-          final String productName = item['productName'] ?? 'Produit Inconnu';
-          final String partNumber = item['partNumber'] ?? 'N/A';
-
-          final int currentStock =
-              (snapshot.data() as Map<String, dynamic>)['quantiteEnStock'] ?? 0;
-          final int newQuantity = currentStock - quantity;
-
-          // 1. Update Product Stock
-          transaction.update(productRef,
-              {'quantiteEnStock': FieldValue.increment(-quantity)});
-
-          // 2. Create Ledger Entry (Stock Movement)
-          final ledgerDocRef =
-          FirebaseFirestore.instance.collection('stock_movements').doc();
-          transaction.set(ledgerDocRef, {
-            'productId': item['productId'],
-            'productRef': partNumber,
-            'productName': productName,
-            'quantityChange': -quantity,
-            'oldQuantity': currentStock,
-            'newQuantity': newQuantity,
-            'type': 'PREPARATION',
-            'notes': 'Sortie pour Livraison (Preparation) - $bonLivraisonCode',
-            'userId': currentUser.uid,
-            'userDisplayName': currentUser.displayName ?? currentUser.email,
-            'timestamp': FieldValue.serverTimestamp(),
+        for (final op in ops) {
+          final int qty = op['item']['quantity'] ?? 0;
+          transaction.update(op['ref'], {'quantiteEnStock': FieldValue.increment(-qty)});
+          final ledgerRef = FirebaseFirestore.instance.collection('stock_movements').doc();
+          transaction.set(ledgerRef, {
+            'productId': op['item']['productId'], 'productName': op['item']['productName'],
+            'quantityChange': -qty, 'type': 'PREPARATION', 'notes': 'Sortie $bonLivraisonCode',
+            'timestamp': FieldValue.serverTimestamp()
           });
         }
-
-        // 3. Final Update to Livraison
-        transaction.update(livraisonRef, {
-          'status': 'En Cours de Livraison',
-          'preparedAt': FieldValue.serverTimestamp(),
-          'preparedBy': currentUser.email,
-          'products': _pickingItems,
-        });
+        transaction.update(livraisonRef, {'status': 'En Cours de Livraison', 'preparedAt': FieldValue.serverTimestamp(), 'products': _pickingItems});
       });
-
-      // ✅ NOTE: Removed _regeneratePdfAfterPicking() here because the PDF is now generated on-demand
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Préparation validée !'),
-              backgroundColor: Colors.green),
-        );
-        _loadLivraisonDetails();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Erreur Transaction: $e'),
-              backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isCompleting = false);
-    }
+      if (mounted) _loadLivraisonDetails();
+    } catch (e) { debugPrint("Error: $e"); } finally { if (mounted) setState(() => _isCompleting = false); }
   }
-
-  // ===============================================================
-  // END PICKING LOGIC
-  // ===============================================================
 
   void _scanSerializedItem(Map<String, dynamic> item) async {
     if (_isLivraisonCompleted) return;
     String? scannedCode;
-    await Navigator.push(
-        context,
-        MaterialPageRoute(
-            builder: (context) => ScannerPage(
-                onScan: (code) => scannedCode = code)));
-    final code = scannedCode?.trim();
-    if (code == null || code.isEmpty) return;
-    setState(() {
-      item['serialNumber'] = code;
-      item['scanned'] = true;
-    });
-  }
-
-  void _markBulkItemDelivered(Map<String, dynamic> item) {
-    if (_isLivraisonCompleted) return;
-    setState(() => item['delivered'] = true);
-  }
-
-  void _verifySingleFromBulk(Map<String, dynamic> item) async {
-    if (_isLivraisonCompleted) return;
-    String? scannedCode;
-    await Navigator.push(
-        context,
-        MaterialPageRoute(
-            builder: (context) => ScannerPage(
-                onScan: (code) => scannedCode = code)));
-    if (scannedCode != null && scannedCode!.isNotEmpty) {
-      setState(() => item['delivered'] = true);
-    }
+    await Navigator.push(context, MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)));
+    if (scannedCode != null) setState(() { item['serialNumber'] = scannedCode; item['scanned'] = true; });
   }
 
   Future<String?> _uploadSignature() async {
     if (_isLivraisonCompleted || _signatureController.isEmpty) return null;
-    final Uint8List? data = await _signatureController.toPngBytes();
+    final data = await _signatureController.toPngBytes();
     if (data == null) return null;
     try {
-      final b2Credentials = await _getB2UploadCredentials();
-      if (b2Credentials == null) {
-        throw Exception('Impossible de récupérer les accès B2.');
-      }
-      final fileName =
-          'livraison_signatures/${widget.livraisonId}/${DateTime.now().toIso8601String()}.png';
-      final uploadedFileMap = await _uploadBytesToB2(
-          data, fileName, 'image/png', b2Credentials);
-      return uploadedFileMap?['url'];
-    } catch (e) {
-      return null;
-    }
+      final creds = await _getB2UploadCredentials();
+      if (creds == null) return null;
+      final fileName = 'livraison_signatures/${widget.livraisonId}/${DateTime.now().millisecondsSinceEpoch}.png';
+      final res = await _uploadBytesToB2(data, fileName, 'image/png', creds);
+      return res?['url'];
+    } catch (e) { return null; }
   }
 
   Future<void> _completeLivraison() async {
     if (_isLivraisonCompleted) return;
-    // ✅ FIX: Ensure form is validated inside a Form widget context
-    if (_proofFormKey.currentState != null &&
-        !_proofFormKey.currentState!.validate()) return;
-    if (_signatureController.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez signer la livraison.')));
-      return;
-    }
-
-    if (_livraisonDoc == null) return;
-
-    // 1. Capture Signature Bytes BEFORE transaction
-    final Uint8List? signatureBytes = await _signatureController.toPngBytes();
-    if (signatureBytes == null) return;
-
+    if (_proofFormKey.currentState != null && !_proofFormKey.currentState!.validate()) return;
+    if (_signatureController.isEmpty) return;
     setState(() => _isCompleting = true);
-
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
-
     try {
-      String? signatureUrl = await _uploadSignature();
-      final livraisonData = _livraisonDoc!.data() as Map<String, dynamic>;
-      final clientId = livraisonData['clientId'];
-      final storeId = livraisonData['storeId'];
-
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final livraisonRef = FirebaseFirestore.instance
-            .collection('livraisons')
-            .doc(widget.livraisonId);
-
-        final Map<String, Map<String, dynamic>> groupedProducts = {};
-
-        // ✅ AUTO-VALIDATION: Process ALL Serialized Items
-        for (final item in _serializedItems) {
-          final key = item['partNumber'] ?? item['productName'];
-          // Skip logic here: removed the "check if scanned" condition.
-          // We assume if it's on the list, it's being delivered.
-
-          if (!groupedProducts.containsKey(key)) {
-            groupedProducts[key] = {
-              'productName': item['productName'],
-              'partNumber': item['partNumber'],
-              'quantity': 0,
-              'productId': item['productId'],
-              'serialNumbers': [],
-              'serialNumbersFound': [],
-            };
-          }
-          groupedProducts[key]!['quantity'] =
-              (groupedProducts[key]!['quantity'] as int) + 1;
-
-          final sn = item['serialNumber'] ?? item['originalSerialNumber'];
-          if (sn != null) {
-            (groupedProducts[key]!['serialNumbersFound'] as List).add(sn);
-            (groupedProducts[key]!['serialNumbers'] as List).add(sn);
-          }
-        }
-
-        // ✅ AUTO-VALIDATION: Process ALL Bulk Items
-        for (final item in _bulkItems) {
-          // Removed the check: if (item['delivered'] != true) continue;
-          // We now assume everything on the list is delivered.
-          final key = item['partNumber'] ?? item['productName'];
-          if (!groupedProducts.containsKey(key)) {
-            groupedProducts[key] = {
-              'productName': item['productName'],
-              'partNumber': item['partNumber'],
-              'quantity': item['quantity'],
-              'productId': item['productId'],
-              'serialNumbers': [],
-              'serialNumbersFound': [],
-            };
-          } else {
-            groupedProducts[key]!['quantity'] =
-                (groupedProducts[key]!['quantity'] as int) +
-                    (item['quantity'] as int);
-          }
-        }
-
-        final List<Map<String, dynamic>> updatedProductsList =
-        List<Map<String, dynamic>>.from(groupedProducts.values);
-
-        transaction.update(livraisonRef, {
-          'status': 'Livré',
-          'completedAt': FieldValue.serverTimestamp(),
-          'signatureUrl': signatureUrl,
-          'products': updatedProductsList,
-          'recipientName': _recipientNameController.text.trim(),
-          'recipientPhone': _recipientPhoneController.text.trim(),
-          'recipientEmail': _recipientEmailController.text.trim(),
-        });
-
-        // Update Installed Material
-        final materielCollectionRef = FirebaseFirestore.instance
-            .collection('clients')
-            .doc(clientId)
-            .collection('stores')
-            .doc(storeId)
-            .collection('materiel_installe');
-
-        for (final productGroup in updatedProductsList) {
-          final serialsFound =
-              productGroup['serialNumbersFound'] as List? ?? [];
-          for (final sn in serialsFound) {
-            final newMaterielDoc = materielCollectionRef.doc(sn);
-            transaction.set(newMaterielDoc, {
-              'productName': productGroup['productName'],
-              'partNumber': productGroup['partNumber'],
-              'serialNumber': sn,
-              'installationDate': FieldValue.serverTimestamp(),
-              'livraisonId': widget.livraisonId,
-            });
-          }
-        }
+      String? sigUrl = await _uploadSignature();
+      await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
+        'status': 'Livré', 'completedAt': FieldValue.serverTimestamp(), 'signatureUrl': sigUrl,
+        'recipientName': _recipientNameController.text, 'recipientPhone': _recipientPhoneController.text,
       });
-
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Livraison terminée !'), backgroundColor: Colors.green)
-        );
-      }
-
-    } catch (e) {
-      debugPrint("Error: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur lors de la livraison: $e'), backgroundColor: Colors.red)
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isCompleting = false);
-    }
+      if (mounted) Navigator.pop(context);
+    } catch (e) { debugPrint("Error: $e"); } finally { if (mounted) setState(() => _isCompleting = false); }
   }
 
-  // Helpers
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final response =
-      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
-      if (response.statusCode == 200) {
-        return json.decode(response.body) as Map<String, dynamic>;
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) return json.decode(response.body);
+    } catch (e) {} return null;
   }
 
-  Future<Map<String, String>?> _uploadBytesToB2(
-      Uint8List fileBytes,
-      String fileName,
-      String? mimeType,
-      Map<String, dynamic> b2Creds) async {
+  Future<Map<String, String>?> _uploadBytesToB2(Uint8List bytes, String name, String mime, Map<String, dynamic> creds) async {
     try {
-      final sha1Hash = sha1.convert(fileBytes).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final resp = await http.post(
-        uploadUri,
-        headers: {
-          'Authorization': b2Creds['authorizationToken'],
-          'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': mimeType ?? 'b2/x-auto',
-          'X-Bz-Content-Sha1': sha1Hash,
-          'Content-Length': fileBytes.length.toString()
-        },
-        body: fileBytes,
-      );
+      final sha1Hash = sha1.convert(bytes).toString();
+      final resp = await http.post(Uri.parse(creds['uploadUrl']), headers: {
+        'Authorization': creds['authorizationToken'], 'X-Bz-File-Name': Uri.encodeComponent(name),
+        'Content-Type': mime, 'X-Bz-Content-Sha1': sha1Hash, 'Content-Length': bytes.length.toString()
+      }, body: bytes);
       if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String)
-            .split('/')
-            .map(Uri.encodeComponent)
-            .join('/');
-        final downloadUrl =
-            (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
-        return {'url': downloadUrl, 'fileName': fileName};
+        final body = json.decode(resp.body);
+        return {'url': creds['downloadUrlPrefix'] + Uri.encodeComponent(body['fileName']), 'fileName': name};
       }
-      return null;
-    } catch (e) {
-      return null;
-    }
+    } catch (e) {} return null;
   }
 
-  Future<Map<String, String>?> _uploadFileToB2(
-      PlatformFile file, Map<String, dynamic> b2Creds) async {
-    final fileBytes = file.bytes;
-    if (fileBytes == null) return null;
-    return await _uploadBytesToB2(fileBytes, file.name, null, b2Creds);
+  // ===============================================================
+  // 🎨 NEW HIGH-QUALITY UI WIDGETS
+  // ===============================================================
+
+  Widget _buildStatusTimeline() {
+    int currentStep = 0;
+    if (_status == 'En Cours de Livraison') currentStep = 1;
+    if (_status == 'Livré') currentStep = 2;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildTimelineStep(0, "Préparation", Icons.inventory_2, currentStep >= 0),
+          _buildTimelineLine(currentStep >= 1),
+          _buildTimelineStep(1, "En Route", Icons.local_shipping, currentStep >= 1),
+          _buildTimelineLine(currentStep >= 2),
+          _buildTimelineStep(2, "Livré", Icons.check_circle, currentStep >= 2),
+        ],
+      ),
+    );
   }
 
-  Future<void> _pickMediaFiles() async {
-    final result = await FilePicker.platform.pickFiles(
-        type: FileType.media, allowMultiple: true, withData: true);
-    if (result != null) setState(() => _pickedMediaFiles.addAll(result.files));
-  }
-
-  Future<void> _uploadAndSaveMedia() async {
-    setState(() => _isUploadingMedia = true);
-    try {
-      final b2Credentials = await _getB2UploadCredentials();
-      if (b2Credentials == null) return;
-      List<Map<String, dynamic>> mediaList = List<Map<String, dynamic>>.from(
-          _existingMedia.map((e) => e as Map<String, dynamic>));
-      for (final file in _pickedMediaFiles) {
-        final uploadedFileMap = await _uploadFileToB2(file, b2Credentials);
-        if (uploadedFileMap != null) mediaList.add(uploadedFileMap);
-      }
-      await FirebaseFirestore.instance
-          .collection('livraisons')
-          .doc(widget.livraisonId)
-          .update({'deliveryMedia': mediaList});
-      setState(() {
-        _existingMedia = mediaList;
-        _pickedMediaFiles.clear();
-      });
-    } finally {
-      setState(() => _isUploadingMedia = false);
-    }
-  }
-
-  // ✅ MODIFIED: Check if Web to download/launch URL instead of using native viewer
-  Future<void> _openFile(String? urlString, String? fileName) async {
-    if (urlString == null) return;
-    final extension = path.extension(fileName ?? '').toLowerCase();
-
-    // 1. Web Check for PDF
-    if (kIsWeb && extension == '.pdf') {
-      await launchUrl(Uri.parse(urlString));
-      return;
-    }
-
-    if (['.jpg', '.jpeg', '.png'].contains(extension)) {
-      Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (context) =>
-                  ImageGalleryPage(imageUrls: [urlString], initialIndex: 0)));
-    } else if (extension == '.pdf') {
-      // 2. Mobile Logic (Fetch & View)
-      final response = await http.get(Uri.parse(urlString));
-      if (response.statusCode == 200) {
-        Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (context) => PdfViewerPage(
-                    pdfBytes: response.bodyBytes, title: fileName ?? 'PDF')));
-      }
-    }
-  }
-
-  IconData _getFileIcon(String? fileName) => Icons.description;
-
-  Widget _buildEditableSerializedItem(Map<String, dynamic> item, int index) {
-    bool isScanned = item['scanned'] ?? false;
-    final Key itemKey = ValueKey('item_${widget.livraisonId}_$index');
-    final TextEditingController snController =
-    TextEditingController(text: item['serialNumber'] ?? '');
-
-    void updateItem(String value) {
-      item['serialNumber'] = value;
-      if (value.isNotEmpty) {
-        item['scanned'] = true;
-      } else {
-        item['scanned'] = false;
-      }
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Card(
-        key: itemKey,
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        color: isScanned ? Colors.green.shade50 : Colors.white,
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      item['productName'] ?? 'Produit Inconnu',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color:
-                        isScanned ? Colors.green.shade900 : Colors.black87,
-                      ),
-                    ),
-                  ),
-                  if (isScanned)
-                    const Icon(Icons.check_circle,
-                        color: Colors.green, size: 24)
-                  else if (!_isLivraisonCompleted)
-                    IconButton(
-                      icon: const Icon(Icons.qr_code_scanner),
-                      color: Colors.blue,
-                      tooltip: 'Scanner',
-                      onPressed: () => _scanSerializedItem(item),
-                    ),
-                ],
-              ),
-              Text('Réf: ${item['partNumber'] ?? 'N/A'}',
-                  style: TextStyle(color: Colors.grey.shade700)),
-              if (item['originalSerialNumber'] != null)
-                Text('N/S Attendu: ${item['originalSerialNumber']}',
-                    style: TextStyle(color: Colors.orange.shade700)),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: snController,
-                enabled: !_isLivraisonCompleted,
-                decoration: const InputDecoration(
-                  labelText: 'Numéro de Série Scanné/Saisi',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding:
-                  EdgeInsets.symmetric(vertical: 12, horizontal: 10),
-                ),
-                onChanged: updateItem,
-              ),
-            ],
+  Widget _buildTimelineStep(int stepIndex, String label, IconData icon, bool isActive) {
+    return Column(
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 400),
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isActive ? _primaryBlue : Colors.grey.shade300,
+            boxShadow: isActive ? [BoxShadow(color: _primaryBlue.withOpacity(0.4), blurRadius: 10, spreadRadius: 2)] : [],
+          ),
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+            color: isActive ? _primaryBlue : Colors.grey,
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildTimelineLine(bool isActive) {
+    return Expanded(
+      child: Container(
+        height: 2,
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 20), // Align with circle center
+        color: isActive ? _primaryBlue : Colors.grey.shade300,
+      ),
+    );
+  }
+
+  Widget _buildWaybillCard(Map<String, dynamic> data) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5)),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Header of Card (Like a ticket)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _primaryBlue.withOpacity(0.05),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("DESTINATAIRE", style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(data['clientName'] ?? 'Client Inconnu', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  ],
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 5)],
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.map, color: Colors.blueAccent),
+                    onPressed: _launchMaps,
+                    tooltip: "Ouvrir GPS",
+                  ),
+                )
+              ],
+            ),
+          ),
+          const Divider(height: 1, thickness: 1),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on, color: Colors.grey),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    data['deliveryAddress'] ?? 'Adresse non spécifiée',
+                    style: GoogleFonts.poppins(fontSize: 14, color: Colors.black54),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogisticsCard(Map<String, dynamic> data) {
+    return Container(
+      margin: const EdgeInsets.only(top: 20, left: 4, right: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.purple.shade700, Colors.deepPurple.shade900],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.purple.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6))],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+                  child: const Icon(Icons.local_shipping, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Text("Livraison Externe", style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                const Spacer(),
+                if (data['externalCarrierName'] != null)
+                  Chip(
+                    label: Text(data['externalCarrierName'], style: GoogleFonts.poppins(color: Colors.purple.shade900, fontWeight: FontWeight.bold)),
+                    backgroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  )
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildWhiteInfoRow(Icons.person, data['externalClientName'] ?? 'N/A'),
+            const SizedBox(height: 8),
+            _buildWhiteInfoRow(Icons.phone, data['externalClientPhone'] ?? 'N/A', isLink: true),
+            const SizedBox(height: 8),
+            _buildWhiteInfoRow(Icons.location_on, data['externalClientAddress'] ?? 'N/A'),
+
+            if (data['codAmount'] != null && (data['codAmount'] as num) > 0) ...[
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.payments, color: Colors.red, size: 20),
+                    const SizedBox(width: 10),
+                    Text(
+                      "À ENCAISSER: ${data['codAmount']} DZD",
+                      style: GoogleFonts.poppins(color: Colors.red, fontWeight: FontWeight.w900, fontSize: 16),
+                    ),
+                  ],
+                ),
+              )
+            ]
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWhiteInfoRow(IconData icon, String text, {bool isLink = false}) {
+    return Row(
+      children: [
+        Icon(icon, color: Colors.white70, size: 16),
+        const SizedBox(width: 12),
+        Expanded(
+          child: InkWell(
+            onTap: isLink ? () => launchUrl(Uri.parse("tel:$text")) : null,
+            child: Text(
+              text,
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: 14,
+                decoration: isLink ? TextDecoration.underline : null,
+                decorationColor: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModernProductCard(Map<String, dynamic> item, int index, {required bool isPicking}) {
+    final int qty = item['quantity'] ?? 0;
+    final bool isBulk = item['isBulk'] == true;
+    int pickedCount = 0;
+    bool isDone = false;
+
+    if (isPicking) {
+      pickedCount = isBulk ? (item['pickedQuantity'] as int? ?? 0) : (item['serialNumbers'] as List?)?.length ?? 0;
+      isDone = pickedCount >= qty;
+    } else {
+      isDone = isBulk ? (item['delivered'] == true) : (item['scanned'] == true);
+    }
+
+    final bool isSelected = _selectedPickingIndex == index;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: isSelected ? Border.all(color: _primaryBlue, width: 2) : Border.all(color: Colors.transparent),
+        boxShadow: [
+          BoxShadow(
+            color: isDone ? _accentGreen.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          children: [
+            // Status Bar
+            if (isDone)
+              Container(height: 4, width: double.infinity, color: _accentGreen),
+
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isDone ? _accentGreen.withOpacity(0.1) : _primaryBlue.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          isBulk ? Icons.grain : Icons.qr_code_2,
+                          color: isDone ? Colors.green : _primaryBlue,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item['productName'] ?? 'Produit',
+                              style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 16),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Réf: ${item['partNumber'] ?? 'N/A'}',
+                              style: GoogleFonts.poppins(color: Colors.grey, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (isPicking)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              "$pickedCount/$qty",
+                              style: GoogleFonts.poppins(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isDone ? Colors.green : Colors.black87,
+                              ),
+                            ),
+                            if (isBulk)
+                              InkWell(
+                                onTap: () => _toggleBulkMode(index),
+                                child: Text("VRAC", style: GoogleFonts.poppins(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
+                              )
+                          ],
+                        )
+                      else
+                        Icon(isDone ? Icons.check_circle : Icons.circle_outlined, color: isDone ? Colors.green : Colors.grey.shade300)
+                    ],
+                  ),
+
+                  // Actions & Inputs Area
+                  if (isSelected && !isDone && isPicking) ...[
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    if (isBulk)
+                      Row(
+                        children: [
+                          _buildCircleBtn(Icons.remove, Colors.red, () => _manualIncrementBulk(index, -1)),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: TextField(
+                                controller: _pickingControllers[index],
+                                focusNode: _pickingFocusNodes[index],
+                                decoration: InputDecoration(
+                                  hintText: "Ref (Optionnel)",
+                                  filled: true,
+                                  fillColor: Colors.grey.shade100,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                ),
+                                onSubmitted: (val) => _processInputScan(index, val),
+                              ),
+                            ),
+                          ),
+                          _buildCircleBtn(Icons.edit, Colors.blue, () => _showBulkQuantityDialog(index)),
+                          const SizedBox(width: 8),
+                          _buildCircleBtn(Icons.add, Colors.green, () => _manualIncrementBulk(index, 1)),
+                        ],
+                      )
+                    else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _pickingControllers[index],
+                              focusNode: _pickingFocusNodes[index],
+                              decoration: InputDecoration(
+                                hintText: "Scanner N° Série...",
+                                prefixIcon: const Icon(Icons.qr_code_scanner),
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                              ),
+                              onSubmitted: (val) => _processInputScan(index, val),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          FloatingActionButton.small(
+                            heroTag: "cam_$index",
+                            backgroundColor: _primaryBlue,
+                            onPressed: () => _handlePickingScan(index),
+                            child: const Icon(Icons.camera_alt, color: Colors.white),
+                          )
+                        ],
+                      )
+                  ],
+
+                  // DELIVERY MODE INPUTS
+                  if (!isPicking && !isDone) ...[
+                    const SizedBox(height: 12),
+                    if (!isBulk)
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _scanSerializedItem(item),
+                          icon: const Icon(Icons.qr_code_scanner),
+                          label: const Text("Scanner pour Livrer"),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      )
+                    else
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => setState(() => item['delivered'] = true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _accentGreen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text("Marquer Livré"),
+                        ),
+                      )
+                  ],
+
+                  // SERIAL LIST
+                  if (!isBulk && (item['serialNumbers'] as List? ?? []).isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: (item['serialNumbers'] as List).map<Widget>((s) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                          child: Text(s, style: GoogleFonts.robotoMono(fontSize: 12, fontWeight: FontWeight.w600)), // ✅ FIXED HERE
+                        )).toList(),
+                      ),
+                    )
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCircleBtn(IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(30),
+      child: Container(
+        width: 40, height: 40,
+        decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+        child: Icon(icon, color: color, size: 20),
       ),
     );
   }
@@ -1199,332 +907,169 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(backgroundColor: _bgLight, body: Center(child: CircularProgressIndicator(color: _primaryBlue)));
     }
     if (_livraisonDoc == null) {
-      return const Scaffold(body: Center(child: Text("Erreur")));
+      return const Scaffold(body: Center(child: Text("Erreur de chargement")));
     }
 
     final data = _livraisonDoc!.data() as Map<String, dynamic>;
 
     return Scaffold(
+      backgroundColor: _bgLight,
+      extendBody: true, // For floating effect if needed
       appBar: AppBar(
-        title: Text(data['bonLivraisonCode'] ?? 'Détails'),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          data['bonLivraisonCode'] ?? 'Détails',
+          style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         actions: [
-          // ✅ ADDED: Always visible PDF button (generates on demand)
           if (_isGeneratingPdf)
-            const Padding(
-              padding: EdgeInsets.all(12.0),
-              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
-            )
+            Padding(padding: const EdgeInsets.all(12.0), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: _primaryBlue, strokeWidth: 2)))
           else
             IconButton(
-              icon: const Icon(Icons.picture_as_pdf),
-              tooltip: 'Générer le Bon de Livraison',
+              icon: Icon(Icons.picture_as_pdf_outlined, color: _primaryBlue),
               onPressed: _generateAndOpenPdf,
             ),
-
-          if (_status == 'À Préparer')
-            const Padding(
-                padding: EdgeInsets.only(right: 16),
-                child: Chip(
-                    label: Text('Préparation'),
-                    backgroundColor: Colors.orange))
         ],
       ),
+      bottomNavigationBar: (!_isLivraisonCompleted && !_isLoading) ? _buildStickyFooter() : null,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.only(bottom: 120), // Spacing for footer
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Info
-            Card(
-              child: ListTile(
-                title: Text(data['clientName'] ?? 'Client'),
-                subtitle: Text(data['deliveryAddress'] ?? 'Adresse'),
-                trailing: IconButton(
-                    icon: const Icon(Icons.map), onPressed: _launchMaps),
+            _buildStatusTimeline(),
+            _buildWaybillCard(data),
+
+            if (data['deliveryMethod'] == 'Livraison Externe')
+              _buildLogisticsCard(data),
+
+            const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                _isPickingMode ? "LISTE DE PRÉPARATION" : "LISTE DE LIVRAISON",
+                style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: Colors.grey.shade600),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
 
-            // ================== PICKING MODE ==================
-            if (_isPickingMode) ...[
-              Text('Liste de Préparation',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 10),
-
-              ListView.builder(
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _isPickingMode
+                  ? ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: _pickingItems.length,
                 itemBuilder: (context, index) {
-                  final item = _pickingItems[index];
-                  final int qty = item['quantity'] ?? 0;
-                  final bool isBulk = item['isBulk'] == true;
-
-                  // Picking Progress
-                  int pickedCount = 0;
-                  if (isBulk) {
-                    pickedCount = item['pickedQuantity'] as int? ?? 0;
-                  } else {
-                    pickedCount = (item['serialNumbers'] as List?)?.length ?? 0;
-                  }
-
-                  final bool isFull = pickedCount >= qty;
-                  final bool isSelected = _selectedPickingIndex == index;
-
-                  // Ensure Controller
-                  if (!_pickingControllers.containsKey(index)) {
-                    _pickingControllers[index] = TextEditingController();
-                    _pickingFocusNodes[index] = FocusNode();
-                  }
-
                   return GestureDetector(
-                    onTap: () {
-                      if (!isFull) setState(() => _selectedPickingIndex = index);
-                    },
-                    child: Card(
-                      color: isFull
-                          ? Colors.green.shade50
-                          : (isSelected
-                          ? Colors.blue.shade50
-                          : Colors.white),
-                      shape: isSelected
-                          ? RoundedRectangleBorder(
-                          side: const BorderSide(
-                              color: Colors.blue, width: 2),
-                          borderRadius: BorderRadius.circular(12))
-                          : null,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                    child: Text(
-                                        item['productName'] ?? 'Produit',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold))),
-                                // ✅ MODE TOGGLE
-                                IconButton(
-                                  icon: Icon(
-                                      isBulk ? Icons.numbers : Icons.qr_code,
-                                      color: Colors.blueGrey),
-                                  tooltip: isBulk
-                                      ? "Mode Quantité (Bulk)"
-                                      : "Mode Série (Unique)",
-                                  onPressed: () => _toggleBulkMode(index),
-                                )
-                              ],
-                            ),
-                            Text('Ref: ${item['partNumber'] ?? 'N/A'}'),
-                            const SizedBox(height: 8),
-                            LinearProgressIndicator(
-                                value: qty > 0 ? pickedCount / qty : 0,
-                                backgroundColor: Colors.grey[200],
-                                color: isFull ? Colors.green : Colors.blue),
-                            const SizedBox(height: 8),
-
-                            // Status Row
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Text(
-                                        '$pickedCount / $qty ${isBulk ? "unités" : "scannés"}',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold)),
-                                    // ✅ EDIT BUTTON FOR BULK
-                                    if (isBulk)
-                                      IconButton(
-                                        icon: const Icon(Icons.edit,
-                                            size: 18, color: Colors.blue),
-                                        onPressed: () =>
-                                            _showBulkQuantityDialog(index),
-                                        tooltip: "Saisir quantité",
-                                        visualDensity: VisualDensity.compact,
-                                      ),
-                                  ],
-                                ),
-                                if (!isFull)
-                                  TextButton.icon(
-                                      icon: const Icon(Icons.camera_alt,
-                                          size: 16),
-                                      label: const Text('Cam'),
-                                      onPressed: () =>
-                                          _handlePickingScan(index))
-                              ],
-                            ),
-
-                            // Input Area
-                            if (!isFull && isSelected) ...[
-                              const SizedBox(height: 8),
-                              if (isBulk)
-                              // BULK CONTROLS
-                                Row(
-                                  children: [
-                                    IconButton(
-                                        onPressed: () =>
-                                            _manualIncrementBulk(index, -1),
-                                        icon: const Icon(Icons.remove_circle,
-                                            color: Colors.red)),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _pickingControllers[index],
-                                        focusNode: _pickingFocusNodes[index],
-                                        decoration: const InputDecoration(
-                                            labelText:
-                                            'Scanner Référence (Optionnel)',
-                                            border: OutlineInputBorder(),
-                                            isDense: true),
-                                        onSubmitted: (val) =>
-                                            _processInputScan(index, val),
-                                      ),
-                                    ),
-                                    IconButton(
-                                        onPressed: () =>
-                                            _manualIncrementBulk(index, 1),
-                                        icon: const Icon(Icons.add_circle,
-                                            color: Colors.green)),
-                                  ],
-                                )
-                              else
-                              // SERIAL CONTROLS
-                                TextField(
-                                  controller: _pickingControllers[index],
-                                  focusNode: _pickingFocusNodes[index],
-                                  decoration: const InputDecoration(
-                                      labelText: 'Scanner N° Série',
-                                      border: OutlineInputBorder(),
-                                      prefixIcon: Icon(Icons.qr_code),
-                                      isDense: true),
-                                  onSubmitted: (val) =>
-                                      _processInputScan(index, val),
-                                ),
-                            ],
-
-                            // Serial List (Only for Serial Mode)
-                            if (!isBulk &&
-                                (item['serialNumbers'] as List? ?? [])
-                                    .isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Wrap(
-                                    spacing: 4,
-                                    children: (item['serialNumbers'] as List)
-                                        .map<Widget>((s) => Chip(
-                                        label: Text(s),
-                                        onDeleted: isFull
-                                            ? null
-                                            : () {
-                                          setState(() {
-                                            (item['serialNumbers']
-                                            as List)
-                                                .remove(s);
-                                          });
-                                          _savePickingState();
-                                        }))
-                                        .toList()),
-                              )
-                          ],
-                        ),
-                      ),
-                    ),
+                    onTap: () { if (_selectedPickingIndex != index) setState(() => _selectedPickingIndex = index); },
+                    child: _buildModernProductCard(_pickingItems[index], index, isPicking: true),
                   );
                 },
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                      onPressed: (_isCompleting || !_allPicked)
-                          ? null
-                          : _validatePreparation,
-                      icon: const Icon(Icons.check),
-                      label: const Text("Valider la Préparation"))),
-            ]
-
-            // ================== DELIVERY MODE ==================
-            else ...[
-              if (_serializedItems.isNotEmpty) ...[
-                const Text("Produits Sérialisés",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _serializedItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _serializedItems[index];
-                      return _buildEditableSerializedItem(item, index);
-                    })
-              ],
-              if (_bulkItems.isNotEmpty) ...[
-                const Text("Produits Vrac",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _bulkItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _bulkItems[index];
-                      bool isDelivered = item['delivered'] == true;
-                      return ListTile(
-                        title: Text(item['productName']),
-                        subtitle: Text('Qté: ${item['quantity']}'),
-                        trailing: isDelivered
-                            ? const Icon(Icons.check, color: Colors.green)
-                            : ElevatedButton(
-                            child: const Text("Livré"),
-                            onPressed: () =>
-                                setState(() => item['delivered'] = true)),
-                      );
-                    })
-              ],
-              const Divider(),
-              // ✅ FIXED: Wrapped inputs in Form to prevent crash on validate()
-              Form(
-                key: _proofFormKey,
-                child: Column(
-                  children: [
-                    TextFormField(
-                      controller: _recipientNameController,
-                      decoration:
-                      const InputDecoration(labelText: 'Réceptionnaire'),
-                      validator: (value) =>
-                      (value == null || value.trim().isEmpty)
-                          ? 'Veuillez saisir le nom'
-                          : null,
-                    ),
-                    const SizedBox(height: 20),
-                    if (!_isLivraisonCompleted)
-                      Signature(
-                          controller: _signatureController,
-                          height: 150,
-                          backgroundColor: Colors.grey[200]!),
-                    const SizedBox(height: 20),
-                    // ✅ MODIFIED: Show status text if completing delivery (generating PDF)
-                    if (_isCompleting)
-                      Column(
-                        children: [
-                          const CircularProgressIndicator(),
-                          const SizedBox(height: 8),
-                          Text(_loadingStatus, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                        ],
-                      )
-                    else
-                      SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                              onPressed: _completeLivraison,
-                              child: const Text("Confirmer Livraison"))),
+              )
+                  : Column(
+                children: [
+                  if (_serializedItems.isNotEmpty) ...[
+                    Padding(padding: const EdgeInsets.only(bottom: 8), child: Text("Produits Sérialisés", style: GoogleFonts.poppins(fontWeight: FontWeight.bold))),
+                    ..._serializedItems.map((item) => _buildModernProductCard(item, 0, isPicking: false)).toList(),
                   ],
-                ),
+                  if (_bulkItems.isNotEmpty) ...[
+                    Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text("Produits Vrac", style: GoogleFonts.poppins(fontWeight: FontWeight.bold))),
+                    ..._bulkItems.map((item) => _buildModernProductCard(item, 0, isPicking: false)).toList(),
+                  ],
+                  // SIGNATURE SECTION FOR DELIVERY
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+                    child: Form(
+                      key: _proofFormKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Preuve de Livraison", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _recipientNameController,
+                            decoration: InputDecoration(
+                              labelText: 'Nom du Réceptionnaire',
+                              prefixIcon: const Icon(Icons.person_outline),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              filled: true, fillColor: Colors.grey.shade50,
+                            ),
+                            validator: (v) => (v == null || v.isEmpty) ? 'Requis' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          Container(
+                            height: 180,
+                            decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12), color: Colors.grey.shade50),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Signature(controller: _signatureController, backgroundColor: Colors.transparent),
+                            ),
+                          ),
+                          Center(
+                            child: TextButton(
+                              onPressed: () => _signatureController.clear(),
+                              child: const Text("Effacer Signature"),
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  )
+                ],
               ),
-            ]
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStickyFooter() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, -5))],
+      ),
+      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewPadding.bottom + 20),
+      child: SafeArea(
+        top: false,
+        child: _isCompleting
+            ? Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: 16),
+            Text("Traitement en cours...", style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.w600)),
+          ],
+        )
+            : SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            onPressed: (_isPickingMode && !_allPicked) ? null : (_isPickingMode ? _validatePreparation : _completeLivraison),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _isPickingMode ? Colors.orange.shade800 : _primaryBlue,
+              elevation: 8,
+              shadowColor: (_isPickingMode ? Colors.orange : _primaryBlue).withOpacity(0.5),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            child: Text(
+              _isPickingMode ? "VALIDER PRÉPARATION" : "CONFIRMER LIVRAISON",
+              style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1),
+            ),
+          ),
         ),
       ),
     );

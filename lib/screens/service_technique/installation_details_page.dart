@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart'; // ✅ For kIsWeb
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ Typography
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_report_page.dart';
@@ -50,11 +51,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   DateTime? _scheduledDate;
   List<AppUser> _allTechnicians = [];
   List<AppUser> _assignedTechnicians = [];
-  List<String> _effectiveTechniciansNames =
-  []; // Technicians who actually did the job
+  List<String> _effectiveTechniciansNames = [];
   bool _isLoading = false;
-  Map<String, dynamic>? _installationReport; // Holds the report data if 'Terminée'
-  static const Color primaryColor = Colors.green;
+  Map<String, dynamic>? _installationReport;
+
+  // 🎨 THEME COLORS
+  final Color _primaryBlue = const Color(0xFF2962FF);
+  final Color _bgLight = const Color(0xFFF4F6F9);
+  final Color _cardWhite = Colors.white;
+  final Color _textDark = const Color(0xFF2D3436);
 
   @override
   void initState() {
@@ -65,21 +70,23 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   void _initializeData() {
     final data = widget.installationDoc.data() as Map<String, dynamic>;
 
-    // 1. Parse Date
+    // ✅ FIX 1: Safe Date Parsing
     if (data['installationDate'] != null) {
-      _scheduledDate = (data['installationDate'] as Timestamp).toDate();
+      if (data['installationDate'] is Timestamp) {
+        _scheduledDate = (data['installationDate'] as Timestamp).toDate();
+      } else {
+        // If it's a string or other format, ignore it or parse manually if needed
+        _scheduledDate = null;
+      }
     }
 
-    // 2. ✅ FIXED: Parse Assigned Technicians (Handles BOTH Old List<String> and New List<Map>)
-    if (data['assignedTechnicians'] != null) {
+    // ✅ FIX 2: Safe Technician List Parsing
+    if (data['assignedTechnicians'] != null && data['assignedTechnicians'] is List) {
       final rawList = data['assignedTechnicians'] as List;
       _assignedTechnicians = rawList.map((item) {
         if (item is String) {
-          // LEGACY DATA: It is just an ID string.
-          // We set a placeholder name. _fetchTechnicians will "heal" this shortly.
           return AppUser(uid: item, displayName: 'Chargement...');
         } else if (item is Map) {
-          // NEW DATA: It is a Map object.
           return AppUser(
               uid: item['uid'] ?? '',
               displayName: item['displayName'] ?? 'Inconnu');
@@ -88,20 +95,16 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       }).toList();
     }
 
-    // 3. Fetch list of all techs (and resolve Legacy IDs)
     _fetchTechnicians();
 
-    // 4. If status is completed, fetch the report safely
-    if (data['status'] == 'Terminée') {
+    if (data['status'] == 'Terminée' || data.containsKey('signatureUrl')) {
       _fetchReportDetails();
     }
   }
 
-  /// ✅ FIXED: Safely fetches report details without hanging indefinitely
   Future<void> _fetchReportDetails() async {
     setState(() => _isLoading = true);
     try {
-      // Attempt 1: Check Subcollection (Standard path)
       final reportSnapshot = await FirebaseFirestore.instance
           .collection('installations')
           .doc(widget.installationDoc.id)
@@ -114,13 +117,11 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       if (reportSnapshot.docs.isNotEmpty) {
         reportData = reportSnapshot.docs.first.data();
       } else {
-        // Attempt 2: Fallback to main document (in case data was saved flat)
         final mainDoc = await FirebaseFirestore.instance
             .collection('installations')
             .doc(widget.installationDoc.id)
             .get();
         final mainData = mainDoc.data();
-        // Check if main doc has report-like fields
         if (mainData != null &&
             (mainData.containsKey('effectiveTechnicians') ||
                 mainData.containsKey('signatureUrl') ||
@@ -130,14 +131,12 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       }
 
       if (reportData != null) {
-        // ✅ FIXED: Check BOTH possible field names for technicians
         if (reportData.containsKey('effectiveTechnicians')) {
           final rawTechs = reportData['effectiveTechnicians'];
           if (rawTechs is List) {
             _effectiveTechniciansNames = List<String>.from(rawTechs);
           }
         } else if (reportData.containsKey('assignedTechnicianNames')) {
-          // Fallback for data coming from the Report Page
           final rawTechs = reportData['assignedTechnicianNames'];
           if (rawTechs is List) {
             _effectiveTechniciansNames = List<String>.from(rawTechs);
@@ -151,9 +150,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         }
       }
     } catch (e) {
-      print("Error fetching report: $e");
+      debugPrint("Error fetching report: $e");
     } finally {
-      // ✅ VITAL: Ensure loading stops no matter what
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -180,17 +178,13 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               'Utilisateur Inconnu'))
           .toList();
 
-      // ✅ VISION FIX: "Self-Healing" Legacy Data
-      // If we have "Chargement..." names (from Legacy IDs), we replace them with real names now.
       List<AppUser> healedAssignedList = [];
       for (var assigned in _assignedTechnicians) {
         try {
-          // Try to find the user in the full directory
           final match =
           allTechnicians.firstWhere((tech) => tech.uid == assigned.uid);
           healedAssignedList.add(match);
         } catch (e) {
-          // If user not found (deleted?), keep original
           if (assigned.displayName == 'Chargement...') {
             healedAssignedList.add(AppUser(
                 uid: assigned.uid, displayName: 'Technicien (Ex-employé)'));
@@ -203,18 +197,17 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       if (mounted) {
         setState(() {
           _allTechnicians = allTechnicians;
-          _assignedTechnicians = healedAssignedList; // Update UI with real names
+          _assignedTechnicians = healedAssignedList;
         });
       }
     } catch (e) {
-      print("Error fetching users: $e");
+      debugPrint("Error fetching users: $e");
     }
   }
 
   Future<void> _saveSchedule() async {
     setState(() => _isLoading = true);
     try {
-      // This will overwrite Old IDs with New Objects, effectively migrating the data
       final techniciansToSave = _assignedTechnicians
           .map((user) => {'uid': user.uid, 'displayName': user.displayName})
           .toList();
@@ -245,7 +238,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             _scheduledDate != null ? Colors.green : Colors.orange));
       }
     } catch (e) {
-      print("Error saving schedule: $e");
+      debugPrint("Error saving schedule: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -259,7 +252,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Planifier l\'Installation'),
+          title: Text('Planification', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -270,14 +264,14 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                           ? 'Sélectionner une date'
                           : DateFormat('dd MMMM yyyy', 'fr_FR')
                           .format(tempDate!),
-                      style: TextStyle(
+                      style: GoogleFonts.poppins(
                           color: tempDate == null ? Colors.red : Colors.black)),
                   trailing: tempDate != null
                       ? IconButton(
                     icon: const Icon(Icons.close, color: Colors.red),
                     onPressed: () =>
                         setDialogState(() => tempDate = null),
-                    tooltip: "Retirer la date (Reporter)",
+                    tooltip: "Reporter",
                   )
                       : const Icon(Icons.calendar_today),
                   onTap: () async {
@@ -292,16 +286,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                       borderRadius: BorderRadius.circular(8),
                       side: BorderSide(color: Colors.grey.shade400)),
                 ),
-                if (tempDate != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: TextButton.icon(
-                        onPressed: () => setDialogState(() => tempDate = null),
-                        icon:
-                        const Icon(Icons.event_busy, color: Colors.orange),
-                        label: const Text("Reporter / Date indéterminée",
-                            style: TextStyle(color: Colors.orange))),
-                  ),
                 const SizedBox(height: 16),
                 MultiSelectDialogField<AppUser>(
                   items: _allTechnicians
@@ -309,10 +293,11 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                       MultiSelectItem<AppUser>(user, user.displayName))
                       .toList(),
                   initialValue: tempTechnicians,
-                  title: const Text("Sélectionner Techniciens"),
-                  buttonText: const Text("Assigner à (Optionnel)"),
+                  title: const Text("Techniciens"),
+                  buttonText: const Text("Assigner l'équipe"),
+                  buttonIcon: const Icon(Icons.person_add_alt),
                   decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade600),
+                      border: Border.all(color: Colors.grey.shade400),
                       borderRadius: BorderRadius.circular(8)),
                   onConfirm: (results) =>
                   tempTechnicians = results.cast<AppUser>(),
@@ -324,7 +309,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           actions: [
             TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Annuler')),
+                child: Text('Annuler', style: GoogleFonts.poppins())),
             ElevatedButton(
               onPressed: () {
                 setState(() {
@@ -334,7 +319,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 Navigator.of(ctx).pop();
                 _saveSchedule();
               },
-              child: const Text('Enregistrer'),
+              style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue),
+              child: Text('Enregistrer', style: GoogleFonts.poppins(color: Colors.white)),
             ),
           ],
         ),
@@ -342,35 +328,16 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ----------------------------------------------------------------
-  // ✅ CLOUD PDF LOGIC
-  // ----------------------------------------------------------------
-
+  // ... (PDF / Share Functions) ...
   Future<Map<String, dynamic>?> _fetchPdfBytes() async {
     setState(() => _isLoading = true);
     try {
       final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('getInstallationPdf')
           .call({'installationId': widget.installationDoc.id});
-
       final data = result.data as Map<dynamic, dynamic>;
-      final String base64Pdf = data['pdfBase64'];
-      final String filename = data['filename'];
-      final bytes = base64Decode(base64Pdf);
-
-      return {'bytes': bytes, 'filename': filename};
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Erreur PDF Cloud: $e'),
-              backgroundColor: Colors.red),
-        );
-      }
-      return null;
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+      return {'bytes': base64Decode(data['pdfBase64']), 'filename': data['filename']};
+    } catch (e) { return null; } finally { if (mounted) setState(() => _isLoading = false); }
   }
 
   Future<File> _saveFileForMobile(Uint8List bytes, String filename) async {
@@ -383,728 +350,477 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   Future<void> _generateAndDownloadPDF() async {
     final pdfData = await _fetchPdfBytes();
     if (pdfData == null) return;
-
-    final bytes = pdfData['bytes'] as Uint8List;
-    final filename = pdfData['filename'] as String;
-
     if (kIsWeb) {
-      await FileSaver.instance.saveFile(
-        name: filename.replaceAll('.pdf', ''),
-        bytes: bytes,
-        ext: 'pdf',
-        mimeType: MimeType.pdf,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Téléchargement démarré...'),
-              backgroundColor: Colors.green),
-        );
-      }
+      await FileSaver.instance.saveFile(name: pdfData['filename'].replaceAll('.pdf', ''), bytes: pdfData['bytes'], ext: 'pdf', mimeType: MimeType.pdf);
     } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PdfViewerPage(
-            pdfBytes: bytes,
-            title: filename,
-          ),
-        ),
-      );
+      Navigator.push(context, MaterialPageRoute(builder: (_) => PdfViewerPage(pdfBytes: pdfData['bytes'], title: pdfData['filename'])));
     }
   }
 
   Future<void> _shareViaWhatsApp() async {
     if (kIsWeb) return;
     final pdfData = await _fetchPdfBytes();
-    if (pdfData == null) return;
-
-    final bytes = pdfData['bytes'] as Uint8List;
-    final filename = pdfData['filename'] as String;
-    final file = await _saveFileForMobile(bytes, filename);
-    final data = widget.installationDoc.data() as Map<String, dynamic>;
-    final message =
-        "Voici le rapport d'installation pour ${data['clientName'] ?? 'Client'}.";
-    await Share.shareXFiles([XFile(file.path)], text: message);
+    if (pdfData != null) {
+      final file = await _saveFileForMobile(pdfData['bytes'], pdfData['filename']);
+      await Share.shareXFiles([XFile(file.path)], text: "Rapport Installation");
+    }
   }
 
   Future<void> _shareViaEmail() async {
     if (kIsWeb) return;
     final pdfData = await _fetchPdfBytes();
-    if (pdfData == null) return;
-
-    final bytes = pdfData['bytes'] as Uint8List;
-    final filename = pdfData['filename'] as String;
-    final file = await _saveFileForMobile(bytes, filename);
-    final data = widget.installationDoc.data() as Map<String, dynamic>;
-    final subject =
-        "Rapport Installation: ${data['installationCode'] ?? 'N/A'}";
-    final body =
-        "Bonjour,\n\nVeuillez trouver ci-joint le rapport d'installation.\n\nCordialement.";
-    await Share.shareXFiles([XFile(file.path)], subject: subject, text: body);
+    if (pdfData != null) {
+      final file = await _saveFileForMobile(pdfData['bytes'], pdfData['filename']);
+      await Share.shareXFiles([XFile(file.path)], subject: "Rapport", text: "Ci-joint le rapport.");
+    }
   }
 
-  // ----------------------------------------------------------------
-  // UI BUILDERS
-  // ----------------------------------------------------------------
+  Future<void> _launchMaps(String? address) async {
+    if (address == null) return;
+    final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}");
+    if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
 
   bool _isVideoUrl(String path) {
-    final lowercasePath = path.toLowerCase();
-    return lowercasePath.endsWith('.mp4') ||
-        lowercasePath.endsWith('.mov') ||
-        lowercasePath.endsWith('.avi') ||
-        lowercasePath.endsWith('.mkv');
+    final l = path.toLowerCase();
+    return l.endsWith('.mp4') || l.endsWith('.mov') || l.endsWith('.avi');
   }
 
-  Widget _buildDetailRow(String label, dynamic value, [Color? color]) {
-    final displayValue = value is bool
-        ? (value ? 'Oui' : 'Non')
-        : (value ?? 'N/A').toString();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
+  // ===============================================================
+  // 🎨 NEW HIGH-QUALITY UI WIDGETS
+  // ===============================================================
+
+  Widget _buildTimeline(String status) {
+    int step = 0;
+    if (status == 'Planifiée') step = 1;
+    if (status == 'En Cours') step = 2;
+    if (status == 'Terminée') step = 3;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 20),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(
-            flex: 4,
-            child: Text(label,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-          ),
-          Expanded(
-            flex: 6,
-            child: Text(displayValue,
-                style: TextStyle(
-                    fontWeight: FontWeight.w600, color: color, fontSize: 14)),
-          ),
+          _buildStep(0, "Attente", Icons.schedule, step >= 0),
+          _buildLine(step >= 1),
+          _buildStep(1, "Planifié", Icons.event_available, step >= 1),
+          _buildLine(step >= 2),
+          _buildStep(2, "En Cours", Icons.handyman, step >= 2),
+          _buildLine(step >= 3),
+          _buildStep(3, "Terminé", Icons.check_circle, step >= 3),
         ],
       ),
     );
   }
 
-  Widget _buildBooleanRow(String label, dynamic value, [String? notes]) {
-    if (value == null) return const SizedBox.shrink();
-    final bool isYes = value == true;
-    final String statusText = isYes ? 'Oui' : 'Non';
-    final Color statusColor =
-    isYes ? Colors.green.shade700 : Colors.red.shade700;
+  Widget _buildStep(int idx, String label, IconData icon, bool active) {
+    return Column(
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: active ? _primaryBlue : Colors.grey.shade300,
+            shape: BoxShape.circle,
+            boxShadow: active ? [BoxShadow(color: _primaryBlue.withOpacity(0.4), blurRadius: 8)] : [],
+          ),
+          child: Icon(icon, color: Colors.white, size: 18),
+        ),
+        const SizedBox(height: 6),
+        Text(label, style: GoogleFonts.poppins(fontSize: 10, color: active ? _primaryBlue : Colors.grey)),
+      ],
+    );
+  }
+
+  Widget _buildLine(bool active) {
+    return Container(width: 20, height: 2, color: active ? _primaryBlue : Colors.grey.shade300, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 15));
+  }
+
+  Widget _buildJobTicket(Map<String, dynamic> data) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))]),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: _primaryBlue.withOpacity(0.05), borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("CLIENT", style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(data['clientName'] ?? 'Inconnu', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: IconButton(icon: const Icon(Icons.map, color: Colors.blue), onPressed: () => _launchMaps(data['storeName'])),
+                )
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                // ✅ ADDED: Contact Name
+                _buildInfoRow(Icons.person, data['contactName'] ?? 'Contact non spécifié'),
+                const SizedBox(height: 8),
+                _buildInfoRow(Icons.phone, data['clientPhone'] ?? 'N/A', isLink: true),
+                const SizedBox(height: 8),
+                _buildInfoRow(Icons.store, data['storeName'] ?? 'Magasin Inconnu'),
+                const SizedBox(height: 8),
+                _buildInfoRow(Icons.description, data['initialRequest'] ?? 'Pas de description'),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String text, {bool isLink = false}) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.grey.shade500),
+        const SizedBox(width: 10),
+        Expanded(
+          child: InkWell(
+            onTap: isLink ? () => launchUrl(Uri.parse("tel:$text")) : null,
+            child: Text(text, style: GoogleFonts.poppins(fontSize: 14, color: isLink ? Colors.blue : _textDark, decoration: isLink ? TextDecoration.underline : null)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ NEW: Completion Report Card (Notes + Signature)
+  Widget _buildCompletionReport() {
+    // Only show if we have data
+    final notes = _installationReport?['notes'] ?? widget.installationDoc['notes'];
+    final signName = _installationReport?['signatoryName'] ?? widget.installationDoc['signatoryName'];
+    final signUrl = _installationReport?['signatureUrl'] ?? widget.installationDoc['signatureUrl'];
+
+    if (notes == null && signUrl == null) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(top: 20),
+      color: Colors.green.shade50,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.green.shade200)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.verified, color: Colors.green, size: 20),
+              const SizedBox(width: 8),
+              Text("RAPPORT DE CLÔTURE", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.green.shade800, letterSpacing: 1)),
+            ]),
+            const Divider(color: Colors.green),
+            if (notes != null) ...[
+              const SizedBox(height: 8),
+              Text("Description / Notes:", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.green.shade900)),
+              Text(notes, style: GoogleFonts.poppins(fontSize: 14, color: _textDark)),
+            ],
+            if (signUrl != null) ...[
+              const SizedBox(height: 16),
+              Text("Signature:", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.green.shade900)),
+              const SizedBox(height: 4),
+              Container(
+                height: 100,
+                width: double.infinity,
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                child: Image.network(signUrl, fit: BoxFit.contain),
+              ),
+              if (signName != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text("Signé par: $signName", style: GoogleFonts.poppins(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey.shade700)),
+                ),
+            ]
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTechnicianList() {
+    bool hasReport = _effectiveTechniciansNames.isNotEmpty;
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [Icon(Icons.engineering, color: _primaryBlue, size: 20), const SizedBox(width: 8), Text(hasReport ? "Techs Effectifs" : "Techs Planifiés", style: GoogleFonts.poppins(fontWeight: FontWeight.w600))]),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              children: hasReport
+                  ? _effectiveTechniciansNames.map((name) => Chip(label: Text(name), avatar: const Icon(Icons.check_circle, size: 16, color: Colors.green), backgroundColor: Colors.green.shade50)).toList()
+                  : _assignedTechnicians.isNotEmpty
+                  ? _assignedTechnicians.map((u) => Chip(label: Text(u.displayName), avatar: const Icon(Icons.account_circle, size: 16), backgroundColor: Colors.blue.shade50)).toList()
+                  : [Text("Non assigné", style: GoogleFonts.poppins(fontStyle: FontStyle.italic, color: Colors.grey))],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ FIX 3: Safe Product List Parsing
+  Widget _buildProductsCard(dynamic products) {
+    List safeProducts = [];
+    if (products is List) {
+      safeProducts = products;
+    }
+
+    if (safeProducts.isEmpty) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("MATÉRIEL À INSTALLER", style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600)),
+            const SizedBox(height: 10),
+            ...safeProducts.map((p) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.inbox, size: 16, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(p['productName'] ?? 'N/A', style: GoogleFonts.poppins(fontSize: 14))),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: Text("x${p['quantity']}", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+                  )
+                ],
+              ),
+            ))
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTechEvalList(List<dynamic> evals) {
+    if (evals.isEmpty) return const SizedBox.shrink();
+    return Column(
+      children: evals.asMap().entries.map((entry) {
+        final Map<String, dynamic> e = entry.value ?? {};
+        return Card(
+          elevation: 0,
+          margin: const EdgeInsets.only(bottom: 12),
+          color: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
+          child: ExpansionTile(
+            title: Text("Évaluation Tech #${entry.key + 1}", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            leading: Icon(Icons.square_foot, color: _primaryBlue),
+            backgroundColor: Colors.transparent,
+            childrenPadding: const EdgeInsets.all(16),
+            children: [
+              _buildDetailRow('Entrée', e['entranceType']),
+              _buildDetailRow('Porte', e['doorType']),
+              _buildBooleanRow('Alim. Élec', e['isPowerAvailable']),
+              _buildBooleanRow('Conduit', e['isConduitAvailable']),
+              if (e['generalNotes'] != null) Text("Note: ${e['generalNotes']}", style: GoogleFonts.poppins(fontStyle: FontStyle.italic, fontSize: 12, color: Colors.grey.shade700)),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildDetailRow(String label, dynamic val) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(children: [Text("$label: ", style: GoogleFonts.poppins(color: Colors.grey)), Expanded(child: Text(val?.toString() ?? 'N/A', style: GoogleFonts.poppins(fontWeight: FontWeight.w500)))]),
+    );
+  }
+
+  Widget _buildBooleanRow(String label, bool? val) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(children: [
+        Text("$label: ", style: GoogleFonts.poppins(color: Colors.grey)),
+        Icon(val == true ? Icons.check : Icons.close, size: 16, color: val == true ? Colors.green : Colors.red),
+        const SizedBox(width: 4),
+        Text(val == true ? "Oui" : "Non", style: GoogleFonts.poppins(fontWeight: FontWeight.w500, color: val == true ? Colors.green : Colors.red))
+      ]),
+    );
+  }
+
+  // ✅ FIX 4: Safe Media Gallery Parsing
+  Widget _buildMediaGallery(Map<String, dynamic> data) {
+    final rawMedia = data['mediaUrls'];
+    final List<String> urls = (rawMedia is List)
+        ? rawMedia.map((e) => e.toString()).toList()
+        : [];
+
+    if (urls.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildDetailRow(label, statusText, statusColor),
-        if (notes != null && notes.isNotEmpty)
-          Padding(
-            padding:
-            const EdgeInsets.only(left: 32.0, bottom: 8.0, right: 16.0),
-            child: Text('Détails: $notes',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
-                    color: isYes ? Colors.grey.shade600 : Colors.red.shade400)),
+        Text("GALERIE MÉDIA", style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600)),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: urls.length,
+            itemBuilder: (ctx, i) {
+              final url = urls[i];
+              final isVideo = _isVideoUrl(url);
+              return GestureDetector(
+                onTap: () {
+                  if (isVideo) {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)));
+                  } else {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => ImageGalleryPage(imageUrls: urls.where((u) => !_isVideoUrl(u)).toList(), initialIndex: 0)));
+                  }
+                },
+                child: Container(
+                  width: 100,
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(12)),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: isVideo
+                        ? Center(child: Icon(Icons.play_circle_fill, color: _primaryBlue, size: 32))
+                        : Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.error)),
+                  ),
+                ),
+              );
+            },
           ),
+        ),
       ],
     );
-  }
-
-  List<Widget> _buildTechnicalEvaluation(List<dynamic> evaluations) {
-    if (evaluations.isEmpty) return [];
-
-    return evaluations.asMap().entries.map((entry) {
-      Map<String, dynamic> evalData = (entry.value is Map)
-          ? Map<String, dynamic>.from(entry.value as Map)
-          : {};
-      if (evalData.isEmpty) return const SizedBox.shrink();
-
-      List<Widget> details = [
-        _buildDetailRow('Type d\'entrée', evalData['entranceType']),
-        _buildDetailRow('Type de porte', evalData['doorType']),
-        _buildDetailRow(
-            'Largeur entrée', '${evalData['entranceWidth'] ?? 'N/A'} m'),
-        _buildDetailRow(
-            'Longeur entrée', '${evalData['entranceLength'] ?? 'N/A'} m'),
-        const Divider(height: 1),
-        _buildBooleanRow('Alimentation', evalData['isPowerAvailable'],
-            evalData['powerNotes']),
-        _buildBooleanRow('Sol Fini', evalData['isFloorFinalized']),
-        _buildBooleanRow('Conduit', evalData['isConduitAvailable']),
-        _buildBooleanRow('Tranchée', evalData['canMakeTrench']),
-        _buildBooleanRow(
-            'Obstacles', evalData['hasObstacles'], evalData['obstacleNotes']),
-        if (evalData['generalNotes'] != null)
-          _buildDetailRow('Notes', evalData['generalNotes']),
-      ];
-
-      return Card(
-        elevation: 2,
-        margin: const EdgeInsets.only(bottom: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: ExpansionTile(
-          initiallyExpanded: false,
-          tilePadding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          leading: Icon(Icons.square_foot_outlined, color: primaryColor),
-          title: Text('Évaluation Technique #${entry.key + 1}',
-              style:
-              const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          children: [
-            const Divider(height: 1),
-            Column(
-                crossAxisAlignment: CrossAxisAlignment.start, children: details),
-          ],
-        ),
-      );
-    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final data = widget.installationDoc.data() as Map<String, dynamic>;
-
-    dynamic rawTechnicalData = data['technicalEvaluation'];
-    final List<dynamic> technicalEvaluation = (rawTechnicalData is List)
-        ? rawTechnicalData
-        : (rawTechnicalData is Map ? [rawTechnicalData] : []);
-
     final status = data['status'] ?? 'Inconnu';
-    final orderedProducts = data['orderedProducts'] as List? ?? [];
+    final rawEvals = data['technicalEvaluation'];
+    final evals = (rawEvals is List) ? rawEvals : (rawEvals is Map ? [rawEvals] : []);
 
-    final List<String> allMediaUrls =
-    List<String>.from(data['mediaUrls'] ?? []);
-
-    final List<String> sortedPhotoUrls = [];
-    final List<String> sortedVideoUrls = [];
-
-    for (String url in allMediaUrls) {
-      if (_isVideoUrl(url)) {
-        sortedVideoUrls.add(url);
-      } else {
-        sortedPhotoUrls.add(url);
-      }
-    }
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
+      backgroundColor: _bgLight,
       appBar: AppBar(
-        title: Text('Installation: ${data['clientName'] ?? ''}'),
-        backgroundColor: primaryColor,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          _buildStatusHeader(status),
-          const SizedBox(height: 16),
-          _buildInfoCard(
-            title: 'Détails du Projet',
-            icon: Icons.business_center,
-            children: [
-              ListTile(
-                  title: Text(data['clientName'] ?? 'N/A'),
-                  subtitle: const Text('Client')),
-              ListTile(
-                  title: Text(data['clientPhone'] ?? 'N/A'),
-                  subtitle: const Text('Téléphone')),
-              ListTile(
-                title: Text(data['initialRequest'] ?? 'N/A',
-                    maxLines: 3, overflow: TextOverflow.ellipsis),
-                subtitle: const Text('Demande initiale'),
-                isThreeLine: true,
-              ),
-              const Divider(height: 1, indent: 16, endIndent: 16),
-              ListTile(
-                leading: Icon(Icons.calendar_today_outlined,
-                    color: Colors.grey.shade600),
-                title: Text(
-                  _scheduledDate == null
-                      ? 'Non planifiée'
-                      : DateFormat('dd MMMM yyyy', 'fr_FR')
-                      .format(_scheduledDate!),
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: _scheduledDate == null ? Colors.blue.shade700 : null,
-                  ),
-                ),
-                subtitle: const Text('Date d\'installation'),
-              ),
-            ],
-          ),
-
-          _buildTechnicianCard(),
-
-          if (orderedProducts.isNotEmpty)
-            _buildInfoCard(
-              title: 'Produits à Installer',
-              icon: Icons.inventory_2_outlined,
-              children: orderedProducts
-                  .map((item) => ListTile(
-                title: Text(item['productName'] ?? 'N/A'),
-                trailing: Text('Qté: ${item['quantity'] ?? 0}'),
-              ))
-                  .toList(),
-            ),
-
-          ..._buildTechnicalEvaluation(technicalEvaluation),
-          const SizedBox(height: 16),
-
-          MediaGalleryWidget(
-            photoUrls: sortedPhotoUrls,
-            videoUrls: sortedVideoUrls,
-            primaryColor: primaryColor,
-          ),
-
-          _buildActionCard(status, widget.userRole),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusHeader(String status) {
-    IconData icon;
-    Color color;
-    switch (status) {
-      case 'À Planifier':
-        icon = Icons.edit_calendar_outlined;
-        color = Colors.blue;
-        break;
-      case 'Planifiée':
-        icon = Icons.task_alt_outlined;
-        color = primaryColor;
-        break;
-      case 'En Cours':
-        icon = Icons.construction_outlined;
-        color = Colors.orange;
-        break;
-      case 'Terminée':
-        icon = Icons.check_circle_outline;
-        color = Colors.green;
-        break;
-      default:
-        icon = Icons.help_outline;
-        color = Colors.grey;
-    }
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12.0),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Statut Actuel', style: TextStyle(fontSize: 12)),
-                Text(status,
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: color)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(
-      {required String title,
-        required IconData icon,
-        required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Icon(icon, color: primaryColor),
-                const SizedBox(width: 8),
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          if (children.isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// ✅ UPDATED: Displays Effective Techs if report is loaded, else Assigned Techs
-  Widget _buildTechnicianCard() {
-    List<Widget> content;
-
-    // 1. If we have effective technicians from the report (Job DONE)
-    if (_effectiveTechniciansNames.isNotEmpty) {
-      content = [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text("Techniciens ayant effectué l'installation:",
-              style:
-              TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
+          onPressed: () => Navigator.pop(context),
         ),
-        ..._effectiveTechniciansNames
-            .map((name) => ListTile(
-          leading:
-          const Icon(Icons.check_circle, color: Colors.green, size: 20),
-          title: Text(name),
-          dense: true,
-        ))
-            .toList()
-      ];
-    }
-    // 2. If no report yet, show Assigned Techs (Job PLANNED)
-    else if (_assignedTechnicians.isNotEmpty) {
-      content = [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text("Techniciens planifiés:",
-              style: TextStyle(color: Colors.grey, fontSize: 12)),
+        title: Text(
+          data['installationCode'] ?? 'Détails',
+          style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
         ),
-        ..._assignedTechnicians
-            .map((user) => ListTile(
-          leading: const Icon(Icons.person_outline, size: 20),
-          title: Text(user.displayName),
-          dense: true,
-        ))
-            .toList()
-      ];
-    }
-    // 3. None assigned
-    else {
-      content = [
-        const ListTile(
-          title: Text('Aucun technicien assigné'),
-          subtitle: Text('La planification est requise'),
-        )
-      ];
-    }
-
-    return _buildInfoCard(
-      title: 'Techniciens',
-      icon: Icons.engineering_outlined,
-      children: content,
+      ),
+      bottomNavigationBar: _buildStickyFooter(status),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16).copyWith(bottom: 100),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildTimeline(status),
+            _buildJobTicket(data),
+            _buildCompletionReport(), // ✅ ADDED: Completion Report Card (Notes + Signature)
+            const SizedBox(height: 20),
+            _buildTechnicianList(),
+            const SizedBox(height: 20),
+            // ✅ FIX 3 Applied Here
+            _buildProductsCard(data['orderedProducts']),
+            const SizedBox(height: 20),
+            _buildTechEvalList(evals),
+            const SizedBox(height: 20),
+            // ✅ FIX 4 Applied Here
+            _buildMediaGallery(data),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildActionCard(String status, String userRole) {
-    return _buildInfoCard(
-      title: 'Actions',
-      icon: Icons.task_alt_outlined,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: _buildActionButtons(status, userRole)),
-        ),
-      ],
-    );
-  }
-
-  List<Widget> _buildActionButtons(String status, String userRole) {
+  Widget _buildStickyFooter(String status) {
     List<Widget> buttons = [];
-    switch (status) {
-      case 'À Planifier':
-        if (RolePermissions.canScheduleInstallation(userRole)) {
-          buttons.add(
-            ElevatedButton.icon(
-              onPressed: _showSchedulingDialog,
-              icon: const Icon(Icons.edit_calendar_outlined),
-              label: const Text('Planifier l\'Installation'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.all(16),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          );
-        } else {
-          buttons.add(const Text(
-              'En attente de planification par un manager.',
-              textAlign: TextAlign.center));
-        }
-        break;
-      case 'Planifiée':
-        buttons.add(
-          ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                  builder: (context) => InstallationReportPage(
-                      installationId: widget.installationDoc.id)),
-            ),
-            icon: const Icon(Icons.edit_note_outlined),
-            label: const Text('Rédiger le Rapport'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-          ),
-        );
 
-        if (RolePermissions.canScheduleInstallation(userRole)) {
-          buttons.add(const SizedBox(height: 12));
-          buttons.add(
-            ElevatedButton.icon(
-              onPressed: _showSchedulingDialog,
-              icon: const Icon(Icons.edit_calendar_outlined),
-              label: const Text('Modifier la Planification'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade700,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.all(16),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          );
-        }
-        break;
-      case 'Terminée':
-        buttons.addAll([
-          const Text('Installation terminée avec succès!',
-              style: TextStyle(
-                  color: Colors.green,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14),
-              textAlign: TextAlign.center),
-          const SizedBox(height: 16),
-          const Text('Partager le rapport:',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey)),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
+    // SCHEDULE BUTTON
+    if (status == 'À Planifier' && RolePermissions.canScheduleInstallation(widget.userRole)) {
+      buttons.add(
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: _showSchedulingDialog,
+            icon: const Icon(Icons.calendar_today, size: 18),
+            label: const Text("PLANIFIER"),
+            style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          ),
+        ),
+      );
+    }
+
+    // REPORT BUTTON
+    if (status == 'Planifiée' || status == 'En Cours') {
+      buttons.add(
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => InstallationReportPage(installationId: widget.installationDoc.id))),
+            icon: const Icon(Icons.edit_document, size: 18),
+            label: const Text("RAPPORT"),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          ),
+        ),
+      );
+    }
+
+    // COMPLETED ACTIONS
+    if (status == 'Terminée') {
+      buttons.add(
+        Expanded(
+          child: ElevatedButton.icon(
             onPressed: _generateAndDownloadPDF,
-            icon: const Icon(Icons.picture_as_pdf),
-            label: const Text('Générer / Voir PDF'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E88E5),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
+            icon: const Icon(Icons.picture_as_pdf, size: 18),
+            label: const Text("PDF"),
+            style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
           ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _shareViaWhatsApp,
-            icon: const Icon(Icons.phone),
-            label: const Text('Partager via WhatsApp'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF25D366),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _shareViaEmail,
-            icon: const Icon(Icons.email_outlined),
-            label: const Text('Envoyer par Email'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF424242),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-          ),
-        ]);
-        break;
-      default:
-        buttons.add(const SizedBox.shrink());
-    }
-    return buttons;
-  }
-}
-
-class MediaGalleryWidget extends StatelessWidget {
-  final List<String> photoUrls;
-  final List<String> videoUrls;
-  final Color primaryColor;
-
-  const MediaGalleryWidget({
-    super.key,
-    required this.photoUrls,
-    required this.videoUrls,
-    required this.primaryColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (photoUrls.isEmpty && videoUrls.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Icon(Icons.perm_media_outlined, color: primaryColor),
-                const SizedBox(width: 8),
-                const Text("Photos & Vidéos",
-                    style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          _buildPhotoSection(context),
-          _buildVideoSection(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPhotoSection(BuildContext context) {
-    if (photoUrls.isEmpty) {
-      return const ListTile(
-        dense: true,
-        leading: Icon(Icons.photo_outlined, size: 20),
-        title: Text("Aucune photo", style: TextStyle(fontSize: 14)),
+        ),
+      );
+      buttons.add(const SizedBox(width: 10));
+      buttons.add(
+        Container(
+          decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
+          child: IconButton(icon: const Icon(Icons.share, color: Colors.green), onPressed: _shareViaWhatsApp),
+        ),
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(12.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("Photos",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 100,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: photoUrls.length,
-              itemBuilder: (context, index) {
-                return GestureDetector(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ImageGalleryPage(
-                          imageUrls: photoUrls,
-                          initialIndex: index,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    width: 100,
-                    height: 100,
-                    margin: const EdgeInsets.only(right: 8.0),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8.0),
-                      child: Image.network(
-                        photoUrls[index],
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return const Center(
-                              child: CircularProgressIndicator());
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.grey.shade200,
-                            child: const Icon(Icons.error_outline,
-                                color: Colors.red),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+    if (buttons.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewPadding.bottom + 20),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, -5))]),
+      child: Row(children: buttons),
     );
-  }
-
-  Widget _buildVideoSection(BuildContext context) {
-    if (videoUrls.isEmpty) {
-      return const ListTile(
-        dense: true,
-        leading: Icon(Icons.videocam_outlined, size: 20),
-        title: Text("Aucune vidéo", style: TextStyle(fontSize: 14)),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.all(12.0).copyWith(top: 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("Vidéos",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Column(
-            children: videoUrls.asMap().entries.map((entry) {
-              int index = entry.key;
-              String url = entry.value;
-              return ListTile(
-                leading: Icon(Icons.play_circle_outline, color: primaryColor),
-                title: Text("Vidéo ${index + 1}"),
-                subtitle: Text(
-                  _getFileNameFromUrl(url),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => VideoPlayerPage(videoUrl: url),
-                    ),
-                  );
-                },
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _getFileNameFromUrl(String url) {
-    try {
-      return Uri.decodeFull(url.split('/').last.split('?').first);
-    } catch (e) {
-      return 'Lien vidéo';
-    }
   }
 }

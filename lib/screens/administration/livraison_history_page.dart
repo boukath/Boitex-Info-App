@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ Typography
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
 
@@ -36,6 +37,13 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
 
   // Constants
   static const int _limit = 15;
+
+  // 🎨 THEME COLORS
+  final Color _primaryBlue = const Color(0xFF2962FF);
+  final Color _accentGreen = const Color(0xFF00E676);
+  final Color _bgLight = const Color(0xFFF4F6F9);
+  final Color _cardWhite = Colors.white;
+  final Color _textDark = const Color(0xFF2D3436);
 
   @override
   void initState() {
@@ -162,7 +170,6 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
         _livraisons = combinedResults;
         _hasMore = false; // Search results are not paginated here for simplicity
       });
-
     } catch (e) {
       debugPrint("Search error: $e");
     } finally {
@@ -170,60 +177,177 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
     }
   }
 
+  // 🎨 WIDGET: Year Selector Chips
+  Widget _buildYearSelector() {
+    return SizedBox(
+      height: 50,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        scrollDirection: Axis.horizontal,
+        itemCount: _availableYears.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final int year = _availableYears[index];
+          final bool isSelected = year == _selectedYear;
+          return ChoiceChip(
+            label: Text(year.toString()),
+            selected: isSelected,
+            onSelected: (selected) {
+              if (selected) {
+                setState(() {
+                  _selectedYear = year;
+                  _fetchLivraisons(isRefresh: true);
+                });
+              }
+            },
+            selectedColor: _primaryBlue,
+            labelStyle: GoogleFonts.poppins(
+              color: isSelected ? Colors.white : Colors.grey.shade700,
+              fontWeight: FontWeight.bold,
+            ),
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: Colors.transparent)),
+            elevation: isSelected ? 4 : 0,
+          );
+        },
+      ),
+    );
+  }
+
+  // 🎨 WIDGET: Modern History Card
+  Widget _buildHistoryCard(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final bonNumber = data['bonLivraisonCode'] ?? 'N/A';
+    final clientName = data['clientName'] ?? 'Client inconnu';
+    final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    final completedAt = (data['completedAt'] as Timestamp?)?.toDate();
+
+    final displayDate = completedAt ?? createdAt;
+    final formattedDate = displayDate != null
+        ? DateFormat('dd MMM yyyy, HH:mm').format(displayDate)
+        : 'Date inconnue';
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LivraisonDetailsPage(livraisonId: doc.id),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: _cardWhite,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              // Icon Box
+              Container(
+                height: 48,
+                width: 48,
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.check_circle, color: Colors.green, size: 24),
+              ),
+              const SizedBox(width: 16),
+
+              // Info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bonNumber,
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: _textDark,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      clientName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade400),
+                        const SizedBox(width: 4),
+                        Text(
+                          formattedDate,
+                          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade400),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Arrow
+              Icon(Icons.chevron_right, color: Colors.grey.shade300),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: _bgLight,
       appBar: AppBar(
-        title: Text('Historique - ${widget.serviceType}'),
-        centerTitle: false,
-        elevation: 2,
-        actions: [
-          // ✅ UI: Year Selector Dropdown
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: _selectedYear,
-                dropdownColor: Colors.blue.shade700, // Matches AppBar usually
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white, size: 24),
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold),
-                items: _availableYears.map((year) {
-                  return DropdownMenuItem(
-                    value: year,
-                    child: Text("Année $year"),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      _selectedYear = val;
-                      _fetchLivraisons(isRefresh: true); // Reload on change
-                    });
-                  }
-                },
-              ),
-            ),
+        title: Text(
+          'ARCHIVES ${widget.serviceType.toUpperCase()}',
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            color: _textDark,
+            letterSpacing: 0.5,
           ),
-        ],
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: Column(
         children: [
           // -- Search Bar --
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+            ),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'Rechercher par Code BL ou Client...',
-                prefixIcon: const Icon(Icons.search),
+                hintText: 'Rechercher BL ou Client...',
+                hintStyle: GoogleFonts.poppins(color: Colors.grey.shade400),
+                prefixIcon: Icon(Icons.search, color: _primaryBlue),
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.clear),
+                  icon: const Icon(Icons.clear, color: Colors.grey),
                   onPressed: () {
                     _searchController.clear();
                     _performSearch('');
@@ -234,30 +358,39 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: Colors.grey[200],
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
+                fillColor: _bgLight,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
               ),
+              style: GoogleFonts.poppins(),
               textInputAction: TextInputAction.search,
               onSubmitted: _performSearch,
             ),
           ),
 
+          const SizedBox(height: 10),
+
+          // -- Year Selector --
+          if (!_isSearching) _buildYearSelector(),
+
+          const SizedBox(height: 10),
+
           // -- List --
           Expanded(
             child: RefreshIndicator(
               onRefresh: () => _fetchLivraisons(isRefresh: true),
+              color: _primaryBlue,
               child: _livraisons.isEmpty && !_isLoading
                   ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.history_toggle_off, size: 64, color: Colors.grey[300]),
+                    Icon(Icons.history_edu, size: 64, color: Colors.grey.shade300),
                     const SizedBox(height: 16),
                     Text(
                       _isSearching
                           ? 'Aucun résultat trouvé.'
-                          : 'Aucune livraison en $_selectedYear.',
-                      style: TextStyle(color: Colors.grey[600]),
+                          : 'Aucune archive pour $_selectedYear.',
+                      style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey.shade500),
                     ),
                   ],
                 ),
@@ -268,74 +401,13 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                 padding: const EdgeInsets.all(16),
                 itemCount: _livraisons.length + (_hasMore ? 1 : 0),
                 itemBuilder: (context, index) {
-                  // Show Loading Indicator at the bottom
                   if (index == _livraisons.length) {
                     return const Padding(
                       padding: EdgeInsets.symmetric(vertical: 20),
                       child: Center(child: CircularProgressIndicator()),
                     );
                   }
-
-                  final doc = _livraisons[index];
-                  final data = doc.data() as Map<String, dynamic>;
-
-                  final bonNumber = data['bonLivraisonCode'] ?? 'N/A';
-                  final clientName = data['clientName'] ?? 'Client inconnu';
-                  final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
-                  final completedAt = (data['completedAt'] as Timestamp?)?.toDate();
-
-                  // Use completed date if available, else created date
-                  final displayDate = completedAt ?? createdAt;
-                  final formattedDate = displayDate != null
-                      ? DateFormat('dd/MM/yyyy HH:mm').format(displayDate)
-                      : 'Date inconnue';
-
-                  return Card(
-                    elevation: 1,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.green.shade50,
-                        child: Icon(Icons.assignment_turned_in, color: Colors.green.shade700),
-                      ),
-                      title: Text(
-                        'Bon $bonNumber',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Icon(Icons.business, size: 14, color: Colors.grey),
-                              const SizedBox(width: 4),
-                              Expanded(child: Text(clientName, overflow: TextOverflow.ellipsis)),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              const Icon(Icons.access_time, size: 14, color: Colors.grey),
-                              const SizedBox(width: 4),
-                              Text(formattedDate, style: const TextStyle(fontSize: 12)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LivraisonDetailsPage(livraisonId: doc.id),
-                          ),
-                        );
-                      },
-                    ),
-                  );
+                  return _buildHistoryCard(_livraisons[index]);
                 },
               ),
             ),

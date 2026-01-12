@@ -2,11 +2,11 @@
 
 import 'package:boitex_info_app/screens/administration/add_livraison_page.dart';
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
-// ✅ ADDED: Import for the history page
 import 'package:boitex_info_app/screens/administration/livraison_history_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ Added for Typography
 import 'package:intl/intl.dart';
 
 class LivraisonsHubPage extends StatefulWidget {
@@ -19,25 +19,27 @@ class LivraisonsHubPage extends StatefulWidget {
 
 class _LivraisonsHubPageState extends State<LivraisonsHubPage>
     with SingleTickerProviderStateMixin {
-  // ✅ Added Mixin for Tabs
-
   late TabController _tabController;
   bool _canEdit = false;
   bool _canDelete = false;
 
+  // 🎨 THEME COLORS
+  final Color _primaryBlue = const Color(0xFF2962FF);
+  final Color _accentGreen = const Color(0xFF00E676);
+  final Color _bgLight = const Color(0xFFF4F6F9);
+  final Color _cardWhite = Colors.white;
+  final Color _textDark = const Color(0xFF2D3436);
+
   @override
   void initState() {
     super.initState();
-    // Initialize TabController for 2 tabs
     _tabController = TabController(length: 2, vsync: this);
     _checkUserPermissions();
   }
 
-  /// Checks the current user's role to determine if they have permission to edit.
   Future<void> _checkUserPermissions() async {
     final canEdit = await RolePermissions.canCurrentUserEditLivraison();
     final canDelete = await RolePermissions.canCurrentUserDeleteLivraison();
-
     if (mounted) {
       setState(() {
         _canEdit = canEdit;
@@ -52,50 +54,27 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
     super.dispose();
   }
 
-  /// Returns a colored chip based on the delivery status.
-  Widget _getStatusChip(String status) {
-    Color color;
-    switch (status) {
-      case 'À Préparer':
-        color = Colors.orange;
-        break;
-      case 'En Cours de Livraison':
-        color = Colors.blue;
-        break;
-      case 'Livré':
-        color = Colors.green;
-        break;
-      default:
-        color = Colors.grey;
-    }
-
-    return Chip(
-      label: Text(status,
-          style: const TextStyle(color: Colors.white, fontSize: 12)),
-      backgroundColor: color,
-      padding: EdgeInsets.zero,
-      visualDensity: VisualDensity.compact,
-    );
-  }
-
   Future<void> _deleteLivraison(String livraisonId, String bonNumber) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Confirmer la suppression'),
+          title: Text('Supprimer ?', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
           content: Text(
-              'Êtes-vous sûr de vouloir supprimer définitivement le Bon de Livraison $bonNumber? Cette action est irréversible.'),
+              'Voulez-vous vraiment supprimer le BL $bonNumber ?',
+              style: GoogleFonts.poppins()),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Annuler'),
+              child: Text('Annuler', style: GoogleFonts.poppins(color: Colors.grey)),
             ),
-            FilledButton.tonal(
+            ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              child:
-              const Text('Supprimer', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              child: Text('Supprimer', style: GoogleFonts.poppins(color: Colors.white)),
             ),
           ],
         );
@@ -104,67 +83,53 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
 
     if (confirmed == true) {
       try {
-        await FirebaseFirestore.instance
-            .collection('livraisons')
-            .doc(livraisonId)
-            .delete();
-
+        await FirebaseFirestore.instance.collection('livraisons').doc(livraisonId).delete();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Livraison supprimée.'),
-              backgroundColor: Colors.green,
-            ),
+            const SnackBar(content: Text('✅ Livraison supprimée.'), backgroundColor: Colors.green),
           );
         }
       } catch (e) {
-        debugPrint('Erreur lors de la suppression de la livraison: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('❌ Erreur de suppression: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        debugPrint('Delete Error: $e');
       }
     }
   }
 
-  // ✅ NEW: Reusable List Builder to support Tabs efficiently
-  Widget _buildLivraisonList(
-      String statusFilter, IconData emptyIcon, String emptyText) {
+  Widget _buildLivraisonList(String statusFilter, IconData emptyIcon, String emptyText) {
     Query query = FirebaseFirestore.instance.collection('livraisons');
 
     if (widget.serviceType != null) {
-      query = query.where('serviceType', isEqualTo: widget.serviceType);
+      query = query.where('accessGroups', arrayContains: widget.serviceType);
     }
 
     return StreamBuilder<QuerySnapshot>(
       stream: query
-          .where('status', isEqualTo: statusFilter) // ✅ Filter by tab status
+          .where('status', isEqualTo: statusFilter)
           .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(child: CircularProgressIndicator(color: _primaryBlue));
         }
-
         if (snapshot.hasError) {
-          return Center(child: Text('Erreur: ${snapshot.error}'));
+          return Center(child: Text('Erreur', style: GoogleFonts.poppins(color: Colors.red)));
         }
-
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(emptyIcon, size: 64, color: Colors.grey.shade300),
-                const SizedBox(height: 16),
-                Text(
-                  emptyText,
-                  style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 10, spreadRadius: 5)],
+                  ),
+                  child: Icon(emptyIcon, size: 50, color: Colors.grey.shade400),
                 ),
+                const SizedBox(height: 16),
+                Text(emptyText, style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey.shade500)),
               ],
             ),
           );
@@ -172,213 +137,271 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
 
         final livraisons = snapshot.data!.docs;
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 100), // Bottom padding for FAB
           itemCount: livraisons.length,
           itemBuilder: (context, index) {
-            final doc = livraisons[index];
-            final data = doc.data() as Map<String, dynamic>;
-            final bonNumber = data['bonLivraisonCode'] ?? 'N/A';
-            final clientName = data['clientName'] ?? 'Client inconnu';
-            final status = data['status'] ?? 'À Préparer';
-            final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
-            final formattedDate = createdAt != null
-                ? DateFormat('dd/MM/yyyy HH:mm').format(createdAt)
-                : 'Date inconnue';
-
-            // ✅ Picking Progress Indicator
-            final products = data['products'] as List? ?? [];
-            int totalItems = 0;
-            int pickedItems = 0;
-            if (status == 'À Préparer') {
-              for (var p in products) {
-                totalItems += (p['quantity'] as int? ?? 0);
-                pickedItems += (p['serialNumbers'] as List? ?? []).length;
-              }
-            }
-
-            return Card(
-              elevation: 2,
-              margin: const EdgeInsets.only(bottom: 12),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              child: ListTile(
-                  contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  leading: CircleAvatar(
-                    backgroundColor: status == 'À Préparer'
-                        ? Colors.orange.shade100
-                        : Colors.blue.shade100,
-                    child: Icon(
-                      status == 'À Préparer'
-                          ? Icons.inventory
-                          : Icons.local_shipping,
-                      color: status == 'À Préparer'
-                          ? Colors.orange.shade800
-                          : Colors.blue.shade800,
-                    ),
-                  ),
-                  title: Text(
-                    'Bon $bonNumber',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Client: $clientName',
-                          style: const TextStyle(fontWeight: FontWeight.w500)),
-                      Text(formattedDate,
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade600)),
-
-                      // Show progress bar only for items in preparation
-                      if (status == 'À Préparer' && totalItems > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6.0),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: LinearProgressIndicator(
-                                  value: totalItems > 0 ? pickedItems / totalItems : 0,
-                                  backgroundColor: Colors.grey.shade200,
-                                  color: Colors.orange,
-                                  minHeight: 4,
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text('$pickedItems/$totalItems',
-                                  style: const TextStyle(
-                                      fontSize: 10, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        )
-                      else if (status != 'À Préparer') ...[
-                        const SizedBox(height: 4),
-                        _getStatusChip(status),
-                      ]
-                    ],
-                  ),
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (value) {
-                      if (value == 'edit') {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AddLivraisonPage(
-                              serviceType: widget.serviceType,
-                              livraisonId: doc.id,
-                            ),
-                          ),
-                        );
-                      } else if (value == 'details') {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) =>
-                                  LivraisonDetailsPage(livraisonId: doc.id)),
-                        );
-                      } else if (value == 'delete') {
-                        _deleteLivraison(doc.id, bonNumber);
-                      }
-                    },
-                    itemBuilder: (BuildContext context) =>
-                    <PopupMenuEntry<String>>[
-                      const PopupMenuItem<String>(
-                        value: 'details',
-                        child: Text('Voir Détails'),
-                      ),
-                      if (_canEdit)
-                        const PopupMenuItem<String>(
-                          value: 'edit',
-                          child: Text('Modifier'),
-                        ),
-                      if (_canDelete)
-                        const PopupMenuItem<String>(
-                          value: 'delete',
-                          child: Text('Supprimer',
-                              style: TextStyle(color: Colors.red)),
-                        ),
-                    ],
-                  ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) =>
-                              LivraisonDetailsPage(livraisonId: doc.id)),
-                    );
-                  }),
-            );
+            return _buildModernCard(livraisons[index]);
           },
         );
       },
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.serviceType == null
-            ? 'Centre de Livraisons'
-            : 'Livraisons - ${widget.serviceType}'),
-        // ✅ ADDED: History Icon Action
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'Historique des Livraisons',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => LivraisonHistoryPage(
-                    // Pass the service type (default to 'Général' if null)
-                    serviceType: widget.serviceType ?? 'Général',
+  Widget _buildModernCard(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final bonNumber = data['bonLivraisonCode'] ?? 'N/A';
+    final clientName = data['clientName'] ?? 'Client inconnu';
+    final status = data['status'] ?? 'À Préparer';
+    final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    final formattedDate = createdAt != null ? DateFormat('dd MMM, HH:mm').format(createdAt) : 'Date inconnue';
+
+    // Logic for Progress Bar
+    final products = data['products'] as List? ?? [];
+    int totalItems = 0;
+    int pickedItems = 0;
+    if (status == 'À Préparer') {
+      for (var p in products) {
+        totalItems += (p['quantity'] as int? ?? 0);
+        pickedItems += (p['serialNumbers'] as List? ?? []).length;
+        // Also handle bulk picked count if available
+        if (p['isBulk'] == true) {
+          pickedItems = (p['pickedQuantity'] as int? ?? 0); // Simplified for display
+        }
+      }
+    }
+
+    final bool isPrep = status == 'À Préparer';
+    final Color statusColor = isPrep ? Colors.orange : _primaryBlue;
+    final IconData statusIcon = isPrep ? Icons.inventory_2 : Icons.local_shipping;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => LivraisonDetailsPage(livraisonId: doc.id)));
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: _cardWhite,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  // Icon Box
+                  Container(
+                    height: 50,
+                    width: 50,
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(statusIcon, color: statusColor, size: 24),
+                  ),
+                  const SizedBox(width: 16),
+
+                  // Main Info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          bonNumber,
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: _textDark,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          clientName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Date & Action
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        formattedDate,
+                        style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade400),
+                      ),
+                      const SizedBox(height: 8),
+                      // Popup Menu for Edit/Delete
+                      SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: PopupMenuButton<String>(
+                          padding: EdgeInsets.zero,
+                          icon: Icon(Icons.more_horiz, color: Colors.grey.shade400),
+                          onSelected: (value) {
+                            if (value == 'edit') {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => AddLivraisonPage(serviceType: widget.serviceType, livraisonId: doc.id)));
+                            } else if (value == 'details') {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => LivraisonDetailsPage(livraisonId: doc.id)));
+                            } else if (value == 'delete') {
+                              _deleteLivraison(doc.id, bonNumber);
+                            }
+                          },
+                          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                            const PopupMenuItem(value: 'details', child: Text('Voir Détails')),
+                            if (_canEdit) const PopupMenuItem(value: 'edit', child: Text('Modifier')),
+                            if (_canDelete) const PopupMenuItem(value: 'delete', child: Text('Supprimer', style: TextStyle(color: Colors.red))),
+                          ],
+                        ),
+                      )
+                    ],
+                  )
+                ],
+              ),
+            ),
+
+            // Progress Bar or Status Strip
+            if (isPrep && totalItems > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text("Progression Picking", style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                        Text("$pickedItems / $totalItems", style: GoogleFonts.poppins(fontSize: 11, color: statusColor, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: totalItems > 0 ? pickedItems / totalItems : 0,
+                        backgroundColor: Colors.grey.shade100,
+                        color: statusColor,
+                        minHeight: 6,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (!isPrep)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: _bgLight,
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                ),
+                child: Center(
+                  child: Text(
+                    "EN COURS D'ACHEMINEMENT",
+                    style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: _primaryBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-              );
-            },
-          ),
-        ],
-        // ✅ TabBar added to the AppBar
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.white,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          tabs: const [
-            Tab(
-                text: 'À PRÉPARER (STOCK)',
-                icon: Icon(Icons.inventory_2_outlined)),
-            Tab(
-                text: 'EN COURS (ROUTE)',
-                icon: Icon(Icons.local_shipping_outlined)),
+              )
           ],
         ),
       ),
-      // ✅ TabBarView to switch between lists
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bgLight,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        centerTitle: true,
+        title: Text(
+          widget.serviceType == null ? 'HUB LIVRAISONS' : 'HUB ${widget.serviceType?.toUpperCase()}',
+          style: GoogleFonts.poppins(
+            color: _textDark,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            letterSpacing: 0.5,
+          ),
+        ),
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            decoration: BoxDecoration(color: _bgLight, borderRadius: BorderRadius.circular(12)),
+            child: IconButton(
+              icon: const Icon(Icons.history, color: Colors.black87),
+              tooltip: 'Historique',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LivraisonHistoryPage(serviceType: widget.serviceType ?? 'Général'),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: _bgLight,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                color: _primaryBlue,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [BoxShadow(color: _primaryBlue.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))],
+              ),
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.grey.shade600,
+              labelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent, // Removes the underline
+              padding: const EdgeInsets.all(4),
+              tabs: const [
+                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.inventory_2, size: 18), SizedBox(width: 8), Text("À PRÉPARER")])),
+                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.local_shipping, size: 18), SizedBox(width: 8), Text("EN ROUTE")])),
+              ],
+            ),
+          ),
+        ),
+      ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          // Tab 1: Stock Team View (Preparation)
-          _buildLivraisonList('À Préparer', Icons.playlist_add_check,
-              'Aucune commande à préparer.'),
-
-          // Tab 2: Logistics/Driver View (In Progress)
-          _buildLivraisonList('En Cours de Livraison',
-              Icons.local_shipping_outlined, 'Aucune livraison en cours.'),
+          _buildLivraisonList('À Préparer', Icons.assignment_turned_in_outlined, 'Tout est prêt ! Aucune commande en attente.'),
+          _buildLivraisonList('En Cours de Livraison', Icons.local_shipping_outlined, 'Aucune livraison sur la route.'),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => AddLivraisonPage(serviceType: widget.serviceType),
-            ),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => AddLivraisonPage(serviceType: widget.serviceType)));
         },
-        icon: const Icon(Icons.add),
-        label: const Text('Nouvelle Demande'),
+        backgroundColor: _primaryBlue,
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: Text('NOUVELLE DEMANDE', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
       ),
     );
   }

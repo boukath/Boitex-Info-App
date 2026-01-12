@@ -750,6 +750,14 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         uploadedFilesInfo = results.cast<Map<String, String>>().toList();
       }
 
+      // --- FIX: Logic to handle "Shared Access" (Both Services) ---
+      List<String> accessGroups = [];
+      if (_selectedServiceType == 'Les Deux') {
+        accessGroups = ['Service Technique', 'Service IT'];
+      } else if (_selectedServiceType != null) {
+        accessGroups = [_selectedServiceType!];
+      }
+
       // --- 2. Prepare Base Data ---
       final deliveryData = <String, dynamic>{
         'clientId': _selectedClient!.id,
@@ -798,6 +806,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
             : null,
 
         'serviceType': _selectedServiceType,
+        // ✅ NEW: accessGroups ensures it appears in both lists when queried via arrayContains
+        'accessGroups': accessGroups,
+
         'lastModifiedBy': user.displayName ?? user.email,
         'lastModifiedAt': FieldValue.serverTimestamp(),
         'externalBons': [
@@ -840,7 +851,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
           duration: Duration(seconds: 2),
         ));
       }
-
     } catch (e) {
       if (mounted) {
         setState(() => _isUploading = false);
@@ -1164,7 +1174,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                       const SizedBox(height: 16),
                       Text(
                         _loadingStatus, // ✅ Shows "Génération du PDF...", etc.
-                        style: GoogleFonts.poppins(color: Colors.blue[800], fontWeight: FontWeight.w500),
+                        style: GoogleFonts.poppins(
+                            color: Colors.blue[800],
+                            fontWeight: FontWeight.w500),
                       ),
                     ],
                   ),

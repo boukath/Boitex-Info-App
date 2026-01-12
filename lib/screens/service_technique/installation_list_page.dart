@@ -1,14 +1,13 @@
 // lib/screens/service_technique/installation_list_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ Typography
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
-
-// Import for the edit page
 import 'package:boitex_info_app/screens/service_technique/add_installation_page.dart';
-// ✅ ADDED: Import for Installation History Page
 import 'package:boitex_info_app/screens/service_technique/installation_history_list_page.dart';
 
 class InstallationListPage extends StatelessWidget {
@@ -20,6 +19,12 @@ class InstallationListPage extends StatelessWidget {
     required this.userRole,
     required this.serviceType,
   });
+
+  // 🎨 THEME COLORS
+  final Color _primaryBlue = const Color(0xFF2962FF);
+  final Color _bgLight = const Color(0xFFF4F6F9);
+  final Color _cardWhite = Colors.white;
+  final Color _textDark = const Color(0xFF2D3436);
 
   Color _getStatusColor(String? status) {
     switch (status) {
@@ -34,7 +39,10 @@ class InstallationListPage extends StatelessWidget {
     }
   }
 
-  // Navigate to Details (Read-only / Execution View)
+  Color _getStatusBgColor(String? status) {
+    return _getStatusColor(status).withOpacity(0.1);
+  }
+
   void _navigateToDetails(BuildContext context, DocumentSnapshot doc) {
     Navigator.push(
       context,
@@ -47,7 +55,6 @@ class InstallationListPage extends StatelessWidget {
     );
   }
 
-  // Navigate to Edit (Modify Data)
   void _navigateToEdit(BuildContext context, DocumentSnapshot doc) {
     Navigator.push(
       context,
@@ -55,29 +62,32 @@ class InstallationListPage extends StatelessWidget {
         builder: (_) => AddInstallationPage(
           userRole: userRole,
           serviceType: serviceType,
-          installationToEdit: doc, // Pass the existing doc to enable Edit Mode
+          installationToEdit: doc,
         ),
       ),
     );
   }
 
-  // ✅ NEW: Delete Confirmation Logic
   Future<void> _confirmDelete(BuildContext context, String docId) async {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Supprimer l\'installation ?'),
-        content: const Text(
-            'Cette action est irréversible. Voulez-vous vraiment supprimer cette installation ?'),
+        title: Text('Supprimer ?', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text(
+            'Voulez-vous vraiment supprimer cette installation ?',
+            style: GoogleFonts.poppins()),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Annuler'),
+            child: Text('Annuler', style: GoogleFonts.poppins(color: Colors.grey)),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Supprimer'),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            child: Text('Supprimer', style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
@@ -85,24 +95,15 @@ class InstallationListPage extends StatelessWidget {
 
     if (confirm == true) {
       try {
-        await FirebaseFirestore.instance
-            .collection('installations')
-            .doc(docId)
-            .delete();
-
+        await FirebaseFirestore.instance.collection('installations').doc(docId).delete();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Installation supprimée avec succès.'),
-              backgroundColor: Colors.red,
-            ),
+            const SnackBar(content: Text('Installation supprimée.'), backgroundColor: Colors.green),
           );
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
         }
       }
     }
@@ -110,29 +111,42 @@ class InstallationListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Check edit permission
     final bool canEdit = RolePermissions.canScheduleInstallation(userRole);
 
     return Scaffold(
+      backgroundColor: _bgLight,
       appBar: AppBar(
-        title: Text('Installations $serviceType'),
-        // ✅ ADDED: History Action Button
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history_rounded),
-            tooltip: "Historique Installations",
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => InstallationHistoryListPage(
-                    serviceType: serviceType,
-                    userRole: userRole,
-                  ),
-                ),
-              );
-            },
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: Text(
+          'INSTALLATIONS ${serviceType.toUpperCase()}',
+          style: GoogleFonts.poppins(
+            color: _textDark,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            letterSpacing: 0.5,
           ),
-          const SizedBox(width: 8),
+        ),
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            decoration: BoxDecoration(color: _bgLight, borderRadius: BorderRadius.circular(12)),
+            child: IconButton(
+              icon: const Icon(Icons.history_rounded, color: Colors.black87),
+              tooltip: "Historique",
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => InstallationHistoryListPage(
+                      serviceType: serviceType,
+                      userRole: userRole,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -144,39 +158,29 @@ class InstallationListPage extends StatelessWidget {
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(child: CircularProgressIndicator(color: _primaryBlue));
           }
-
           if (snapshot.hasError) {
-            return Center(child: Text('Erreur: ${snapshot.error}'));
+            return Center(child: Text('Erreur', style: GoogleFonts.poppins(color: Colors.red)));
           }
-
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.router_outlined,
-                    size: 80,
-                    color: Colors.grey.shade300,
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 10, spreadRadius: 5)],
+                    ),
+                    child: Icon(Icons.router_outlined, size: 50, color: Colors.grey.shade400),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'Aucune installation active',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Les installations terminées sont dans l\'historique',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade500,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey.shade500),
                   ),
                 ],
               ),
@@ -197,202 +201,132 @@ class InstallationListPage extends StatelessWidget {
               final storeName = data['storeName'] ?? 'Magasin inconnu';
               final status = data['status'] ?? 'À Planifier';
 
-              final DateTime? installationDate =
-              (data['installationDate'] as Timestamp?)?.toDate();
-              final String dateDisplay;
-              if (installationDate != null) {
-                dateDisplay =
-                    DateFormat('dd/MM/yyyy', 'fr_FR').format(installationDate);
-              } else {
-                dateDisplay = 'Non planifiée';
-              }
+              final DateTime? installationDate = (data['installationDate'] as Timestamp?)?.toDate();
+              final String dateDisplay = installationDate != null
+                  ? DateFormat('dd MMM yyyy', 'fr_FR').format(installationDate)
+                  : 'Date non définie';
 
-              return Slidable(
-                key: ValueKey(doc.id),
-                endActionPane: canEdit
-                    ? ActionPane(
-                  motion: const StretchMotion(),
-                  children: [
-                    SlidableAction(
-                      onPressed: (ctx) => _navigateToEdit(context, doc),
-                      backgroundColor: Colors.blue.shade700,
-                      foregroundColor: Colors.white,
-                      icon: Icons.edit,
-                      label: 'Modifier',
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    // Optional: Add Delete to slide as well
-                    SlidableAction(
-                      onPressed: (ctx) => _confirmDelete(context, doc.id),
-                      backgroundColor: Colors.red.shade700,
-                      foregroundColor: Colors.white,
-                      icon: Icons.delete,
-                      label: 'Supprimer',
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: _cardWhite,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 15, offset: const Offset(0, 5)),
                   ],
-                )
-                    : null,
-                child: Card(
-                  elevation: 2,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                ),
+                child: Slidable(
+                  key: ValueKey(doc.id),
+                  endActionPane: canEdit
+                      ? ActionPane(
+                    motion: const StretchMotion(),
+                    children: [
+                      SlidableAction(
+                        onPressed: (ctx) => _navigateToEdit(context, doc),
+                        backgroundColor: _primaryBlue,
+                        foregroundColor: Colors.white,
+                        icon: Icons.edit,
+                        label: 'Modifier',
+                        borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                      ),
+                      SlidableAction(
+                        onPressed: (ctx) => _confirmDelete(context, doc.id),
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                        icon: Icons.delete,
+                        label: 'Supprimer',
+                        borderRadius: const BorderRadius.horizontal(right: Radius.circular(16)),
+                      ),
+                    ],
+                  )
+                      : null,
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
                     onTap: () => _navigateToDetails(context, doc),
+                    borderRadius: BorderRadius.circular(16),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Header Row
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // LEFT: Icon + Code + Date
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.blue.shade50,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Icon(
-                                        Icons.router_outlined,
-                                        color: Colors.blue.shade700,
-                                        size: 20,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            installationCode,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Text(
-                                            dateDisplay,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: installationDate != null
-                                                  ? Colors.grey.shade600
-                                                  : Colors.blue.shade700,
-                                              fontWeight: installationDate != null
-                                                  ? FontWeight.normal
-                                                  : FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                              // Icon Box
+                              Container(
+                                width: 50,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
+                                child: Icon(Icons.router_outlined, color: _primaryBlue, size: 24),
                               ),
+                              const SizedBox(width: 16),
 
-                              // RIGHT: Status Badge + 3-Dot Menu
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: _getStatusColor(status),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      status,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
+                              // Main Info
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      installationCode,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: _textDark,
                                       ),
                                     ),
-                                  ),
-
-                                  // ✅ UPDATED MENU
-                                  if (canEdit) ...[
-                                    const SizedBox(width: 4),
-                                    PopupMenuButton<String>(
-                                      padding: EdgeInsets.zero,
-                                      icon: const Icon(Icons.more_vert,
-                                          color: Colors.grey),
-                                      onSelected: (value) {
-                                        if (value == 'edit') {
-                                          _navigateToEdit(context, doc);
-                                        } else if (value == 'delete') {
-                                          // Trigger Delete
-                                          _confirmDelete(context, doc.id);
-                                        }
-                                      },
-                                      itemBuilder: (BuildContext context) =>
-                                      <PopupMenuEntry<String>>[
-                                        const PopupMenuItem<String>(
-                                          value: 'edit',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.edit,
-                                                  color: Colors.blueGrey),
-                                              SizedBox(width: 10),
-                                              Text('Modifier tout'),
-                                            ],
-                                          ),
-                                        ),
-                                        const PopupMenuDivider(),
-                                        // ✅ DELETE OPTION ADDED HERE
-                                        const PopupMenuItem<String>(
-                                          value: 'delete',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.delete_outline,
-                                                  color: Colors.red),
-                                              SizedBox(width: 10),
-                                              Text(
-                                                'Supprimer',
-                                                style: TextStyle(
-                                                    color: Colors.red),
-                                              ),
-                                            ],
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade500),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          dateDisplay,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 12,
+                                            color: installationDate != null ? _textDark : Colors.red,
+                                            fontWeight: installationDate != null ? FontWeight.w500 : FontWeight.bold,
                                           ),
                                         ),
                                       ],
                                     ),
                                   ],
-                                ],
+                                ),
+                              ),
+
+                              // Status Badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: _getStatusBgColor(status),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: GoogleFonts.poppins(
+                                    color: _getStatusColor(status),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
 
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
                           const Divider(height: 1),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
 
-                          // Client & Store Info
+                          // Location Info
                           Row(
                             children: [
-                              Icon(Icons.person_outline,
-                                  size: 16, color: Colors.grey.shade600),
+                              const Icon(Icons.business, size: 16, color: Colors.grey),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   clientName,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade700,
-                                  ),
+                                  style: GoogleFonts.poppins(fontSize: 14, color: _textDark),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -400,16 +334,13 @@ class InstallationListPage extends StatelessWidget {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              Icon(Icons.store_outlined,
-                                  size: 16, color: Colors.grey.shade600),
+                              const Icon(Icons.storefront, size: 16, color: Colors.grey),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   storeName,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade700,
-                                  ),
+                                  style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -433,14 +364,15 @@ class InstallationListPage extends StatelessWidget {
               builder: (_) => AddInstallationPage(
                 userRole: userRole,
                 serviceType: serviceType,
-                // No installationToEdit passed here = Create Mode
               ),
             ),
           );
         },
-        icon: const Icon(Icons.add),
-        label: const Text('Nouvelle'),
-        backgroundColor: Colors.green,
+        backgroundColor: _primaryBlue,
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: Text('NOUVELLE', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white)),
       )
           : null,
     );
