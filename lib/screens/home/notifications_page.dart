@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:google_fonts/google_fonts.dart'; // ✅ Added for Premium Fonts
 
-// ✅ IMPORTS
+// ✅ IMPORTS (Kept Original)
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
@@ -32,6 +33,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
   String? _userId;
   // ignore: unused_field
   bool _isLoading = false;
+
+  // 🎨 Theme Colors (Premium Palette)
+  final Color _bgLight = const Color(0xFFFAFAFA); // Ultra Clean White
+  final Color _cardWhite = Colors.white;
+  final Color _primaryBlue = const Color(0xFF2962FF); // Electric Blue
+  final Color _textDark = const Color(0xFF1A1A1A);
+  final Color _textGrey = const Color(0xFF757575);
 
   @override
   void initState() {
@@ -64,20 +72,33 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   IconData _getIconForCollection(String? collection) {
     switch (collection) {
-      case 'interventions': return Icons.build_rounded;
+      case 'interventions': return Icons.build_circle_outlined;
       case 'sav_tickets': return Icons.support_agent_rounded;
-      case 'installations': return Icons.construction_rounded;
-      case 'projects': return Icons.assignment_rounded;
+      case 'installations': return Icons.settings_input_component_rounded;
+      case 'projects': return Icons.folder_shared_rounded;
       case 'livraisons': return Icons.local_shipping_rounded;
-      case 'requisitions': return Icons.shopping_cart_rounded;
+      case 'requisitions': return Icons.shopping_bag_outlined;
       case 'channels': return Icons.campaign_rounded;
-      case 'reminders': return Icons.alarm_rounded;
-      default: return Icons.notifications_rounded;
+      case 'reminders': return Icons.notifications_active_rounded;
+      default: return Icons.notifications_none_rounded;
     }
   }
 
-  // ✅ FIXED: Removed 'BuildContext context' param.
-  // We use 'this.context' (the State's context) which is stable.
+  // Helper to get gradient color based on type
+  LinearGradient _getGradientForType(String? collection) {
+    switch (collection) {
+      case 'reminders':
+        return const LinearGradient(colors: [Color(0xFFFF9966), Color(0xFFFF5E62)]); // Orange
+      case 'livraisons':
+        return const LinearGradient(colors: [Color(0xFF00B09B), Color(0xFF96C93D)]); // Green
+      case 'sav_tickets':
+        return const LinearGradient(colors: [Color(0xFF8E2DE2), Color(0xFF4A00E0)]); // Purple
+      default:
+        return const LinearGradient(colors: [Color(0xFF2962FF), Color(0xFF536DFE)]); // Blue
+    }
+  }
+
+  // ✅ LOGIC (Kept exactly as requested)
   Future<void> _navigateToDetails(String? collection, String? docId) async {
     print("👉 START NAVIGATION: Collection: $collection, ID: $docId");
 
@@ -181,9 +202,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Notifications')),
+      backgroundColor: _bgLight,
+      appBar: AppBar(
+        title: Text(
+          'Notifications',
+          style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 22),
+        ),
+        centerTitle: false,
+        backgroundColor: _bgLight,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: _userId == null
-          ? const Center(child: Text("Erreur: Non connecté"))
+          ? Center(child: Text("Erreur: Non connecté", style: GoogleFonts.poppins(color: Colors.red)))
           : StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('user_notifications')
@@ -192,38 +226,24 @@ class _NotificationsPageState extends State<NotificationsPage> {
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(child: CircularProgressIndicator(color: _primaryBlue));
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return _buildEmptyState();
           }
 
           final docs = snapshot.data!.docs;
-          return ListView.separated(
+
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             itemCount: docs.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            physics: const BouncingScrollPhysics(),
             itemBuilder: (context, index) {
               final data = docs[index].data() as Map<String, dynamic>;
               final isRead = data['isRead'] ?? false;
               final timestamp = data['timestamp'] as Timestamp?;
 
-              return ListTile(
-                leading: _buildLeadingIcon(isRead, data['relatedCollection']),
-                title: Text(
-                  data['title'] ?? 'Notification',
-                  style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold),
-                ),
-                subtitle: Text(
-                  "${data['body'] ?? ''}\n${timestamp != null ? timeago.format(timestamp.toDate(), locale: 'fr') : ''}",
-                  maxLines: 2,
-                ),
-                isThreeLine: true,
-                // ✅ FIXED: Removed 'context' argument
-                onTap: () => _navigateToDetails(
-                  data['relatedCollection'],
-                  data['relatedDocId'],
-                ),
-              );
+              return _buildNotificationCard(data, isRead, timestamp);
             },
           );
         },
@@ -231,20 +251,146 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  Widget _buildLeadingIcon(bool isRead, String? collection) {
-    return CircleAvatar(
-      backgroundColor: isRead ? Colors.grey[200] : Colors.blue.withOpacity(0.1),
-      child: Icon(_getIconForCollection(collection), color: isRead ? Colors.grey : Colors.blue),
+  Widget _buildNotificationCard(Map<String, dynamic> data, bool isRead, Timestamp? timestamp) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: _cardWhite,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isRead ? 0.02 : 0.08), // Subtle shadow for read, stronger for unread
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+        border: !isRead ? Border.all(color: _primaryBlue.withOpacity(0.1), width: 1.5) : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _navigateToDetails(
+            data['relatedCollection'],
+            data['relatedDocId'],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Icon Container
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    gradient: _getGradientForType(data['relatedCollection']),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _getGradientForType(data['relatedCollection']).colors.first.withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _getIconForCollection(data['relatedCollection']),
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+
+                const SizedBox(width: 16),
+
+                // 2. Text Content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              data['title'] ?? 'Notification',
+                              style: GoogleFonts.poppins(
+                                fontSize: 15,
+                                fontWeight: isRead ? FontWeight.w500 : FontWeight.bold, // Bolder for unread
+                                color: isRead ? _textDark.withOpacity(0.8) : _textDark,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (!isRead)
+                            Container(
+                              width: 8, height: 8,
+                              decoration: BoxDecoration(color: _primaryBlue, shape: BoxShape.circle),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        data['body'] ?? '',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          color: _textGrey,
+                          height: 1.4,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Icon(Icons.access_time_rounded, size: 12, color: _textGrey.withOpacity(0.6)),
+                          const SizedBox(width: 4),
+                          Text(
+                            timestamp != null ? timeago.format(timestamp.toDate(), locale: 'fr') : '',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: _textGrey.withOpacity(0.6),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildEmptyState() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.notifications_off_outlined, size: 60, color: Colors.grey),
-          Text('Aucune notification', style: TextStyle(fontSize: 18, color: Colors.grey)),
+          Container(
+            padding: const EdgeInsets.all(30),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
+            child: Icon(Icons.notifications_off_outlined, size: 50, color: Colors.grey.shade400),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Aucune notification',
+            style: GoogleFonts.poppins(fontSize: 18, color: _textDark, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Vous êtes à jour !',
+            style: GoogleFonts.poppins(fontSize: 14, color: _textGrey),
+          ),
         ],
       ),
     );

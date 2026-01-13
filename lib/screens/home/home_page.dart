@@ -170,12 +170,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           .collection('user_notifications')
           .where('userId', isEqualTo: currentUser.uid)
           .where('isRead', isEqualTo: false)
-          .limit(1)
+          .limit(10) // ✅ CHANGED: Limit increased to count up to 9+
           .snapshots(),
       builder: (context, snapshot) {
-        bool hasUnread = false;
-        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-          hasUnread = true;
+        int unreadCount = 0;
+        if (snapshot.hasData) {
+          unreadCount = snapshot.data!.docs.length;
         }
 
         return Stack(
@@ -209,16 +209,31 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 },
               ),
             ),
-            if (hasUnread)
+            if (unreadCount > 0)
               Positioned(
-                top: 4,
-                right: 4,
+                top: -5, // ✅ CHANGED: Adjusted position to hang off the corner
+                right: -5,
                 child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
                     color: Colors.redAccent,
                     shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5), // Added white border for contrast
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 20,
+                    minHeight: 20,
+                  ),
+                  child: Center(
+                    child: Text(
+                      unreadCount > 9 ? '9+' : '$unreadCount', // ✅ CHANGED: Show number
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               ),

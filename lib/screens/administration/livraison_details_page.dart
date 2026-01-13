@@ -89,13 +89,18 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   final Color _accentGreen = const Color(0xFF00E676); // Neon Green
   final Color _bgLight = const Color(0xFFF4F6F9); // Clean Grey/White
 
+  // ✅ UPDATED: Validation logic for delivery phase
   bool get _allCompleted {
     if (_isLivraisonCompleted) return true;
     if (_serializedItems.isEmpty && _bulkItems.isEmpty) return false;
 
-    final serializedDone = true;
+    // Technician must check (delivered=true) all items
+    final serializedDone = _serializedItems.isEmpty ||
+        _serializedItems.every((item) => item['delivered'] == true);
+
     final bulkDone = _bulkItems.isEmpty ||
         _bulkItems.every((item) => item['delivered'] == true);
+
     return serializedDone && bulkDone;
   }
 
@@ -201,33 +206,59 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) => Map<String, dynamic>.from(p)));
           if (pickingList.isNotEmpty) _selectedPickingIndex = 0;
         } else {
+          // ✅ DELIVERY PHASE LOGIC
           for (final product in rawProducts) {
             int quantity = product['quantity'] is int ? product['quantity'] : int.tryParse(product['quantity'].toString()) ?? 0;
+            // ✅ Retrieve Picked Quantity
+            int pickedQuantity = product['pickedQuantity'] is int ? product['pickedQuantity'] : int.tryParse(product['pickedQuantity'].toString()) ?? 0;
+
             final String productName = product['productName'] ?? 'N/A';
             final String? partNumber = product['partNumber'];
             final String? productId = product['productId'];
             final List serials = product['serialNumbers'] as List? ?? [];
             final List serialsFound = product['serialNumbersFound'] as List? ?? [];
+
+            // Determine if it's bulk or serialized logic
             bool isBulkItem = (quantity > 50) || (quantity > 5 && serials.isEmpty && serialsFound.isEmpty) || product['isBulk'] == true;
+
+            // ✅ If no serials were picked, default pickedQuantity to number of serials if available
+            if (pickedQuantity == 0 && serials.isNotEmpty) {
+              pickedQuantity = serials.length;
+            }
 
             if (isBulkItem) {
               String key = productId ?? productName;
               if (bulkMap.containsKey(key)) {
                 bulkMap[key]!['quantity'] = (bulkMap[key]!['quantity'] as int) + quantity;
+                bulkMap[key]!['pickedQuantity'] = (bulkMap[key]!['pickedQuantity'] as int) + pickedQuantity;
               } else {
                 bulkMap[key] = {
-                  'productName': productName, 'partNumber': partNumber, 'quantity': quantity,
-                  'delivered': isCompleted, 'type': 'bulk', 'productId': productId,
+                  'productName': productName,
+                  'partNumber': partNumber,
+                  'quantity': quantity,
+                  'pickedQuantity': pickedQuantity, // ✅ Added
+                  'delivered': isCompleted,
+                  'type': 'bulk',
+                  'productId': productId,
                 };
               }
             } else {
+              // Serialized: Create an entry for each picked item
               int itemsToAdd = serials.isNotEmpty ? serials.length : quantity;
+              // Use pickedQuantity if serials are empty but manual picking happened
+              if (serials.isEmpty && pickedQuantity > 0) itemsToAdd = pickedQuantity;
+
               for (int i = 0; i < itemsToAdd; i++) {
                 serializedList.add({
-                  'productName': productName, 'partNumber': partNumber,
-                  'serialNumber': (i < serialsFound.length) ? serialsFound[i] : null,
+                  'productName': productName,
+                  'partNumber': partNumber,
+                  'serialNumber': (i < serialsFound.length) ? serialsFound[i] : (i < serials.length ? serials[i] : null),
                   'originalSerialNumber': (i < serials.length) ? serials[i] : null,
-                  'scanned': isCompleted, 'type': 'serialized', 'productId': productId,
+                  'delivered': isCompleted, // ✅ Replaced 'scanned' with 'delivered'
+                  'type': 'serialized',
+                  'productId': productId,
+                  'quantity': 1,
+                  'pickedQuantity': 1,
                 });
               }
             }
@@ -405,12 +436,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     } catch (e) { debugPrint("Error: $e"); } finally { if (mounted) setState(() => _isCompleting = false); }
   }
 
-  void _scanSerializedItem(Map<String, dynamic> item) async {
-    if (_isLivraisonCompleted) return;
-    String? scannedCode;
-    await Navigator.push(context, MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedCode = code)));
-    if (scannedCode != null) setState(() { item['serialNumber'] = scannedCode; item['scanned'] = true; });
-  }
+  // ✅ REMOVED: _scanSerializedItem is no longer needed in new workflow
+  // Technician just checks the item off.
 
   Future<String?> _uploadSignature() async {
     if (_isLivraisonCompleted || _signatureController.isEmpty) return null;
@@ -427,8 +454,24 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   Future<void> _completeLivraison() async {
     if (_isLivraisonCompleted) return;
+    // ✅ VALIDATION: Ensure all items (bulk and serialized) are marked as delivered
+    if (!_allCompleted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Veuillez valider tous les produits avant de confirmer.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+
     if (_proofFormKey.currentState != null && !_proofFormKey.currentState!.validate()) return;
-    if (_signatureController.isEmpty) return;
+    if (_signatureController.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('La signature est obligatoire.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+
     setState(() => _isCompleting = true);
     try {
       String? sigUrl = await _uploadSignature();
@@ -683,6 +726,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   Widget _buildModernProductCard(Map<String, dynamic> item, int index, {required bool isPicking}) {
     final int qty = item['quantity'] ?? 0;
+    // ✅ ADDED: Picked Quantity Display
+    final int pickedQty = item['pickedQuantity'] as int? ?? (item['quantity'] ?? 0);
+
     final bool isBulk = item['isBulk'] == true;
     int pickedCount = 0;
     bool isDone = false;
@@ -691,7 +737,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       pickedCount = isBulk ? (item['pickedQuantity'] as int? ?? 0) : (item['serialNumbers'] as List?)?.length ?? 0;
       isDone = pickedCount >= qty;
     } else {
-      isDone = isBulk ? (item['delivered'] == true) : (item['scanned'] == true);
+      // ✅ CHANGED: Logic for Delivery Phase - Manual Check
+      isDone = item['delivered'] == true;
     }
 
     final bool isSelected = _selectedPickingIndex == index;
@@ -752,6 +799,15 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               'Réf: ${item['partNumber'] ?? 'N/A'}',
                               style: GoogleFonts.poppins(color: Colors.grey, fontSize: 12),
                             ),
+                            // ✅ ADDED: Quantity Information for Technician
+                            if (!isPicking)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4.0),
+                                child: Text(
+                                  'Commandé: $qty | Préparé: $pickedQty',
+                                  style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -775,11 +831,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                           ],
                         )
                       else
+                      // Simple Check Icon for delivery phase status
                         Icon(isDone ? Icons.check_circle : Icons.circle_outlined, color: isDone ? Colors.green : Colors.grey.shade300)
                     ],
                   ),
 
-                  // Actions & Inputs Area
+                  // Actions & Inputs Area (PICKING PHASE ONLY)
                   if (isSelected && !isDone && isPicking) ...[
                     const SizedBox(height: 16),
                     const Divider(),
@@ -838,35 +895,25 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                       )
                   ],
 
-                  // DELIVERY MODE INPUTS
+                  // DELIVERY MODE INPUTS (TECHNICIAN)
                   if (!isPicking && !isDone) ...[
                     const SizedBox(height: 12),
-                    if (!isBulk)
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _scanSerializedItem(item),
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: const Text("Scanner pour Livrer"),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
+                    // ✅ CHANGED: Removed Scanner Button, Replaced with "Confirm" Button for all types
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.check, size: 18),
+                        label: const Text("Confirmer Réception"),
+                        onPressed: () => setState(() => item['delivered'] = true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: _primaryBlue,
+                          side: BorderSide(color: _primaryBlue),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
-                      )
-                    else
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => setState(() => item['delivered'] = true),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _accentGreen,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: const Text("Marquer Livré"),
-                        ),
-                      )
+                      ),
+                    )
                   ],
 
                   // SERIAL LIST
