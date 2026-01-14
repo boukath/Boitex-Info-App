@@ -22,8 +22,21 @@ async (event) => {
     // Filter: Only include items that are NOT supplied by the client
     // We only want to deliver what we actually sell/stock.
     const allProducts = installData.orderedProducts || [];
-    const productsToDeliver = allProducts.filter((p: any) => p.source !== 'client_supply');
 
+    // ✅ CRITICAL FIX: Normalize products for Picking/Logistics Scanner
+    // (Added .map to ensure serialNumbers and pickedQuantity exist)
+    const productsToDeliver = allProducts
+      .filter((p: any) => p.source !== 'client_supply')
+      .map((p: any) => ({
+        ...p, // Keep existing fields
+        // Ensure Logistics fields exist for the app to work:
+        serialNumbers: p.serialNumbers || [],
+        pickedQuantity: p.pickedQuantity || 0,
+        isBulk: p.isBulk || false,
+        status: "pending"
+      }));
+
+    // If no products to deliver, we stop here.
     if (!productsToDeliver || productsToDeliver.length === 0) {
       logger.log(`ℹ️ No stock products in Installation ${installationId}. Skipping Livraison creation.`);
       return;
@@ -34,19 +47,42 @@ async (event) => {
     const db = admin.firestore();
     const livraisonsRef = db.collection("livraisons");
 
-    // 2. Generate a Linked Code (e.g., BL-INST-5/2025)
-    // Simple logic: BL-{InstallationCode}
-    const installCodeShort = installData.installationCode ? installData.installationCode.replace('INST-', '') : 'UNKNOWN';
-    const blCode = `BL-${installCodeShort}`;
+    // Determine Service Type (Default to Technique)
+    const serviceType = installData.serviceType || "Service Technique";
+
+    // ✅ COUNTER LOGIC SETUP
+    const currentYear = new Date().getFullYear();
+    const counterRef = db.collection("counters").doc(`livraisons_counter_${currentYear}`);
 
     await db.runTransaction(async (t) => {
+      // A. Get the next sequence number (Atomic Increment)
+      const counterDoc = await t.get(counterRef);
+      let nextIndex = 1;
+
+      if (counterDoc.exists) {
+        const data = counterDoc.data();
+        if (data && typeof data.lastIndex === 'number') {
+          nextIndex = data.lastIndex + 1;
+        }
+      }
+
+      // B. Generate the sequential code: BL-15/2026
+      const blCode = `BL-${nextIndex}/${currentYear}`;
+
+      // C. Update the counter immediately
+      t.set(counterRef, { lastIndex: nextIndex }, { merge: true });
+
+      // D. Create the Delivery Document
       const newDocRef = livraisonsRef.doc(); // Auto-ID
 
       t.set(newDocRef, {
         // Identity
         bonLivraisonCode: blCode,
         linkedInstallationId: installationId,
-        serviceType: installData.serviceType || "Service Technique",
+        serviceType: serviceType,
+
+        // ✅ VISIBILITY FIX: Ensure correct roles can see this document
+        accessGroups: [serviceType, "Logistique", "Admin"],
 
         // Client Info
         clientName: installData.clientName || "N/A",
@@ -59,12 +95,17 @@ async (event) => {
         storeId: installData.storeId || null,
         deliveryAddress: installData.storeLocation || "",
 
-        // Content (Filtered)
+        // Content (Filtered & Normalized)
         products: productsToDeliver,
+
+        // Logistics Defaults
+        packages: [],
+        totalWeight: 0,
         notes: `Généré automatiquement pour l'installation ${installData.installationCode}`,
 
-        // Status & Meta
+        // ✅ STATUS FIX: Must match 'À Préparer' to show in the Flutter Tab
         status: "À Préparer",
+
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: "System (Auto)",
         createdById: "SYSTEM",
@@ -75,7 +116,7 @@ async (event) => {
         technicianName: null,
       });
 
-      // Link Back (Technician can see delivery status)
+      // E. Link Back (Technician can see delivery status)
       t.update(snapshot.ref, {
         linkedLivraisonId: newDocRef.id,
         linkedLivraisonCode: blCode,
@@ -83,11 +124,11 @@ async (event) => {
       });
     });
 
-    logger.log(`✅ Livraison ${blCode} created successfully.`);
+    logger.log(`✅ Livraison created successfully.`);
   }
 );
 
-// ✅ 2. SYNC TRIGGER (NEW STRATEGY 1)
+// ✅ 2. SYNC TRIGGER
 // Trigger: When an Installation is EDITED (e.g., adding a forgotten product)
 export const syncLivraisonOnInstallationUpdate = onDocumentUpdated(
   {
@@ -121,7 +162,7 @@ export const syncLivraisonOnInstallationUpdate = onDocumentUpdated(
       .get();
 
     if (deliveryQuery.empty) {
-      logger.log(`⚠️ No linked Livraison found for ${installationId}. creating one might be better manual logic here.`);
+      logger.log(`⚠️ No linked Livraison found for ${installationId}. Skipping sync.`);
       return;
     }
 
@@ -137,7 +178,16 @@ export const syncLivraisonOnInstallationUpdate = onDocumentUpdated(
 
     // 4. Prepare new list (Filtering out Client Supply items)
     const allNewProducts = after.orderedProducts || [];
-    const productsToSync = allNewProducts.filter((p: any) => p.source !== 'client_supply');
+    const productsToSync = allNewProducts
+      .filter((p: any) => p.source !== 'client_supply')
+      .map((p: any) => ({
+        ...p,
+        // Ensure fields exist for sync as well
+        serialNumbers: p.serialNumbers || [],
+        pickedQuantity: p.pickedQuantity || 0,
+        isBulk: p.isBulk || false,
+        status: "pending"
+      }));
 
     // 5. Update the Delivery Note
     await deliveryDoc.ref.update({
