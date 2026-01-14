@@ -1,8 +1,10 @@
 // lib/widgets/video_player_page.dart
 
 import 'dart:io'; // ✅ Required for File operations (Mobile)
+import 'dart:ui'; // ✅ Required for Glassmorphism (BackdropFilter)
 import 'package:flutter/foundation.dart'; // ✅ Required for kIsWeb check
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ✅ For SystemChrome (Immersive Mode)
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:http/http.dart' as http;
@@ -26,14 +28,17 @@ class VideoPlayerPage extends StatefulWidget {
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
   late VideoPlayerController _videoPlayerController;
-  late ChewieController _chewieController;
+  ChewieController? _chewieController; // Nullable to handle loading state better
   bool _isLoading = true;
   bool _hasError = false;
-  bool _isDownloading = false; // Loading state for download
+  bool _isDownloading = false;
+  bool _showControls = true; // To toggle the Glass Header visibility
 
   @override
   void initState() {
     super.initState();
+    // ⚡️ Enter Fullscreen Immersive Mode
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _initializePlayer();
   }
 
@@ -50,17 +55,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         autoPlay: true,
         looping: false,
         allowFullScreen: true,
-        // Allow controls to be visible so we can see the AppBar
-        fullScreenByDefault: false,
+        allowMuting: true,
+        showControls: true,
+        allowPlaybackSpeedChanging: true, // ✅ Premium Feature: Speed Control
+        // Customizing the player look
         materialProgressColors: ChewieProgressColors(
-          playedColor: Theme.of(context).primaryColor,
-          handleColor: Theme.of(context).primaryColor,
-          bufferedColor: Colors.grey.shade300,
-          backgroundColor: Colors.grey.shade600,
+          playedColor: const Color(0xFF2962FF), // Premium Blue
+          handleColor: Colors.white,
+          bufferedColor: Colors.white24,
+          backgroundColor: Colors.black54,
         ),
         placeholder: const Center(
-          child: CircularProgressIndicator(),
+          child: CircularProgressIndicator(color: Color(0xFF2962FF)),
         ),
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Text(
+              errorMessage,
+              style: const TextStyle(color: Colors.white),
+            ),
+          );
+        },
       );
 
       if (mounted) {
@@ -86,87 +101,73 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     setState(() => _isDownloading = true);
 
     try {
-      // 1. Extract file info
       final cleanUrl = widget.videoUrl.split('?').first;
-      final ext = cleanUrl.split('.').last; // e.g., 'mp4'
+      final ext = cleanUrl.split('.').last;
       final fileName = 'video_${DateTime.now().millisecondsSinceEpoch}';
 
-      // 2. Download bytes (RAM)
       final response = await http.get(Uri.parse(widget.videoUrl));
       if (response.statusCode != 200) {
         throw Exception('Erreur serveur: ${response.statusCode}');
       }
 
-      // ⭐️ 3. WEB LOGIC
       if (kIsWeb) {
         await FileSaver.instance.saveFile(
           name: fileName,
           bytes: response.bodyBytes,
           ext: ext,
-          mimeType: MimeType.mpeg, // Covers mp4 generally
+          mimeType: MimeType.mpeg,
         );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('✅ Vidéo téléchargée (Web) !'),
-                backgroundColor: Colors.green),
-          );
-        }
-      }
-      // 📱 4. MOBILE LOGIC (Your original code)
-      else {
+        if (mounted) _showSnack('✅ Téléchargement terminé (Web)', Colors.green);
+      } else {
         if (!await Gal.requestAccess()) {
           throw Exception('Permission refusée pour la galerie.');
         }
 
         final tempDir = await getTemporaryDirectory();
         final path = '${tempDir.path}/$fileName.$ext';
-
         final file = File(path);
         await file.writeAsBytes(response.bodyBytes);
 
         await Gal.putVideo(path);
         await file.delete();
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('✅ Vidéo enregistrée dans la Galerie !'),
-                backgroundColor: Colors.green),
-          );
-        }
+        if (mounted) _showSnack('✅ Enregistré dans la Galerie !', Colors.green);
       }
     } catch (e) {
-      debugPrint('Download error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) _showSnack('Erreur: $e', Colors.red);
     } finally {
       if (mounted) setState(() => _isDownloading = false);
     }
   }
 
-  // ✅ DELETE FUNCTION (Unchanged)
+  void _showSnack(String msg, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: color, behavior: SnackBarBehavior.floating),
+    );
+  }
+
   void _deleteVideo() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Supprimer la vidéo ?'),
-        content: const Text('Cette action retirera la vidéo de l\'intervention.'),
+        backgroundColor: Colors.grey.shade900,
+        title: const Text('Supprimer la vidéo ?', style: TextStyle(color: Colors.white)),
+        content: const Text(
+            'Cette action est irréversible.',
+            style: TextStyle(color: Colors.white70)
+        ),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Annuler')
+              child: const Text('Annuler', style: TextStyle(color: Colors.white))
           ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
-              Navigator.of(ctx).pop(); // Close dialog
+              Navigator.of(ctx).pop();
               if (widget.onDelete != null) {
-                widget.onDelete!(); // Trigger callback
-                Navigator.of(context).pop(); // Close player
+                widget.onDelete!();
+                Navigator.of(context).pop();
               }
             },
             child: const Text('Supprimer'),
@@ -178,10 +179,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   @override
   void dispose() {
+    // ⚡️ Restore System UI when leaving
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _videoPlayerController.dispose();
-    if (!_isLoading && !_hasError) {
-      _chewieController.dispose();
-    }
+    _chewieController?.dispose();
     super.dispose();
   }
 
@@ -189,38 +190,129 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('Lecteur Vidéo', style: TextStyle(color: Colors.white)),
-        actions: [
-          // ✅ Download Button
-          IconButton(
-            icon: _isDownloading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Icon(Icons.download),
-            onPressed: _downloadVideo,
-            tooltip: 'Télécharger',
-          ),
-          // ✅ Delete Button (Only if callback is provided)
-          if (widget.onDelete != null)
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.redAccent),
-              onPressed: _deleteVideo,
-              tooltip: 'Supprimer',
+      extendBodyBehindAppBar: true, // Key for immersive feel
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 1. Ambient Background (Subtle Gradient)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: RadialGradient(
+                colors: [Color(0xFF1E1E1E), Colors.black],
+                center: Alignment.center,
+                radius: 1.5,
+              ),
             ),
+          ),
+
+          // 2. The Player (Centered)
+          Center(
+            child: _isLoading
+                ? const CircularProgressIndicator(color: Colors.white)
+                : _hasError
+                ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.broken_image, color: Colors.white54, size: 50),
+                const SizedBox(height: 10),
+                const Text(
+                  'Vidéo indisponible',
+                  style: TextStyle(color: Colors.white),
+                ),
+                TextButton(
+                  onPressed: _initializePlayer,
+                  child: const Text("Réessayer"),
+                )
+              ],
+            )
+                : AspectRatio(
+              aspectRatio: _videoPlayerController.value.aspectRatio,
+              child: Chewie(controller: _chewieController!),
+            ),
+          ),
+
+          // 3. 🌫️ Glassmorphism Floating Header
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _buildGlassHeader(context),
+          ),
         ],
       ),
-      body: Center(
-        child: _isLoading
-            ? const CircularProgressIndicator(color: Colors.white)
-            : _hasError
-            ? const Text(
-          'Impossible de lire la vidéo.\nLe lien est peut-être corrompu.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white),
-        )
-            : Chewie(controller: _chewieController),
+    );
+  }
+
+  Widget _buildGlassHeader(BuildContext context) {
+    return ClipRRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+        child: Container(
+          padding: EdgeInsets.only(
+            top: MediaQuery.of(context).padding.top + 10,
+            bottom: 15,
+            left: 20,
+            right: 20,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.3),
+            border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Back Button (Circle Glass)
+              _buildGlassButton(
+                icon: Icons.arrow_back_ios_new,
+                onTap: () => Navigator.pop(context),
+              ),
+
+              const Spacer(),
+
+              // Action Buttons
+              Row(
+                children: [
+                  _buildGlassButton(
+                    icon: _isDownloading ? Icons.hourglass_top : Icons.download_rounded,
+                    onTap: _downloadVideo,
+                    isLoading: _isDownloading,
+                  ),
+                  if (widget.onDelete != null) ...[
+                    const SizedBox(width: 12),
+                    _buildGlassButton(
+                      icon: Icons.delete_outline,
+                      onTap: _deleteVideo,
+                      color: Colors.redAccent,
+                    ),
+                  ]
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGlassButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    Color color = Colors.white,
+    bool isLoading = false,
+  }) {
+    return InkWell(
+      onTap: isLoading ? null : onTap,
+      borderRadius: BorderRadius.circular(30),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white.withOpacity(0.2)),
+        ),
+        child: isLoading
+            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : Icon(icon, color: color, size: 20),
       ),
     );
   }
