@@ -72,13 +72,23 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
       doc.moveDown(2);
   }
 
-  // 6. Signatures
+  // 6. Photo Grid (If images exist)
+  if (data.mediaUrls && data.mediaUrls.length > 0) {
+    // Only fetch non-video images for PDF
+    const photoUrls = data.mediaUrls.filter((url: string) => !url.toLowerCase().endsWith('.mp4'));
+    if (photoUrls.length > 0) {
+      await _buildPhotoGrid(doc, photoUrls);
+      doc.moveDown(2);
+    }
+  }
+
+  // 7. Signatures
   // Check page break (ensure signatures aren't cut off)
   if (doc.y > 650) doc.addPage();
 
   _buildSignatureSection(doc, data, clientSigBuffer, cacheBuffer);
 
-  // 7. Finalize
+  // 8. Finalize
   doc.end();
 
   return new Promise((resolve) => {
@@ -220,16 +230,21 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
     let qty = 0;
 
     if (Array.isArray(item.serialNumbers)) {
-        serials = item.serialNumbers.join(", ");
-        qty = item.serialNumbers.length;
+        // Filter out empty strings
+        const validSerials = item.serialNumbers.filter((s: string) => s && s.trim().length > 0);
+        serials = validSerials.length > 0 ? validSerials.join(", ") : "N/A";
+        qty = item.quantity || item.serialNumbers.length;
     } else if (item.serialNumber) {
         serials = item.serialNumber;
         qty = 1;
+    } else {
+        qty = item.quantity || 1;
     }
 
-    // Calculate Row Height
-    const serialHeight = doc.heightOfString(serials, { width: wSerial });
-    const nameHeight = doc.heightOfString(name, { width: wName });
+    // Calculate Row Height to avoid overlap
+    // Use smaller width for serial calculation to force wrap if needed
+    const serialHeight = doc.heightOfString(serials, { width: wSerial - 10 });
+    const nameHeight = doc.heightOfString(name, { width: wName - 10 });
     const rowHeight = Math.max(serialHeight, nameHeight, 30) + 15;
 
     // Page Break Check
@@ -251,7 +266,7 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
     doc.text(name, startX + 5, currentY, { width: wName - 10 });
     doc.text(details, startX + wName + 5, currentY, { width: wDetails - 10 });
     doc.text(qty.toString(), startX + wName + wDetails, currentY, { width: wQty, align: "center" });
-    doc.text(serials, startX + wName + wDetails + wQty + 10, currentY, { width: wSerial });
+    doc.text(serials, startX + wName + wDetails + wQty + 10, currentY, { width: wSerial - 10 });
 
     currentY += rowHeight;
 
@@ -272,6 +287,46 @@ function _buildNotesSection(doc: PDFKit.PDFDocument, notes: string) {
     doc.text(notes, { align: "justify" });
 }
 
+async function _buildPhotoGrid(doc: PDFKit.PDFDocument, photoUrls: string[]) {
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(BRAND_COLOR);
+  doc.text("PHOTOS DE L'INSTALLATION:", MARGIN, doc.y);
+  doc.moveDown(0.5);
+
+  const startX = MARGIN;
+  let currentY = doc.y;
+  const photoSize = 150; // Size of each square photo
+  const gap = 10;
+
+  // Limit to 4 photos for layout cleanliness
+  const maxPhotos = Math.min(photoUrls.length, 4);
+
+  // Fetch photos in parallel
+  const buffers = await Promise.all(photoUrls.slice(0, maxPhotos).map((url) => fetchImage(url)));
+
+  buffers.forEach((buf, i) => {
+    if (!buf) return;
+
+    // Grid Logic: 2 columns
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+
+    const x = startX + (col * (photoSize + gap));
+    const y = currentY + (row * (photoSize + gap));
+
+    try {
+      doc.image(buf, x, y, { width: photoSize, height: photoSize, fit: [photoSize, photoSize] });
+      // Draw border around photo
+      doc.rect(x, y, photoSize, photoSize).lineWidth(0.5).strokeColor(LINE_COLOR).stroke();
+    } catch (e) {
+      logger.warn("Error embedding photo into PDF", e);
+    }
+  });
+
+  // Advance cursor below the grid
+  const rows = Math.ceil(maxPhotos / 2);
+  doc.y = currentY + (rows * (photoSize + gap));
+}
+
 function _buildSignatureSection(
   doc: PDFKit.PDFDocument,
   data: any,
@@ -286,25 +341,24 @@ function _buildSignatureSection(
 
   const sigY = startY + 25;
 
-  if (data.assignedTechnicians && Array.isArray(data.assignedTechnicians)) {
-      doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR);
-      const names = data.assignedTechnicians
+  // ✅ LOGIC: Use assignedTechnicianNames first (String Array), fall back to Object Array
+  let techNames = "Service Technique";
+
+  if (data.assignedTechnicianNames && Array.isArray(data.assignedTechnicianNames) && data.assignedTechnicianNames.length > 0) {
+      techNames = data.assignedTechnicianNames.join("\n");
+  } else if (data.assignedTechnicians && Array.isArray(data.assignedTechnicians)) {
+      techNames = data.assignedTechnicians
           .map((t: any) => t.displayName || "Technicien")
           .join("\n");
+  }
 
-      doc.text(names, MARGIN, sigY);
+  doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR);
+  doc.text(techNames, MARGIN, sigY);
 
-      // Place Cache (Stamp) under names
-      const namesHeight = doc.heightOfString(names, { width: 200 });
-      if (cache) {
-          doc.image(cache, MARGIN, sigY + namesHeight + 10, { width: 100 });
-      }
-  } else {
-      // Fallback
-      doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR).text("Service Technique", MARGIN, sigY);
-      if (cache) {
-          doc.image(cache, MARGIN, sigY + 20, { width: 100 });
-      }
+  // Place Cache (Stamp) under names
+  const namesHeight = doc.heightOfString(techNames, { width: 200 });
+  if (cache) {
+      doc.image(cache, MARGIN, sigY + namesHeight + 10, { width: 100 });
   }
 
   // -- 2. Client Side (Right) --
@@ -317,9 +371,10 @@ function _buildSignatureSection(
     doc.fontSize(9).fillColor(LINE_COLOR).text("(Non signé)", 350, sigY + 30);
   }
 
-  // ✅ NEW: Add Client Name under the signature area
-  // We position it below the signature image area (80px high)
+  // ✅ NEW: Display the Specific Signatory Name
   const clientNameY = sigY + 90;
   doc.font("Helvetica-Bold").fontSize(10).fillColor(TEXT_COLOR);
-  doc.text(data.clientName || "", 350, clientNameY);
+  // Priority: Signatory (Person on site) -> Contact -> Client
+  const finalSignatory = data.signatoryName || data.contactName || data.clientName || "";
+  doc.text(finalSignatory, 350, clientNameY);
 }

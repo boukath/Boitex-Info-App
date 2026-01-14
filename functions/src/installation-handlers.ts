@@ -147,7 +147,7 @@ export const onInstallationTermine = onDocumentUpdated(
       let mainRecipient = after.clientEmail;
       if (!isValidEmail(mainRecipient)) {
          logger.warn(`⚠️ Invalid or missing client email. Defaulting to internal admin.`);
-         mainRecipient = "athmane-boukerdous@boitexinfo.com";
+         mainRecipient = "commercial@boitexinfo.com";
       } else {
          logger.log(`📧 Sending to client: ${mainRecipient}`);
       }
@@ -158,14 +158,12 @@ export const onInstallationTermine = onDocumentUpdated(
 
       if (serviceType.toString().toUpperCase().includes("IT")) {
         ccList = [
-          "commercial@boitexinfo.com",
           "karim-lehamine@boitexinfo.com"
         ];
         logger.info(`📧 Routing to IT Team: ${ccList.join(", ")}`);
       } else {
         ccList = [
           "athmane-boukerdous@boitexinfo.com",
-          "commercial@boitexinfo.com",
           "khaled-mekideche@boitexinfo.com"
         ];
         logger.info(`📧 Routing to Technical Team: ${ccList.join(", ")}`);
@@ -216,7 +214,7 @@ export const onInstallationTermine = onDocumentUpdated(
             <hr style="border: 0; border-top: 1px solid #eee;" />
             <p style="font-size: 12px; color: #666;">
               Ceci est un message automatique.<br/>
-              <strong>Boitex Info SARL</strong>
+              <strong>Sarl Boitex Info</strong>
             </p>
           </div>
         `,

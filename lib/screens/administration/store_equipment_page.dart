@@ -4,24 +4,26 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:timeago/timeago.dart' as timeago;
-import 'package:flutter_slidable/flutter_slidable.dart'; // ✅ IMPORTANT: Import Slidable
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:boitex_info_app/screens/administration/add_store_equipment_page.dart';
 import 'package:boitex_info_app/screens/administration/store_equipment_details_page.dart';
 import 'package:boitex_info_app/screens/administration/add_store_page.dart';
 
-// ✅ NEW: Import Service Contracts for logic
+// ✅ Import Service Contracts for logic
 import 'package:boitex_info_app/models/service_contracts.dart';
 
 class StoreEquipmentPage extends StatelessWidget {
   final String clientId;
   final String storeId;
   final String storeName;
+  final String? logoUrl; // ✅ NEW: Optional Logo URL
 
   const StoreEquipmentPage({
     super.key,
     required this.clientId,
     required this.storeId,
     required this.storeName,
+    this.logoUrl,
   });
 
   // Helper to get the real name if the saved name is generic
@@ -47,13 +49,13 @@ class StoreEquipmentPage extends StatelessWidget {
           return productDoc.data()?['nom'] ?? currentName;
         }
       } catch (e) {
-        print('Error resolving name: $e');
+        debugPrint('Error resolving name: $e');
       }
     }
     return currentName;
   }
 
-  // ✅ NEW: Function to delete equipment
+  // Function to delete equipment
   Future<void> _deleteEquipment(BuildContext context, String equipmentId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -99,7 +101,7 @@ class StoreEquipmentPage extends StatelessWidget {
     }
   }
 
-  // ✅ NEW: Function to edit equipment
+  // Function to edit equipment
   void _editEquipment(BuildContext context, String equipmentId, Map<String, dynamic> data) {
     Navigator.push(
       context,
@@ -108,33 +110,28 @@ class StoreEquipmentPage extends StatelessWidget {
           clientId: clientId,
           storeId: storeId,
           equipmentId: equipmentId,
-          initialData: data, // Pass existing data to populate the form
+          initialData: data,
         ),
       ),
     );
   }
 
-  // 🟢 NEW: Build the Traffic Light Badge for Warranty
+  // Build the Traffic Light Badge for Warranty
   Widget _buildWarrantyBadge(Map<String, dynamic> data) {
     EquipmentWarranty? warranty;
 
-    // 1. Try to parse explicit warranty data
     if (data['warranty'] != null) {
       try {
         warranty = EquipmentWarranty.fromMap(data['warranty']);
-      } catch (e) {
-        // Fallback if data is malformed
-      }
+      } catch (e) {}
     }
-    // 2. Legacy Fallback: If no explicit warranty data, assume 1 year from install date
+
     if (warranty == null && data['installDate'] != null) {
       final installDate = (data['installDate'] as Timestamp).toDate();
       warranty = EquipmentWarranty.defaultOneYear(installDate);
     }
 
-    // 3. Render Badge based on status
     if (warranty == null) {
-      // If we have no dates at all, don't show anything
       return const SizedBox.shrink();
     }
 
@@ -170,11 +167,44 @@ class StoreEquipmentPage extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
+  // ✅ BRANDED HEADER WIDGET
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
+    if (logoUrl != null) {
+      return AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: false,
+        leading: const BackButton(color: Colors.black87),
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundImage: NetworkImage(logoUrl!),
+              radius: 18,
+              backgroundColor: Colors.grey.shade100,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(storeName, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Text("Parc Installé", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            )
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_location_alt_outlined, color: Colors.blueAccent),
+            tooltip: 'Modifier le Magasin',
+            onPressed: () => _openStoreSettings(context),
+          ),
+        ],
+      );
+    } else {
+      // Fallback Default AppBar
+      return AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -188,31 +218,41 @@ class StoreEquipmentPage extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.edit_location_alt_outlined),
             tooltip: 'Modifier le Magasin',
-            onPressed: () {
-              FirebaseFirestore.instance
-                  .collection('clients')
-                  .doc(clientId)
-                  .collection('stores')
-                  .doc(storeId)
-                  .get()
-                  .then((doc) {
-                if (doc.exists && context.mounted) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AddStorePage(
-                        clientId: clientId,
-                        storeId: storeId,
-                        initialData: doc.data(),
-                      ),
-                    ),
-                  );
-                }
-              });
-            },
+            onPressed: () => _openStoreSettings(context),
           ),
         ],
-      ),
+      );
+    }
+  }
+
+  void _openStoreSettings(BuildContext context) {
+    FirebaseFirestore.instance
+        .collection('clients')
+        .doc(clientId)
+        .collection('stores')
+        .doc(storeId)
+        .get()
+        .then((doc) {
+      if (doc.exists && context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AddStorePage(
+              clientId: clientId,
+              storeId: storeId,
+              initialData: doc.data(),
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: _buildAppBar(context),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('clients')
@@ -257,7 +297,6 @@ class StoreEquipmentPage extends StatelessWidget {
               final Timestamp? installDate = data['installDate'] as Timestamp?;
               final String? imageUrl = data['image'];
 
-              // ✅ WRAPPED CARD IN SLIDABLE FOR SWIPE ACTIONS
               return Slidable(
                 key: ValueKey(id),
                 startActionPane: ActionPane(
@@ -368,7 +407,7 @@ class StoreEquipmentPage extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 8),
 
-                                // 🟢 MODIFIED: Info Row with Warranty Badge
+                                // Info Row with Warranty Badge
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [

@@ -165,10 +165,19 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           }).toList();
         }
 
-        // ✅ ADDED: Load previously assigned technicians if any
+        // ✅ FIXED: Handle Technicians correctly (List of Maps vs List of Strings)
         List<String> loadedTechIds = [];
         if (data['assignedTechnicians'] != null) {
-          loadedTechIds = List<String>.from(data['assignedTechnicians']);
+          final rawTechs = data['assignedTechnicians'] as List;
+          if (rawTechs.isNotEmpty) {
+            if (rawTechs.first is Map) {
+              // Format: [{uid: "123", displayName: "Athmane"}]
+              loadedTechIds = rawTechs.map((t) => t['uid'] as String).toList();
+            } else if (rawTechs.first is String) {
+              // Format: ["123", "456"]
+              loadedTechIds = List<String>.from(rawTechs);
+            }
+          }
         }
 
         setState(() {
@@ -607,7 +616,17 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     final data = _installationDoc?.data() as Map<String, dynamic>?;
     final clientName = data?['clientName'] ?? 'N/A';
     final storeName = data?['storeName'] ?? 'N/A';
+    final storeLocation = data?['storeLocation'] ?? 'Localisation inconnue';
     final bool isReadOnly = data?['status'] == 'Terminée';
+
+    // ✅ Logic to display technicians safely
+    String technicianNames = "Non assigné";
+    final techs = data?['assignedTechnicians'];
+    if (techs != null && techs is List && techs.isNotEmpty) {
+      if (techs.first is Map) {
+        technicianNames = techs.map((t) => t['displayName']).join(", ");
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -619,15 +638,70 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(clientName,
-                style: Theme.of(context).textTheme.headlineSmall),
-            Text(storeName, style: Theme.of(context).textTheme.titleMedium),
+            // ✅ NEW: Job Context Header (Client, Store, Location)
+            Container(
+              padding: const EdgeInsets.all(16),
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.business, color: Colors.blueAccent, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          clientName,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Row(
+                    children: [
+                      const Icon(Icons.store, color: Colors.orange, size: 20),
+                      const SizedBox(width: 8),
+                      Text(storeName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on, color: Colors.redAccent, size: 20),
+                      const SizedBox(width: 8),
+                      Text(storeLocation, style: TextStyle(color: Colors.grey.shade700)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // ✅ Display assigned technicians from document
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.people, color: Colors.teal, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Techs: $technicianNames",
+                          style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.teal),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 24),
 
-            // ✅ ADDED: Multi-Select Dialog for Technicians
-            const Text("Techniciens ayant effectué l'installation :", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            // ✅ ADDED: Multi-Select Dialog for Technicians (Correction / Addition)
+            const Text("Correction / Ajout Techniciens :", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
-            // ✅ FIX: Wrapped in AbsorbPointer to handle "Read Only" behavior since 'enabled' is missing
             AbsorbPointer(
               absorbing: isReadOnly,
               child: MultiSelectDialogField(
@@ -635,20 +709,16 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                 title: const Text("Sélectionner Techniciens"),
                 selectedColor: Colors.blue,
                 decoration: BoxDecoration(
-                  // ✅ VISUAL FEEDBACK: Change color if read-only
                   color: isReadOnly ? Colors.grey.shade100 : Colors.blue.withOpacity(0.1),
                   borderRadius: const BorderRadius.all(Radius.circular(10)),
-                  // ✅ VISUAL FEEDBACK: Change border if read-only
                   border: Border.all(color: isReadOnly ? Colors.grey : Colors.blue, width: 2),
                 ),
-                // ✅ VISUAL FEEDBACK: Change icon color if read-only
                 buttonIcon: Icon(Icons.group_add, color: isReadOnly ? Colors.grey : Colors.blue),
                 buttonText: Text(
                   _selectedTechnicianIds.isEmpty
                       ? "Choisir les techniciens..."
                       : "${_selectedTechnicianIds.length} Technicien(s) sélectionné(s)",
                   style: TextStyle(
-                    // ✅ VISUAL FEEDBACK: Change text color if read-only
                     color: isReadOnly ? Colors.grey[600] : Colors.blue[800],
                     fontSize: 16,
                   ),
@@ -663,7 +733,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             ),
             const SizedBox(height: 24),
 
-            // ✅ FULFILLMENT UI (Includes pre-filled Ordered Products)
+            // ✅ FULFILLMENT UI (Pre-filled from Ordered Products)
             _buildSystemsList(isReadOnly),
 
             const SizedBox(height: 24),

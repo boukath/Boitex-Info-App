@@ -178,6 +178,7 @@ class ManageStoresPage extends StatelessWidget {
               var storeData = storeDoc.data() as Map<String, dynamic>;
               String storeName = storeData['name'] ?? 'Nom Inconnu';
               String storeLocation = storeData['location'] ?? 'Localisation Inconnue';
+              String? logoUrl = storeData['logoUrl']; // ✅ FETCH LOGO URL
               String storeId = storeDoc.id;
 
               return Padding(
@@ -260,7 +261,14 @@ class ManageStoresPage extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          Container(
+                          // ✅ UPDATED: Show Logo if available, else show Icon
+                          logoUrl != null
+                              ? CircleAvatar(
+                            radius: 24,
+                            backgroundColor: Colors.grey.shade100,
+                            backgroundImage: NetworkImage(logoUrl),
+                          )
+                              : Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               color: Colors.teal.shade50,

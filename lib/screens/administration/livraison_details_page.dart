@@ -804,7 +804,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               Padding(
                                 padding: const EdgeInsets.only(top: 4.0),
                                 child: Text(
-                                  'Commandé: $qty | Préparé: $pickedQty',
+                                  // CHANGED: Only show quantity for delivery phase as requested
+                                  'Quantité: $qty',
                                   style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
                               ),

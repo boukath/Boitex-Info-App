@@ -1,15 +1,20 @@
 // lib/screens/administration/add_store_page.dart
 
+import 'dart:convert';
+import 'dart:typed_data'; // For web bytes
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http; // ✅ ADDED FOR LINK RESOLVING
-import 'package:intl/intl.dart'; // ✅ NEW: For Date Formatting
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/administration/add_client_page.dart' show ContactInfo;
 import 'package:boitex_info_app/screens/widgets/location_picker_page.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:image_picker/image_picker.dart'; // ✅ Required for picking logo
+import 'package:crypto/crypto.dart'; // ✅ Required for B2 SHA1
 
-// ✅ NEW: Import Service Contracts
+// ✅ Import Service Contracts
 import 'package:boitex_info_app/models/service_contracts.dart';
 
 class AddStorePage extends StatefulWidget {
@@ -37,20 +42,32 @@ class _AddStorePageState extends State<AddStorePage> {
   late TextEditingController _latController;
   late TextEditingController _lngController;
 
-  // ✅ NEW: Link Controller
+  // Link Controller
   late TextEditingController _linkController;
 
   bool _isLoading = false;
   late bool _isEditMode;
   List<ContactInfo> _storeContacts = [];
   bool _gettingLocation = false;
-  bool _isResolvingLink = false; // Loading state for link extraction
+  bool _isResolvingLink = false;
 
-  // ✅ NEW: Contract State
+  // ✅ LOGO STATE
+  String? _logoUrl;
+  Uint8List? _pickedLogoBytes; // For preview before upload
+  bool _isUploadingLogo = false;
+  final ImagePicker _picker = ImagePicker();
+
+  // ✅ B2 CONFIG (Same as your other files)
+  final String _getB2UploadUrlCloudFunctionUrl =
+      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+
+  // Contract State
   bool _hasContract = false;
   String _contractType = 'Standard';
   DateTime? _contractStartDate;
   DateTime? _contractEndDate;
+
+  // ✅ FIXED: Initialized here, so we DON'T do it again in initState
   final TextEditingController _contractDocUrlController = TextEditingController();
 
   @override
@@ -61,12 +78,15 @@ class _AddStorePageState extends State<AddStorePage> {
     _locationController = TextEditingController();
     _latController = TextEditingController();
     _lngController = TextEditingController();
-    _linkController = TextEditingController(); // Init link controller
+    _linkController = TextEditingController();
+
+    // ❌ REMOVED: _contractDocUrlController = TextEditingController(); (This caused the error)
 
     // Pre-fill form if editing
     if (_isEditMode && widget.initialData != null) {
       _nameController.text = widget.initialData!['name'] ?? '';
       _locationController.text = widget.initialData!['location'] ?? '';
+      _logoUrl = widget.initialData!['logoUrl']; // ✅ Load existing logo
 
       if (widget.initialData!['latitude'] != null) {
         _latController.text = widget.initialData!['latitude'].toString();
@@ -82,23 +102,21 @@ class _AddStorePageState extends State<AddStorePage> {
           .map((entry) => ContactInfo.fromMap(entry.value as Map<String, dynamic>, entry.key.toString()))
           .toList();
 
-      // ✅ NEW: Load Contract Data
       if (widget.initialData!['maintenance_contract'] != null) {
         try {
           final contractMap = widget.initialData!['maintenance_contract'];
           final contract = MaintenanceContract.fromMap(contractMap);
-          _hasContract = true; // If data exists, assume tracking is on
+          _hasContract = true;
           _contractType = contract.type;
           _contractStartDate = contract.startDate;
           _contractEndDate = contract.endDate;
           _contractDocUrlController.text = contract.docUrl ?? '';
         } catch (e) {
-          print("Error loading contract: $e");
+          debugPrint("Error loading contract: $e");
         }
       }
     }
 
-    // Default dates if new or not set
     if (_contractStartDate == null) {
       _contractStartDate = DateTime.now();
       _contractEndDate = DateTime.now().add(const Duration(days: 365));
@@ -116,6 +134,68 @@ class _AddStorePageState extends State<AddStorePage> {
     super.dispose();
   }
 
+  // --- 📸 IMAGE PICKER & B2 UPLOAD ---
+
+  Future<void> _pickLogo() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512, // Resize to save bandwidth
+        maxHeight: 512,
+        imageQuality: 80,
+      );
+
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _pickedLogoBytes = bytes;
+          _logoUrl = null; // Clear old URL so we know to upload new one
+        });
+      }
+    } catch (e) {
+      _showError("Erreur lors de la sélection : $e");
+    }
+  }
+
+  Future<String?> _uploadLogoToB2() async {
+    if (_pickedLogoBytes == null) return _logoUrl; // Return existing if no new pick
+
+    try {
+      // 1. Get Auth
+      final authResponse = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (authResponse.statusCode != 200) throw "Auth B2 Failed";
+      final creds = json.decode(authResponse.body);
+
+      // 2. Prepare Upload
+      final fileName = 'store_logos/${widget.clientId}/${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final sha1Hash = sha1.convert(_pickedLogoBytes!).toString();
+
+      // 3. Upload
+      final uploadResponse = await http.post(
+        Uri.parse(creds['uploadUrl']),
+        headers: {
+          'Authorization': creds['authorizationToken'],
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': 'image/jpeg',
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': _pickedLogoBytes!.length.toString(),
+        },
+        body: _pickedLogoBytes,
+      );
+
+      if (uploadResponse.statusCode == 200) {
+        final body = json.decode(uploadResponse.body);
+        // Construct final URL
+        return creds['downloadUrlPrefix'] + Uri.encodeComponent(body['fileName']);
+      } else {
+        throw "B2 Error: ${uploadResponse.body}";
+      }
+    } catch (e) {
+      debugPrint("Upload Error: $e");
+      return null;
+    }
+  }
+
   // --- 🔗 GOOGLE MAPS LINK PARSER ---
   Future<void> _extractCoordinatesFromLink() async {
     String url = _linkController.text.trim();
@@ -124,7 +204,6 @@ class _AddStorePageState extends State<AddStorePage> {
     setState(() => _isResolvingLink = true);
 
     try {
-      // 1. Resolve Short Links (e.g. https://maps.app.goo.gl/...)
       if (url.contains('goo.gl') || url.contains('maps.app.goo.gl') || url.contains('bit.ly')) {
         final client = http.Client();
         var request = http.Request('HEAD', Uri.parse(url));
@@ -135,8 +214,6 @@ class _AddStorePageState extends State<AddStorePage> {
         }
       }
 
-      // 2. Regex to find coordinates in the full URL
-      // Matches patterns like @36.75,3.04 or q=36.75,3.04
       RegExp regExp = RegExp(r'(@|q=)([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
       Match? match = regExp.firstMatch(url);
 
@@ -165,11 +242,7 @@ class _AddStorePageState extends State<AddStorePage> {
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erreur lors de l'analyse : $e"), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) _showError("Erreur lors de l'analyse : $e");
     } finally {
       if (mounted) setState(() => _isResolvingLink = false);
     }
@@ -249,7 +322,6 @@ class _AddStorePageState extends State<AddStorePage> {
     );
   }
 
-  // ✅ NEW: Date Picker Helper
   Future<void> _pickDate(bool isStart) async {
     final initial = isStart ? _contractStartDate : _contractEndDate;
     final picked = await showDatePicker(
@@ -263,7 +335,6 @@ class _AddStorePageState extends State<AddStorePage> {
       setState(() {
         if (isStart) {
           _contractStartDate = picked;
-          // Auto adjust end date if it's before start
           if (_contractEndDate != null && _contractEndDate!.isBefore(picked)) {
             _contractEndDate = picked.add(const Duration(days: 365));
           }
@@ -274,7 +345,6 @@ class _AddStorePageState extends State<AddStorePage> {
     }
   }
 
-  // ... (Contact Dialog Logic) ...
   Future<void> _showContactDialog({ContactInfo? existingContact, int? index}) async {
     final GlobalKey<FormState> dialogFormKey = GlobalKey<FormState>();
     String type = existingContact?.type ?? 'Téléphone';
@@ -366,7 +436,6 @@ class _AddStorePageState extends State<AddStorePage> {
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
 
-      // ✅ NEW: Validate Contract Dates if enabled
       if (_hasContract && (_contractStartDate == null || _contractEndDate == null)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Veuillez définir les dates du contrat'), backgroundColor: Colors.red),
@@ -376,12 +445,22 @@ class _AddStorePageState extends State<AddStorePage> {
 
       setState(() { _isLoading = true; });
 
+      // ✅ 1. UPLOAD LOGO IF NEEDED
+      String? finalLogoUrl = _logoUrl;
+      if (_pickedLogoBytes != null) {
+        finalLogoUrl = await _uploadLogoToB2();
+        if (finalLogoUrl == null) {
+          setState(() => _isLoading = false);
+          _showError("Échec de l'envoi du logo");
+          return;
+        }
+      }
+
       final List<Map<String, dynamic>> contactsForDb = _storeContacts.map((c) => c.toMap()).toList();
 
       double? lat = double.tryParse(_latController.text);
       double? lng = double.tryParse(_lngController.text);
 
-      // ✅ NEW: Prepare Contract Data
       Map<String, dynamic>? contractData;
       if (_hasContract) {
         final contract = MaintenanceContract(
@@ -389,7 +468,7 @@ class _AddStorePageState extends State<AddStorePage> {
           type: _contractType,
           startDate: _contractStartDate!,
           endDate: _contractEndDate!,
-          isActive: true, // If saved here, it is considered active
+          isActive: true,
           docUrl: _contractDocUrlController.text.trim().isEmpty ? null : _contractDocUrlController.text.trim(),
         );
         contractData = contract.toMap();
@@ -398,19 +477,14 @@ class _AddStorePageState extends State<AddStorePage> {
       final storeData = {
         'name': _nameController.text.trim(),
         'location': _locationController.text.trim(),
+        'logoUrl': finalLogoUrl, // ✅ SAVE LOGO URL
         'latitude': lat,
         'longitude': lng,
         'storeContacts': contactsForDb,
-
-        // ✅ IMPORTANT: Soft Delete Support
-        // If it's a new store, force 'active'. If editing, keep existing or fallback to active.
         'status': _isEditMode ? (widget.initialData?['status'] ?? 'active') : 'active',
-
-        // ✅ NEW: Save or Remove Contract
         'maintenance_contract': _hasContract ? contractData : FieldValue.delete(),
       };
 
-      // ✅ Add creation timestamp only for new stores
       if (!_isEditMode) {
         storeData['createdAt'] = FieldValue.serverTimestamp();
       }
@@ -434,7 +508,7 @@ class _AddStorePageState extends State<AddStorePage> {
           );
         }
       } catch (e) {
-        print("Erreur lors de l'enregistrement du magasin: $e");
+        debugPrint("Erreur lors de l'enregistrement du magasin: $e");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red)
@@ -471,6 +545,40 @@ class _AddStorePageState extends State<AddStorePage> {
           key: _formKey,
           child: ListView(
             children: [
+              // ✅ LOGO PICKER SECTION
+              Center(
+                child: GestureDetector(
+                  onTap: _pickLogo,
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: 100, height: 100,
+                        decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.grey.shade300),
+                            image: _pickedLogoBytes != null
+                                ? DecorationImage(image: MemoryImage(_pickedLogoBytes!), fit: BoxFit.cover)
+                                : (_logoUrl != null ? DecorationImage(image: NetworkImage(_logoUrl!), fit: BoxFit.cover) : null)
+                        ),
+                        child: (_pickedLogoBytes == null && _logoUrl == null)
+                            ? const Icon(Icons.store, size: 40, color: Colors.grey)
+                            : null,
+                      ),
+                      Positioned(
+                        bottom: 0, right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(color: primaryColor, shape: BoxShape.circle),
+                          child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
               TextFormField(
                 controller: _nameController,
                 decoration: InputDecoration(
@@ -506,7 +614,7 @@ class _AddStorePageState extends State<AddStorePage> {
                 ),
                 child: Column(
                   children: [
-                    // --- A. Google Maps Link Input ---
+                    // A. Google Maps Link Input
                     Row(
                       children: [
                         Expanded(
@@ -539,7 +647,7 @@ class _AddStorePageState extends State<AddStorePage> {
                     const Divider(),
                     const SizedBox(height: 16),
 
-                    // --- B. Lat/Long Inputs ---
+                    // B. Lat/Long Inputs
                     Row(
                       children: [
                         Expanded(
@@ -569,7 +677,7 @@ class _AddStorePageState extends State<AddStorePage> {
                     ),
                     const SizedBox(height: 12),
 
-                    // --- C. Action Buttons ---
+                    // C. Action Buttons
                     Row(
                       children: [
                         Expanded(
@@ -606,7 +714,7 @@ class _AddStorePageState extends State<AddStorePage> {
               const SizedBox(height: 24),
               const Divider(),
 
-              // --- ✅ NEW: Contrat de Maintenance ---
+              // Contrat de Maintenance
               const Text("Contrat de Maintenance", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
