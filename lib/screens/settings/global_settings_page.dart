@@ -5,8 +5,10 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/screens/settings/notification_manager_page.dart';
 import 'package:boitex_info_app/screens/settings/user_role_manager_page.dart';
 import 'package:boitex_info_app/screens/settings/morning_briefing_page.dart';
-// ✅ ADDED IMPORT
 import 'package:boitex_info_app/services/update_service.dart';
+
+// ✅ IMPORT THE NEW PROFILE HEADER
+import 'package:boitex_info_app/screens/settings/widgets/profile_header.dart';
 
 class GlobalSettingsPage extends StatelessWidget {
   final String userRole;
@@ -27,95 +29,112 @@ class GlobalSettingsPage extends StatelessWidget {
       ),
       backgroundColor: Colors.grey[50],
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.zero, // Remove padding so header touches top
         children: [
 
-          // ---------------------------------------------------------
-          // 🌍 SECTION GÉNÉRALE (Visible par tous)
-          // ---------------------------------------------------------
-          const Padding(
-            padding: EdgeInsets.only(left: 8, bottom: 8),
-            child: Text("APPLICATION", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
+          // ✅ 1. THE NEW PROFILE HEADER (At the very top)
+          const ProfileHeader(),
+
+          const SizedBox(height: 24), // Spacing after header
+
+          // Rest of the padding for the list items
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // ---------------------------------------------------------
+                // 🌍 SECTION GÉNÉRALE (Visible par tous)
+                // ---------------------------------------------------------
+                const Padding(
+                  padding: EdgeInsets.only(left: 8, bottom: 8),
+                  child: Text("APPLICATION", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
+
+                _buildSettingsCard(
+                  context,
+                  title: 'Mise à jour de l\'application',
+                  subtitle: 'Vérifier la disponibilité d\'une nouvelle version',
+                  icon: Icons.system_update_rounded,
+                  color: Colors.green, // Green indicates safety/update
+                  onTap: () {
+                    // ✅ MANUAL CHECK (Shows SnackBar if no update)
+                    UpdateService().checkForUpdate(context, showNoUpdateMessage: true);
+                  },
+                ),
+
+                const SizedBox(height: 20),
+
+                // ---------------------------------------------------------
+                // 🛡️ SECTION ADMIN (Visible seulement par Admin)
+                // ---------------------------------------------------------
+                if (userRole == UserRoles.admin) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8, bottom: 8),
+                    child: Text("ADMINISTRATION", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+
+                  // 1. Role Manager
+                  _buildSettingsCard(
+                    context,
+                    title: 'Gestion des Rôles',
+                    subtitle: 'Modifier les rôles et permissions des utilisateurs',
+                    icon: Icons.security_rounded,
+                    color: Colors.redAccent,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const UserRoleManagerPage(),
+                        ),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // 2. Morning Briefing
+                  _buildSettingsCard(
+                    context,
+                    title: 'Morning Briefing',
+                    subtitle: 'Planifier les jours, l\'heure et les destinataires',
+                    icon: Icons.wb_sunny_rounded,
+                    color: Colors.orange,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const MorningBriefingPage(),
+                        ),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // 3. Notification Manager
+                  _buildSettingsCard(
+                    context,
+                    title: 'Gestion des Notifications',
+                    subtitle: 'Activer/Désactiver les alertes par utilisateur',
+                    icon: Icons.notifications_active_rounded,
+                    color: Colors.blue,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const NotificationManagerPage(),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ],
+            ),
           ),
 
-          _buildSettingsCard(
-            context,
-            title: 'Mise à jour de l\'application',
-            subtitle: 'Vérifier la disponibilité d\'une nouvelle version',
-            icon: Icons.system_update_rounded,
-            color: Colors.green, // Green indicates safety/update
-            onTap: () {
-              // ✅ MANUAL CHECK (Shows SnackBar if no update)
-              UpdateService().checkForUpdate(context, showNoUpdateMessage: true);
-            },
-          ),
-
-          const SizedBox(height: 20),
-
-          // ---------------------------------------------------------
-          // 🛡️ SECTION ADMIN (Visible seulement par Admin)
-          // ---------------------------------------------------------
-          if (userRole == UserRoles.admin) ...[
-            const Padding(
-              padding: EdgeInsets.only(left: 8, bottom: 8),
-              child: Text("ADMINISTRATION", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
-            ),
-
-            // 1. Role Manager
-            _buildSettingsCard(
-              context,
-              title: 'Gestion des Rôles',
-              subtitle: 'Modifier les rôles et permissions des utilisateurs',
-              icon: Icons.security_rounded,
-              color: Colors.redAccent,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const UserRoleManagerPage(),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 10),
-
-            // 2. Morning Briefing
-            _buildSettingsCard(
-              context,
-              title: 'Morning Briefing',
-              subtitle: 'Planifier les jours, l\'heure et les destinataires',
-              icon: Icons.wb_sunny_rounded,
-              color: Colors.orange,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const MorningBriefingPage(),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 10),
-
-            // 3. Notification Manager
-            _buildSettingsCard(
-              context,
-              title: 'Gestion des Notifications',
-              subtitle: 'Activer/Désactiver les alertes par utilisateur',
-              icon: Icons.notifications_active_rounded,
-              color: Colors.blue,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const NotificationManagerPage(),
-                  ),
-                );
-              },
-            ),
-          ],
+          const SizedBox(height: 40), // Bottom padding
         ],
       ),
     );
