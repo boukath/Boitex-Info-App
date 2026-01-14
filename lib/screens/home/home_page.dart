@@ -248,6 +248,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   // 🚗 THE NEW GARAGE ICON WIDGET
   Widget _buildGarageIcon(BuildContext context) {
+    // 🔒 RESTRICTION: Only show for Admin
+    if (widget.userRole != UserRoles.admin) {
+      return const SizedBox.shrink(); // Empty widget for non-admins
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.2),

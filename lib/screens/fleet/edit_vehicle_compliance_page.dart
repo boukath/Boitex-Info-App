@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // ✅ Added for Save Logic
 import 'package:boitex_info_app/models/vehicle.dart';
 import 'package:intl/intl.dart';
 
@@ -17,23 +18,71 @@ class EditVehicleCompliancePage extends StatefulWidget {
 
 class _EditVehicleCompliancePageState extends State<EditVehicleCompliancePage> {
   // Controllers
-  late int _currentMileage;
+  late TextEditingController _mileageController;
   DateTime? _assuranceDate;
   DateTime? _controlDate;
 
   // Dirty Flag (to show Save button)
   bool _isModified = false;
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _currentMileage = widget.vehicle.currentMileage;
+    // ✅ Initialize Text Controller with current value
+    _mileageController = TextEditingController(text: widget.vehicle.currentMileage.toString());
     _assuranceDate = widget.vehicle.assuranceExpiry;
     _controlDate = widget.vehicle.controlTechniqueExpiry;
   }
 
+  @override
+  void dispose() {
+    _mileageController.dispose();
+    super.dispose();
+  }
+
   void _markModified() {
     if (!_isModified) setState(() => _isModified = true);
+  }
+
+  // 💾 SAVE LOGIC
+  Future<void> _saveChanges() async {
+    setState(() => _isLoading = true);
+    HapticFeedback.mediumImpact();
+
+    try {
+      final int newMileage = int.tryParse(_mileageController.text.replaceAll(' ', '')) ?? widget.vehicle.currentMileage;
+
+      // Update Firestore
+      await FirebaseFirestore.instance
+          .collection('vehicles')
+          .doc(widget.vehicle.id)
+          .update({
+        'currentMileage': newMileage,
+        'assuranceExpiry': _assuranceDate,
+        'controlTechniqueExpiry': _controlDate,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      // Success Feedback
+      HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Mise à jour effectuée avec succès !"),
+          backgroundColor: Color(0xFF34C759),
+        ),
+      );
+      Navigator.pop(context); // Close Page
+
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
+      );
+    }
   }
 
   @override
@@ -52,13 +101,11 @@ class _EditVehicleCompliancePageState extends State<EditVehicleCompliancePage> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (_isModified)
+          if (_isLoading)
+            const Center(child: Padding(padding: EdgeInsets.only(right: 16), child: CupertinoActivityIndicator()))
+          else if (_isModified)
             TextButton(
-              onPressed: () {
-                // TODO: Save Logic Here
-                HapticFeedback.heavyImpact();
-                Navigator.pop(context);
-              },
+              onPressed: _saveChanges, // ✅ Calls the Save Logic
               child: const Text(
                 "SAUVEGARDER",
                 style: TextStyle(color: CupertinoColors.activeBlue, fontWeight: FontWeight.bold),
@@ -73,50 +120,36 @@ class _EditVehicleCompliancePageState extends State<EditVehicleCompliancePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // 1. MILEAGE UPDATER (Big & Tactile)
+            // 1. MILEAGE UPDATER (Direct Input)
             _buildSectionHeader("KILOMÉTRAGE ACTUEL"),
             const SizedBox(height: 16),
             Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
               decoration: _surfaceDecoration(),
               child: Column(
                 children: [
-                  Text(
-                    "${NumberFormat('#,###').format(_currentMileage)} km",
-                    style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w800, letterSpacing: -1),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildStepperButton(Icons.remove, () {
-                        setState(() => _currentMileage -= 100);
-                        _markModified();
-                        HapticFeedback.selectionClick();
-                      }),
-                      Expanded(
-                        child: Slider(
-                          value: _currentMileage.toDouble(),
-                          min: (widget.vehicle.currentMileage - 5000).toDouble().clamp(0, double.infinity),
-                          max: (widget.vehicle.currentMileage + 20000).toDouble(),
-                          activeColor: Colors.black,
-                          inactiveColor: Colors.grey.shade200,
-                          onChanged: (val) {
-                            setState(() => _currentMileage = val.toInt());
-                            _markModified();
-                          },
-                        ),
-                      ),
-                      _buildStepperButton(Icons.add, () {
-                        setState(() => _currentMileage += 100);
-                        _markModified();
-                        HapticFeedback.selectionClick();
-                      }),
+                  // ✅ NEW: Simple Text Field Input
+                  TextFormField(
+                    controller: _mileageController,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w800, letterSpacing: -1.5),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(7), // Max 9,999,999 km
                     ],
+                    decoration: InputDecoration(
+                      hintText: "0",
+                      suffixText: " km",
+                      suffixStyle: TextStyle(fontSize: 24, color: Colors.grey.shade400, fontWeight: FontWeight.w600),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onChanged: (value) => _markModified(),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    "Glissez pour ajuster ou utilisez les boutons",
+                    "Touchez le chiffre pour modifier",
                     style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
                   ),
                 ],
@@ -195,23 +228,6 @@ class _EditVehicleCompliancePageState extends State<EditVehicleCompliancePage> {
           offset: const Offset(0, 10),
         ),
       ],
-    );
-  }
-
-  Widget _buildStepperButton(IconData icon, VoidCallback onTap) {
-    return Material(
-      color: Colors.grey.shade50,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: 44,
-          height: 44,
-          alignment: Alignment.center,
-          child: Icon(icon, color: Colors.black),
-        ),
-      ),
     );
   }
 

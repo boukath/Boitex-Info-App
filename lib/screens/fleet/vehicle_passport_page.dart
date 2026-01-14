@@ -1,7 +1,10 @@
 // lib/screens/fleet/vehicle_passport_page.dart
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui'; // Required for ImageFilter (Glass Effect)
+import 'dart:math' as math;
 import 'package:crypto/crypto.dart'; // For SHA1
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
@@ -14,6 +17,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/models/vehicle.dart';
 import 'package:boitex_info_app/screens/fleet/edit_vehicle_compliance_page.dart';
 
+// 🏎️ SCUDERIA THEME CONSTANTS
+const Color kCeramicWhite = Color(0xFFFFFFFF);
+const Color kRacingRed = Color(0xFFFF2800); // Rosso Corsa
+const Color kCarbonBlack = Color(0xFF1C1C1C);
+const Color kAsphaltGrey = Color(0xFFF2F3F5);
+const double kPadding = 24.0;
+
 class VehiclePassportPage extends StatefulWidget {
   final Vehicle vehicle;
 
@@ -23,26 +33,53 @@ class VehiclePassportPage extends StatefulWidget {
   State<VehiclePassportPage> createState() => _VehiclePassportPageState();
 }
 
-class _VehiclePassportPageState extends State<VehiclePassportPage> {
+class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerProviderStateMixin {
   late Vehicle _vehicle;
   bool _isUploading = false;
+
+  // 🎬 Animations
+  late AnimationController _pulseController;
+  late AnimationController _gaugeController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     _vehicle = widget.vehicle;
+
+    // 1. Heartbeat Pulse (For Status)
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.4).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    // 2. Gauge Sweep (Entrance)
+    _gaugeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _gaugeController.dispose();
+    super.dispose();
   }
 
   // ---------------------------------------------------------------------------
-  // 📸 UPLOAD LOGIC (Cloud Function + Direct B2)
+  // 📸 UPLOAD LOGIC (Kept Intact)
   // ---------------------------------------------------------------------------
 
   Future<void> _pickAndUploadPhoto() async {
     final picker = ImagePicker();
-    // 1. Pick Image from Gallery
     final XFile? image = await picker.pickImage(
       source: ImageSource.gallery,
-      maxWidth: 1920, // Full HD is enough for app usage
+      maxWidth: 1920,
       imageQuality: 85,
     );
 
@@ -51,14 +88,11 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> {
     setState(() => _isUploading = true);
 
     try {
-      // 2. Prepare File
       final File file = File(image.path);
       final String fileName = 'vehicles/${_vehicle.vehicleCode}/profile_${DateTime.now().millisecondsSinceEpoch}${path.extension(image.path)}';
 
-      // 3. Get Upload Credentials from YOUR Backend
       final uploadConfig = await _getB2UploadConfig();
 
-      // 4. Direct Upload to Backblaze
       await _uploadFileToB2(
         file: file,
         fileName: fileName,
@@ -66,43 +100,33 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> {
         authToken: uploadConfig['authorizationToken'],
       );
 
-      // 5. Construct Public URL
-      // The Cloud Function returns a prefix like: https://f002.backblazeb2.com/file/BoitexInfo/
       final String publicUrl = '${uploadConfig['downloadUrlPrefix']}$fileName';
 
-      // 6. Update Firestore
       await FirebaseFirestore.instance
           .collection('vehicles')
           .doc(_vehicle.id)
           .update({'photoUrl': publicUrl});
 
-      // 7. Update Local UI
       if (mounted) {
         setState(() {
           _vehicle = _vehicle.copyWith(photoUrl: publicUrl);
           _isUploading = false;
         });
         HapticFeedback.heavyImpact();
+        _showScuderiaSnackBar("VISUAL UPDATED", kRacingRed);
       }
-
     } catch (e) {
       debugPrint("❌ Error uploading photo: $e");
       if (mounted) {
         setState(() => _isUploading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Échec de l'upload: $e"), backgroundColor: Colors.red),
-        );
+        _showScuderiaSnackBar("UPLOAD FAILED", kCarbonBlack);
       }
     }
   }
 
-  /// Calls your Firebase Cloud Function 'getB2UploadUrl'
   Future<Map<String, dynamic>> _getB2UploadConfig() async {
-    // ⚠️ Ensure this URL matches your deployed region/project
-    final uri = Uri.parse('https://europe-west1-boitex-info-app.cloudfunctions.net/getB2UploadUrl');
-
+    final uri = Uri.parse('https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl');
     final response = await http.get(uri);
-
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
@@ -110,7 +134,6 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> {
     }
   }
 
-  /// Performs the actual byte transfer to Backblaze
   Future<void> _uploadFileToB2({
     required File file,
     required String fileName,
@@ -136,93 +159,102 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> {
     }
   }
 
+  void _showScuderiaSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message.toUpperCase(),
+          style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, fontStyle: FontStyle.italic),
+        ),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // 🎨 UI BUILD
   // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    // Light Status Bar for White Theme
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.dark);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kCeramicWhite,
+      extendBodyBehindAppBar: true, // Glass Header Effect
       appBar: AppBar(
-        title: Text(
-          _vehicle.vehicleCode,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-            letterSpacing: -0.5,
-            color: Colors.black,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: Container(
+          margin: const EdgeInsets.only(left: 8),
+          decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+          child: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            onPressed: () => Navigator.pop(context),
           ),
         ),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
         actions: [
-          // ✏️ EDIT BUTTON
-          IconButton(
-            icon: const Icon(CupertinoIcons.pencil_circle_fill, size: 28),
-            color: Colors.black,
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EditVehicleCompliancePage(vehicle: _vehicle),
-                ),
-              );
-            },
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+            child: IconButton(
+              icon: const Icon(CupertinoIcons.pencil, color: kRacingRed),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => EditVehicleCompliancePage(vehicle: _vehicle),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 1. AERO-GLASS HERO
+            _buildAeroHero(),
 
-            // 1. HERO SECTION (The Glowing Car + Upload)
-            _buildHeroSection(),
+            const SizedBox(height: 30),
 
-            const SizedBox(height: 32),
+            // 2. TWIN TURBO GAUGES
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kPadding),
+              child: _buildSectionHeader("TELEMETRY"),
+            ),
+            const SizedBox(height: 20),
+            _buildTwinTurboGauges(),
 
-            // 2. LEGAL HEALTH RINGS
-            _buildSectionTitle("SANTÉ JURIDIQUE"),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildHealthRing(
-                    title: "Assurance",
-                    expiryDate: _vehicle.assuranceExpiry,
-                    color: const Color(0xFF007AFF), // iOS Blue
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildHealthRing(
-                    title: "Contrôle Tech",
-                    expiryDate: _vehicle.controlTechniqueExpiry,
-                    color: const Color(0xFFFF9500), // iOS Orange
-                  ),
-                ),
-              ],
+            const SizedBox(height: 40),
+
+            // 3. FUEL INJECTION (FLUIDS)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kPadding),
+              child: _buildSectionHeader("FLUID SYSTEMS"),
+            ),
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kPadding),
+              child: _buildFuelInjectionSystem(),
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 40),
 
-            // 3. MECHANICAL HEALTH
-            _buildSectionTitle("MAINTENANCE MOTEUR"),
-            const SizedBox(height: 16),
-            _buildOilLifeCard(),
-
-            const SizedBox(height: 32),
-
-            // 4. DIGITAL GLOVEBOX
-            _buildSectionTitle("BOÎTE À GANTS NUMÉRIQUE"),
-            const SizedBox(height: 16),
-            _buildDigitalGlovebox(),
+            // 4. DATA VAULT (CAROUSEL)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kPadding),
+              child: _buildSectionHeader("DATA VAULT"),
+            ),
+            const SizedBox(height: 20),
+            _buildDataCarousel(),
 
             const SizedBox(height: 50),
           ],
@@ -232,227 +264,257 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // 🧩 WIDGETS
+  // 🏎️ HERO SECTION: Edge-to-Edge with Aero Glass
   // ---------------------------------------------------------------------------
 
-  Widget _buildHeroSection() {
-    Color statusColor = const Color(0xFF34C759); // Green
-    String statusText = "Conforme";
+  Widget _buildAeroHero() {
+    return SizedBox(
+      height: 420,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 1. The Car Image (Parallax potential)
+          _vehicle.photoUrl != null
+              ? Image.network(
+            _vehicle.photoUrl!,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+          )
+              : Container(
+            color: kAsphaltGrey,
+            child: Center(
+              child: Icon(CupertinoIcons.car_detailed, size: 100, color: Colors.grey.shade400),
+            ),
+          ),
 
-    if (_vehicle.isAssuranceCritical || _vehicle.assuranceExpiry == null) {
-      statusColor = const Color(0xFFFF3B30); // Red
-      statusText = "Non Conforme";
-    } else if (_vehicle.isAssuranceWarning) {
-      statusColor = const Color(0xFFFF9500); // Orange
-      statusText = "Attention";
-    }
+          // 2. The Loading Overlay
+          if (_isUploading)
+            Container(
+              color: Colors.black26,
+              child: const Center(
+                child: CupertinoActivityIndicator(color: Colors.white, radius: 15),
+              ),
+            ),
+
+          // 3. The Aero-Glass Panel (Bottom)
+          Positioned(
+            bottom: 24,
+            left: 24,
+            right: 24,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15), // Premium Blur
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.85), // Frosted White
+                    border: Border.all(color: Colors.white.withOpacity(0.6)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _vehicle.vehicleCode,
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w900,
+                              fontStyle: FontStyle.italic, // SPEED VIBE
+                              color: kCarbonBlack,
+                              letterSpacing: -1.0,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "SCUDERIA BOITEX // 2026",
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade600,
+                              letterSpacing: 2.0,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // The Heartbeat Halo
+                      _buildHeartbeatBadge(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // 4. Camera Fab (Floating on glass edge)
+          Positioned(
+            bottom: 100, // Just above the glass panel
+            right: 40,
+            child: FloatingActionButton(
+              onPressed: _isUploading ? null : _pickAndUploadPhoto,
+              backgroundColor: kRacingRed,
+              elevation: 10,
+              child: const Icon(CupertinoIcons.camera_fill, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeartbeatBadge() {
+    bool isCrit = _vehicle.isAssuranceCritical || _vehicle.assuranceExpiry == null;
+    Color statusColor = isCrit ? kRacingRed : const Color(0xFF00C853); // Bright Green
 
     return Stack(
-      alignment: Alignment.bottomCenter,
+      alignment: Alignment.center,
       children: [
-        Container(
-          height: 240,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: Colors.grey.shade100),
-            boxShadow: [
-              BoxShadow(
-                color: statusColor.withOpacity(0.15),
-                blurRadius: 40,
-                offset: const Offset(0, 20),
-                spreadRadius: -5,
+        // Pulsing Ring
+        AnimatedBuilder(
+          animation: _pulseAnimation,
+          builder: (context, child) {
+            return Container(
+              width: 30 * _pulseAnimation.value,
+              height: 30 * _pulseAnimation.value,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: statusColor.withOpacity(0.3 / _pulseAnimation.value),
               ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(32),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // PHOTO
-                _vehicle.photoUrl != null
-                    ? Image.network(
-                  _vehicle.photoUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (ctx, err, stack) =>
-                  const Center(child: Icon(CupertinoIcons.car_detailed, size: 80, color: Colors.grey)),
-                )
-                    : const Center(child: Icon(CupertinoIcons.car_detailed, size: 80, color: Colors.grey)),
-
-                // Gradient
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black.withOpacity(0.2)],
-                    ),
-                  ),
-                ),
-
-                // LOADING SPINNER
-                if (_isUploading)
-                  Container(
-                    color: Colors.black.withOpacity(0.4),
-                    child: const Center(
-                      child: CupertinoActivityIndicator(color: Colors.white, radius: 14),
-                    ),
-                  ),
-
-                // UPLOAD BUTTON (Gallery Icon)
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: Material(
-                    color: Colors.white.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: _isUploading ? null : _pickAndUploadPhoto,
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        child: const Icon(CupertinoIcons.photo_on_rectangle, color: Colors.black, size: 22),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+            );
+          },
         ),
-
-        // Status Badge
-        Positioned(
-          bottom: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.95),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  statusText.toUpperCase(),
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-              ],
-            ),
+        // Core Dot
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            color: statusColor,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(color: statusColor.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHealthRing({required String title, required DateTime? expiryDate, required Color color}) {
-    int daysLeft = 0;
-    double percent = 0.0;
-    String daysText = "N/A";
+  // ---------------------------------------------------------------------------
+  // ⏱️ WIDGETS: TWIN TURBO GAUGES
+  // ---------------------------------------------------------------------------
 
-    if (expiryDate != null) {
-      daysLeft = expiryDate.difference(DateTime.now()).inDays;
-      if (daysLeft < 0) {
-        daysText = "Expiré";
-      } else {
-        daysText = "$daysLeft Jours";
-      }
-      percent = (daysLeft / 365).clamp(0.0, 1.0);
-    }
+  Widget _buildTwinTurboGauges() {
+    // Data
+    int assDays = _vehicle.assuranceExpiry?.difference(DateTime.now()).inDays ?? 0;
+    double assPercent = (assDays / 365).clamp(0.0, 1.0);
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade100),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 80,
-            width: 80,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CircularProgressIndicator(value: 1.0, color: Colors.grey.shade100, strokeWidth: 6),
-                CircularProgressIndicator(
-                  value: percent,
-                  color: daysLeft < 30 ? Colors.red : color,
-                  strokeWidth: 6,
-                  strokeCap: StrokeCap.round,
-                ),
-                Center(
-                  child: Icon(
-                    daysLeft < 0 ? Icons.warning_rounded : Icons.check_circle_rounded,
-                    color: daysLeft < 30 ? Colors.red : color,
-                    size: 28,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-          const SizedBox(height: 4),
-          Text(daysText, style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w700)),
-        ],
-      ),
+    int ctDays = _vehicle.controlTechniqueExpiry?.difference(DateTime.now()).inDays ?? 0;
+    double ctPercent = (ctDays / 365).clamp(0.0, 1.0);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _buildOpenArcGauge(
+          label: "INSURANCE",
+          value: assDays < 0 ? "EXP" : "$assDays",
+          unit: "DAYS",
+          percent: assPercent,
+        ),
+        _buildOpenArcGauge(
+          label: "TECH CONTROL",
+          value: ctDays < 0 ? "EXP" : "$ctDays",
+          unit: "DAYS",
+          percent: ctPercent,
+        ),
+      ],
     );
   }
 
-  Widget _buildOilLifeCard() {
+  Widget _buildOpenArcGauge({
+    required String label,
+    required String value,
+    required String unit,
+    required double percent,
+  }) {
+    return Column(
+      children: [
+        SizedBox(
+          height: 140,
+          width: 140,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Custom Paint Gauge
+              AnimatedBuilder(
+                animation: _gaugeController,
+                builder: (context, child) {
+                  return CustomPaint(
+                    size: const Size(140, 140),
+                    painter: OpenArcPainter(
+                      percent: percent * _gaugeController.value,
+                      color: kRacingRed,
+                    ),
+                  );
+                },
+              ),
+              // Center Text
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      fontStyle: FontStyle.italic,
+                      color: kCarbonBlack,
+                    ),
+                  ),
+                  Text(
+                    unit,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade400,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 1.0),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // ⛽ WIDGETS: FUEL INJECTION (FLUIDS)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildFuelInjectionSystem() {
     final int current = _vehicle.currentMileage;
     final int next = _vehicle.nextOilChangeMileage ?? (current + 10000);
     final int last = _vehicle.lastOilChangeMileage ?? (current - 5000);
     final int totalInterval = next - last;
     final int drivenSinceLast = current - last;
-    double progress = (drivenSinceLast / totalInterval).clamp(0.0, 1.0);
-    int remainingKm = next - current;
-
-    Color barColor = const Color(0xFF34C759);
-    if (progress > 0.8) barColor = const Color(0xFFFF9500);
-    if (progress > 0.95) barColor = const Color(0xFFFF3B30);
+    double depletion = (drivenSinceLast / totalInterval).clamp(0.0, 1.0);
+    double remaining = 1.0 - depletion;
 
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade100),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10)),
         ],
       ),
       child: Column(
@@ -460,22 +522,76 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("État de l'huile", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-              Text("${(progress * 100).toInt()}% Usure", style: TextStyle(color: barColor, fontWeight: FontWeight.bold)),
+              const Text("OIL INTEGRITY", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Text("${(remaining * 100).toInt()}%", style: const TextStyle(color: kRacingRed, fontWeight: FontWeight.w900, fontSize: 18)),
             ],
           ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(value: progress, backgroundColor: Colors.grey.shade100, color: barColor, minHeight: 12),
+          const SizedBox(height: 20),
+          // The Fuel Line
+          SizedBox(
+            height: 20,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                return Stack(
+                  alignment: Alignment.centerLeft,
+                  clipBehavior: Clip.none,
+                  children: [
+                    // Track
+                    Container(
+                      width: width,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: kAsphaltGrey,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    // Liquid Gradient
+                    AnimatedContainer(
+                      duration: const Duration(seconds: 1),
+                      curve: Curves.easeOutExpo,
+                      width: width * remaining,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        gradient: const LinearGradient(
+                          colors: [kRacingRed, Color(0xFFFF5252)],
+                        ),
+                        boxShadow: [
+                          BoxShadow(color: kRacingRed.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4)),
+                        ],
+                      ),
+                    ),
+                    // Droplet Icon Slider
+                    AnimatedPositioned(
+                      duration: const Duration(seconds: 1),
+                      curve: Curves.easeOutExpo,
+                      left: (width * remaining) - 14,
+                      top: -6,
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5),
+                          ],
+                        ),
+                        child: const Icon(CupertinoIcons.drop_fill, color: kRacingRed, size: 16),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildStatColumn("Kilométrage", "${NumberFormat('#,###').format(current)} km"),
-              _buildStatColumn("Prochaine", "${NumberFormat('#,###').format(next)} km"),
-              _buildStatColumn("Restant", "$remainingKm km"),
+              Text("${NumberFormat('#,###').format(current)} KM", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
+              Text("NEXT: ${NumberFormat('#,###').format(next)}", style: const TextStyle(fontWeight: FontWeight.w900, color: kCarbonBlack)),
             ],
           ),
         ],
@@ -483,61 +599,124 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> {
     );
   }
 
-  Widget _buildStatColumn(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label.toUpperCase(), style: TextStyle(color: Colors.grey.shade400, fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-        const SizedBox(height: 2),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-      ],
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // 🏁 WIDGETS: DATA CAROUSEL
+  // ---------------------------------------------------------------------------
 
-  Widget _buildDigitalGlovebox() {
-    return Column(
-      children: [
-        _buildDocTile("Carte Grise", "Numérisé", CupertinoIcons.doc_text_fill, Colors.purple, _vehicle.carteGrisePhotoUrl != null),
-        const SizedBox(height: 12),
-        _buildDocTile("Assurance", "Expire dans ${_vehicle.assuranceExpiry?.difference(DateTime.now()).inDays ?? '?'} j", CupertinoIcons.shield_fill, Colors.blue, _vehicle.assurancePhotoUrl != null),
-        const SizedBox(height: 12),
-        _buildDocTile("Contrôle Tech", "Validité", CupertinoIcons.checkmark_seal_fill, Colors.orange, _vehicle.controlTechniquePhotoUrl != null),
-      ],
-    );
-  }
-
-  Widget _buildDocTile(String title, String subtitle, IconData icon, Color color, bool isPresent) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.grey.shade100)),
-      child: Row(
+  Widget _buildDataCarousel() {
+    return SizedBox(
+      height: 100,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: kPadding),
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-            child: Icon(icon, color: color, size: 24),
-          ),
+          _buildCarbonCard("REGISTRATION", _vehicle.carteGrisePhotoUrl != null),
           const SizedBox(width: 16),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-              Text(subtitle, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-            ]),
-          ),
-          if (isPresent)
-            Icon(Icons.visibility_rounded, color: Colors.grey.shade300)
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-              child: const Text("Scan", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
+          _buildCarbonCard("INSURANCE", _vehicle.assurancePhotoUrl != null),
+          const SizedBox(width: 16),
+          _buildCarbonCard("TECH REPORT", _vehicle.controlTechniquePhotoUrl != null),
         ],
       ),
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(title, style: TextStyle(color: Colors.grey.shade500, fontWeight: FontWeight.w600, fontSize: 11, letterSpacing: 1.5));
+  Widget _buildCarbonCard(String title, bool isActive) {
+    return Container(
+      width: 160,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 15, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 4,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: isActive ? kRacingRed : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                isActive ? Icons.check_circle : Icons.error_outline,
+                color: isActive ? kCarbonBlack : Colors.grey.shade300,
+                size: 20,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
   }
+
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        color: Colors.grey.shade400,
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 2.0,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 🖌️ CUSTOM PAINTERS: OPEN ARC GAUGE
+// ---------------------------------------------------------------------------
+
+class OpenArcPainter extends CustomPainter {
+  final double percent;
+  final Color color;
+
+  OpenArcPainter({required this.percent, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 10;
+    const startAngle = 135 * (math.pi / 180); // Start at bottom left
+    const sweepAngle = 270 * (math.pi / 180); // Sweep 270 degrees
+
+    // 1. Background Arc
+    final bgPaint = Paint()
+      ..color = kAsphaltGrey
+      ..strokeWidth = 12
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle, false, bgPaint);
+
+    // 2. Active Arc
+    final activePaint = Paint()
+      ..color = color
+      ..strokeWidth = 12
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 4); // Soft Neon Glow effect
+
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), startAngle, sweepAngle * percent, false, activePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
