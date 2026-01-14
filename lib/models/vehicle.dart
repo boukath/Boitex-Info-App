@@ -1,6 +1,6 @@
 // lib/models/vehicle.dart
 
-// Vehicle management model for mission resources
+// Vehicle management model for mission resources and fleet health
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -16,6 +16,31 @@ class Vehicle {
   final String status; // available, in_use, maintenance
   final String? currentMissionId; // null or mission ID if in use
   final Map<String, dynamic>? currentMissionDates; // {start: timestamp, end: timestamp}
+
+  // ---------------------------------------------------------------------------
+  // ✅ NEW: FLEET VISUALS (The Car Photo)
+  // ---------------------------------------------------------------------------
+  final String? photoUrl; // The actual photo of the car
+
+  // ---------------------------------------------------------------------------
+  // ✅ NEW: COMPLIANCE (Legal Health / Digital Glovebox)
+  // ---------------------------------------------------------------------------
+  final DateTime? assuranceExpiry;
+  final String? assurancePhotoUrl; // URL to the digital contract
+
+  final DateTime? controlTechniqueExpiry;
+  final String? controlTechniquePhotoUrl; // URL to the scanner/sticker
+
+  final String? carteGrisePhotoUrl; // The ID of the car
+
+  // ---------------------------------------------------------------------------
+  // ✅ NEW: MAINTENANCE (Mechanical Health / Oil Algorithm)
+  // ---------------------------------------------------------------------------
+  final int currentMileage;          // Current Odometer reading (e.g., 145000)
+  final int? lastOilChangeMileage;   // e.g., 140000 (Vidange faite à...)
+  final int? nextOilChangeMileage;   // e.g., 150000 (Prochaine vidange à...)
+  final String tireStatus;           // 'good', 'warning', 'critical'
+
   final DateTime createdAt;
 
   Vehicle({
@@ -30,6 +55,23 @@ class Vehicle {
     this.status = 'available',
     this.currentMissionId,
     this.currentMissionDates,
+
+    // Visuals
+    this.photoUrl,
+
+    // Compliance
+    this.assuranceExpiry,
+    this.assurancePhotoUrl,
+    this.controlTechniqueExpiry,
+    this.controlTechniquePhotoUrl,
+    this.carteGrisePhotoUrl,
+
+    // Maintenance
+    this.currentMileage = 0,
+    this.lastOilChangeMileage,
+    this.nextOilChangeMileage,
+    this.tireStatus = 'good',
+
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -46,6 +88,22 @@ class Vehicle {
       'currentMissionId': currentMissionId,
       'currentMissionDates': currentMissionDates,
       'createdAt': Timestamp.fromDate(createdAt),
+
+      // Visuals
+      'photoUrl': photoUrl,
+
+      // New Compliance Fields
+      'assuranceExpiry': assuranceExpiry != null ? Timestamp.fromDate(assuranceExpiry!) : null,
+      'assurancePhotoUrl': assurancePhotoUrl,
+      'controlTechniqueExpiry': controlTechniqueExpiry != null ? Timestamp.fromDate(controlTechniqueExpiry!) : null,
+      'controlTechniquePhotoUrl': controlTechniquePhotoUrl,
+      'carteGrisePhotoUrl': carteGrisePhotoUrl,
+
+      // New Maintenance Fields
+      'currentMileage': currentMileage,
+      'lastOilChangeMileage': lastOilChangeMileage,
+      'nextOilChangeMileage': nextOilChangeMileage,
+      'tireStatus': tireStatus,
     };
   }
 
@@ -54,8 +112,8 @@ class Vehicle {
     return Vehicle(
       id: doc.id,
       vehicleCode: data['vehicleCode'] as String? ?? 'N/A',
-      model: data['model'] as String,
-      plateNumber: data['plateNumber'] as String,
+      model: data['model'] as String? ?? 'Unknown Model',
+      plateNumber: data['plateNumber'] as String? ?? 'Unknown Plate',
       fuelType: data['fuelType'] as String? ?? 'Diesel',
       // ✅ FIX: Safe capacity parsing (handles String or int)
       capacity: _parseCapacity(data['capacity']),
@@ -67,8 +125,56 @@ class Vehicle {
       // ✅ FIX: Safe map parsing (handles String, Map, or null)
       currentMissionDates: _parseMap(data['currentMissionDates']),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+
+      // Load Visuals
+      photoUrl: data['photoUrl'] as String?,
+
+      // Load Compliance (Safe date parsing)
+      assuranceExpiry: (data['assuranceExpiry'] as Timestamp?)?.toDate(),
+      assurancePhotoUrl: data['assurancePhotoUrl'] as String?,
+      controlTechniqueExpiry: (data['controlTechniqueExpiry'] as Timestamp?)?.toDate(),
+      controlTechniquePhotoUrl: data['controlTechniquePhotoUrl'] as String?,
+      carteGrisePhotoUrl: data['carteGrisePhotoUrl'] as String?,
+
+      // Load Maintenance (Safe int parsing)
+      currentMileage: _parseInt(data['currentMileage']) ?? 0,
+      lastOilChangeMileage: _parseInt(data['lastOilChangeMileage']),
+      nextOilChangeMileage: _parseInt(data['nextOilChangeMileage']),
+      tireStatus: data['tireStatus'] as String? ?? 'good',
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // 🧠 SMART HELPERS (For the "Pro 2026" UI)
+  // ---------------------------------------------------------------------------
+
+  // Is the Assurance expired or expiring soon (30 days)?
+  bool get isAssuranceCritical {
+    if (assuranceExpiry == null) return true; // No data = Critical
+    final daysLeft = assuranceExpiry!.difference(DateTime.now()).inDays;
+    return daysLeft < 0; // Expired
+  }
+
+  bool get isAssuranceWarning {
+    if (assuranceExpiry == null) return false;
+    final daysLeft = assuranceExpiry!.difference(DateTime.now()).inDays;
+    return daysLeft >= 0 && daysLeft <= 30; // Less than a month left
+  }
+
+  // Is Oil Change needed?
+  bool get needsOilChange {
+    if (nextOilChangeMileage == null) return false;
+    // If we have driven MORE than the limit (or are within 500km)
+    return currentMileage >= (nextOilChangeMileage! - 500);
+  }
+
+  String get displayName => '$model ($plateNumber)';
+  bool get isAvailable => status == 'available' && currentMissionId == null;
+  String get fullInfo => '$vehicleCode - $model - $plateNumber - $year';
+
+  // ---------------------------------------------------------------------------
+  // 🛡️ SAFE PARSING HELPERS
+  // ---------------------------------------------------------------------------
 
   // ✅ Helper: Parse year field (handles String, int, or null)
   static int _parseYear(dynamic value) {
@@ -92,6 +198,14 @@ class Vehicle {
     return 5; // Default fallback
   }
 
+  // ✅ Helper: Parse generic int field (handles String or int)
+  static int? _parseInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
   // ✅ Helper: Parse Map field (handles String, Map, or null)
   static Map<String, dynamic>? _parseMap(dynamic value) {
     if (value == null) return null;
@@ -105,16 +219,6 @@ class Vehicle {
     return null; // Default fallback
   }
 
-  // Helper: Display name for vehicle
-  String get displayName => '$model ($plateNumber)';
-
-  // Helper: Check if available
-  bool get isAvailable => status == 'available' && currentMissionId == null;
-
-  // Helper: Full vehicle info
-  String get fullInfo => '$vehicleCode - $model - $plateNumber - $year';
-
-  // Create a copy of Vehicle with updated fields
   Vehicle copyWith({
     String? id,
     String? vehicleCode,
@@ -128,6 +232,16 @@ class Vehicle {
     String? currentMissionId,
     Map<String, dynamic>? currentMissionDates,
     DateTime? createdAt,
+    String? photoUrl,
+    DateTime? assuranceExpiry,
+    String? assurancePhotoUrl,
+    DateTime? controlTechniqueExpiry,
+    String? controlTechniquePhotoUrl,
+    String? carteGrisePhotoUrl,
+    int? currentMileage,
+    int? lastOilChangeMileage,
+    int? nextOilChangeMileage,
+    String? tireStatus,
   }) {
     return Vehicle(
       id: id ?? this.id,
@@ -142,6 +256,16 @@ class Vehicle {
       currentMissionId: currentMissionId ?? this.currentMissionId,
       currentMissionDates: currentMissionDates ?? this.currentMissionDates,
       createdAt: createdAt ?? this.createdAt,
+      photoUrl: photoUrl ?? this.photoUrl,
+      assuranceExpiry: assuranceExpiry ?? this.assuranceExpiry,
+      assurancePhotoUrl: assurancePhotoUrl ?? this.assurancePhotoUrl,
+      controlTechniqueExpiry: controlTechniqueExpiry ?? this.controlTechniqueExpiry,
+      controlTechniquePhotoUrl: controlTechniquePhotoUrl ?? this.controlTechniquePhotoUrl,
+      carteGrisePhotoUrl: carteGrisePhotoUrl ?? this.carteGrisePhotoUrl,
+      currentMileage: currentMileage ?? this.currentMileage,
+      lastOilChangeMileage: lastOilChangeMileage ?? this.lastOilChangeMileage,
+      nextOilChangeMileage: nextOilChangeMileage ?? this.nextOilChangeMileage,
+      tireStatus: tireStatus ?? this.tireStatus,
     );
   }
 

@@ -2,6 +2,7 @@
 
 import 'dart:async'; // ✅ Added for Timeout logic
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart'; // ✅ Added for Car Icon
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:boitex_info_app/screens/service_technique/service_technique_dashboard_page.dart';
@@ -14,6 +15,8 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/home/notifications_page.dart';
 import 'package:boitex_info_app/screens/settings/global_settings_page.dart';
+// ✅ IMPORT THE FLEET GARAGE
+import 'package:boitex_info_app/screens/fleet/fleet_list_page.dart';
 
 class HomePage extends StatefulWidget {
   final String userRole;
@@ -243,6 +246,36 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  // 🚗 THE NEW GARAGE ICON WIDGET
+  Widget _buildGarageIcon(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1.5,
+        ),
+      ),
+      child: IconButton(
+        icon: Icon(
+          CupertinoIcons.car_detailed, // Premium Car Icon
+          color: Colors.white,
+          size: kIsWeb ? 20 : 18,
+        ),
+        tooltip: 'Le Garage',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const FleetListPage(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
@@ -373,8 +406,11 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
             const SizedBox(width: 16),
 
-            _buildNotificationBell(context),
+            // ✅ CAR ICON (WEB)
+            _buildGarageIcon(context),
+            const SizedBox(width: 16),
 
+            _buildNotificationBell(context),
             const SizedBox(width: 16),
 
             Container(
@@ -728,6 +764,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                             ),
                           ),
                           const Spacer(),
+
+                          // ✅ CAR ICON (MOBILE)
+                          _buildGarageIcon(context),
+                          const SizedBox(width: 8),
 
                           // Bell
                           _buildNotificationBell(context),
