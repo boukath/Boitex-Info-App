@@ -203,7 +203,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         Map<String, Map<String, dynamic>> bulkMap = {};
 
         if (_status == 'À Préparer') {
-          pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) => Map<String, dynamic>.from(p)));
+          pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) {
+            final map = Map<String, dynamic>.from(p);
+            // ✅ FORCE DEFAULT: If 'isBulk' is not set, default to TRUE (Manual Mode)
+            if (!map.containsKey('isBulk')) {
+              map['isBulk'] = true;
+            }
+            return map;
+          }));
           if (pickingList.isNotEmpty) _selectedPickingIndex = 0;
         } else {
           // ✅ DELIVERY PHASE LOGIC
@@ -333,14 +340,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     _savePickingState();
   }
 
-  void _manualIncrementBulk(int index, int delta) {
+  // ✅ New Helper: Validate Full Quantity instantly
+  void _validateFullQuantity(int index) {
     final item = _pickingItems[index];
     final int quantity = item['quantity'] ?? 0;
-    int picked = item['pickedQuantity'] as int? ?? 0;
-    int newPicked = picked + delta;
-    if (newPicked < 0) newPicked = 0;
-    if (newPicked > quantity) newPicked = quantity;
-    setState(() => _pickingItems[index]['pickedQuantity'] = newPicked);
+    setState(() => _pickingItems[index]['pickedQuantity'] = quantity);
     _savePickingState();
   }
 
@@ -824,11 +828,27 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                                 color: isDone ? Colors.green : Colors.black87,
                               ),
                             ),
-                            if (isBulk)
-                              InkWell(
-                                onTap: () => _toggleBulkMode(index),
-                                child: Text("VRAC", style: GoogleFonts.poppins(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
-                              )
+                            const SizedBox(height: 4),
+                            // ✅ NEW: TOGGLE BUTTON FOR MODE SWITCHING
+                            InkWell(
+                              onTap: () => _toggleBulkMode(index),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isBulk ? Colors.orange.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: isBulk ? Colors.orange : Colors.blue, width: 1),
+                                ),
+                                child: Text(
+                                  isBulk ? "MODE QUANTITÉ" : "MODE SCAN", // Toggle label
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 10,
+                                      color: isBulk ? Colors.orange[800] : Colors.blue[800],
+                                      fontWeight: FontWeight.bold
+                                  ),
+                                ),
+                              ),
+                            )
                           ],
                         )
                       else
@@ -843,32 +863,44 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                     const Divider(),
                     const SizedBox(height: 8),
                     if (isBulk)
+                    // ✅ MODE VRAC (MANUAL)
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _buildCircleBtn(Icons.remove, Colors.red, () => _manualIncrementBulk(index, -1)),
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              child: TextField(
-                                controller: _pickingControllers[index],
-                                focusNode: _pickingFocusNodes[index],
-                                decoration: InputDecoration(
-                                  hintText: "Ref (Optionnel)",
-                                  filled: true,
-                                  fillColor: Colors.grey.shade100,
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                ),
-                                onSubmitted: (val) => _processInputScan(index, val),
+                          // ✏️ PENCIL BUTTON (Edit Quantity)
+                          Column(
+                            children: [
+                              IconButton.filledTonal(
+                                onPressed: () => _showBulkQuantityDialog(index),
+                                icon: const Icon(Icons.edit, color: Colors.blue),
+                                style: IconButton.styleFrom(backgroundColor: Colors.blue.shade50),
                               ),
-                            ),
+                              Text("Saisir", style: GoogleFonts.poppins(fontSize: 10, color: Colors.blue))
+                            ],
                           ),
-                          _buildCircleBtn(Icons.edit, Colors.blue, () => _showBulkQuantityDialog(index)),
-                          const SizedBox(width: 8),
-                          _buildCircleBtn(Icons.add, Colors.green, () => _manualIncrementBulk(index, 1)),
+
+                          // 📦 Quantity Indicator
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                            decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                            child: Text("VRAC", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.grey)),
+                          ),
+
+                          // ✅ CHECK BUTTON (Full Validate)
+                          Column(
+                            children: [
+                              IconButton.filledTonal(
+                                onPressed: () => _validateFullQuantity(index),
+                                icon: const Icon(Icons.check, color: Colors.green),
+                                style: IconButton.styleFrom(backgroundColor: Colors.green.shade50),
+                              ),
+                              Text("Tout", style: GoogleFonts.poppins(fontSize: 10, color: Colors.green))
+                            ],
+                          ),
                         ],
                       )
                     else
+                    // 📸 MODE SCAN (Original)
                       Row(
                         children: [
                           Expanded(
