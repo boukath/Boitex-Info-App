@@ -24,6 +24,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 // ✅ STEP 5: Import Service Contracts
 import 'package:boitex_info_app/models/service_contracts.dart';
 
+// ✅ STEP 6: Import Administration Pages for Quick Add with Logic
+import 'package:boitex_info_app/screens/administration/add_client_page.dart';
+import 'package:boitex_info_app/screens/administration/add_store_page.dart';
+
 // Simple data model for a Client
 class Client {
   final String id;
@@ -88,7 +92,7 @@ class AddInterventionPage extends StatefulWidget {
   const AddInterventionPage({super.key, required this.serviceType});
 
   @override
-  State createState() => _AddInterventionPageState();
+  State<AddInterventionPage> createState() => _AddInterventionPageState();
 }
 
 class _AddInterventionPageState extends State<AddInterventionPage> {
@@ -158,7 +162,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 💰 BILLING LOGIC ENGINE
+  // 💰 BILLING LOGIC ENGINE (THE GATEKEEPER)
   // ----------------------------------------------------------------------
   Map<String, dynamic> _calculateBillingStatus() {
     // 1. Check Equipment Warranty (Highest Priority)
@@ -173,15 +177,55 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       }
     }
 
-    // 2. Check Store Contract (Medium Priority)
+    // 2. Check Store Contract & Credits (Medium Priority)
     if (_selectedStore != null && _selectedStore!.contract != null) {
-      if (_selectedStore!.contract!.isValidNow) {
-        return {
-          'status': 'INCLUS',
-          'reason': 'Contrat: ${_selectedStore!.contract!.type}',
-          'color': Colors.teal,
-          'icon': Icons.assignment_turned_in,
-        };
+      final contract = _selectedStore!.contract!;
+
+      if (contract.isValidNow) {
+        // 🧠 DECIDE WHICH WALLET TO USE
+        // If type is "Maintenance" -> Use Preventive Credit
+        // If type is "Dépannage" (or anything else) -> Use Corrective Credit
+
+        // You can adjust these strings to match your dropdown exactly
+        bool isPreventive = _selectedInterventionType == 'Maintenance' ||
+            _selectedInterventionType == 'Formation';
+
+        if (isPreventive) {
+          // CHECK PREVENTIVE WALLET
+          if (contract.hasCreditPreventive) {
+            return {
+              'status': 'INCLUS',
+              'reason': 'Crédit Maint.: ${contract.usedPreventive}/${contract.quotaPreventive} utilisés',
+              'color': Colors.teal,
+              'icon': Icons.shield,
+            };
+          } else {
+            return {
+              'status': 'HORS FORFAIT',
+              'reason': 'Quota Maintenance Épuisé',
+              'color': Colors.orange,
+              'icon': Icons.warning_amber,
+            };
+          }
+        } else {
+          // CHECK CORRECTIVE WALLET (Default for repairs/other)
+          if (contract.hasCreditCorrective) {
+            return {
+              'status': 'INCLUS',
+              'reason': 'Crédit Dépannage: ${contract.usedCorrective}/${contract.quotaCorrective} utilisés',
+              'color': Colors.teal,
+              'icon': Icons.build_circle,
+            };
+          } else {
+            return {
+              'status': 'HORS FORFAIT',
+              'reason': 'Quota Dépannage Épuisé',
+              'color': Colors.orange,
+              'icon': Icons.money_off,
+            };
+          }
+        }
+
       } else {
         return {
           'status': 'FACTURABLE',
@@ -192,11 +236,11 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       }
     }
 
-    // 3. Default (Billable)
+    // 3. Default (Billable / No Contract)
     return {
       'status': 'FACTURABLE',
       'reason': 'Hors Garantie / Hors Contrat',
-      'color': Colors.orange.shade800,
+      'color': Colors.deepOrange,
       'icon': Icons.monetization_on_outlined,
     };
   }
@@ -606,160 +650,44 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     }
   }
 
-  // --- DIALOGS ---
-  Future<Client?> _showAddClientDialog() async {
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    final result = await showDialog<Client>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Client'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Nom du Client *'),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: phoneController,
-                decoration: const InputDecoration(labelText: 'Téléphone (Optionnel)'),
-                keyboardType: TextInputType.phone,
-              ),
-            ],
-          ),
+  // --- DIALOGS (REPLACED WITH PAGE NAVIGATION FOR CONTEXT LOGIC) ---
+  Future<void> _showAddClientDialog() async {
+    // Navigate to AddClientPage, passing the service type to auto-select
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddClientPage(
+          preselectedServiceType: widget.serviceType, // 🌟 AUTO-SELECT SERVICE LOGIC
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  final docRef = await FirebaseFirestore.instance
-                      .collection('clients')
-                      .add({
-                    'name': nameController.text.trim(),
-                    'phone': phoneController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'intervention_quick_add',
-                  });
-                  final newClient = Client(
-                    id: docRef.id,
-                    name: nameController.text.trim(),
-                  );
-                  Navigator.pop(context, newClient);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
       ),
     );
-    if (result != null) {
-      setState(() {
-        _clients.add(result);
-        _selectedClient = result;
-        _clientSearchController.text = result.name;
-      });
-      _fetchStores(result.id);
-    }
-    return result;
+
+    // Refresh list upon return
+    _fetchClients();
   }
 
-  Future<Store?> _showAddStoreDialog() async {
+  Future<void> _showAddStoreDialog() async {
     if (_selectedClient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Veuillez d\'abord sélectionner un client')),
       );
-      return null;
+      return;
     }
-    final nameController = TextEditingController();
-    final locationController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    final result = await showDialog<Store>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Magasin'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Nom du Magasin *'),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: locationController,
-                decoration: const InputDecoration(labelText: 'Emplacement *'),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-            ],
-          ),
+
+    // Navigate to AddStorePage
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddStorePage(
+          clientId: _selectedClient!.id,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  final docRef = await FirebaseFirestore.instance
-                      .collection('clients')
-                      .doc(_selectedClient!.id)
-                      .collection('stores')
-                      .add({
-                    'name': nameController.text.trim(),
-                    'location': locationController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'intervention_quick_add',
-                  });
-                  final newStore = Store(
-                    id: docRef.id,
-                    name: nameController.text.trim(),
-                    location: locationController.text.trim(),
-                  );
-                  Navigator.pop(context, newStore);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
       ),
     );
-    if (result != null) {
-      setState(() {
-        _stores.add(result);
-        _selectedStore = result;
-        _storeSearchController.text = '${result.name} - ${result.location}';
-      });
+
+    // Refresh list upon return
+    if (_selectedClient != null) {
+      _fetchStores(_selectedClient!.id);
     }
-    return result;
   }
 
   // --- SAVE INTERVENTION FUNCTION ---

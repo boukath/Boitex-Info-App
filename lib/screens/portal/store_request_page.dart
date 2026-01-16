@@ -7,14 +7,13 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:intl/intl.dart'; // ✅ Added for Date Formatting
+import 'package:intl/intl.dart';
 
 // ✅ IMPORTS FOR MEDIA & B2
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart'; // For SHA1
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
-// Removed image_picker import
 import 'package:video_thumbnail/video_thumbnail.dart';
 
 class StoreRequestPage extends StatefulWidget {
@@ -52,7 +51,6 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
   final TextEditingController _descriptionController = TextEditingController();
 
   // --- MEDIA STATE (B2) ---
-  // Using PlatformFile from file_picker to handle both Web (bytes) and Mobile (path) safely
   List<PlatformFile> _localFilesToUpload = [];
   List<String> _uploadedMediaUrls = [];
   bool _isUploadingMedia = false;
@@ -315,13 +313,6 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       final clientData = _clientDoc!.data() as Map<String, dynamic>;
       final storeData = _storeDoc!.data() as Map<String, dynamic>;
 
-      final currentYear = DateFormat('yyyy').format(DateTime.now());
-      final counterRef = FirebaseFirestore.instance
-          .collection('counters')
-          .doc('intervention_counter_$currentYear');
-      final interventionRef = FirebaseFirestore.instance.collection('interventions').doc();
-
-
       // 🔍 AUTO-DETECT SERVICE TYPE
       String detectedServiceType = 'Service Technique'; // Default fallback
       if (clientData['services'] != null && (clientData['services'] as List).isNotEmpty) {
@@ -329,61 +320,31 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         detectedServiceType = (clientData['services'] as List).first.toString();
       }
 
-      // C. EXECUTE TRANSACTION
-      // This ensures we read the counter, increment it, and save the intervention atomically.
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final counterDoc = await transaction.get(counterRef);
+      // C. CREATE REQUEST (No Transaction, No Counter)
+      // ⚠️ Key Change: We use 'PENDING' code and 'En Attente Validation' status.
+      // The Admin will approve it later to generate the real ID.
 
-        int newCount;
-        if (counterDoc.exists) {
-          final data = counterDoc.data() as Map<String, dynamic>;
-          final lastResetYear = data['lastReset'] as String?;
-          final currentCount = data['count'] as int? ?? 0;
+      await FirebaseFirestore.instance.collection('interventions').add({
+        'interventionCode': 'PENDING', // ⚠️ Placeholder
+        'clientId': _clientDoc!.id,
+        'storeId': _storeDoc!.id,
+        'clientName': clientData['name'],
+        'storeName': storeData['name'],
+        'storeLocation': storeData['location'] ?? '',
+        'status': 'En Attente Validation', // ⚠️ Holding Status
+        'priority': 'Moyenne',
+        'type': 'Dépannage',
+        'source': 'QR_Portal',
+        'serviceType': detectedServiceType,
 
-          if (lastResetYear == currentYear) {
-            newCount = currentCount + 1;
-          } else {
-            // Reset for new year if needed
-            newCount = 1;
-          }
-        } else {
-          // Document doesn't exist yet
-          newCount = 1;
-        }
+        'requestDescription': _descriptionController.text.trim(),
+        'managerName': _contactController.text.trim(),
+        'createdByName': _contactController.text.trim(),
 
-        // Generate the Code: INT-51/2026
-        final interventionCode = 'INT-$newCount/$currentYear';
-
-        final interventionData = {
-          'interventionCode': interventionCode, // ✅ THE GENERATED CODE
-          'clientId': _clientDoc!.id,
-          'storeId': _storeDoc!.id,
-          'clientName': clientData['name'],
-          'storeName': storeData['name'],
-          'storeLocation': storeData['location'] ?? '',
-          'status': 'Nouvelle Demande',
-          'priority': 'Moyenne',
-          'type': 'Dépannage',
-          'source': 'QR_Portal',
-          'serviceType': detectedServiceType, // ✅ AUTO-ASSIGNED SERVICE TYPE
-
-          // ✅ FIELD NAMES FIXED FOR ADMIN DASHBOARD MAPPING
-          'requestDescription': _descriptionController.text.trim(), // Admin looks for 'requestDescription'
-          'managerName': _contactController.text.trim(),            // Admin looks for 'managerName'
-          'createdByName': _contactController.text.trim(),          // Shows name in "Demandé par"
-
-          'clientPhone': _phoneController.text.trim(),
-          'mediaUrls': _uploadedMediaUrls,
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdBy': 'Portal Guest', // Kept for technical audit
-        };
-
-        // Write both operations
-        transaction.set(interventionRef, interventionData);
-        transaction.set(counterRef, {
-          'count': newCount,
-          'lastReset': currentYear,
-        });
+        'clientPhone': _phoneController.text.trim(),
+        'mediaUrls': _uploadedMediaUrls,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': 'Portal Guest',
       });
 
       if (mounted) {
@@ -407,7 +368,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Icon(Icons.check_circle, color: Colors.green, size: 60),
         content: const Text(
-          "Demande Envoyée !\n\nNos techniciens ont été notifiés.",
+          "Demande Envoyée !\n\nNos équipes vont valider votre demande rapidement.",
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 16),
         ),

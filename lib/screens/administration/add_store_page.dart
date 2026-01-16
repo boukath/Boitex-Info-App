@@ -63,7 +63,11 @@ class _AddStorePageState extends State<AddStorePage> {
 
   // Contract State
   bool _hasContract = false;
-  String _contractType = 'Standard';
+
+  // 🔄 CHANGED: Replaced 'type' with Credit Quotas
+  final TextEditingController _quotaPreventiveController = TextEditingController(text: '2');
+  final TextEditingController _quotaCorrectiveController = TextEditingController(text: '10');
+
   DateTime? _contractStartDate;
   DateTime? _contractEndDate;
 
@@ -79,8 +83,6 @@ class _AddStorePageState extends State<AddStorePage> {
     _latController = TextEditingController();
     _lngController = TextEditingController();
     _linkController = TextEditingController();
-
-    // ❌ REMOVED: _contractDocUrlController = TextEditingController(); (This caused the error)
 
     // Pre-fill form if editing
     if (_isEditMode && widget.initialData != null) {
@@ -107,7 +109,11 @@ class _AddStorePageState extends State<AddStorePage> {
           final contractMap = widget.initialData!['maintenance_contract'];
           final contract = MaintenanceContract.fromMap(contractMap);
           _hasContract = true;
-          _contractType = contract.type;
+
+          // 🔄 Load Quotas
+          _quotaPreventiveController.text = contract.quotaPreventive.toString();
+          _quotaCorrectiveController.text = contract.quotaCorrective.toString();
+
           _contractStartDate = contract.startDate;
           _contractEndDate = contract.endDate;
           _contractDocUrlController.text = contract.docUrl ?? '';
@@ -131,6 +137,8 @@ class _AddStorePageState extends State<AddStorePage> {
     _lngController.dispose();
     _linkController.dispose();
     _contractDocUrlController.dispose();
+    _quotaPreventiveController.dispose();
+    _quotaCorrectiveController.dispose();
     super.dispose();
   }
 
@@ -433,6 +441,7 @@ class _AddStorePageState extends State<AddStorePage> {
     }
   }
 
+  // 🔥 THIS IS THE FIXED SUBMIT FUNCTION 🔥
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
 
@@ -462,14 +471,20 @@ class _AddStorePageState extends State<AddStorePage> {
       double? lng = double.tryParse(_lngController.text);
 
       Map<String, dynamic>? contractData;
+
       if (_hasContract) {
         final contract = MaintenanceContract(
           id: widget.initialData?['maintenance_contract']?['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-          type: _contractType,
           startDate: _contractStartDate!,
           endDate: _contractEndDate!,
           isActive: true,
           docUrl: _contractDocUrlController.text.trim().isEmpty ? null : _contractDocUrlController.text.trim(),
+
+          quotaPreventive: int.tryParse(_quotaPreventiveController.text) ?? 2,
+          quotaCorrective: int.tryParse(_quotaCorrectiveController.text) ?? 10,
+
+          usedPreventive: widget.initialData?['maintenance_contract']?['usedPreventive'] ?? 0,
+          usedCorrective: widget.initialData?['maintenance_contract']?['usedCorrective'] ?? 0,
         );
         contractData = contract.toMap();
       }
@@ -482,11 +497,19 @@ class _AddStorePageState extends State<AddStorePage> {
         'longitude': lng,
         'storeContacts': contactsForDb,
         'status': _isEditMode ? (widget.initialData?['status'] ?? 'active') : 'active',
-        'maintenance_contract': _hasContract ? contractData : FieldValue.delete(),
       };
 
+      // ✅ KEY FIX: Safely Handle Maintenance Contract Field
+      // 1. If Adding (Not Edit Mode) -> Only add field if contract exists. DO NOT use delete().
       if (!_isEditMode) {
         storeData['createdAt'] = FieldValue.serverTimestamp();
+        if (_hasContract) {
+          storeData['maintenance_contract'] = contractData!;
+        }
+      }
+      // 2. If Editing -> If no contract, explicitly delete field.
+      else {
+        storeData['maintenance_contract'] = _hasContract ? contractData : FieldValue.delete();
       }
 
       try {
@@ -735,13 +758,41 @@ class _AddStorePageState extends State<AddStorePage> {
                   ),
                   child: Column(
                     children: [
-                      DropdownButtonFormField<String>(
-                        value: _contractType,
-                        decoration: const InputDecoration(labelText: 'Type de Contrat', filled: true, fillColor: Colors.white),
-                        items: ['Standard', 'Gold', 'Platinum', 'Préventif', 'Sur Devis']
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                        onChanged: (v) => setState(() => _contractType = v!),
+                      // 🔄 REPLACED DROPDOWN WITH NUMERIC FIELDS
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _quotaPreventiveController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                  labelText: 'Crédit Préventif',
+                                  hintText: 'Ex: 2',
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  prefixIcon: Icon(Icons.shield_outlined),
+                                  suffixText: '/an'
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _quotaCorrectiveController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                  labelText: 'Crédit Correctif',
+                                  hintText: 'Ex: 10',
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  prefixIcon: Icon(Icons.build_circle_outlined),
+                                  suffixText: '/an'
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+
                       const SizedBox(height: 16),
                       Row(
                         children: [

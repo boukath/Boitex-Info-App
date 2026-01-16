@@ -59,53 +59,78 @@ class EquipmentWarranty {
 
 /// 📄 Represents a Maintenance Contract (Contrat de Maintenance)
 /// This is embedded inside a Store or Client document.
+///
+/// 🔄 UPDATED: Now uses a "Credit System" instead of "Gold/Premium" types.
 class MaintenanceContract {
   final String id;
-  final String type; // E.g., "Standard", "VIP", "Preventive"
   final DateTime startDate;
   final DateTime endDate;
   final bool isActive;
   final String? docUrl; // Link to the PDF contract
-  final double coveragePercentage; // 100% free or partially billable?
+
+  // 🔹 QUOTA BUCKETS (The "Wallet")
+  final int quotaPreventive; // Total preventive visits allowed per year (e.g., 2)
+  final int quotaCorrective; // Total repair visits allowed per year (e.g., 10)
+
+  // 🔸 USAGE TRACKERS (Consumed Credits)
+  final int usedPreventive;
+  final int usedCorrective;
 
   MaintenanceContract({
     required this.id,
-    required this.type,
     required this.startDate,
     required this.endDate,
     this.isActive = true,
     this.docUrl,
-    this.coveragePercentage = 100.0,
+    required this.quotaPreventive,
+    required this.quotaCorrective,
+    this.usedPreventive = 0,
+    this.usedCorrective = 0,
   });
 
-  /// 🟢 Helper: Check if the contract allows service today
+  /// 🟢 Helper: Check if the contract is active (Date-wise)
   bool get isValidNow {
     if (!isActive) return false;
     final now = DateTime.now();
     return now.isAfter(startDate) && now.isBefore(endDate);
   }
 
+  // 📊 CALCULATED GETTERS
+
+  int get remainingPreventive => quotaPreventive - usedPreventive;
+  int get remainingCorrective => quotaCorrective - usedCorrective;
+
+  bool get hasCreditPreventive => remainingPreventive > 0;
+  bool get hasCreditCorrective => remainingCorrective > 0;
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'type': type,
       'startDate': Timestamp.fromDate(startDate),
       'endDate': Timestamp.fromDate(endDate),
       'isActive': isActive,
       'docUrl': docUrl,
-      'coveragePercentage': coveragePercentage,
+      // Save Quotas & Usage
+      'quotaPreventive': quotaPreventive,
+      'quotaCorrective': quotaCorrective,
+      'usedPreventive': usedPreventive,
+      'usedCorrective': usedCorrective,
     };
   }
 
   factory MaintenanceContract.fromMap(Map<String, dynamic> map) {
     return MaintenanceContract(
       id: map['id'] ?? '',
-      type: map['type'] ?? 'Standard',
       startDate: (map['startDate'] as Timestamp).toDate(),
       endDate: (map['endDate'] as Timestamp).toDate(),
       isActive: map['isActive'] ?? true,
       docUrl: map['docUrl'],
-      coveragePercentage: (map['coveragePercentage'] as num?)?.toDouble() ?? 100.0,
+      // Load Quotas (Default to 0 if missing)
+      quotaPreventive: map['quotaPreventive'] ?? 0,
+      quotaCorrective: map['quotaCorrective'] ?? 0,
+      // Load Usage (Default to 0)
+      usedPreventive: map['usedPreventive'] ?? 0,
+      usedCorrective: map['usedCorrective'] ?? 0,
     );
   }
 }

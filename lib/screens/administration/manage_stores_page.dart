@@ -181,6 +181,10 @@ class ManageStoresPage extends StatelessWidget {
               String? logoUrl = storeData['logoUrl']; // ✅ FETCH LOGO URL
               String storeId = storeDoc.id;
 
+              // 🟢 EXTRACT CONTRACT INFO FOR PILLS
+              Map<String, dynamic>? contract = storeData['maintenance_contract'];
+              bool hasActiveContract = contract != null && (contract['isActive'] == true);
+
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Slidable(
@@ -227,6 +231,7 @@ class ManageStoresPage extends StatelessWidget {
                             clientId: clientId,
                             storeId: storeId,
                             storeName: storeName,
+                            logoUrl: logoUrl,
                           ),
                         ),
                       );
@@ -307,16 +312,41 @@ class ManageStoresPage extends StatelessWidget {
                                     ),
                                   ],
                                 ),
+
+                                // 🆕 CREDIT WALLET PILLS
+                                if (hasActiveContract) ...[
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      _buildCreditBadge(
+                                          "Prev",
+                                          contract['usedPreventive'] ?? 0,
+                                          contract['quotaPreventive'] ?? 0,
+                                          Colors.teal
+                                      ),
+                                      const SizedBox(width: 6),
+                                      _buildCreditBadge(
+                                          "Corr",
+                                          contract['usedCorrective'] ?? 0,
+                                          contract['quotaCorrective'] ?? 0,
+                                          Colors.orange
+                                      ),
+                                    ],
+                                  ),
+                                ]
                               ],
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.qr_code_2, color: Colors.black87),
-                            tooltip: "Imprimer le QR Code",
-                            onPressed: () => _handlePrintQr(context, storeDoc),
-                          ),
-                          const SizedBox(width: 8),
-                          const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                          Column(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.qr_code_2, color: Colors.black87),
+                                tooltip: "Imprimer le QR Code",
+                                onPressed: () => _handlePrintQr(context, storeDoc),
+                              ),
+                              const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                            ],
+                          )
                         ],
                       ),
                     ),
@@ -335,6 +365,29 @@ class ManageStoresPage extends StatelessWidget {
         tooltip: 'Ajouter un Magasin',
         backgroundColor: Colors.teal,
         child: const Icon(Icons.add_business_outlined),
+      ),
+    );
+  }
+
+  // 💊 HELPER FOR CREDIT BADGES
+  Widget _buildCreditBadge(String label, int used, int quota, Color baseColor) {
+    int remaining = quota - used;
+    bool isLow = remaining <= 0;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isLow ? Colors.red.withOpacity(0.1) : baseColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: isLow ? Colors.red.withOpacity(0.3) : baseColor.withOpacity(0.3)),
+      ),
+      child: Text(
+        "$label: $used/$quota",
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: isLow ? Colors.red : baseColor,
+        ),
       ),
     );
   }

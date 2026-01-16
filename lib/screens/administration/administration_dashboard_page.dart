@@ -18,8 +18,11 @@ import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart'
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/analytics_dashboard_page.dart';
-// ✅ ADDED IMPORT FOR UNIVERSAL MAP PAGE
 import 'package:boitex_info_app/screens/administration/universal_map_page.dart';
+
+// ✅ NEW IMPORT FOR THE PORTAL REQUESTS INBOX
+import 'package:boitex_info_app/screens/administration/portal_requests_list_page.dart';
+
 import 'dart:math' as math;
 
 class AdministrationDashboardPage extends StatefulWidget {
@@ -516,6 +519,20 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
 
   List<Widget> _buildQuickActions(BuildContext context) {
     final items = <_ActionData>[
+      // ✅ 1. PORTAL REQUESTS (INBOX) - FIRST ITEM
+      _ActionData(
+        'Demandes\nWeb',
+        Icons.public_rounded,
+        const Color(0xFFFF5722), // Deep Orange for Attention
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const PortalRequestsListPage())),
+        // 🔴 BADGE LISTENER
+        badgeStream: FirebaseFirestore.instance
+            .collection('interventions')
+            .where('interventionCode', isEqualTo: 'PENDING')
+            .snapshots(),
+      ),
+
       _ActionData(
         'Nouveau\nProjet',
         Icons.note_add_rounded,
@@ -588,7 +605,6 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => const AnalyticsDashboardPage())),
       ),
-      // 🗺️ MAPS ACTION (UPDATED)
       _ActionData(
         'Carte',
         Icons.map_rounded,
@@ -603,6 +619,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
     return items.asMap().entries.map((entry) {
       final index = entry.key;
       final action = entry.value;
+
       return TweenAnimationBuilder<double>(
         duration: Duration(milliseconds: 400 + (index * 80)),
         tween: Tween(begin: 0, end: 1),
@@ -612,11 +629,29 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             child: Opacity(opacity: value, child: child),
           );
         },
-        child: _ActionCard(
+        child: action.badgeStream != null
+            ? StreamBuilder<QuerySnapshot>(
+          stream: action.badgeStream,
+          builder: (context, snapshot) {
+            int count = 0;
+            if (snapshot.hasData) {
+              count = snapshot.data!.docs.length;
+            }
+            return _ActionCard(
+              label: action.label,
+              icon: action.icon,
+              color: action.color,
+              onTap: action.onTap,
+              badgeCount: count,
+            );
+          },
+        )
+            : _ActionCard(
           label: action.label,
           icon: action.icon,
           color: action.color,
           onTap: action.onTap,
+          badgeCount: 0,
         ),
       );
     }).toList();
@@ -679,7 +714,9 @@ class _ActionData {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  _ActionData(this.label, this.icon, this.color, this.onTap);
+  final Stream<QuerySnapshot>? badgeStream; // ✅ NEW FIELD FOR BADGE
+
+  _ActionData(this.label, this.icon, this.color, this.onTap, {this.badgeStream});
 }
 
 class _ActionCard extends StatelessWidget {
@@ -687,78 +724,116 @@ class _ActionCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final int badgeCount; // ✅ NEW FIELD
 
   const _ActionCard({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withOpacity(0.25),
-            Colors.white.withOpacity(0.15)
-          ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 20,
-              offset: const Offset(0, 10)),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    gradient:
-                    LinearGradient(colors: [color, color.withOpacity(0.7)]),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                          color: color.withOpacity(0.4),
-                          blurRadius: 16,
-                          offset: const Offset(0, 8)),
-                    ],
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 28),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 0.3,
-                  ),
-                ),
+    return Stack(
+      // ✅ FIX: Force the background container to FILL the GridCell
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.25),
+                Colors.white.withOpacity(0.15)
               ],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10)),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(24),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        gradient:
+                        LinearGradient(colors: [color, color.withOpacity(0.7)]),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                              color: color.withOpacity(0.4),
+                              blurRadius: 16,
+                              offset: const Offset(0, 8)),
+                        ],
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 28),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
-      ),
+        // 🔴 NOTIFICATION BADGE
+        if (badgeCount > 0)
+          Positioned(
+            top: -5,
+            right: -5,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF5252), // Bright red
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                badgeCount > 99 ? '99+' : badgeCount.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -876,15 +951,6 @@ class _RequisitionPipelineCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(
           children: [
-            StreamBuilder<QuerySnapshot>(
-              stream: stream,
-              builder: (c, s) {
-                final cnt = s.hasData ? s.data!.docs.length : 0;
-                return const Text(
-                  '',
-                );
-              },
-            ),
             StreamBuilder<QuerySnapshot>(
               stream: stream,
               builder: (c, s) {

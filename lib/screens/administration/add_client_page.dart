@@ -57,7 +57,15 @@ class AddClientPage extends StatefulWidget {
   // ✅ 2. MODIFIED: Added initialData to constructor to fix error in manage_clients_page.dart
   final Map<String, dynamic>? initialData;
 
-  const AddClientPage({super.key, this.clientId, this.initialData});
+  // ✅ 3. MODIFIED: Context parameter is now a String to support IT/Technique/Commercial
+  final String? preselectedServiceType;
+
+  const AddClientPage({
+    super.key,
+    this.clientId,
+    this.initialData,
+    this.preselectedServiceType, // e.g. "Service Technique" or "Service IT"
+  });
 
   @override
   State<AddClientPage> createState() => _AddClientPageState();
@@ -90,7 +98,15 @@ class _AddClientPageState extends State<AddClientPage> {
   @override
   void initState() {
     super.initState();
-    // ✅ 3. MODIFIED: Use initialData if provided (Optimization)
+
+    // ✅ 4. Initialize checkbox based on context string
+    if (widget.preselectedServiceType != null) {
+      if (_services.containsKey(widget.preselectedServiceType)) {
+        _services[widget.preselectedServiceType!] = true;
+      }
+    }
+
+    // ✅ 5. MODIFIED: Use initialData if provided (Optimization)
     if (widget.initialData != null) {
       _populateData(widget.initialData!);
     } else if (_isEditMode) {
