@@ -134,8 +134,11 @@ class _PortalRequestsListPageState extends State<PortalRequestsListPage> {
     final bool isIT = serviceType.contains('IT');
 
     // 2. STATUS LOGIC (THE GATEKEEPER)
-    final String type = data['type'] ?? 'Intervention Facturable';
-    final bool isCorrective = type == 'Maintenance Corrective';
+    // 🛠 FIX: Use the correct field 'interventionType'
+    final String type = data['interventionType'] ?? 'Facturable';
+
+    // 🛠 FIX: Check for both new short value ('Corrective') and legacy long value
+    final bool isCorrective = (type == 'Corrective' || type == 'Maintenance Corrective');
 
     // Theme Colors based on Status
     final Color statusColor = isCorrective ? const Color(0xFF00C853) : const Color(0xFFFF9100); // Green vs Orange

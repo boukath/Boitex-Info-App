@@ -73,31 +73,43 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
         final newInterventionCode = 'INT-$newCount/$currentYear';
 
         // B. Handle Contract Deduction (If Corrective)
-        final String? type = docData['type'];
+        // 🛠 FIX 1: Read 'interventionType' correctly
+        final String? type = docData['interventionType'];
         final String? contractId = docData['contractId'];
 
-        if (type == 'Maintenance Corrective' && contractId != null) {
+        if ((type == 'Corrective' || type == 'Maintenance Corrective') && contractId != null) {
           final String clientId = docData['clientId'];
           final String storeId = docData['storeId'];
 
-          // Construct path to the contract
-          final contractRef = FirebaseFirestore.instance
+          // 🛠 FIX 2: Target the Store Document directly
+          final storeRef = FirebaseFirestore.instance
               .collection('clients')
               .doc(clientId)
               .collection('stores')
-              .doc(storeId)
-              .collection('maintenance_contracts')
-              .doc(contractId);
+              .doc(storeId);
 
-          final contractSnap = await transaction.get(contractRef);
+          final storeSnap = await transaction.get(storeRef);
 
-          if (contractSnap.exists) {
-            final cData = contractSnap.data() as Map<String, dynamic>;
-            final currentUsed = cData['usedCorrective'] ?? 0;
-            // Increment usage automatically
-            transaction.update(contractRef, {
-              'usedCorrective': currentUsed + 1
-            });
+          if (storeSnap.exists) {
+            final sData = storeSnap.data() as Map<String, dynamic>;
+
+            // Check if contract exists as a MAP field
+            if (sData.containsKey('maintenance_contract') && sData['maintenance_contract'] != null) {
+              Map<String, dynamic> contractMap = Map<String, dynamic>.from(sData['maintenance_contract']);
+
+              // Verify it's the right contract
+              if (contractMap['id'] == contractId) {
+                final currentUsed = contractMap['usedCorrective'] ?? 0;
+
+                // Update local map
+                contractMap['usedCorrective'] = currentUsed + 1;
+
+                // Write back to store document
+                transaction.update(storeRef, {
+                  'maintenance_contract': contractMap
+                });
+              }
+            }
           }
         }
 
@@ -326,9 +338,10 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
 
   Widget _buildInfoCard(Map<String, dynamic> data) {
     // 🔍 Extract Intervention Type
-    final String type = data['type'] ?? 'Standard';
-    final bool isCorrective = type == 'Maintenance Corrective';
-    final bool isFacturable = type == 'Intervention Facturable';
+    // 🛠 FIX 3: Read 'interventionType'
+    final String type = data['interventionType'] ?? 'Standard';
+    final bool isCorrective = (type == 'Corrective' || type == 'Maintenance Corrective');
+    final bool isFacturable = (type == 'Facturable' || type == 'Intervention Facturable');
 
     Color typeColor = Colors.grey;
     Color typeBg = Colors.grey.shade100;

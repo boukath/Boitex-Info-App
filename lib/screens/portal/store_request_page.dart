@@ -124,24 +124,23 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       final clientDoc = await clientRef.get();
       final clientData = clientDoc.data() as Map<String, dynamic>;
 
-      // ✅ 1. CHECK MAINTENANCE CONTRACT
+      // ✅ 1. CHECK MAINTENANCE CONTRACT (FIXED LOGIC)
       MaintenanceContract? foundContract;
       try {
-        final contractsSnapshot = await storeDoc.reference
-            .collection('maintenance_contracts')
-            .where('isActive', isEqualTo: true)
-            .get();
+        // 🛠 FIX: Check the 'maintenance_contract' field directly in the store document
+        if (storeData.containsKey('maintenance_contract') &&
+            storeData['maintenance_contract'] != null) {
 
-        for (var doc in contractsSnapshot.docs) {
-          final c = MaintenanceContract.fromMap(doc.data());
+          final contractMap = storeData['maintenance_contract'] as Map<String, dynamic>;
+          final c = MaintenanceContract.fromMap(contractMap);
+
           // Check dates using the helper in your model
-          if (c.isValidNow) {
+          if (c.isActive && c.isValidNow) {
             foundContract = c;
-            break; // Found an active one
           }
         }
       } catch (e) {
-        debugPrint("Error fetching contracts: $e");
+        debugPrint("Error parsing contract from store data: $e");
       }
 
       bool quotaExceeded = false;
