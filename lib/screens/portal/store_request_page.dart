@@ -16,6 +16,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:video_thumbnail/video_thumbnail.dart';
 
+// ✅ IMPORT SERVICE CONTRACTS MODEL
+import 'package:boitex_info_app/models/service_contracts.dart';
+
 class StoreRequestPage extends StatefulWidget {
   final String storeId;
   final String token;
@@ -36,6 +39,11 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
   bool _isValidSession = false;
   bool _isSubmitting = false;
   String? _errorMessage;
+
+  // --- CONTRACT STATE ---
+  MaintenanceContract? _activeContract;
+  bool _isQuotaExceeded = false; // Checks if credit is 0
+  bool _hasContract = false;
 
   // --- DATA ---
   DocumentSnapshot? _storeDoc;
@@ -76,7 +84,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
   }
 
   /// --------------------------------------------------------------------------
-  /// 1. SMART DATA LOADING
+  /// 1. SMART DATA LOADING & CONTRACT CHECK
   /// --------------------------------------------------------------------------
   Future<void> _verifyAndLoadData() async {
     try {
@@ -116,12 +124,48 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       final clientDoc = await clientRef.get();
       final clientData = clientDoc.data() as Map<String, dynamic>;
 
+      // ✅ 1. CHECK MAINTENANCE CONTRACT
+      MaintenanceContract? foundContract;
+      try {
+        final contractsSnapshot = await storeDoc.reference
+            .collection('maintenance_contracts')
+            .where('isActive', isEqualTo: true)
+            .get();
+
+        for (var doc in contractsSnapshot.docs) {
+          final c = MaintenanceContract.fromMap(doc.data());
+          // Check dates using the helper in your model
+          if (c.isValidNow) {
+            foundContract = c;
+            break; // Found an active one
+          }
+        }
+      } catch (e) {
+        debugPrint("Error fetching contracts: $e");
+      }
+
+      bool quotaExceeded = false;
+      bool hasContract = false;
+
+      if (foundContract != null) {
+        hasContract = true;
+        // Check Credit: If 0, BLOCK them.
+        if (foundContract.remainingCorrective <= 0) {
+          quotaExceeded = true;
+        }
+      }
+
       if (mounted) {
         setState(() {
           _storeDoc = storeDoc;
           _clientDoc = clientDoc;
           _clientNameController.text = clientData['name'] ?? 'Client Inconnu';
           _storeNameController.text = storeData['name'] ?? 'Magasin Inconnu';
+
+          _activeContract = foundContract;
+          _hasContract = hasContract;
+          _isQuotaExceeded = quotaExceeded;
+
           _isValidSession = true;
           _isLoading = false;
         });
@@ -289,6 +333,14 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
   Future<void> _submitRequest() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // 🛑 Final Security Check: Double check quota before sending
+    if (_isQuotaExceeded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Action non autorisée : Crédit épuisé.")),
+      );
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
       _isUploadingMedia = true;
@@ -320,7 +372,15 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         detectedServiceType = (clientData['services'] as List).first.toString();
       }
 
-      // C. CREATE REQUEST (No Transaction, No Counter)
+      // 🔍 DETERMINE INTERVENTION TYPE BASED ON CONTRACT
+      // If contract active AND credit > 0 => 'Maintenance Corrective'
+      // If no contract => 'Intervention Facturable'
+      // (Quota exhausted is blocked by UI, so we assume valid here if active)
+      String interventionType = _hasContract
+          ? 'Maintenance Corrective'
+          : 'Intervention Facturable';
+
+      // C. CREATE REQUEST
       // ⚠️ Key Change: We use 'PENDING' code and 'En Attente Validation' status.
       // The Admin will approve it later to generate the real ID.
 
@@ -333,9 +393,15 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         'storeLocation': storeData['location'] ?? '',
         'status': 'En Attente Validation', // ⚠️ Holding Status
         'priority': 'Moyenne',
-        'type': 'Dépannage',
+
+        // ✅ NEW: LOGIC APPLIED HERE
+        'type': interventionType,
+
         'source': 'QR_Portal',
         'serviceType': detectedServiceType,
+
+        // ✅ Link Contract ID if available
+        'contractId': _activeContract?.id,
 
         'requestDescription': _descriptionController.text.trim(),
         'managerName': _contactController.text.trim(),
@@ -431,6 +497,46 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       );
     }
 
+    // ⛔ BLOCKER SCREEN: CONTRACT EXISTS BUT QUOTA IS 0
+    if (_isQuotaExceeded) {
+      return Scaffold(
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          color: Colors.white,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.remove_circle_outline, size: 80, color: Colors.red),
+                  const SizedBox(height: 24),
+                  Text(
+                      "Quota Épuisé",
+                      style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.red)
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "Votre crédit d'interventions correctives est à 0.\n\nVeuillez contacter l'administration pour renouveler votre contrat ou demander une intervention facturable.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 32),
+                  OutlinedButton(
+                      onPressed: () {
+                        // Optional: Link to phone call or email
+                      },
+                      child: const Text("Contacter l'Administration")
+                  )
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: Container(
         width: double.infinity,
@@ -494,6 +600,61 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
                             ],
                           ),
                           const Divider(height: 40),
+
+                          // --- 🔔 CONTRACT STATUS BANNER ---
+                          if (_hasContract && _activeContract != null)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 24),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.verified, color: Colors.green),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          "Sous Contrat de Maintenance",
+                                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 13),
+                                        ),
+                                        Text(
+                                          "Crédit Correctif restant : ${_activeContract!.remainingCorrective}",
+                                          style: const TextStyle(color: Colors.black87, fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                ],
+                              ),
+                            )
+                          else
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 24),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.orange.shade200),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.info_outline, color: Colors.orange),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      "Ce client ne dispose pas de contrat facturable. Cette intervention sera facturée hors contrat.",
+                                      style: TextStyle(fontSize: 12, color: Colors.black87),
+                                    ),
+                                  )
+                                ],
+                              ),
+                            ),
 
                           // --- SECTIONS ---
                           _buildSectionTitle("Localisation (Automatique)"),

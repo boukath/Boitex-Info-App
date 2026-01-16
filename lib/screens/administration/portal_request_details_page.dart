@@ -4,7 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart'; // For opening media/maps
+import 'package:url_launcher/url_launcher.dart'; // For opening PDFs/Maps
+import 'package:path/path.dart' as path; // ✅ Required for extension checking
+
+// ✅ Import the new Media Widgets
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+import 'package:boitex_info_app/widgets/video_player_page.dart';
 
 class PortalRequestDetailsPage extends StatefulWidget {
   final String interventionId;
@@ -18,12 +23,11 @@ class PortalRequestDetailsPage extends StatefulWidget {
 class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
   // --- STATE ---
   bool _isProcessing = false;
-  String _selectedServiceType = 'Service Technique'; // Default, but can be changed
+  String _selectedServiceType = 'Service Technique'; // Default
 
   @override
   void initState() {
     super.initState();
-    // We will initialize the service type from the doc in the FutureBuilder
   }
 
   @override
@@ -43,6 +47,8 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
           .collection('counters')
           .doc('intervention_counter_$currentYear');
       final interventionRef = doc.reference;
+
+      final docData = doc.data() as Map<String, dynamic>;
 
       // 🛑 TRANSACTION START
       await FirebaseFirestore.instance.runTransaction((transaction) async {
@@ -66,6 +72,35 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
 
         final newInterventionCode = 'INT-$newCount/$currentYear';
 
+        // B. Handle Contract Deduction (If Corrective)
+        final String? type = docData['type'];
+        final String? contractId = docData['contractId'];
+
+        if (type == 'Maintenance Corrective' && contractId != null) {
+          final String clientId = docData['clientId'];
+          final String storeId = docData['storeId'];
+
+          // Construct path to the contract
+          final contractRef = FirebaseFirestore.instance
+              .collection('clients')
+              .doc(clientId)
+              .collection('stores')
+              .doc(storeId)
+              .collection('maintenance_contracts')
+              .doc(contractId);
+
+          final contractSnap = await transaction.get(contractRef);
+
+          if (contractSnap.exists) {
+            final cData = contractSnap.data() as Map<String, dynamic>;
+            final currentUsed = cData['usedCorrective'] ?? 0;
+            // Increment usage automatically
+            transaction.update(contractRef, {
+              'usedCorrective': currentUsed + 1
+            });
+          }
+        }
+
         // C. Update Operations
         // 1. Increment Counter
         transaction.set(counterRef, {
@@ -80,7 +115,7 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
           'status': 'Nouvelle Demande',
           'serviceType': _selectedServiceType,
 
-          'approvedBy': 'Admin', // In real app, put current user ID
+          'approvedBy': 'Admin',
           'approvedAt': FieldValue.serverTimestamp(),
         });
       });
@@ -176,7 +211,10 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
                 const SizedBox(height: 16),
                 _buildInfoCard(data),
                 const SizedBox(height: 16),
-                _buildMediaGallery(data['mediaUrls']),
+
+                // ✅ UPDATED MEDIA GALLERY
+                _buildMediaGallery(context, data['mediaUrls']),
+
                 const SizedBox(height: 24),
 
                 // --- ACTION ZONE ---
@@ -287,6 +325,25 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
   }
 
   Widget _buildInfoCard(Map<String, dynamic> data) {
+    // 🔍 Extract Intervention Type
+    final String type = data['type'] ?? 'Standard';
+    final bool isCorrective = type == 'Maintenance Corrective';
+    final bool isFacturable = type == 'Intervention Facturable';
+
+    Color typeColor = Colors.grey;
+    Color typeBg = Colors.grey.shade100;
+    IconData typeIcon = Icons.info_outline;
+
+    if (isCorrective) {
+      typeColor = Colors.green;
+      typeBg = Colors.green.shade50;
+      typeIcon = Icons.verified;
+    } else if (isFacturable) {
+      typeColor = Colors.orange;
+      typeBg = Colors.orange.shade50;
+      typeIcon = Icons.attach_money;
+    }
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
@@ -294,6 +351,32 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ✅ TYPE BANNER
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: BoxDecoration(
+                color: typeBg,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: typeColor.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(typeIcon, color: typeColor, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    type.toUpperCase(),
+                    style: TextStyle(
+                        color: typeColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             // Client & Store
             Row(
               children: [
@@ -354,12 +437,19 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
     );
   }
 
-  Widget _buildMediaGallery(dynamic mediaUrls) {
+  // ✅ UPDATED MEDIA GALLERY WITH PLAYER AND GALLERY SUPPORT
+  Widget _buildMediaGallery(BuildContext context, dynamic mediaUrls) {
     if (mediaUrls == null || (mediaUrls is List && mediaUrls.isEmpty)) {
       return const SizedBox.shrink();
     }
 
-    final List urls = mediaUrls as List;
+    final List<String> urls = (mediaUrls as List).map((e) => e.toString()).toList();
+
+    // Filter only images for the gallery swipe
+    final List<String> imagesOnly = urls.where((url) {
+      final ext = path.extension(url).toLowerCase();
+      return ['.jpg', '.jpeg', '.png', '.webp'].contains(ext);
+    }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -376,28 +466,104 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
             itemCount: urls.length,
             separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
-              final url = urls[index].toString();
+              final url = urls[index];
+              final ext = path.extension(url).toLowerCase();
+              final isImage = ['.jpg', '.jpeg', '.png', '.webp'].contains(ext);
+              final isVideo = ['.mp4', '.mov', '.avi'].contains(ext);
+              final isPdf = ['.pdf'].contains(ext);
+
+              // 1. IMAGE THUMBNAIL (Opens Gallery)
+              if (isImage) {
+                return GestureDetector(
+                  onTap: () {
+                    // Find the index of this specific image in the filtered list
+                    final imgIndex = imagesOnly.indexOf(url);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ImageGalleryPage(
+                          imageUrls: imagesOnly,
+                          initialIndex: imgIndex,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: 100,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                      image: DecorationImage(
+                        image: NetworkImage(url),
+                        fit: BoxFit.cover,
+                        onError: (_, __) => const Icon(Icons.broken_image, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              // 2. VIDEO THUMBNAIL (Opens Player)
+              if (isVideo) {
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => VideoPlayerPage(videoUrl: url),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: 100,
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        const Icon(Icons.videocam, color: Colors.grey, size: 50), // Fallback BG
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.3),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.play_arrow, color: Colors.white, size: 24),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              // 3. FILE / PDF (External Launch)
               return GestureDetector(
                 onTap: () => _launchUrl(url),
                 child: Container(
                   width: 100,
                   decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(12),
-                    color: Colors.grey.shade200,
-                    image: DecorationImage(
-                      image: NetworkImage(url),
-                      fit: BoxFit.cover,
-                      onError: (_, __) => const Icon(Icons.broken_image),
-                    ),
+                    border: Border.all(color: Colors.grey.shade300),
                   ),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: Colors.black12,
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.visibility, color: Colors.white),
-                    ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(isPdf ? Icons.picture_as_pdf : Icons.insert_drive_file,
+                          color: isPdf ? Colors.red : Colors.blueGrey, size: 30),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Text(
+                          ext.toUpperCase().replaceAll('.', ''),
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );
