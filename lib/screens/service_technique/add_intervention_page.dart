@@ -123,6 +123,9 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   Store? _selectedStore;
   Equipment? _selectedEquipment; // 👈 New
 
+  // ✅ NEW: Lock Mechanism for Preventive Interventions
+  bool _isTypeLocked = false;
+
   // ✅ NEW: Temporary storage for parsed coordinates
   double? _parsedLat;
   double? _parsedLng;
@@ -183,11 +186,12 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
       if (contract.isValidNow) {
         // 🧠 DECIDE WHICH WALLET TO USE
-        // If type is "Maintenance" -> Use Preventive Credit
+        // If type is "Maintenance" or "Préventif" -> Use Preventive Credit
         // If type is "Dépannage" (or anything else) -> Use Corrective Credit
 
-        // You can adjust these strings to match your dropdown exactly
+        // ✅ UPDATED LOGIC: Include 'Préventif'
         bool isPreventive = _selectedInterventionType == 'Maintenance' ||
+            _selectedInterventionType == 'Préventif' || // 👈 Added this
             _selectedInterventionType == 'Formation';
 
         if (isPreventive) {
@@ -243,6 +247,82 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       'color': Colors.deepOrange,
       'icon': Icons.monetization_on_outlined,
     };
+  }
+
+  // ----------------------------------------------------------------------
+  // ✨ SMART CONTRACT CHECK LOGIC (NEW FEATURE)
+  // ----------------------------------------------------------------------
+  Future<void> _checkContractAndSuggestMaintenance(Store store) async {
+    final contract = store.contract;
+
+    // Safety Checks
+    if (contract == null || !contract.isValidNow) return;
+
+    // We only interrupt if they have PREVENTIVE credits left
+    if (contract.remainingPreventive > 0) {
+
+      // Show the Dialog
+      bool? isPreventive = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.star, color: Colors.teal),
+              SizedBox(width: 8),
+              Text("Contrat Détecté"),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Ce magasin dispose de ${contract.remainingPreventive} visite(s) préventive(s) restante(s) sur son contrat.",
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                "S'agit-il d'une visite de maintenance planifiée ?",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Non, Dépannage", style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text("Oui, Maintenance"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+
+      // If user said YES, update the Type automatically AND LOCK IT
+      if (isPreventive == true) {
+        setState(() {
+          _selectedInterventionType = 'Préventif'; // 👈 Auto-select 'Préventif'
+          _isTypeLocked = true; // 🔒 LOCK THE FIELD
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✅ Type verrouillé sur 'Préventif' (Crédit déduit)"),
+              backgroundColor: Colors.teal,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    }
   }
 
   // ----------------------------------------------------------------------
@@ -985,6 +1065,15 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     // 🟢 Prepare Billing Status Data
     final billingInfo = _calculateBillingStatus();
 
+    // 🧠 DYNAMIC DROPDOWN LOGIC
+    // Base List (Does NOT contain 'Préventif')
+    List<String> interventionTypes = ['Maintenance', 'Formation', 'Mise à Jour', 'Autre'];
+
+    // If system auto-selected 'Préventif', restrict list to only that option
+    if (_selectedInterventionType == 'Préventif') {
+      interventionTypes = ['Préventif'];
+    }
+
     // FORM CONTENT
     final formContent = Form(
       key: _formKey,
@@ -1070,8 +1159,14 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                         _parsedLat = null;
                         _parsedLng = null;
                         _gpsLinkController.clear();
+
+                        // 🔄 RESET LOCK STATE WHEN STORE CHANGES
+                        _isTypeLocked = false;
+                        _selectedInterventionType = null;
                       });
-                      _fetchEquipments(store.id); // 👈 Fetch equipment on select
+                      _fetchEquipments(store.id); // 👈 Fetch equipment
+                      // ✨ TRIGGER THE CONTRACT CHECK DIALOG HERE
+                      _checkContractAndSuggestMaintenance(store);
                     },
                     fieldViewBuilder: (context, controller, focusNode,
                         onFieldSubmitted) {
@@ -1263,23 +1358,31 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
               ),
             ),
 
-          // Type Dropdown
+          // Type Dropdown (DYNAMIC LIST)
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: DropdownButtonFormField<String>(
               value: _selectedInterventionType,
-              decoration: const InputDecoration(labelText: 'Type d\'Intervention *'),
-              items: ['Maintenance', 'Formation', 'Mise à Jour', 'Autre']
+              // 🔒 DISABLE INTERACTION IF LOCKED
+              onChanged: _isTypeLocked
+                  ? null // Disables dropdown
+                  : (String? newValue) {
+                setState(() {
+                  _selectedInterventionType = newValue;
+                });
+              },
+              decoration: InputDecoration(
+                labelText: 'Type d\'Intervention *',
+                // Add a lock icon if locked to indicate system override
+                suffixIcon: _isTypeLocked ? const Icon(Icons.lock, color: Colors.teal) : null,
+              ),
+              // ✅ DYNAMIC LIST: Switches based on state
+              items: interventionTypes
                   .map((String value) => DropdownMenuItem(
                 value: value,
                 child: Text(value),
               ))
                   .toList(),
-              onChanged: (String? newValue) {
-                setState(() {
-                  _selectedInterventionType = newValue;
-                });
-              },
               validator: (value) =>
               value == null ? 'Veuillez choisir un type' : null,
             ),

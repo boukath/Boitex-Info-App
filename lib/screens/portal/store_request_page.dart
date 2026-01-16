@@ -372,13 +372,12 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         detectedServiceType = (clientData['services'] as List).first.toString();
       }
 
-      // 🔍 DETERMINE INTERVENTION TYPE BASED ON CONTRACT
-      // If contract active AND credit > 0 => 'Maintenance Corrective'
-      // If no contract => 'Intervention Facturable'
-      // (Quota exhausted is blocked by UI, so we assume valid here if active)
-      String interventionType = _hasContract
-          ? 'Maintenance Corrective'
-          : 'Intervention Facturable';
+      // 🔍 DETERMINE INTERVENTION TYPE AUTOMATICALLY
+      // - If Contract exists AND has credit -> 'Corrective'
+      // - Else -> 'Facturable'
+      // Note: _isQuotaExceeded would handle the 0 credit case via UI blocker,
+      // so if _hasContract is true here, it means we have credits.
+      String finalInterventionType = _hasContract ? 'Corrective' : 'Facturable';
 
       // C. CREATE REQUEST
       // ⚠️ Key Change: We use 'PENDING' code and 'En Attente Validation' status.
@@ -394,8 +393,8 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         'status': 'En Attente Validation', // ⚠️ Holding Status
         'priority': 'Moyenne',
 
-        // ✅ NEW: LOGIC APPLIED HERE
-        'type': interventionType,
+        // ✅ AUTO-SET TYPE: 'Corrective' or 'Facturable'
+        'interventionType': finalInterventionType,
 
         'source': 'QR_Portal',
         'serviceType': detectedServiceType,
