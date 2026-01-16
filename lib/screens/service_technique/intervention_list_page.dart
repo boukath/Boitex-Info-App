@@ -2,10 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ Added for the Premium Font look
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/service_technique/add_intervention_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
-// ✅ CHANGED: Import the specific Clients History Page instead of General History
 import 'package:boitex_info_app/screens/service_technique/intervention_history_clients_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:timeago/timeago.dart' as timeago;
@@ -41,7 +41,7 @@ class _InterventionListPageState extends State<InterventionListPage> {
     }
   }
 
-  // --- ⚡️ NEW: QUICK UPDATE DIALOG (Instagram/Status Style) ---
+  // --- ⚡️ FLASH INFO DIALOG (Preserved) ---
   Future<void> _showQuickUpdateDialog(String docId, String? currentNote) async {
     final TextEditingController noteController = TextEditingController(text: currentNote);
 
@@ -106,52 +106,7 @@ class _InterventionListPageState extends State<InterventionListPage> {
     );
   }
 
-  Color _getStatusColor(String? status) {
-    switch (status) {
-      case 'En cours':
-        return Colors.orange.shade700;
-      case 'Nouveau':
-      case 'Nouvelle Demande':
-        return Colors.blue.shade700;
-      case 'Terminé':
-        return Colors.green.shade700;
-      case 'En attente':
-        return Colors.purple.shade700;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  Widget _getPriorityFlag(String? priority) {
-    Color flagColor = Colors.grey;
-    switch (priority) {
-      case 'Haute':
-        flagColor = Colors.red.shade700;
-        break;
-      case 'Moyenne':
-        flagColor = Colors.orange.shade700;
-        break;
-      case 'Basse':
-        flagColor = Colors.blue.shade700;
-        break;
-      default:
-        flagColor = Colors.grey;
-    }
-
-    return Container(
-      width: 10,
-      decoration: BoxDecoration(
-        color: flagColor,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(12),
-          bottomLeft: Radius.circular(12),
-        ),
-      ),
-    );
-  }
-
   Future<void> _deleteIntervention(String interventionId, String title) async {
-    // ... existing delete logic ...
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
@@ -179,31 +134,74 @@ class _InterventionListPageState extends State<InterventionListPage> {
     }
   }
 
-  // 🟢 NEW: BUILD SMART BADGES FOR BILLING
-  Widget _buildBillingBadge(String? status) {
-    if (status == 'GRATUIT') {
-      return Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(color: Colors.green.shade100, shape: BoxShape.circle),
-        child: Icon(Icons.verified_user, size: 16, color: Colors.green.shade800),
-      );
-    } else if (status == 'FACTURABLE') {
-      return Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(color: Colors.red.shade100, shape: BoxShape.circle),
-        child: Icon(Icons.attach_money, size: 16, color: Colors.red.shade800),
-      );
-    } else if (status == 'INCLUS') {
-      return Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(color: Colors.blue.shade100, shape: BoxShape.circle),
-        child: Icon(Icons.assignment_turned_in, size: 16, color: Colors.blue.shade800),
-      );
+  // 🎨 THE DESIGN BRAIN: Get Styles based on Type
+  Map<String, dynamic> _getInterventionStyle(String? type, String? billingStatus) {
+    // 1. Facturable (Money)
+    if (type == 'Facturable' || type == 'Intervention Facturable' || billingStatus == 'FACTURABLE') {
+      return {
+        'color': Colors.amber.shade700,
+        'bg': Colors.amber.shade50,
+        'icon': Icons.monetization_on_outlined, // 💲
+        'label': 'FACTURABLE',
+        'gradient': [Colors.amber.shade300, Colors.orange.shade400],
+      };
     }
-    return const SizedBox.shrink(); // Hidden if unknown
+    // 2. Corrective (Urgent)
+    if (type == 'Corrective' || type == 'Maintenance Corrective') {
+      return {
+        'color': const Color(0xFFFF5722), // Deep Orange
+        'bg': const Color(0xFFFBE9E7),
+        'icon': Icons.build_circle_outlined, // 🛠
+        'label': 'CORRECTIF',
+        'gradient': [Colors.deepOrange.shade300, Colors.red.shade400],
+      };
+    }
+    // 3. Sous Garantie (Safe)
+    if (type == 'Garantie' || type == 'Sous Garantie' || billingStatus == 'GRATUIT') {
+      return {
+        'color': const Color(0xFF00C853), // Emerald Green
+        'bg': const Color(0xFFE8F5E9),
+        'icon': Icons.verified_user_outlined, // 🛡
+        'label': 'GARANTIE',
+        'gradient': [Colors.green.shade300, Colors.teal.shade400],
+      };
+    }
+    // 4. Preventive (Routine)
+    if (type == 'Preventive' || type == 'Maintenance Préventive') {
+      return {
+        'color': const Color(0xFF3F51B5), // Indigo
+        'bg': const Color(0xFFE8EAF6),
+        'icon': Icons.calendar_month_outlined, // 📅
+        'label': 'PRÉVENTIF',
+        'gradient': [Colors.indigo.shade300, Colors.blue.shade400],
+      };
+    }
+
+    // Default (Unknown)
+    return {
+      'color': Colors.blueGrey,
+      'bg': Colors.grey.shade50,
+      'icon': Icons.work_outline,
+      'label': 'INTERVENTION',
+      'gradient': [Colors.grey.shade400, Colors.blueGrey.shade400],
+    };
+  }
+
+  // Helper for Status Badge Color (Top Right)
+  Color _getStatusColor(String? status) {
+    switch (status) {
+      case 'En cours':
+        return Colors.orange.shade700;
+      case 'Nouveau':
+      case 'Nouvelle Demande':
+        return Colors.blue.shade700;
+      case 'Terminé':
+        return Colors.green.shade700;
+      case 'En attente':
+        return Colors.purple.shade700;
+      default:
+        return Colors.grey;
+    }
   }
 
   @override
@@ -219,15 +217,20 @@ class _InterventionListPageState extends State<InterventionListPage> {
         .orderBy('createdAt', descending: true);
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA), // Modern Light Grey Bg
       appBar: AppBar(
-        title: Text('Interventions - $serviceType'),
-        // ✅ HISTORY ACTION BUTTON
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          'Interventions',
+          style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.history_rounded),
+            icon: const Icon(Icons.history_rounded, color: Colors.black87),
             tooltip: "Historique Clients",
             onPressed: () {
-              // ✅ CHANGED: Navigates directly to Clients History Page
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => InterventionHistoryClientsPage(
@@ -246,180 +249,238 @@ class _InterventionListPageState extends State<InterventionListPage> {
           if (snapshot.hasError) return Center(child: Text('Erreur: ${snapshot.error}'));
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('Aucune intervention en cours.'));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.inbox_outlined, size: 80, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  Text('Tout est calme', style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey)),
+                ],
+              ),
+            );
           }
 
           final interventions = snapshot.data!.docs;
-          return ListView.builder(
-            padding: const EdgeInsets.only(bottom: 80),
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
             itemCount: interventions.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 16),
             itemBuilder: (context, index) {
               final interventionDoc = interventions[index];
-              final interventionData = interventionDoc.data();
+              final data = interventionDoc.data();
               final String docId = interventionDoc.id;
 
-              final String storeName = interventionData['storeName'] ?? 'Magasin Inconnu';
-              final String clientName = interventionData['clientName'] ?? 'Client Inconnu';
-              final String interventionCode = interventionData['interventionCode'] ?? 'INT-XX';
-              final String status = interventionData['status'] ?? 'Inconnu';
-              final DateTime? createdAt = (interventionData['createdAt'] as Timestamp?)?.toDate();
+              // Data Extraction
+              final String storeName = data['storeName'] ?? 'Magasin Inconnu';
+              final String clientName = data['clientName'] ?? 'Client Inconnu';
+              final String interventionCode = data['interventionCode'] ?? 'INT-XX';
+              final String status = data['status'] ?? 'Inconnu';
+              final DateTime? createdAt = (data['createdAt'] as Timestamp?)?.toDate();
               final String timeAgoDate = createdAt != null ? timeago.format(createdAt, locale: 'fr') : 'N/A';
-              final String priority = interventionData['priority'] ?? 'Basse';
 
-              // 🟢 NEW: Billing Status
-              final String? billingStatus = interventionData['billingStatus'];
+              // 🔍 TYPE DETECTION
+              final String? type = data['interventionType']; // Correct field
+              final String? billingStatus = data['billingStatus'];
 
-              // --- ⚡️ FLASH NOTE DATA ---
-              final String? flashNote = interventionData['lastFollowUpNote'];
-              final DateTime? flashDate = (interventionData['lastFollowUpDate'] as Timestamp?)?.toDate();
+              // 🎨 GET THE VIBE
+              final style = _getInterventionStyle(type, billingStatus);
+              final Color themeColor = style['color'];
+              final Color themeBg = style['bg'];
+              final IconData themeIcon = style['icon'];
 
-              // Calculate freshness (Green if < 24h, Red if > 3 days)
-              Color flashColor = Colors.blueGrey;
-              String timeAgoFlash = '';
-              if (flashDate != null) {
-                timeAgoFlash = timeago.format(flashDate, locale: 'fr');
-                final diff = DateTime.now().difference(flashDate);
-                if (diff.inHours < 24) {
-                  flashColor = Colors.green.shade600; // Fresh
-                } else if (diff.inDays > 3) {
-                  flashColor = Colors.red.shade400; // Old
-                }
-              }
+              // Flash Note Data
+              final String? flashNote = data['lastFollowUpNote'];
+              final DateTime? flashDate = (data['lastFollowUpDate'] as Timestamp?)?.toDate();
+              final bool hasFlash = flashNote != null && flashNote.isNotEmpty;
 
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
-                elevation: 2,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              return Container(
                 clipBehavior: Clip.hardEdge,
-                child: InkWell(
-                  // ⚡️ LONG PRESS TO ADD FLASH NOTE
-                  onLongPress: () => _showQuickUpdateDialog(docId, flashNote),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => InterventionDetailsPage(interventionDoc: interventionDoc),
-                      ),
-                    );
-                  },
-                  child: IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onLongPress: () => _showQuickUpdateDialog(docId, flashNote), // ⚡️ Quick Note
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => InterventionDetailsPage(interventionDoc: interventionDoc),
+                        ),
+                      );
+                    },
+                    child: Stack(
                       children: [
-                        _getPriorityFlag(priority),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // HEADER
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Row(
-                                        children: [
-                                          // 🟢 SHOW SMART BADGE HERE
-                                          _buildBillingBadge(billingStatus),
-                                          Text(
-                                            interventionCode,
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16,
-                                              color: Colors.deepPurple.shade700,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Chip(
-                                      label: Text(status, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      backgroundColor: _getStatusColor(status),
-                                      padding: EdgeInsets.zero,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                Text(storeName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                                Text('Client: $clientName', style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
-
-                                const SizedBox(height: 8),
-
-                                // --- ⚡️ THE GLANCE SECTION (Flash Note) ---
-                                if (flashNote != null && flashNote.isNotEmpty)
-                                  Container(
-                                    margin: const EdgeInsets.only(top: 8),
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: flashColor.withOpacity(0.08),
-                                      border: Border(left: BorderSide(color: flashColor, width: 3)),
-                                      borderRadius: const BorderRadius.only(
-                                        topRight: Radius.circular(8),
-                                        bottomRight: Radius.circular(8),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Icon(Icons.info_outline, size: 14, color: flashColor),
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Text(
-                                                flashNote,
-                                                style: const TextStyle(
-                                                    fontStyle: FontStyle.italic,
-                                                    fontSize: 13,
-                                                    color: Colors.black87,
-                                                    height: 1.2
-                                                ),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          "Mise à jour $timeAgoFlash",
-                                          style: TextStyle(fontSize: 10, color: flashColor, fontWeight: FontWeight.w500),
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                else
-                                // Placeholder hint for Technicians (Optional)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.access_time, size: 12, color: Colors.grey.shade500),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Créée $timeAgoDate',
-                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
+                        // ✨ WATERMARK ICON (Bottom Right)
+                        Positioned(
+                          bottom: -20,
+                          right: -20,
+                          child: Icon(
+                            themeIcon,
+                            size: 140,
+                            color: themeColor.withOpacity(0.15), // Subtle watermark
                           ),
                         ),
 
-                        // DELETE MENU (Existing)
-                        if (_canDelete)
-                          PopupMenuButton<String>(
-                            onSelected: (value) { if (value == 'delete') _deleteIntervention(docId, storeName); },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(children: [Icon(Icons.delete, color: Colors.red), SizedBox(width: 8), Text('Supprimer')]),
+                        // MAIN LAYOUT
+                        IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // 🎨 LEFT ACCENT BAR
+                              Container(
+                                width: 6,
+                                decoration: BoxDecoration(
+                                  color: themeColor,
+                                ),
                               ),
+
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // --- HEADER ROW ---
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          // IDENTITY BADGE
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                            decoration: BoxDecoration(
+                                              color: themeBg,
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: themeColor.withOpacity(0.2)),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(themeIcon, size: 14, color: themeColor),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  style['label'],
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: themeColor,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+
+                                          // STATUS CHIP (Moved Here for Clarity)
+                                          Chip(
+                                            label: Text(
+                                                status,
+                                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
+                                            ),
+                                            backgroundColor: _getStatusColor(status),
+                                            padding: EdgeInsets.zero,
+                                            visualDensity: VisualDensity.compact,
+                                            side: BorderSide.none, // Clean look
+                                          ),
+                                        ],
+                                      ),
+
+                                      const SizedBox(height: 8),
+
+                                      // --- TITLES ---
+                                      Text(
+                                        storeName,
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.black87,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        "$clientName • $interventionCode", // Combined for cleaner look
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade500,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 16),
+
+                                      // --- ⚡️ FLASH INFO or TIME ---
+                                      if (hasFlash)
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blueGrey.shade50,
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border(left: BorderSide(color: Colors.blueGrey.shade400, width: 3)),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.flash_on, size: 14, color: Colors.amber),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: Text(
+                                                      flashNote,
+                                                      style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.black87),
+                                                      maxLines: 2,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              if (flashDate != null)
+                                                Padding(
+                                                  padding: const EdgeInsets.only(top: 4),
+                                                  child: Text(
+                                                    "MàJ ${timeago.format(flashDate, locale: 'fr')}",
+                                                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        )
+                                      else
+                                      // 🟢 FINAL CLEAN FOOTER (Date Only)
+                                        Row(
+                                          children: [
+                                            Icon(Icons.access_time_rounded, size: 14, color: Colors.grey.shade400),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              timeAgoDate, // Minimalist: "5 jours"
+                                              style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                                            ),
+                                          ],
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              // DELETE OPTION (If allowed)
+                              if (_canDelete)
+                                Column(
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                      onPressed: () => _deleteIntervention(docId, storeName),
+                                    ),
+                                  ],
+                                ),
                             ],
                           ),
+                        ),
                       ],
                     ),
                   ),
@@ -430,10 +491,11 @@ class _InterventionListPageState extends State<InterventionListPage> {
         },
       ),
       floatingActionButton: RolePermissions.canAddIntervention(userRole)
-          ? FloatingActionButton(
+          ? FloatingActionButton.extended(
         onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => AddInterventionPage(serviceType: serviceType))),
-        tooltip: "Nouvelle Demande",
-        child: const Icon(Icons.add),
+        label: const Text("Nouvelle"),
+        icon: const Icon(Icons.add),
+        backgroundColor: const Color(0xFF667EEA),
       )
           : null,
     );
