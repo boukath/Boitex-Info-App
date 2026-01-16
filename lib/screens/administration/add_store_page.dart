@@ -57,7 +57,7 @@ class _AddStorePageState extends State<AddStorePage> {
   bool _isUploadingLogo = false;
   final ImagePicker _picker = ImagePicker();
 
-  // ✅ B2 CONFIG (Same as your other files)
+  // ✅ B2 CONFIG
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
@@ -71,7 +71,7 @@ class _AddStorePageState extends State<AddStorePage> {
   DateTime? _contractStartDate;
   DateTime? _contractEndDate;
 
-  // ✅ FIXED: Initialized here, so we DON'T do it again in initState
+  // ✅ FIXED: Initialized here
   final TextEditingController _contractDocUrlController = TextEditingController();
 
   @override
@@ -441,7 +441,31 @@ class _AddStorePageState extends State<AddStorePage> {
     }
   }
 
-  // 🔥 THIS IS THE FIXED SUBMIT FUNCTION 🔥
+  /// ✅ 1. PRO FEATURE: Slug Generator
+  /// Standardizes text for IDs: "Bab Ezzouar Mall" -> "bab_ezzouar_mall"
+  String _generateSlug(String input) {
+    String slug = input.trim().toLowerCase();
+
+    // Manual accent removal (Robust & Fast)
+    const withDia = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
+    const withoutDia = 'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeCcIIIIiiiiUUUUuuuuuyNn';
+
+    for (int i = 0; i < withDia.length; i++) {
+      slug = slug.replaceAll(withDia[i], withoutDia[i]);
+    }
+
+    // Replace invalid chars with underscore & clean up
+    slug = slug.replaceAll(RegExp(r'[^a-z0-9]'), '_');
+    slug = slug.replaceAll(RegExp(r'_+'), '_'); // Merge multiple underscores
+
+    // Trim leading/trailing underscores
+    if (slug.startsWith('_')) slug = slug.substring(1);
+    if (slug.endsWith('_')) slug = slug.substring(0, slug.length - 1);
+
+    return slug;
+  }
+
+  // 🔥 UPDATED SUBMIT FUNCTION WITH HYBRID PROTECTION 🔥
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
 
@@ -454,7 +478,7 @@ class _AddStorePageState extends State<AddStorePage> {
 
       setState(() { _isLoading = true; });
 
-      // ✅ 1. UPLOAD LOGO IF NEEDED
+      // ✅ 2. UPLOAD LOGO IF NEEDED
       String? finalLogoUrl = _logoUrl;
       if (_pickedLogoBytes != null) {
         finalLogoUrl = await _uploadLogoToB2();
@@ -489,6 +513,11 @@ class _AddStorePageState extends State<AddStorePage> {
         contractData = contract.toMap();
       }
 
+      // Generate Composite Slug
+      final nameSlug = _generateSlug(_nameController.text);
+      final locationSlug = _generateSlug(_locationController.text);
+      final String compositeSlug = 'store_${nameSlug}_$locationSlug';
+
       final storeData = {
         'name': _nameController.text.trim(),
         'location': _locationController.text.trim(),
@@ -497,18 +526,17 @@ class _AddStorePageState extends State<AddStorePage> {
         'longitude': lng,
         'storeContacts': contactsForDb,
         'status': _isEditMode ? (widget.initialData?['status'] ?? 'active') : 'active',
+        // ✅ ALWAYS SAVE SLUG
+        'slug': compositeSlug,
       };
 
-      // ✅ KEY FIX: Safely Handle Maintenance Contract Field
-      // 1. If Adding (Not Edit Mode) -> Only add field if contract exists. DO NOT use delete().
+      // Handle Maintenance Contract Field
       if (!_isEditMode) {
         storeData['createdAt'] = FieldValue.serverTimestamp();
         if (_hasContract) {
           storeData['maintenance_contract'] = contractData!;
         }
-      }
-      // 2. If Editing -> If no contract, explicitly delete field.
-      else {
+      } else {
         storeData['maintenance_contract'] = _hasContract ? contractData : FieldValue.delete();
       }
 
@@ -519,9 +547,34 @@ class _AddStorePageState extends State<AddStorePage> {
             .collection('stores');
 
         if (_isEditMode) {
+          // Edit Mode: Update existing doc (ID stays same)
           await storeCollectionRef.doc(widget.storeId!).update(storeData);
         } else {
-          await storeCollectionRef.add(storeData);
+          // ✅ ADD MODE: HYBRID PROTECTION CHECK
+
+          if (nameSlug.isEmpty || locationSlug.isEmpty) {
+            throw "Le nom et l'emplacement contiennent des caractères invalides.";
+          }
+
+          // 1️⃣ Check New System (ID Collision)
+          final docRef = storeCollectionRef.doc(compositeSlug);
+          final docSnapshot = await docRef.get();
+          if (docSnapshot.exists) {
+            throw "Ce magasin existe déjà ! (ID: $compositeSlug)";
+          }
+
+          // 2️⃣ Check Old System (Field Collision)
+          final legacyCheck = await storeCollectionRef
+              .where('slug', isEqualTo: compositeSlug)
+              .limit(1)
+              .get();
+
+          if (legacyCheck.docs.isNotEmpty) {
+            throw "Ce magasin existe déjà dans l'ancien système !";
+          }
+
+          // 3️⃣ Create (Set data with determinstic ID)
+          await docRef.set(storeData);
         }
 
         if (mounted) {
@@ -533,8 +586,13 @@ class _AddStorePageState extends State<AddStorePage> {
       } catch (e) {
         debugPrint("Erreur lors de l'enregistrement du magasin: $e");
         if (mounted) {
+          // Show nicer error message
           ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red)
+              SnackBar(
+                content: Text('Erreur: $e'),
+                backgroundColor: Colors.redAccent,
+                duration: const Duration(seconds: 5),
+              )
           );
         }
       } finally {

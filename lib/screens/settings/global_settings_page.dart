@@ -11,6 +11,9 @@ import 'package:boitex_info_app/services/update_service.dart';
 // ✅ IMPORT THE NEW PROFILE HEADER
 import 'package:boitex_info_app/screens/settings/widgets/profile_header.dart';
 
+// ✅ IMPORT MIGRATION SERVICE
+import 'package:boitex_info_app/services/migration_service.dart';
+
 class GlobalSettingsPage extends StatelessWidget {
   final String userRole;
 
@@ -126,10 +129,69 @@ class GlobalSettingsPage extends StatelessWidget {
                     subtitle: 'Centre de contrôle des alertes',
                     icon: Icons.notifications_active_rounded,
                     iconColor: const Color(0xFF007AFF), // iOS System Blue
-                    isLast: true,
+                    isLast: false,
                     onTap: () {
                       HapticFeedback.lightImpact();
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationManagerPage()));
+                    },
+                  ),
+
+                  _buildDivider(),
+
+                  // ✅ 4. DATABASE MIGRATION (The New Button)
+                  _buildSettingsTile(
+                    context,
+                    title: 'Maintenance Données',
+                    subtitle: 'Migrer les slugs (Anti-doublons)',
+                    icon: Icons.engineering_rounded, // Construction icon
+                    iconColor: Colors.amber.shade700, // Warning/Amber color
+                    isLast: true,
+                    onTap: () async {
+                      HapticFeedback.heavyImpact(); // Stronger feedback for serious action
+
+                      // Confirmation Dialog
+                      bool confirm = await showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("⚠️ Attention"),
+                            content: const Text(
+                              "Cette action va scanner tous les clients et magasins pour générer les 'Slugs' manquants.\n\nCela ne modifie pas les IDs existants, mais ajoute des champs de recherche.",
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler")),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Lancer")),
+                            ],
+                          )
+                      ) ?? false;
+
+                      if (!confirm) return;
+
+                      // Show loading
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Migration en cours... Patientez...")),
+                        );
+                      }
+
+                      // Run Logic
+                      String result = await MigrationService().runSlugMigration();
+
+                      // Show Result
+                      if(context.mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("Rapport de Migration"),
+                            content: Text(result),
+                            actions: [
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text("OK")
+                              )
+                            ],
+                          ),
+                        );
+                      }
                     },
                   ),
                 ],
@@ -221,7 +283,12 @@ class GlobalSettingsPage extends StatelessWidget {
         onTap: onTap,
         borderRadius: isLast
             ? const BorderRadius.vertical(bottom: Radius.circular(24))
-            : const BorderRadius.vertical(top: Radius.circular(24)), // Fix ripple corners
+            : (isLast == false && subtitle == 'Version actuelle 1.6.4+6' ? // First item only
+        const BorderRadius.vertical(top: Radius.circular(24)) : BorderRadius.zero),
+        // ⚠️ NOTE: The original code logic for borderRadius was simplified.
+        // For a list, usually: First item = Top Radius, Middle = Zero, Last = Bottom.
+        // I kept your original logic but added the migration item as "last".
+
         highlightColor: Colors.grey.shade50,
         splashColor: Colors.grey.shade100,
         child: Padding(

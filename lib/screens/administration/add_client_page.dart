@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// ✅ 1. MODIFIED: Added 'icon' getter to fix error in add_store_page.dart
+// ✅ ContactInfo Model
 class ContactInfo {
   String type; // 'Téléphone' ou 'E-mail'
   String label; // Ex: 'Facturation', 'Technique', 'Principal'
@@ -19,7 +19,6 @@ class ContactInfo {
     String? id,
   }) : id = id ?? DateTime.now().millisecondsSinceEpoch.toString();
 
-  // ✅ NEW: Getter for the icon based on type
   IconData get icon {
     switch (type) {
       case 'E-mail':
@@ -31,7 +30,6 @@ class ContactInfo {
     }
   }
 
-  // Convert to Map for Firestore
   Map<String, dynamic> toMap() {
     return {
       'type': type,
@@ -40,7 +38,6 @@ class ContactInfo {
     };
   }
 
-  // Create from Map
   factory ContactInfo.fromMap(Map<String, dynamic> map, String id) {
     return ContactInfo(
       type: map['type'] ?? 'Téléphone',
@@ -53,18 +50,14 @@ class ContactInfo {
 
 class AddClientPage extends StatefulWidget {
   final String? clientId;
-
-  // ✅ 2. MODIFIED: Added initialData to constructor to fix error in manage_clients_page.dart
   final Map<String, dynamic>? initialData;
-
-  // ✅ 3. MODIFIED: Context parameter is now a String to support IT/Technique/Commercial
   final String? preselectedServiceType;
 
   const AddClientPage({
     super.key,
     this.clientId,
     this.initialData,
-    this.preselectedServiceType, // e.g. "Service Technique" or "Service IT"
+    this.preselectedServiceType,
   });
 
   @override
@@ -93,20 +86,17 @@ class _AddClientPageState extends State<AddClientPage> {
 
   // Colors
   final Color primaryColor = const Color(0xFF1976D2);
-  final Color secondaryColor = const Color(0xFF2196F3);
 
   @override
   void initState() {
     super.initState();
 
-    // ✅ 4. Initialize checkbox based on context string
     if (widget.preselectedServiceType != null) {
       if (_services.containsKey(widget.preselectedServiceType)) {
         _services[widget.preselectedServiceType!] = true;
       }
     }
 
-    // ✅ 5. MODIFIED: Use initialData if provided (Optimization)
     if (widget.initialData != null) {
       _populateData(widget.initialData!);
     } else if (_isEditMode) {
@@ -126,11 +116,9 @@ class _AddClientPageState extends State<AddClientPage> {
     super.dispose();
   }
 
-  // ✅ Helper to populate fields (used by both initialData and loadClientData)
   void _populateData(Map<String, dynamic> data) {
     _nameController.text = data['name'] ?? '';
     _addressController.text = data['location'] ?? '';
-
     _rcController.text = data['rc'] ?? '';
     _artController.text = data['art'] ?? '';
     _fiscController.text = data['nif'] ?? '';
@@ -149,7 +137,6 @@ class _AddClientPageState extends State<AddClientPage> {
         _contacts = contactsData.map((c) => ContactInfo.fromMap(c as Map<String, dynamic>, DateTime.now().millisecondsSinceEpoch.toString())).toList();
       });
     } else if (_contacts.isEmpty) {
-      // Ensure at least one empty contact if strictly none found
       _addContact();
     }
   }
@@ -184,6 +171,35 @@ class _AddClientPageState extends State<AddClientPage> {
     });
   }
 
+  /// ✅ 1. PRO FEATURE: Slug Generator
+  String _generateSlug(String input) {
+    String slug = input.trim().toLowerCase();
+    const withDia = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
+    const withoutDia = 'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeCcIIIIiiiiUUUUuuuuuyNn';
+
+    for (int i = 0; i < withDia.length; i++) {
+      slug = slug.replaceAll(withDia[i], withoutDia[i]);
+    }
+    slug = slug.replaceAll(RegExp(r'[^a-z0-9]'), '_');
+    slug = slug.replaceAll(RegExp(r'_+'), '_');
+    if (slug.startsWith('_')) slug = slug.substring(1);
+    if (slug.endsWith('_')) slug = slug.substring(0, slug.length - 1);
+
+    return slug;
+  }
+
+  /// ✅ 2. PRO FEATURE: Search Keywords Generator
+  List<String> _generateSearchKeywords(String name) {
+    List<String> keywords = [];
+    String current = "";
+    for (int i = 0; i < name.length; i++) {
+      current += name[i].toLowerCase();
+      keywords.add(current);
+    }
+    return keywords;
+  }
+
+  // 🔥 THIS IS THE HYBRID PROTECTION LOGIC 🔥
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -195,33 +211,71 @@ class _AddClientPageState extends State<AddClientPage> {
           .map((entry) => entry.key)
           .toList();
 
+      // Generate Metadata
+      final slug = _generateSlug(_nameController.text);
+      final searchKeywords = _generateSearchKeywords(_nameController.text.trim());
+
       final clientData = {
         'name': _nameController.text.trim(),
         'location': _addressController.text.trim(),
         'services': selectedServices,
-
         'rc': _rcController.text.trim(),
         'art': _artController.text.trim(),
         'nif': _fiscController.text.trim(),
-
         'contacts': _contacts.map((c) => c.toMap()).toList(),
-
         'updatedAt': FieldValue.serverTimestamp(),
+
+        // ✅ CRITICAL: Always save these now
+        'slug': slug,
+        'search_keywords': searchKeywords,
       };
 
       if (_isEditMode) {
+        // Edit Mode: Update existing doc (ID does not change)
         await FirebaseFirestore.instance
             .collection('clients')
             .doc(widget.clientId)
             .update(clientData);
       } else {
+        // ✅ ADD Mode: "Hybrid" Duplicate Check
+        if (slug.isEmpty) throw "Le nom de l'entreprise est invalide.";
+
+        // 1️⃣ CHECK NEW SYSTEM (ID Collision)
+        // Does 'zara_algerie' exist as a document ID?
+        final docRef = FirebaseFirestore.instance.collection('clients').doc(slug);
+        final docSnapshot = await docRef.get();
+
+        if (docSnapshot.exists) {
+          throw "Ce client existe déjà ! (ID: $slug).\nVeuillez vérifier la liste.";
+        }
+
+        // 2️⃣ CHECK OLD SYSTEM (Field Collision)
+        // Does any document (even with random ID) have 'slug' == 'zara_algerie'?
+        final legacyCheck = await FirebaseFirestore.instance
+            .collection('clients')
+            .where('slug', isEqualTo: slug)
+            .limit(1)
+            .get();
+
+        if (legacyCheck.docs.isNotEmpty) {
+          final oldId = legacyCheck.docs.first.id;
+          throw "Ce client existe déjà dans l'ancien système !\n(ID: $oldId)";
+        }
+
+        // 3️⃣ CREATE (Safe to proceed)
         clientData['createdAt'] = FieldValue.serverTimestamp();
-        await FirebaseFirestore.instance.collection('clients').add(clientData);
+        await docRef.set(clientData);
       }
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: $e'),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -254,6 +308,7 @@ class _AddClientPageState extends State<AddClientPage> {
                   prefixIcon: const Icon(Icons.business),
                   filled: true,
                   fillColor: Colors.grey[100],
+                  helperText: "Sera utilisé pour vérifier les doublons.",
                 ),
                 validator: (value) => value!.isEmpty ? 'Veuillez entrer un nom' : null,
               ),
