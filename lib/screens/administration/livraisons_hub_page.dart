@@ -33,7 +33,8 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    // ✅ UPDATED: Increased length to 3 to support "Partiel" tab
+    _tabController = TabController(length: 3, vsync: this);
     _checkUserPermissions();
   }
 
@@ -170,9 +171,26 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
       }
     }
 
+    // ✅ UPDATED: Dynamic Colors for the 3 Statuses
+    Color statusColor;
+    IconData statusIcon;
+    String footerText;
+
+    if (status == 'À Préparer') {
+      statusColor = Colors.orange;
+      statusIcon = Icons.inventory_2;
+      footerText = "EN PRÉPARATION";
+    } else if (status == 'Livraison Partielle') {
+      statusColor = Colors.amber.shade800; // Warning Color
+      statusIcon = Icons.warning_amber_rounded;
+      footerText = "LIVRAISON PARTIELLE - ACTION REQUISE";
+    } else {
+      statusColor = _primaryBlue;
+      statusIcon = Icons.local_shipping;
+      footerText = "EN COURS D'ACHEMINEMENT";
+    }
+
     final bool isPrep = status == 'À Préparer';
-    final Color statusColor = isPrep ? Colors.orange : _primaryBlue;
-    final IconData statusIcon = isPrep ? Icons.inventory_2 : Icons.local_shipping;
 
     return GestureDetector(
       onTap: () {
@@ -306,13 +324,13 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 decoration: BoxDecoration(
-                  color: _bgLight,
+                  color: statusColor.withOpacity(0.1), // Slightly colored background
                   borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
                 ),
                 child: Center(
                   child: Text(
-                    "EN COURS D'ACHEMINEMENT",
-                    style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: _primaryBlue, fontWeight: FontWeight.bold),
+                    footerText,
+                    style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: statusColor, fontWeight: FontWeight.bold),
                   ),
                 ),
               )
@@ -357,8 +375,9 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
             ),
           ),
         ],
+        // ✅ FIXED: Increased height to 100 to fit taller Tabs (Icon + Text) without hiding AppBar buttons
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
+          preferredSize: const Size.fromHeight(100),
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
@@ -379,8 +398,18 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
               dividerColor: Colors.transparent, // Removes the underline
               padding: const EdgeInsets.all(4),
               tabs: const [
-                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.inventory_2, size: 18), SizedBox(width: 8), Text("À PRÉPARER")])),
-                Tab(child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.local_shipping, size: 18), SizedBox(width: 8), Text("EN ROUTE")])),
+                Tab(
+                  icon: Icon(Icons.inventory_2, size: 20),
+                  text: "À PRÉPARER",
+                ),
+                Tab(
+                  icon: Icon(Icons.local_shipping, size: 20),
+                  text: "EN ROUTE",
+                ),
+                Tab(
+                  icon: Icon(Icons.warning_amber_rounded, size: 20),
+                  text: "PARTIEL",
+                ),
               ],
             ),
           ),
@@ -391,6 +420,7 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
         children: [
           _buildLivraisonList('À Préparer', Icons.assignment_turned_in_outlined, 'Tout est prêt ! Aucune commande en attente.'),
           _buildLivraisonList('En Cours de Livraison', Icons.local_shipping_outlined, 'Aucune livraison sur la route.'),
+          _buildLivraisonList('Livraison Partielle', Icons.warning_amber_rounded, 'Aucune livraison partielle en cours.'),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(

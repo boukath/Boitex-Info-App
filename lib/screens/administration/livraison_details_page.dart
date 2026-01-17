@@ -89,12 +89,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   final Color _accentGreen = const Color(0xFF00E676); // Neon Green
   final Color _bgLight = const Color(0xFFF4F6F9); // Clean Grey/White
 
-  // ✅ UPDATED: Validation logic for delivery phase
+  // ✅ UPDATED: Validation logic for delivery phase (Support Partial)
+  // We no longer block if items are missing, but we track it.
   bool get _allCompleted {
     if (_isLivraisonCompleted) return true;
     if (_serializedItems.isEmpty && _bulkItems.isEmpty) return false;
 
-    // Technician must check (delivered=true) all items
     final serializedDone = _serializedItems.isEmpty ||
         _serializedItems.every((item) => item['delivered'] == true);
 
@@ -205,7 +205,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         if (_status == 'À Préparer') {
           pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) {
             final map = Map<String, dynamic>.from(p);
-            // ✅ FORCE DEFAULT: If 'isBulk' is not set, default to TRUE (Manual Mode)
             if (!map.containsKey('isBulk')) {
               map['isBulk'] = true;
             }
@@ -219,6 +218,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             // ✅ Retrieve Picked Quantity
             int pickedQuantity = product['pickedQuantity'] is int ? product['pickedQuantity'] : int.tryParse(product['pickedQuantity'].toString()) ?? 0;
 
+            // ✅ RESTORE PARTIAL DELIVERY STATE
+            // If we are in 'Livraison Partielle', we need to check which specific serials/quantities were already delivered
+            final List deliveredSerials = product['deliveredSerials'] as List? ?? [];
+            final int deliveredQuantity = product['deliveredQuantity'] as int? ?? 0;
+
             final String productName = product['productName'] ?? 'N/A';
             final String? partNumber = product['partNumber'];
             final String? productId = product['productId'];
@@ -228,7 +232,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             // Determine if it's bulk or serialized logic
             bool isBulkItem = (quantity > 50) || (quantity > 5 && serials.isEmpty && serialsFound.isEmpty) || product['isBulk'] == true;
 
-            // ✅ If no serials were picked, default pickedQuantity to number of serials if available
             if (pickedQuantity == 0 && serials.isNotEmpty) {
               pickedQuantity = serials.length;
             }
@@ -238,34 +241,40 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               if (bulkMap.containsKey(key)) {
                 bulkMap[key]!['quantity'] = (bulkMap[key]!['quantity'] as int) + quantity;
                 bulkMap[key]!['pickedQuantity'] = (bulkMap[key]!['pickedQuantity'] as int) + pickedQuantity;
+                // Accumulate delivered quantity for bulk logic (not perfect for distinct products, but fits bulk model)
               } else {
                 bulkMap[key] = {
                   'productName': productName,
                   'partNumber': partNumber,
                   'quantity': quantity,
-                  'pickedQuantity': pickedQuantity, // ✅ Added
-                  'delivered': isCompleted,
+                  'pickedQuantity': pickedQuantity,
+                  'delivered': isCompleted || (deliveredQuantity >= quantity), // Auto-check if full quantity delivered
                   'type': 'bulk',
                   'productId': productId,
+                  'deliveredQuantity': deliveredQuantity, // Track for saving
                 };
               }
             } else {
               // Serialized: Create an entry for each picked item
               int itemsToAdd = serials.isNotEmpty ? serials.length : quantity;
-              // Use pickedQuantity if serials are empty but manual picking happened
               if (serials.isEmpty && pickedQuantity > 0) itemsToAdd = pickedQuantity;
 
               for (int i = 0; i < itemsToAdd; i++) {
+                final serialNumber = (i < serialsFound.length) ? serialsFound[i] : (i < serials.length ? serials[i] : null);
+                // Check if this specific SN was already marked as delivered in a previous partial delivery
+                final bool wasDelivered = isCompleted || (serialNumber != null && deliveredSerials.contains(serialNumber));
+
                 serializedList.add({
                   'productName': productName,
                   'partNumber': partNumber,
-                  'serialNumber': (i < serialsFound.length) ? serialsFound[i] : (i < serials.length ? serials[i] : null),
+                  'serialNumber': serialNumber,
                   'originalSerialNumber': (i < serials.length) ? serials[i] : null,
-                  'delivered': isCompleted, // ✅ Replaced 'scanned' with 'delivered'
+                  'delivered': wasDelivered,
                   'type': 'serialized',
                   'productId': productId,
                   'quantity': 1,
                   'pickedQuantity': 1,
+                  'parentProductIndex': rawProducts.indexOf(product), // Track parent to update later
                 });
               }
             }
@@ -293,8 +302,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       if (_status == 'À Préparer') {
         pdfProducts = _pickingItems.map((item) => ProductSelection.fromJson(item)).toList();
       } else {
+        // Logic to reconstruct PDF items based on what is CURRENTLY showing (Delivery Note)
         final Map<String, Map<String, dynamic>> groupedMap = {};
         for (var item in _serializedItems) {
+          // Include item in PDF if it is marked as delivered OR if the ticket is completed
+          // (For partial delivery PDF, we might only want to show delivered items?
+          // For now, let's show everything but we could filter where delivered == true)
           final key = item['partNumber'] ?? item['productName'];
           if (!groupedMap.containsKey(key)) {
             groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
@@ -340,7 +353,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     _savePickingState();
   }
 
-  // ✅ New Helper: Validate Full Quantity instantly
   void _validateFullQuantity(int index) {
     final item = _pickingItems[index];
     final int quantity = item['quantity'] ?? 0;
@@ -440,11 +452,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     } catch (e) { debugPrint("Error: $e"); } finally { if (mounted) setState(() => _isCompleting = false); }
   }
 
-  // ✅ REMOVED: _scanSerializedItem is no longer needed in new workflow
-  // Technician just checks the item off.
-
   Future<String?> _uploadSignature() async {
-    if (_isLivraisonCompleted || _signatureController.isEmpty) return null;
+    if (_signatureController.isEmpty) return null;
     final data = await _signatureController.toPngBytes();
     if (data == null) return null;
     try {
@@ -456,18 +465,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     } catch (e) { return null; }
   }
 
+  // ✅ NEW: Main Action for Delivery - Checks for Discrepancies
   Future<void> _completeLivraison() async {
     if (_isLivraisonCompleted) return;
-    // ✅ VALIDATION: Ensure all items (bulk and serialized) are marked as delivered
-    if (!_allCompleted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Veuillez valider tous les produits avant de confirmer.'),
-        backgroundColor: Colors.red,
-      ));
-      return;
-    }
 
-    if (_proofFormKey.currentState != null && !_proofFormKey.currentState!.validate()) return;
     if (_signatureController.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('La signature est obligatoire.'),
@@ -476,15 +477,170 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       return;
     }
 
+    if (_proofFormKey.currentState != null && !_proofFormKey.currentState!.validate()) return;
+
+    // Check for Partial Delivery
+    bool hasMissingItems = false;
+    for (var item in _serializedItems) {
+      if (item['delivered'] != true) hasMissingItems = true;
+    }
+    for (var item in _bulkItems) {
+      if (item['delivered'] != true) hasMissingItems = true;
+    }
+
+    if (hasMissingItems) {
+      // ⚠️ TRIGGER PARTIAL LOOP
+      await _handlePartialDelivery();
+    } else {
+      // ✅ HAPPY PATH
+      await _finalizeFullDelivery();
+    }
+  }
+
+  // ✅ LOGIC: Option A (Active Loop) - Handle missing items
+  Future<void> _handlePartialDelivery() async {
+    final Map<String, String>? result = await _showDiscrepancyDialog();
+    if (result == null) return; // User cancelled
+
+    setState(() => _isCompleting = true);
+
+    try {
+      String? sigUrl = await _uploadSignature();
+      final user = FirebaseAuth.instance.currentUser;
+
+      // 1. Reconstruct Product List with Partial State
+      // We need to fetch original products to keep other fields, and update delivered info
+      final doc = await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).get();
+      List<dynamic> currentProducts = doc.get('products') ?? [];
+
+      // Update Serialized Items in the main list
+      for (var localItem in _serializedItems) {
+        if (localItem['delivered'] == true && localItem['serialNumber'] != null) {
+          final parentIndex = localItem['parentProductIndex'];
+          if (parentIndex != null && parentIndex < currentProducts.length) {
+            Map<String, dynamic> product = Map<String, dynamic>.from(currentProducts[parentIndex]);
+            List<String> deliveredSerials = List<String>.from(product['deliveredSerials'] ?? []);
+            if (!deliveredSerials.contains(localItem['serialNumber'])) {
+              deliveredSerials.add(localItem['serialNumber']);
+              product['deliveredSerials'] = deliveredSerials;
+              currentProducts[parentIndex] = product;
+            }
+          }
+        }
+      }
+
+      // Update Bulk Items
+      for (var localItem in _bulkItems) {
+        if (localItem['delivered'] == true) {
+          // Find matching product in list (by ID or Name)
+          for (int i = 0; i < currentProducts.length; i++) {
+            if (currentProducts[i]['productId'] == localItem['productId'] && currentProducts[i]['productName'] == localItem['productName']) {
+              Map<String, dynamic> product = Map<String, dynamic>.from(currentProducts[i]);
+              product['deliveredQuantity'] = localItem['quantity']; // Assuming full bulk delivery for now or match localItem logic
+              currentProducts[i] = product;
+            }
+          }
+        }
+      }
+
+      // 2. Add Event Log
+      final newEvent = {
+        'event': 'partial_delivery',
+        'timestamp': Timestamp.now(), // ✅ FIXED: Changed from FieldValue.serverTimestamp()
+        'technician': user?.displayName ?? 'Technicien',
+        'reason': result['reason'],
+        'note': result['note'],
+        'signatureUrl': sigUrl,
+      };
+
+      // 3. Update Firestore
+      await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
+        'status': 'Livraison Partielle', // Keeps it open
+        'products': currentProducts,
+        'deliveryEvents': FieldValue.arrayUnion([newEvent]),
+        'lastPartialDeliveryAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Livraison partielle enregistrée. Le ticket reste ouvert.'),
+          backgroundColor: Colors.orange,
+        ));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint("Partial Error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+    } finally {
+      if (mounted) setState(() => _isCompleting = false);
+    }
+  }
+
+  Future<void> _finalizeFullDelivery() async {
     setState(() => _isCompleting = true);
     try {
       String? sigUrl = await _uploadSignature();
       await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
-        'status': 'Livré', 'completedAt': FieldValue.serverTimestamp(), 'signatureUrl': sigUrl,
-        'recipientName': _recipientNameController.text, 'recipientPhone': _recipientPhoneController.text,
+        'status': 'Livré',
+        'completedAt': FieldValue.serverTimestamp(),
+        'signatureUrl': sigUrl,
+        'recipientName': _recipientNameController.text,
+        'recipientPhone': _recipientPhoneController.text,
       });
       if (mounted) Navigator.pop(context);
     } catch (e) { debugPrint("Error: $e"); } finally { if (mounted) setState(() => _isCompleting = false); }
+  }
+
+  // ✅ UI: Mandatory Discrepancy Dialog
+  Future<Map<String, String>?> _showDiscrepancyDialog() async {
+    String? selectedReason;
+    final noteController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    return showDialog<Map<String, String>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: Row(children: [Icon(Icons.warning_amber_rounded, color: Colors.orange), SizedBox(width: 8), Text("Écart Détecté")]),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("Vous n'avez pas validé tous les produits. Veuillez justifier cet écart.", style: GoogleFonts.poppins(fontSize: 13)),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  decoration: InputDecoration(labelText: "Motif", border: OutlineInputBorder()),
+                  items: ["Produit Manquant", "Produit Endommagé", "Refus Client", "Erreur Préparation", "Autre"]
+                      .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                  onChanged: (v) => selectedReason = v,
+                  validator: (v) => v == null ? "Motif requis" : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: noteController,
+                  decoration: InputDecoration(labelText: "Note explicative", border: OutlineInputBorder()),
+                  maxLines: 3,
+                  validator: (v) => (v == null || v.length < 5) ? "Détails requis min 5 cars" : null,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: Text("Annuler", style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(context, {'reason': selectedReason!, 'note': noteController.text});
+                }
+              },
+              child: Text("Confirmer Ecart"),
+            )
+          ],
+        );
+      },
+    );
   }
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
@@ -509,12 +665,13 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   // ===============================================================
-  // 🎨 NEW HIGH-QUALITY UI WIDGETS
+  // 🎨 UI WIDGETS
   // ===============================================================
 
   Widget _buildStatusTimeline() {
     int currentStep = 0;
     if (_status == 'En Cours de Livraison') currentStep = 1;
+    if (_status == 'Livraison Partielle') currentStep = 1; // Stay at step 1 but maybe show amber?
     if (_status == 'Livré') currentStep = 2;
 
     return Container(
@@ -525,7 +682,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         children: [
           _buildTimelineStep(0, "Préparation", Icons.inventory_2, currentStep >= 0),
           _buildTimelineLine(currentStep >= 1),
-          _buildTimelineStep(1, "En Route", Icons.local_shipping, currentStep >= 1),
+          _buildTimelineStep(1, _status == 'Livraison Partielle' ? "Partiel" : "En Route",
+              _status == 'Livraison Partielle' ? Icons.warning_amber : Icons.local_shipping, currentStep >= 1,
+              isWarning: _status == 'Livraison Partielle'),
           _buildTimelineLine(currentStep >= 2),
           _buildTimelineStep(2, "Livré", Icons.check_circle, currentStep >= 2),
         ],
@@ -533,7 +692,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     );
   }
 
-  Widget _buildTimelineStep(int stepIndex, String label, IconData icon, bool isActive) {
+  Widget _buildTimelineStep(int stepIndex, String label, IconData icon, bool isActive, {bool isWarning = false}) {
+    Color color = isActive ? (isWarning ? Colors.orange : _primaryBlue) : Colors.grey.shade300;
     return Column(
       children: [
         AnimatedContainer(
@@ -542,8 +702,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           height: 40,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isActive ? _primaryBlue : Colors.grey.shade300,
-            boxShadow: isActive ? [BoxShadow(color: _primaryBlue.withOpacity(0.4), blurRadius: 10, spreadRadius: 2)] : [],
+            color: color,
+            boxShadow: isActive ? [BoxShadow(color: color.withOpacity(0.4), blurRadius: 10, spreadRadius: 2)] : [],
           ),
           child: Icon(icon, color: Colors.white, size: 20),
         ),
@@ -553,7 +713,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           style: GoogleFonts.poppins(
             fontSize: 12,
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-            color: isActive ? _primaryBlue : Colors.grey,
+            color: isActive ? (isWarning ? Colors.orange : _primaryBlue) : Colors.grey,
           ),
         ),
       ],
@@ -730,7 +890,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   Widget _buildModernProductCard(Map<String, dynamic> item, int index, {required bool isPicking}) {
     final int qty = item['quantity'] ?? 0;
-    // ✅ ADDED: Picked Quantity Display
     final int pickedQty = item['pickedQuantity'] as int? ?? (item['quantity'] ?? 0);
 
     final bool isBulk = item['isBulk'] == true;
@@ -741,7 +900,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       pickedCount = isBulk ? (item['pickedQuantity'] as int? ?? 0) : (item['serialNumbers'] as List?)?.length ?? 0;
       isDone = pickedCount >= qty;
     } else {
-      // ✅ CHANGED: Logic for Delivery Phase - Manual Check
       isDone = item['delivered'] == true;
     }
 
@@ -766,7 +924,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         borderRadius: BorderRadius.circular(16),
         child: Column(
           children: [
-            // Status Bar
             if (isDone)
               Container(height: 4, width: double.infinity, color: _accentGreen),
 
@@ -803,13 +960,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               'Réf: ${item['partNumber'] ?? 'N/A'}',
                               style: GoogleFonts.poppins(color: Colors.grey, fontSize: 12),
                             ),
-                            // ✅ ADDED: Quantity Information for Technician
                             if (!isPicking)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4.0),
                                 child: Text(
-                                  // CHANGED: Only show quantity for delivery phase as requested
-                                  'Quantité: $qty',
+                                  isBulk ? 'Quantité: $qty' : 'SN: ${item['serialNumber'] ?? 'N/A'}',
                                   style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
                               ),
@@ -829,7 +984,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            // ✅ NEW: TOGGLE BUTTON FOR MODE SWITCHING
                             InkWell(
                               onTap: () => _toggleBulkMode(index),
                               child: Container(
@@ -840,7 +994,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                                   border: Border.all(color: isBulk ? Colors.orange : Colors.blue, width: 1),
                                 ),
                                 child: Text(
-                                  isBulk ? "MODE QUANTITÉ" : "MODE SCAN", // Toggle label
+                                  isBulk ? "MODE QUANTITÉ" : "MODE SCAN",
                                   style: GoogleFonts.poppins(
                                       fontSize: 10,
                                       color: isBulk ? Colors.orange[800] : Colors.blue[800],
@@ -852,8 +1006,18 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                           ],
                         )
                       else
-                      // Simple Check Icon for delivery phase status
-                        Icon(isDone ? Icons.check_circle : Icons.circle_outlined, color: isDone ? Colors.green : Colors.grey.shade300)
+                      // Delivery Mode - Checkbox logic
+                        IconButton(
+                          icon: Icon(
+                              isDone ? Icons.check_box : Icons.check_box_outline_blank,
+                              color: isDone ? Colors.green : Colors.grey
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              item['delivered'] = !isDone;
+                            });
+                          },
+                        )
                     ],
                   ),
 
@@ -863,11 +1027,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                     const Divider(),
                     const SizedBox(height: 8),
                     if (isBulk)
-                    // ✅ MODE VRAC (MANUAL)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          // ✏️ PENCIL BUTTON (Edit Quantity)
                           Column(
                             children: [
                               IconButton.filledTonal(
@@ -878,15 +1040,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               Text("Saisir", style: GoogleFonts.poppins(fontSize: 10, color: Colors.blue))
                             ],
                           ),
-
-                          // 📦 Quantity Indicator
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                             decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
                             child: Text("VRAC", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.grey)),
                           ),
-
-                          // ✅ CHECK BUTTON (Full Validate)
                           Column(
                             children: [
                               IconButton.filledTonal(
@@ -900,7 +1058,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                         ],
                       )
                     else
-                    // 📸 MODE SCAN (Original)
                       Row(
                         children: [
                           Expanded(
@@ -928,27 +1085,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                       )
                   ],
 
-                  // DELIVERY MODE INPUTS (TECHNICIAN)
-                  if (!isPicking && !isDone) ...[
-                    const SizedBox(height: 12),
-                    // ✅ CHANGED: Removed Scanner Button, Replaced with "Confirm" Button for all types
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.check, size: 18),
-                        label: const Text("Confirmer Réception"),
-                        onPressed: () => setState(() => item['delivered'] = true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: _primaryBlue,
-                          side: BorderSide(color: _primaryBlue),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    )
-                  ],
-
                   // SERIAL LIST
                   if (!isBulk && (item['serialNumbers'] as List? ?? []).isNotEmpty)
                     Padding(
@@ -959,7 +1095,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                         children: (item['serialNumbers'] as List).map<Widget>((s) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                          child: Text(s, style: GoogleFonts.robotoMono(fontSize: 12, fontWeight: FontWeight.w600)), // ✅ FIXED HERE
+                          child: Text(s, style: GoogleFonts.robotoMono(fontSize: 12, fontWeight: FontWeight.w600)),
                         )).toList(),
                       ),
                     )
@@ -968,18 +1104,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildCircleBtn(IconData icon, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(30),
-      child: Container(
-        width: 40, height: 40,
-        decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-        child: Icon(icon, color: color, size: 20),
       ),
     );
   }
@@ -997,7 +1121,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
     return Scaffold(
       backgroundColor: _bgLight,
-      extendBody: true, // For floating effect if needed
+      extendBody: true,
       appBar: AppBar(
         centerTitle: true,
         backgroundColor: Colors.white,
@@ -1022,7 +1146,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       ),
       bottomNavigationBar: (!_isLivraisonCompleted && !_isLoading) ? _buildStickyFooter() : null,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 120), // Spacing for footer
+        padding: const EdgeInsets.only(bottom: 120),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1138,6 +1262,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           width: double.infinity,
           height: 56,
           child: ElevatedButton(
+            // ✅ Removed blocking logic to allow partial submission
             onPressed: (_isPickingMode && !_allPicked) ? null : (_isPickingMode ? _validatePreparation : _completeLivraison),
             style: ElevatedButton.styleFrom(
               backgroundColor: _isPickingMode ? Colors.orange.shade800 : _primaryBlue,
