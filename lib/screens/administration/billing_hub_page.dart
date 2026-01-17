@@ -133,8 +133,18 @@ class _BillingHubPageState extends State<BillingHubPage> {
       );
     }
 
-    final clientName = data['clientName'] as String? ?? 'Client N/A';
+    // ✅ CHANGED: Extract Store Name and Location instead of Client Name
+    final storeName = data['storeName'] as String? ?? 'Magasin inconnu';
+    final storeLocation = data['storeLocation'] as String? ?? '';
+
+    // final clientName = data['clientName'] as String? ?? 'Client N/A'; // Kept in case you need it later
     final serviceType = data['serviceType'] as String? ?? 'Service N/A';
+
+    // ✅ FIXED: Construct the new display title
+    String displayTitle = storeName;
+    if (storeLocation.isNotEmpty) {
+      displayTitle += ' - $storeLocation';
+    }
 
     // ✅ FIX: Safely get and format the date
     final dateRaw = (data['interventionDate'] ?? data['createdAt']) as Timestamp?;
@@ -154,7 +164,8 @@ class _BillingHubPageState extends State<BillingHubPage> {
           foregroundColor: Colors.white,
           child: Icon(serviceType == 'Service IT' ? Icons.computer : Icons.construction),
         ),
-        title: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        // ✅ CHANGED: Use the new displayTitle (Store - Location)
+        title: Text(displayTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(serviceType),
         trailing: Text(dateFormatted), // Use the safe, formatted string
         onTap: () {

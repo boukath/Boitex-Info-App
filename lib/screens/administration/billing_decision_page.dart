@@ -592,7 +592,7 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                             child: OutlinedButton.icon(
                               icon: const Icon(Icons.do_not_disturb_alt),
                               onPressed: _closeWithoutBilling,
-                              label: const Text('Sans Facture'),
+                              label: const Text('Non Facturable'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.grey.shade800,
                                 side: BorderSide(color: Colors.grey.shade400),
@@ -605,7 +605,7 @@ class _BillingDecisionPageState extends State<BillingDecisionPage> {
                             child: ElevatedButton.icon(
                               onPressed: _billAndClose,
                               icon: const Icon(Icons.upload_file),
-                              label: const Text('Facturer'),
+                              label: const Text('Facturable'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.teal,
                                 foregroundColor: Colors.white,
