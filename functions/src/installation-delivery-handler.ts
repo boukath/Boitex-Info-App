@@ -52,7 +52,7 @@ async (event) => {
 
     // ✅ COUNTER LOGIC SETUP
     const currentYear = new Date().getFullYear();
-    const counterRef = db.collection("counters").doc(`livraisons_counter_${currentYear}`);
+    const counterRef = db.collection("counters").doc(`livraison_counter_${currentYear}`);
 
     await db.runTransaction(async (t) => {
       // A. Get the next sequence number (Atomic Increment)

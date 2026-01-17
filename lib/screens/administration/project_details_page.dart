@@ -9,7 +9,8 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
-import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
+// ✅ CHANGED: Import Global Search Page instead of old selector
+import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/screens/service_it/it_evaluation_page.dart';
@@ -1675,19 +1676,53 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
     }
   }
 
-  void _showProductSelector() async {
-    final result = await showDialog<List<ProductSelection>>(
-      context: context,
-      builder: (ctx) => ProductSelectorDialog(
-        initialProducts: _selectedProducts,
+  // ✅ FIXED: Replaces old `showDialog` with `Navigator.push` to Global Search
+  void _showProductSelector() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => GlobalProductSearchPage(
+          isSelectionMode: true,
+          onProductSelected: (productMap) {
+            // ✅ FIX 1: Use 'productId', not 'id'
+            final productId = productMap['productId'];
+
+            // Safety check
+            if (productId == null) return;
+
+            // 1. Check if product is already in the list
+            final exists = _selectedProducts.any((p) => p.productId == productId);
+
+            if (exists) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${productMap['productName'] ?? 'Ce produit'} est déjà dans la liste.')),
+              );
+              return;
+            }
+
+            // 2. Convert raw Map to ProductSelection model
+            // ✅ FIX 2: Use 'productName' instead of 'name'
+            // ✅ FIX 3: Use 'quantity' from map (set by dialog) instead of hardcoded 1
+            final newProduct = ProductSelection(
+              productId: productId,
+              productName: productMap['productName'] ?? 'Produit Inconnu',
+              marque: productMap['marque'] ?? 'N/A',
+              partNumber: productMap['partNumber'] ?? 'N/A',
+              quantity: productMap['quantity'] ?? 1,
+            );
+
+            // 3. Update State
+            setState(() {
+              _selectedProducts.add(newProduct);
+            });
+
+            // 4. Feedback
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${newProduct.productName} ajouté.')),
+            );
+          },
+        ),
       ),
     );
-
-    if (result != null) {
-      setState(() {
-        _selectedProducts = result;
-      });
-    }
   }
 
   @override
