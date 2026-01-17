@@ -452,4 +452,82 @@ class StockService {
       });
     });
   }
+
+  // ✅ NEW: MOVE TO BROKEN STOCK (Traffic Cop for "Produit Endommagé")
+  Future<void> moveToBrokenStock(
+      String productId,
+      int quantity, {
+        String? productName,
+        String? deliveryId,
+        String? reason,
+      }) async {
+    final String userName = await _fetchUserName();
+    final String userId = FirebaseAuth.instance.currentUser?.uid ?? "unknown"; // Needed for QuarantineItem
+    final DateTime now = DateTime.now();
+
+    await _db.runTransaction((transaction) async {
+      // 1. Update Physical Product Counter (Increment Defective Stock)
+      final productRef = _db.collection('produits').doc(productId);
+
+      // Check existence first to be safe
+      final snapshot = await transaction.get(productRef);
+      if (!snapshot.exists) throw Exception("Produit introuvable pour mise en rebut");
+
+      final String finalName = productName ?? snapshot.data()?['nom'] ?? 'Produit Inconnu';
+      final String productRefCode = snapshot.data()?['reference'] ?? 'N/A'; // Fetch reference
+
+      // We increment defective stock.
+      // Note: We do NOT decrement 'quantiteEnStock' here because the item was already
+      // removed from stock during the 'Preparation' phase of the delivery.
+      // It is returning from the field directly to the broken pile.
+      transaction.update(productRef, {
+        'quantiteDefectueuse': FieldValue.increment(quantity),
+        'lastModifiedBy': userName,
+        'lastModifiedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 2. CREATE QUARANTINE CASE FILE (Targeting quarantine_items now)
+      final quarantineRef = _db.collection('quarantine_items').doc();
+
+      final newItem = QuarantineItem(
+        id: quarantineRef.id,
+        productId: productId,
+        productName: finalName,
+        productReference: productRefCode,
+        quantity: quantity,
+        reason: "Retour Livraison (${deliveryId ?? 'N/A'}) - ${reason ?? 'HS'}",
+        photoUrl: null, // No photo in this flow yet
+        reportedBy: userName,
+        reportedByUid: userId,
+        reportedAt: now,
+        status: 'PENDING',
+        history: [
+          {
+            'action': 'DELIVERY_RETURN',
+            'by': userName,
+            'date': Timestamp.fromDate(now),
+            'note': "Retour Livraison: $reason"
+          }
+        ],
+      );
+
+      transaction.set(quarantineRef, newItem.toMap());
+
+      // 3. Log Movement (Audit Trail)
+      final movementRef = _db.collection('stock_movements').doc();
+      transaction.set(movementRef, {
+        'productId': productId,
+        'productName': finalName,
+        'quantityChange': 0,
+        'brokenStockChange': quantity,
+        'type': 'CLIENT_RETURN_BROKEN',
+        'source': 'Retour Livraison',
+        'livraisonId': deliveryId,
+        'reason': reason ?? 'Non spécifié',
+        'user': userName,
+        'timestamp': FieldValue.serverTimestamp(),
+        'quarantineId': quarantineRef.id,
+      });
+    });
+  }
 }

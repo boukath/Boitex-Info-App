@@ -628,6 +628,25 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               currentProducts[parentIndex] = product;
             }
           }
+        } else if (localItem['delivered'] != true && localItem['productId'] != null) {
+          // ✅ FIX: HANDLE UNDELIVERED SERIALIZED ITEMS (RETURN FLOW)
+          // If the item is unchecked, it is a return (broken or otherwise)
+          if (result['reason'] == "Produit Endommagé") {
+            await StockService().moveToBrokenStock(
+                localItem['productId'],
+                1, // Serialized items are always qty 1
+                productName: localItem['productName'],
+                deliveryId: widget.livraisonId,
+                reason: result['note'] ?? "Retour Livraison (HS)"
+            );
+          } else {
+            await StockService().restockFromPartialDelivery(
+                localItem['productId'],
+                1,
+                productName: localItem['productName'],
+                deliveryId: widget.livraisonId
+            );
+          }
         }
       }
 
@@ -655,14 +674,48 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               // ⚠️ CRITICAL: Handle the RETURN TO STOCK logic here if needed
               final int refusedQty = initialQty - actualDeliveredQty;
               if (refusedQty > 0 && localItem['productId'] != null) {
-                await StockService().restockFromPartialDelivery(
-                    localItem['productId'],
-                    refusedQty,
-                    productName: localItem['productName'],
-                    deliveryId: widget.livraisonId
-                );
+
+                // ✅ UPDATED LOGIC: Traffic Cop for Broken vs Restock
+                if (result['reason'] == "Produit Endommagé") {
+                  // 1. Move to Broken Stock
+                  await StockService().moveToBrokenStock(
+                      localItem['productId'],
+                      refusedQty,
+                      productName: localItem['productName'],
+                      deliveryId: widget.livraisonId,
+                      reason: result['note'] ?? "Retour Livraison (HS)"
+                  );
+                } else {
+                  // 2. Standard Restock (Good Condition)
+                  await StockService().restockFromPartialDelivery(
+                      localItem['productId'],
+                      refusedQty,
+                      productName: localItem['productName'],
+                      deliveryId: widget.livraisonId
+                  );
+                }
+
               }
             }
+          }
+        } else if (localItem['delivered'] != true && localItem['productId'] != null) {
+          // ✅ FIX: Handle totally unchecked bulk items (100% returned)
+          final int refusedQty = localItem['quantity'];
+          if (result['reason'] == "Produit Endommagé") {
+            await StockService().moveToBrokenStock(
+                localItem['productId'],
+                refusedQty,
+                productName: localItem['productName'],
+                deliveryId: widget.livraisonId,
+                reason: result['note'] ?? "Retour Livraison (HS)"
+            );
+          } else {
+            await StockService().restockFromPartialDelivery(
+                localItem['productId'],
+                refusedQty,
+                productName: localItem['productName'],
+                deliveryId: widget.livraisonId
+            );
           }
         }
       }
@@ -778,6 +831,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   decoration: InputDecoration(labelText: "Motif", border: OutlineInputBorder()),
+                  // ✅ ENSURED "Produit Endommagé" is explicitly listed as requested
                   items: ["Produit Manquant", "Produit Endommagé", "Refus Client", "Erreur Préparation", "Autre"]
                       .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                   onChanged: (v) => selectedReason = v,
