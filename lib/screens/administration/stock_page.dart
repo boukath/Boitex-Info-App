@@ -783,8 +783,9 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: notesController,
+                  // ✅ UPDATED: Visual Cue for Obligation
                   decoration: const InputDecoration(
-                    labelText: 'Motif / Notes',
+                    labelText: 'Motif / Notes (Obligatoire) *',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.edit_note_rounded),
                   ),
@@ -812,6 +813,17 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                     return;
                   }
 
+                  // ✅ VALIDATION: Force Note to be present
+                  if (notes.isEmpty) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text('⚠️ Une note est OBLIGATOIRE pour modifier le stock.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return; // ⛔️ Stop here
+                  }
+
                   final authUser = FirebaseAuth.instance.currentUser;
                   final userId = authUser?.uid ?? 'unknown';
                   String userName = authUser?.displayName ?? 'Utilisateur';
@@ -828,7 +840,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
                       'oldQuantity': currentStock,
                       'newQuantity': newQty,
                       'type': 'SCAN_ADJUST',
-                      'notes': notes.isEmpty ? 'Mise à jour directe' : notes,
+                      'notes': notes, // ✅ Uses validated note, removed fallback
                       'userId': userId,
                       'user': userName,
                       'timestamp': FieldValue.serverTimestamp(),
