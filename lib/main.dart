@@ -1,6 +1,7 @@
 // lib/main.dart
 
 import 'dart:async';
+import 'package:flutter/gestures.dart'; // ✅ Required for PointerDeviceKind
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // ✅ Required for kIsWeb check
 import 'package:firebase_core/firebase_core.dart';
@@ -40,6 +41,16 @@ Future<void> main() async {
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(const BoitexInfoApp());
+}
+
+// ✅ CUSTOM SCROLL BEHAVIOR: Allows dragging with Mouse on Web
+class AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+  };
 }
 
 class BoitexInfoApp extends StatefulWidget {
@@ -162,6 +173,8 @@ class _BoitexInfoAppState extends State<BoitexInfoApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
+      // ✅ APPLY CUSTOM SCROLL BEHAVIOR HERE
+      scrollBehavior: AppScrollBehavior(),
       debugShowCheckedModeBanner: false,
       title: 'Boitex Info',
       theme: ThemeData(
