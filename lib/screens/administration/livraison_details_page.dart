@@ -53,8 +53,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   List<Map<String, dynamic>> _serializedItems = [];
   List<Map<String, dynamic>> _bulkItems = [];
 
-  // ✅ NEW: Map to track modified quantities for Bulk Items (Key: ProductId, Value: DeliveredQty)
-  final Map<String, int> _modifiedQuantities = {};
+  // ✅ NEW: Map to track SPLITS (Accepted vs Rejected per item)
+  // Key: ProductId or Name
+  // Value: { 'accepted': int, 'rejected': int, 'reason': String, 'note': String }
+  final Map<String, Map<String, dynamic>> _itemSplits = {};
 
   // -- Picking Mode List --
   List<Map<String, dynamic>> _pickingItems = [];
@@ -71,11 +73,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   bool _isLoading = true;
   bool _isCompleting = false;
   bool _isLivraisonCompleted = false;
-  String _loadingStatus = '';
 
   List<dynamic> _existingMedia = [];
-  List<PlatformFile> _pickedMediaFiles = [];
-  bool _isUploadingMedia = false;
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
@@ -94,21 +93,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   final Color _accentGreen = const Color(0xFF00E676);
   final Color _bgLight = const Color(0xFFF4F6F9);
 
-  // ✅ UPDATED: Validation logic for delivery phase (Support Partial)
-  // We no longer block if items are missing, but we track it.
-  bool get _allCompleted {
-    if (_isLivraisonCompleted) return true;
-    if (_serializedItems.isEmpty && _bulkItems.isEmpty) return false;
-
-    final serializedDone = _serializedItems.isEmpty ||
-        _serializedItems.every((item) => item['delivered'] == true);
-
-    final bulkDone = _bulkItems.isEmpty ||
-        _bulkItems.every((item) => item['delivered'] == true);
-
-    return serializedDone && bulkDone;
-  }
-
+  // ✅ Helper to check if all items are picked (Preparation Phase)
   bool get _allPicked {
     if (_pickingItems.isEmpty) return false;
     return _pickingItems.every((item) {
@@ -244,11 +229,16 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             if (isBulkItem) {
               String key = productId ?? productName;
 
-              // ✅ INITIALIZE MODIFIED QUANTITY MAP
-              // By default, if not completed, we assume Full Delivery (quantity) to save clicks
-              // If already completed or partial, we might load existing deliveredQuantity
-              if (!_modifiedQuantities.containsKey(key)) {
-                _modifiedQuantities[key] = isCompleted ? deliveredQuantity : quantity;
+              // ✅ FIX 1: UPDATE BULK ITEM LOGIC
+              // Check if completed OR partial to show delivered quantity instead of ordered quantity
+              if (!_itemSplits.containsKey(key)) {
+                bool isPartialOrComplete = isCompleted || _status == 'Livraison Partielle';
+                _itemSplits[key] = {
+                  'accepted': isPartialOrComplete ? deliveredQuantity : quantity,
+                  'rejected': isPartialOrComplete ? (quantity - deliveredQuantity) : 0,
+                  'reason': 'N/A',
+                  'note': ''
+                };
               }
 
               if (bulkMap.containsKey(key)) {
@@ -275,8 +265,13 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
               for (int i = 0; i < itemsToAdd; i++) {
                 final serialNumber = (i < serialsFound.length) ? serialsFound[i] : (i < serials.length ? serials[i] : null);
-                // Check if this specific SN was already marked as delivered in a previous partial delivery
-                final bool wasDelivered = isCompleted || (serialNumber != null && deliveredSerials.contains(serialNumber));
+
+                // ✅ FIX 2: UPDATE SERIALIZED ITEM LOGIC
+                // Check if specific serial was delivered in partial status
+                bool wasDelivered = isCompleted;
+                if (!wasDelivered && _status == 'Livraison Partielle' && serialNumber != null) {
+                  wasDelivered = deliveredSerials.contains(serialNumber);
+                }
 
                 serializedList.add({
                   'productName': productName,
@@ -324,20 +319,31 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           if (!groupedMap.containsKey(key)) {
             groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
           }
-          groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + 1;
-          final sn = item['serialNumber'] ?? item['originalSerialNumber'];
-          if (sn != null) (groupedMap[key]!['serialNumbers'] as List<String>).add(sn);
+          // Only add if accepted
+          if (item['delivered'] == true) {
+            groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + 1;
+            final sn = item['serialNumber'] ?? item['originalSerialNumber'];
+            if (sn != null) (groupedMap[key]!['serialNumbers'] as List<String>).add(sn);
+          }
         }
         for (var item in _bulkItems) {
           final key = item['partNumber'] ?? item['productName'];
+          final mapKey = item['productId'] ?? item['productName'];
           if (!groupedMap.containsKey(key)) {
             groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
           }
-          // ✅ PDF GENERATION: Use the Modified Quantity if available
-          final String mapKey = item['productId'] ?? item['productName'];
-          final int quantityToPrint = _modifiedQuantities[mapKey] ?? (item['quantity'] as int);
 
-          groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + quantityToPrint;
+          // ✅ PDF GENERATION: Use the Split Accepted Quantity
+          int quantityToPrint = item['quantity'];
+          if (_itemSplits.containsKey(mapKey)) {
+            quantityToPrint = _itemSplits[mapKey]!['accepted'];
+          } else if (item['delivered'] != true) {
+            quantityToPrint = 0; // If unchecked and no split, it's 0
+          }
+
+          if (quantityToPrint > 0) {
+            groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + quantityToPrint;
+          }
         }
         pdfProducts = groupedMap.values.map((map) => ProductSelection.fromJson(map)).toList();
       }
@@ -399,47 +405,391 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     ));
   }
 
-  // ✅ NEW DIALOG: Edit Delivery Quantity (On Site)
+  // ✅ SIMPLIFIED DIALOG: "Silent Edit" (Only Quantity)
+  // No logic checks here. Just captures the new number. Logic happens at the end.
   void _showDeliveryQuantityDialog(String key, int maxQty, int currentQty) {
     final TextEditingController qtyCtrl = TextEditingController(text: currentQty.toString());
-    showDialog(context: context, builder: (context) => AlertDialog(
-      title: const Text("Quantité Acceptée par Client"),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text("Commande Initiale: $maxQty", style: TextStyle(color: Colors.grey)),
-          SizedBox(height: 10),
-          TextField(
-            controller: qtyCtrl,
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            decoration: const InputDecoration(
-                labelText: "Quantité Réelle",
-                border: OutlineInputBorder(),
-                helperText: "Entrez la quantité que le client garde"
+
+    showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text("Quantité Reçue"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("Commande Initiale: $maxQty", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtrl,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                      labelText: "Quantité Acceptée",
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.edit)
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
-        ElevatedButton(onPressed: () {
-          int? val = int.tryParse(qtyCtrl.text);
-          if (val != null) {
-            if (val > maxQty) val = maxQty; // Cap at max
-            if (val < 0) val = 0;
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+              ElevatedButton(
+                onPressed: () {
+                  int? inputVal = int.tryParse(qtyCtrl.text);
+                  if (inputVal != null) {
+                    // ✅ FIX: Use a definite int type for math operations
+                    int safeVal = inputVal;
+                    if (safeVal > maxQty) safeVal = maxQty;
+                    if (safeVal < 0) safeVal = 0;
 
-            // ✅ FIX: Capture value as non-nullable int for closure
-            final int finalVal = val;
+                    // Silent Save: Just update state, no questions asked.
+                    setState(() {
+                      _itemSplits[key] = {
+                        'accepted': safeVal,
+                        'rejected': maxQty - safeVal, // Now safe (int - int)
+                        'reason': 'N/A', // Will be filled in "Batch Resolution"
+                        'note': ''
+                      };
+                    });
+                  }
+                  Navigator.pop(context);
+                },
+                child: const Text("Valider"),
+              )
+            ],
+          );
+        }
+    );
+  }
 
-            setState(() {
-              _modifiedQuantities[key] = finalVal;
+  // ✅ NEW HELPER: Calculate Discrepancies
+  List<Map<String, dynamic>> _calculateDiscrepancies() {
+    List<Map<String, dynamic>> problems = [];
+
+    // 1. Check Bulk Items
+    for (var item in _bulkItems) {
+      final key = item['productId'] ?? item['productName'];
+      int ordered = item['quantity'] ?? 0;
+      int accepted = ordered;
+      bool isChecked = item['delivered'] == true;
+
+      // Has user edited quantity?
+      if (_itemSplits.containsKey(key)) {
+        accepted = _itemSplits[key]!['accepted'];
+      } else if (!isChecked) {
+        // Unchecked = 0 Accepted
+        accepted = 0;
+      }
+
+      if (accepted < ordered) {
+        problems.add({
+          'key': key,
+          'name': item['productName'],
+          'ordered': ordered,
+          'accepted': accepted,
+          'missing': ordered - accepted,
+          'productId': item['productId'],
+          'type': 'bulk'
+        });
+      }
+    }
+
+    // 2. Check Serialized Items (Simplified: Group by product for easier reasoning)
+    // If a serialized item is unchecked, it counts as missing
+    Map<String, int> serializedMissingCounts = {};
+    Map<String, String> serializedNames = {};
+
+    for (var item in _serializedItems) {
+      if (item['delivered'] != true) {
+        final key = item['productId'] ?? item['productName'];
+        serializedMissingCounts[key] = (serializedMissingCounts[key] ?? 0) + 1;
+        serializedNames[key] = item['productName'];
+      }
+    }
+
+    serializedMissingCounts.forEach((key, count) {
+      problems.add({
+        'key': key,
+        'name': serializedNames[key],
+        'ordered': count, // In this context "ordered" is just the missing batch size for display
+        'accepted': 0, // These are fully missing lines
+        'missing': count,
+        'productId': key, // ID is key
+        'type': 'serialized'
+      });
+    });
+
+    return problems;
+  }
+
+  // ✅ NEW DIALOG: "Batch Resolution Dashboard" (The One Pop-up)
+  Future<void> _showBatchResolutionDialog(List<Map<String, dynamic>> problems) async {
+    // Local state controller for the dialog
+    final Map<String, String> reasons = {}; // key -> reason
+    final Map<String, String> notes = {};   // key -> note
+
+    bool allResolved() {
+      // Check if every problem has a selected reason
+      return problems.every((p) => reasons.containsKey(p['key']) && reasons[p['key']] != null);
+    }
+
+    await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          return StatefulBuilder(
+              builder: (context, setDialogState) {
+                return AlertDialog(
+                  title: Row(
+                    children: [
+                      const Icon(Icons.assignment_late, color: Colors.orange),
+                      const SizedBox(width: 8),
+                      const Text("Rapport d'Anomalies"),
+                    ],
+                  ),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: problems.length,
+                      separatorBuilder: (c, i) => const Divider(),
+                      itemBuilder: (context, index) {
+                        final problem = problems[index];
+                        final String key = problem['key'];
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                problem['name'],
+                                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(4)),
+                                  child: Text(
+                                      "-${problem['missing']}",
+                                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  "Non Livré / Manquant",
+                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                border: OutlineInputBorder(),
+                                labelText: "Motif",
+                              ),
+                              items: ["Produit Endommagé", "Refus Client", "Produit Manquant", "Erreur Commande"]
+                                  .map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 13)))).toList(),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  reasons[key] = val!;
+                                });
+                              },
+                            ),
+                            if (reasons.containsKey(key))
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: TextField(
+                                  decoration: const InputDecoration(
+                                      isDense: true,
+                                      labelText: "Note (Facultatif)",
+                                      border: OutlineInputBorder()
+                                  ),
+                                  style: const TextStyle(fontSize: 13),
+                                  onChanged: (val) => notes[key] = val,
+                                ),
+                              )
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text("Annuler", style: TextStyle(color: Colors.grey))
+                    ),
+                    ElevatedButton(
+                      onPressed: allResolved() ? () {
+                        // SAVE DECISIONS TO MAIN STATE
+                        setState(() {
+                          for (var p in problems) {
+                            String k = p['key'];
+                            // Update _itemSplits with the FINAL reason
+                            _itemSplits[k] = {
+                              'accepted': p['accepted'],
+                              'rejected': p['missing'],
+                              'reason': reasons[k],
+                              'note': notes[k] ?? ''
+                            };
+                          }
+                        });
+                        Navigator.pop(context, true); // Signal Success
+                      } : null, // Disable until valid
+                      style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue),
+                      child: const Text("CONFIRMER TOUT"),
+                    )
+                  ],
+                );
+              }
+          );
+        }
+    ).then((result) {
+      if (result == true) {
+        // If confirmed, proceed to final save
+        _finalizeFullDeliveryWithSplits();
+      }
+    });
+  }
+
+  // ✅ MAIN ACTION: Complete Delivery
+  Future<void> _completeLivraison() async {
+    if (_isLivraisonCompleted) return;
+
+    if (_signatureController.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('La signature est obligatoire.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+
+    if (_proofFormKey.currentState != null && !_proofFormKey.currentState!.validate()) return;
+
+    // 1. CALCULATE DISCREPANCIES (Silent Audit)
+    final problems = _calculateDiscrepancies();
+
+    if (problems.isNotEmpty) {
+      // ⚠️ Found issues? Show the Batch Resolution Dashboard
+      await _showBatchResolutionDialog(problems);
+    } else {
+      // ✅ Clean delivery? Save immediately (Happy Path)
+      await _finalizeFullDeliveryWithSplits();
+    }
+  }
+
+  // ✅ LOGIC: Finalize with In-Line Splits
+  // This is now the ONLY save function. It handles both full and partial because
+  // the Batch Dialog has already filled _itemSplits with the reasons.
+  Future<void> _finalizeFullDeliveryWithSplits() async {
+    setState(() => _isCompleting = true);
+
+    // Determine status: If any item was rejected, it's technically "Partiel" or "Livré avec réserves"
+    // For simplicity, we can check if _itemSplits has any rejections
+    bool hasRejections = _itemSplits.values.any((v) => (v['rejected'] ?? 0) > 0);
+    String finalStatus = hasRejections ? "Livraison Partielle" : "Livré";
+
+    try {
+      String? sigUrl = await _uploadSignature();
+      final user = FirebaseAuth.instance.currentUser;
+
+      final doc = await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).get();
+      List<dynamic> currentProducts = List.from(doc.get('products') ?? []);
+      List<dynamic> updatedProducts = [];
+      List<Map<String, dynamic>> newEvents = [];
+
+      for (var product in currentProducts) {
+        Map<String, dynamic> p = Map<String, dynamic>.from(product);
+        final key = p['productId'] ?? p['productName'];
+
+        // Logic to sync with _itemSplits
+        if (_itemSplits.containsKey(key)) {
+          // Apply Split Data
+          int accepted = _itemSplits[key]!['accepted'];
+          int rejected = _itemSplits[key]!['rejected'];
+          String reason = _itemSplits[key]!['reason'] ?? 'Autre';
+          String note = _itemSplits[key]!['note'] ?? '';
+
+          p['deliveredQuantity'] = accepted;
+
+          // HANDLE STOCK RETURN LOGIC
+          if (rejected > 0 && p['productId'] != null) {
+            if (reason == "Produit Endommagé") {
+              await StockService().moveToBrokenStock(
+                  p['productId'], rejected, productName: p['productName'], deliveryId: widget.livraisonId, reason: "$reason $note"
+              );
+            } else {
+              await StockService().restockFromPartialDelivery(
+                  p['productId'], rejected, productName: p['productName'], deliveryId: widget.livraisonId
+              );
+            }
+
+            // Log Event
+            newEvents.add({
+              'event': 'item_rejected',
+              'product': p['productName'],
+              'qty': rejected,
+              'reason': reason,
+              'note': note,
+              'timestamp': Timestamp.now()
             });
           }
-          Navigator.pop(context);
-        }, child: const Text("Valider"))
-      ],
-    ));
+        } else {
+          // If not in splits, it means it was fully accepted (Happy Path Logic)
+          // OR it was serialized and delivered (filtered out of problems list)
+          p['deliveredQuantity'] = p['quantity'];
+        }
+
+        if (p['serialNumbers'] != null && (p['serialNumbers'] as List).isNotEmpty) {
+          // Basic serial sync: if full delivery, copy all. If partial, just take N.
+          int qty = p['deliveredQuantity'] ?? 0;
+          List<String> sns = List<String>.from(p['serialNumbers']);
+          p['deliveredSerials'] = sns.take(qty).toList();
+        }
+
+        updatedProducts.add(p);
+      }
+
+      // Prepare Update Data
+      Map<String, dynamic> updateData = {
+        'status': finalStatus,
+        'completedAt': FieldValue.serverTimestamp(),
+        'signatureUrl': sigUrl,
+        'recipientName': _recipientNameController.text,
+        'recipientPhone': _recipientPhoneController.text,
+        'products': updatedProducts,
+      };
+
+      if (hasRejections) {
+        updateData['lastPartialDeliveryAt'] = FieldValue.serverTimestamp();
+      }
+
+      // Update Firestore
+      await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update(updateData);
+
+      // Add Events if any
+      if (newEvents.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
+          'deliveryEvents': FieldValue.arrayUnion(newEvents)
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(hasRejections ? "Livraison partielle enregistrée avec succès." : "Livraison terminée avec succès."),
+          backgroundColor: hasRejections ? Colors.orange : Colors.green,
+        ));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint("Error: $e");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+    } finally {
+      if (mounted) setState(() => _isCompleting = false);
+    }
   }
 
   void _processInputScan(int index, String code) {
@@ -524,345 +874,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     } catch (e) { return null; }
   }
 
-  // ✅ NEW: Main Action for Delivery - Checks for Discrepancies
-  Future<void> _completeLivraison() async {
-    if (_isLivraisonCompleted) return;
-
-    if (_signatureController.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('La signature est obligatoire.'),
-        backgroundColor: Colors.red,
-      ));
-      return;
-    }
-
-    if (_proofFormKey.currentState != null && !_proofFormKey.currentState!.validate()) return;
-
-    // Check for Partial Delivery
-    bool hasMissingItems = false;
-    List<Map<String, dynamic>> resolvedReturns = []; // Track items that need auto-return
-
-    for (var item in _serializedItems) {
-      if (item['delivered'] != true) hasMissingItems = true;
-    }
-
-    // ✅ CHECK BULK DISCREPANCY & IDENTIFY RETURNS
-    for (var item in _bulkItems) {
-      final key = item['productId'] ?? item['productName'];
-      // The delivered quantity comes from the edit dialog (modified) or defaults to original quantity
-      final int deliveredQty = _modifiedQuantities[key] ?? item['quantity'];
-
-      if (item['delivered'] != true) {
-        // Not checked at all -> Missing
-        hasMissingItems = true;
-      } else if (deliveredQty < item['quantity']) {
-        // Checked BUT quantity is less -> Resolved Return (Client Refusal)
-        // Do NOT count as missing, but add to resolved list
-        resolvedReturns.add({
-          'productId': item['productId'],
-          'productName': item['productName'],
-          'quantityToReturn': item['quantity'] - deliveredQty,
-        });
-      }
-    }
-
-    if (hasMissingItems) {
-      // ⚠️ TRIGGER PARTIAL LOOP (Only for genuinely missing/unchecked items)
-      await _handlePartialDelivery();
-    } else {
-      // ✅ HAPPY PATH (OR RESOLVED RETURN)
-      setState(() => _isCompleting = true);
-
-      try {
-        // 1. Process Auto-Returns silently
-        if (resolvedReturns.isNotEmpty) {
-          for (var ret in resolvedReturns) {
-            if (ret['productId'] != null) {
-              await StockService().restockFromPartialDelivery(
-                  ret['productId'],
-                  ret['quantityToReturn'],
-                  productName: ret['productName'],
-                  deliveryId: widget.livraisonId
-              );
-            }
-          }
-        }
-
-        // 2. Finalize Full Delivery
-        await _finalizeFullDelivery();
-
-      } catch (e) {
-        debugPrint("Error processing returns: $e");
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
-        if (mounted) setState(() => _isCompleting = false);
-      }
-    }
-  }
-
-  // ✅ LOGIC: Option A (Active Loop) - Handle missing items
-  Future<void> _handlePartialDelivery() async {
-    final Map<String, String>? result = await _showDiscrepancyDialog();
-    if (result == null) return; // User cancelled
-
-    setState(() => _isCompleting = true);
-
-    try {
-      String? sigUrl = await _uploadSignature();
-      final user = FirebaseAuth.instance.currentUser;
-
-      // 1. Reconstruct Product List with Partial State
-      // We need to fetch original products to keep other fields, and update delivered info
-      final doc = await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).get();
-      List<dynamic> currentProducts = doc.get('products') ?? [];
-
-      // Update Serialized Items in the main list
-      for (var localItem in _serializedItems) {
-        if (localItem['delivered'] == true && localItem['serialNumber'] != null) {
-          final parentIndex = localItem['parentProductIndex'];
-          if (parentIndex != null && parentIndex < currentProducts.length) {
-            Map<String, dynamic> product = Map<String, dynamic>.from(currentProducts[parentIndex]);
-            List<String> deliveredSerials = List<String>.from(product['deliveredSerials'] ?? []);
-            if (!deliveredSerials.contains(localItem['serialNumber'])) {
-              deliveredSerials.add(localItem['serialNumber']);
-              product['deliveredSerials'] = deliveredSerials;
-              currentProducts[parentIndex] = product;
-            }
-          }
-        } else if (localItem['delivered'] != true && localItem['productId'] != null) {
-          // ✅ FIX: HANDLE UNDELIVERED SERIALIZED ITEMS (RETURN FLOW)
-          // If the item is unchecked, it is a return (broken or otherwise)
-          if (result['reason'] == "Produit Endommagé") {
-            await StockService().moveToBrokenStock(
-                localItem['productId'],
-                1, // Serialized items are always qty 1
-                productName: localItem['productName'],
-                deliveryId: widget.livraisonId,
-                reason: result['note'] ?? "Retour Livraison (HS)"
-            );
-          } else {
-            await StockService().restockFromPartialDelivery(
-                localItem['productId'],
-                1,
-                productName: localItem['productName'],
-                deliveryId: widget.livraisonId
-            );
-          }
-        }
-      }
-
-      // Update Bulk Items
-      for (var localItem in _bulkItems) {
-        if (localItem['delivered'] == true) {
-          final key = localItem['productId'] ?? localItem['productName'];
-          // ✅ USE THE MODIFIED QUANTITY
-          final int actualDeliveredQty = _modifiedQuantities[key] ?? localItem['quantity'];
-          final int initialQty = localItem['quantity'];
-
-          // Find matching product in list (by ID or Name)
-          for (int i = 0; i < currentProducts.length; i++) {
-            if (currentProducts[i]['productId'] == localItem['productId'] && currentProducts[i]['productName'] == localItem['productName']) {
-              Map<String, dynamic> product = Map<String, dynamic>.from(currentProducts[i]);
-
-              // We need to accumulate if multiple partial deliveries happen
-              int prevDelivered = product['deliveredQuantity'] ?? 0;
-
-              // For partials, assume we're adding this delivery's successful count
-              // Note: If reusing delivery notes, careful with accumulation logic
-              product['deliveredQuantity'] = prevDelivered + actualDeliveredQty;
-              currentProducts[i] = product;
-
-              // ⚠️ CRITICAL: Handle the RETURN TO STOCK logic here if needed
-              final int refusedQty = initialQty - actualDeliveredQty;
-              if (refusedQty > 0 && localItem['productId'] != null) {
-
-                // ✅ UPDATED LOGIC: Traffic Cop for Broken vs Restock
-                if (result['reason'] == "Produit Endommagé") {
-                  // 1. Move to Broken Stock
-                  await StockService().moveToBrokenStock(
-                      localItem['productId'],
-                      refusedQty,
-                      productName: localItem['productName'],
-                      deliveryId: widget.livraisonId,
-                      reason: result['note'] ?? "Retour Livraison (HS)"
-                  );
-                } else {
-                  // 2. Standard Restock (Good Condition)
-                  await StockService().restockFromPartialDelivery(
-                      localItem['productId'],
-                      refusedQty,
-                      productName: localItem['productName'],
-                      deliveryId: widget.livraisonId
-                  );
-                }
-
-              }
-            }
-          }
-        } else if (localItem['delivered'] != true && localItem['productId'] != null) {
-          // ✅ FIX: Handle totally unchecked bulk items (100% returned)
-          final int refusedQty = localItem['quantity'];
-          if (result['reason'] == "Produit Endommagé") {
-            await StockService().moveToBrokenStock(
-                localItem['productId'],
-                refusedQty,
-                productName: localItem['productName'],
-                deliveryId: widget.livraisonId,
-                reason: result['note'] ?? "Retour Livraison (HS)"
-            );
-          } else {
-            await StockService().restockFromPartialDelivery(
-                localItem['productId'],
-                refusedQty,
-                productName: localItem['productName'],
-                deliveryId: widget.livraisonId
-            );
-          }
-        }
-      }
-
-      // 2. Add Event Log
-      final newEvent = {
-        'event': 'partial_delivery',
-        'timestamp': Timestamp.now(),
-        'technician': user?.displayName ?? 'Technicien',
-        'reason': result['reason'],
-        'note': result['note'],
-        'signatureUrl': sigUrl,
-      };
-
-      // 3. Update Firestore
-      await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
-        'status': 'Livraison Partielle', // Keeps it open
-        'products': currentProducts,
-        'deliveryEvents': FieldValue.arrayUnion([newEvent]),
-        'lastPartialDeliveryAt': FieldValue.serverTimestamp(),
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Livraison partielle enregistrée. Le ticket reste ouvert.'),
-          backgroundColor: Colors.orange,
-        ));
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      debugPrint("Partial Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
-    } finally {
-      if (mounted) setState(() => _isCompleting = false);
-    }
-  }
-
-  // ✅ UPDATED: Finalize Delivery Logic to save "deliveredQuantity"
-  Future<void> _finalizeFullDelivery() async {
-    try {
-      String? sigUrl = await _uploadSignature();
-
-      // 1. Fetch current document state to preserve structure
-      final doc = await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).get();
-      List<dynamic> currentProducts = List.from(doc.get('products') ?? []);
-
-      // 2. Re-Build Product List injecting the Final Quantities
-      List<dynamic> updatedProducts = [];
-
-      for (var product in currentProducts) {
-        Map<String, dynamic> p = Map<String, dynamic>.from(product);
-        final key = p['productId'] ?? p['productName'];
-
-        // A. Handle Quantity (Bulk Logic)
-        if (_modifiedQuantities.containsKey(key)) {
-          // 🟢 Case 1: Quantity was modified (Client accepted less)
-          p['deliveredQuantity'] = _modifiedQuantities[key];
-        } else {
-          // 🟢 Case 2: Full delivery (Default)
-          // Since we are in _finalizeFullDelivery (Happy Path), we assume full acceptance
-          // unless it was a Serialized item that was missing (but `_completeLivraison` filters those).
-          p['deliveredQuantity'] = p['quantity'];
-        }
-
-        // B. Handle Serial Numbers (Serialized Logic)
-        // Ensure "deliveredSerials" matches "serialNumbers" for full delivery
-        // This is important because History Page might count serials
-        if (p['serialNumbers'] != null && (p['serialNumbers'] as List).isNotEmpty) {
-          p['deliveredSerials'] = p['serialNumbers'];
-        }
-
-        updatedProducts.add(p);
-      }
-
-      // 3. Update Firestore with the injected quantities
-      await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
-        'status': 'Livré',
-        'completedAt': FieldValue.serverTimestamp(),
-        'signatureUrl': sigUrl,
-        'recipientName': _recipientNameController.text,
-        'recipientPhone': _recipientPhoneController.text,
-        // ✅ CRITICAL FIX: Save the updated products list
-        'products': updatedProducts,
-      });
-
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      debugPrint("Error: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur de finalisation: $e")));
-    } finally {
-      if (mounted) setState(() => _isCompleting = false);
-    }
-  }
-
-  // ✅ UI: Mandatory Discrepancy Dialog
-  Future<Map<String, String>?> _showDiscrepancyDialog() async {
-    String? selectedReason;
-    final noteController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    return showDialog<Map<String, String>>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: Row(children: [Icon(Icons.warning_amber_rounded, color: Colors.orange), SizedBox(width: 8), Text("Écart Détecté")]),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text("Vous n'avez pas validé tous les produits. Veuillez justifier cet écart.", style: GoogleFonts.poppins(fontSize: 13)),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  decoration: InputDecoration(labelText: "Motif", border: OutlineInputBorder()),
-                  // ✅ ENSURED "Produit Endommagé" is explicitly listed as requested
-                  items: ["Produit Manquant", "Produit Endommagé", "Refus Client", "Erreur Préparation", "Autre"]
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                  onChanged: (v) => selectedReason = v,
-                  validator: (v) => v == null ? "Motif requis" : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: noteController,
-                  decoration: InputDecoration(labelText: "Note explicative", border: OutlineInputBorder()),
-                  maxLines: 3,
-                  validator: (v) => (v == null || v.length < 5) ? "Détails requis min 5 cars" : null,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: Text("Annuler", style: TextStyle(color: Colors.grey))),
-            ElevatedButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  Navigator.pop(context, {'reason': selectedReason!, 'note': noteController.text});
-                }
-              },
-              child: Text("Confirmer Ecart"),
-            )
-          ],
-        );
-      },
-    );
-  }
-
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
@@ -891,7 +902,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   Widget _buildStatusTimeline() {
     int currentStep = 0;
     if (_status == 'En Cours de Livraison') currentStep = 1;
-    if (_status == 'Livraison Partielle') currentStep = 1; // Stay at step 1 but maybe show amber?
+    if (_status == 'Livraison Partielle') currentStep = 1;
     if (_status == 'Livré') currentStep = 2;
 
     return Container(
@@ -944,7 +955,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     return Expanded(
       child: Container(
         height: 2,
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 20), // Align with circle center
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 20),
         color: isActive ? _primaryBlue : Colors.grey.shade300,
       ),
     );
@@ -962,7 +973,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       ),
       child: Column(
         children: [
-          // Header of Card (Like a ticket)
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -1110,36 +1120,37 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   Widget _buildModernProductCard(Map<String, dynamic> item, int index, {required bool isPicking}) {
     final int qty = item['quantity'] ?? 0;
-    final int pickedQty = item['pickedQuantity'] as int? ?? (item['quantity'] ?? 0);
 
-    final bool isBulk = item['isBulk'] == true;
-    int pickedCount = 0;
-    bool isDone = false;
+    // ✅ DELIVERY: Read from _itemSplits if available, else default to Qty
+    int deliveredDisplayQty = qty;
+    bool hasDiscrepancy = false;
 
-    // ✅ DELIVERY: Get Modified Quantity if available
-    int deliveredDisplayQty = qty; // Default to full
-    if (!isPicking && isBulk) {
+    if (!isPicking) {
       final key = item['productId'] ?? item['productName'];
-      deliveredDisplayQty = _modifiedQuantities[key] ?? qty;
+      if (_itemSplits.containsKey(key)) {
+        deliveredDisplayQty = _itemSplits[key]!['accepted'] ?? qty;
+        hasDiscrepancy = deliveredDisplayQty < qty;
+      }
     }
 
+    // Status logic
+    bool isDone = false;
+    int pickedCount = 0;
     if (isPicking) {
-      pickedCount = isBulk ? (item['pickedQuantity'] as int? ?? 0) : (item['serialNumbers'] as List?)?.length ?? 0;
+      pickedCount = (item['isBulk'] == true) ? (item['pickedQuantity'] as int? ?? 0) : (item['serialNumbers'] as List?)?.length ?? 0;
       isDone = pickedCount >= qty;
     } else {
       isDone = item['delivered'] == true;
     }
 
-    // ✅ DETECT DISCREPANCY (Amber Color)
-    bool hasDiscrepancy = !isPicking && isBulk && isDone && (deliveredDisplayQty < qty);
-
     final bool isSelected = _selectedPickingIndex == index;
+    final bool isBulk = item['isBulk'] == true;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: hasDiscrepancy ? Colors.orange.shade50 : Colors.white, // ✅ AMBER BACKGROUND IF DISCREPANCY
+        color: hasDiscrepancy ? Colors.orange.shade50 : Colors.white, // ✅ AMBER BG FOR DISCREPANCY
         borderRadius: BorderRadius.circular(16),
         border: isSelected
             ? Border.all(color: _primaryBlue, width: 2)
@@ -1196,12 +1207,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               Padding(
                                 padding: const EdgeInsets.only(top: 4.0),
                                 child: isBulk
-                                // ✅ SMART COUNTER DISPLAY
                                     ? Row(
                                   children: [
                                     Text('Cmd: $qty', style: TextStyle(color: Colors.grey, fontSize: 12)),
                                     SizedBox(width: 8),
-                                    Text('Livré: $deliveredDisplayQty', style: TextStyle(
+                                    Text('Accepté: $deliveredDisplayQty', style: TextStyle(
                                         color: hasDiscrepancy ? Colors.deepOrange : Colors.green,
                                         fontWeight: FontWeight.bold,
                                         fontSize: 14)),
@@ -1250,18 +1260,19 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                           ],
                         )
                       else
-                      // ✅ DELIVERY MODE: Checkbox + Edit Button for Bulk
+                      // ✅ DELIVERY MODE ACTIONS
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (isBulk && isDone)
-                              IconButton(
-                                icon: Icon(Icons.edit, color: Colors.blueGrey, size: 20),
-                                onPressed: () {
-                                  final key = item['productId'] ?? item['productName'];
-                                  _showDeliveryQuantityDialog(key, qty, deliveredDisplayQty);
-                                },
-                              ),
+                            // Allow edit for both Bulk and Serialized (if serialized is rejected)
+                            IconButton(
+                              icon: Icon(Icons.edit, color: Colors.blueGrey, size: 20),
+                              onPressed: () {
+                                final key = item['productId'] ?? item['productName'];
+                                // For serialized, maxQty is 1. For bulk, it's qty.
+                                _showDeliveryQuantityDialog(key, qty, deliveredDisplayQty);
+                              },
+                            ),
                             IconButton(
                               icon: Icon(
                                   isDone ? Icons.check_box : Icons.check_box_outline_blank,
