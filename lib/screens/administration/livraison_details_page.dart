@@ -33,6 +33,9 @@ import 'package:boitex_info_app/services/livraison_pdf_service.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// ✅ STOCK SERVICE (Added for future logic)
+import 'package:boitex_info_app/services/stock_service.dart';
+
 class LivraisonDetailsPage extends StatefulWidget {
   final String livraisonId;
   const LivraisonDetailsPage({super.key, required this.livraisonId});
@@ -49,6 +52,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   // -- Delivery Mode Lists --
   List<Map<String, dynamic>> _serializedItems = [];
   List<Map<String, dynamic>> _bulkItems = [];
+
+  // ✅ NEW: Map to track modified quantities for Bulk Items (Key: ProductId, Value: DeliveredQty)
+  final Map<String, int> _modifiedQuantities = {};
 
   // -- Picking Mode List --
   List<Map<String, dynamic>> _pickingItems = [];
@@ -238,6 +244,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
             if (isBulkItem) {
               String key = productId ?? productName;
+
+              // ✅ INITIALIZE MODIFIED QUANTITY MAP
+              // By default, if not completed, we assume Full Delivery (quantity) to save clicks
+              // If already completed or partial, we might load existing deliveredQuantity
+              if (!_modifiedQuantities.containsKey(key)) {
+                _modifiedQuantities[key] = isCompleted ? deliveredQuantity : quantity;
+              }
+
               if (bulkMap.containsKey(key)) {
                 bulkMap[key]!['quantity'] = (bulkMap[key]!['quantity'] as int) + quantity;
                 bulkMap[key]!['pickedQuantity'] = (bulkMap[key]!['pickedQuantity'] as int) + pickedQuantity;
@@ -250,6 +264,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                   'pickedQuantity': pickedQuantity,
                   'delivered': isCompleted || (deliveredQuantity >= quantity), // Auto-check if full quantity delivered
                   'type': 'bulk',
+                  'isBulk': true, // ✅ FIXED: Explicitly set isBulk to true for display logic
                   'productId': productId,
                   'deliveredQuantity': deliveredQuantity, // Track for saving
                 };
@@ -271,6 +286,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                   'originalSerialNumber': (i < serials.length) ? serials[i] : null,
                   'delivered': wasDelivered,
                   'type': 'serialized',
+                  'isBulk': false, // ✅ FIXED: Explicitly set isBulk to false for display logic
                   'productId': productId,
                   'quantity': 1,
                   'pickedQuantity': 1,
@@ -321,7 +337,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           if (!groupedMap.containsKey(key)) {
             groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
           }
-          groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + (item['quantity'] as int);
+          // ✅ PDF GENERATION: Use the Modified Quantity if available
+          final String mapKey = item['productId'] ?? item['productName'];
+          final int quantityToPrint = _modifiedQuantities[mapKey] ?? (item['quantity'] as int);
+
+          groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + quantityToPrint;
         }
         pdfProducts = groupedMap.values.map((map) => ProductSelection.fromJson(map)).toList();
       }
@@ -376,6 +396,49 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             if (val > max) val = max; if (val < 0) val = 0;
             setState(() => _pickingItems[index]['pickedQuantity'] = val);
             _savePickingState();
+          }
+          Navigator.pop(context);
+        }, child: const Text("Valider"))
+      ],
+    ));
+  }
+
+  // ✅ NEW DIALOG: Edit Delivery Quantity (On Site)
+  void _showDeliveryQuantityDialog(String key, int maxQty, int currentQty) {
+    final TextEditingController qtyCtrl = TextEditingController(text: currentQty.toString());
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text("Quantité Acceptée par Client"),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text("Commande Initiale: $maxQty", style: TextStyle(color: Colors.grey)),
+          SizedBox(height: 10),
+          TextField(
+            controller: qtyCtrl,
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            decoration: const InputDecoration(
+                labelText: "Quantité Réelle",
+                border: OutlineInputBorder(),
+                helperText: "Entrez la quantité que le client garde"
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+        ElevatedButton(onPressed: () {
+          int? val = int.tryParse(qtyCtrl.text);
+          if (val != null) {
+            if (val > maxQty) val = maxQty; // Cap at max
+            if (val < 0) val = 0;
+
+            // ✅ FIX: Capture value as non-nullable int for closure
+            final int finalVal = val;
+
+            setState(() {
+              _modifiedQuantities[key] = finalVal;
+            });
           }
           Navigator.pop(context);
         }, child: const Text("Valider"))
@@ -466,6 +529,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   // ✅ NEW: Main Action for Delivery - Checks for Discrepancies
+  // ✅ MODIFIED: Auto-handle "Resolved" returns and skip dialog
   Future<void> _completeLivraison() async {
     if (_isLivraisonCompleted) return;
 
@@ -481,19 +545,61 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
     // Check for Partial Delivery
     bool hasMissingItems = false;
+    List<Map<String, dynamic>> resolvedReturns = []; // Track items that need auto-return
+
     for (var item in _serializedItems) {
       if (item['delivered'] != true) hasMissingItems = true;
     }
+
+    // ✅ CHECK BULK DISCREPANCY & IDENTIFY RETURNS
     for (var item in _bulkItems) {
-      if (item['delivered'] != true) hasMissingItems = true;
+      final key = item['productId'] ?? item['productName'];
+      final int deliveredQty = _modifiedQuantities[key] ?? item['quantity'];
+
+      if (item['delivered'] != true) {
+        // Not checked at all -> Missing
+        hasMissingItems = true;
+      } else if (deliveredQty < item['quantity']) {
+        // Checked BUT quantity is less -> Resolved Return (Client Refusal)
+        // Do NOT count as missing, but add to resolved list
+        resolvedReturns.add({
+          'productId': item['productId'],
+          'productName': item['productName'],
+          'quantityToReturn': item['quantity'] - deliveredQty,
+        });
+      }
     }
 
     if (hasMissingItems) {
-      // ⚠️ TRIGGER PARTIAL LOOP
+      // ⚠️ TRIGGER PARTIAL LOOP (Only for genuinely missing/unchecked items)
       await _handlePartialDelivery();
     } else {
-      // ✅ HAPPY PATH
-      await _finalizeFullDelivery();
+      // ✅ HAPPY PATH (OR RESOLVED RETURN)
+      setState(() => _isCompleting = true);
+
+      try {
+        // 1. Process Auto-Returns silently
+        if (resolvedReturns.isNotEmpty) {
+          for (var ret in resolvedReturns) {
+            if (ret['productId'] != null) {
+              await StockService().restockFromPartialDelivery(
+                  ret['productId'],
+                  ret['quantityToReturn'],
+                  productName: ret['productName'],
+                  deliveryId: widget.livraisonId
+              );
+            }
+          }
+        }
+
+        // 2. Finalize Full Delivery
+        await _finalizeFullDelivery();
+
+      } catch (e) {
+        debugPrint("Error processing returns: $e");
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+        if (mounted) setState(() => _isCompleting = false);
+      }
     }
   }
 
@@ -532,12 +638,42 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       // Update Bulk Items
       for (var localItem in _bulkItems) {
         if (localItem['delivered'] == true) {
+          final key = localItem['productId'] ?? localItem['productName'];
+          // ✅ USE THE MODIFIED QUANTITY
+          final int actualDeliveredQty = _modifiedQuantities[key] ?? localItem['quantity'];
+          final int initialQty = localItem['quantity'];
+
           // Find matching product in list (by ID or Name)
           for (int i = 0; i < currentProducts.length; i++) {
             if (currentProducts[i]['productId'] == localItem['productId'] && currentProducts[i]['productName'] == localItem['productName']) {
               Map<String, dynamic> product = Map<String, dynamic>.from(currentProducts[i]);
-              product['deliveredQuantity'] = localItem['quantity']; // Assuming full bulk delivery for now or match localItem logic
+
+              // We need to accumulate if multiple partial deliveries happen
+              // But for now, let's assume deliveredQuantity is replaced or added
+              // NOTE: deliveredQuantity in Firestore should track TOTAL delivered over time
+              int prevDelivered = product['deliveredQuantity'] ?? 0;
+
+              // If this is a new partial action, we add actualDeliveredQty to prev?
+              // Wait, _modifiedQuantities tracks what is delivered *TODAY*.
+              // Ideally we add it.
+              // But if the user rejects the rest, we might need to handle the return logic here.
+
+              product['deliveredQuantity'] = prevDelivered + actualDeliveredQty;
               currentProducts[i] = product;
+
+              // ⚠️ CRITICAL: Handle the RETURN TO STOCK logic here if needed
+              // If actualDeliveredQty < initialQty, the difference (initialQty - actualDeliveredQty) is effectively "returned" to stock
+              // Because we deducted the FULL initialQty during preparation.
+              // This is the "Client Change Mind" logic.
+              final int refusedQty = initialQty - actualDeliveredQty;
+              if (refusedQty > 0 && localItem['productId'] != null) {
+                await StockService().restockFromPartialDelivery(
+                    localItem['productId'],
+                    refusedQty,
+                    productName: localItem['productName'],
+                    deliveryId: widget.livraisonId
+                );
+              }
             }
           }
         }
@@ -577,7 +713,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   Future<void> _finalizeFullDelivery() async {
-    setState(() => _isCompleting = true);
+    // Note: _isCompleting is managed by caller now for bulk flow
+    // If called directly, ensure state is set
+    // But since _completeLivraison handles state for the "Happy Path + Return", we just proceed
     try {
       String? sigUrl = await _uploadSignature();
       await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
@@ -896,6 +1034,13 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     int pickedCount = 0;
     bool isDone = false;
 
+    // ✅ DELIVERY: Get Modified Quantity if available
+    int deliveredDisplayQty = qty; // Default to full
+    if (!isPicking && isBulk) {
+      final key = item['productId'] ?? item['productName'];
+      deliveredDisplayQty = _modifiedQuantities[key] ?? qty;
+    }
+
     if (isPicking) {
       pickedCount = isBulk ? (item['pickedQuantity'] as int? ?? 0) : (item['serialNumbers'] as List?)?.length ?? 0;
       isDone = pickedCount >= qty;
@@ -903,15 +1048,20 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       isDone = item['delivered'] == true;
     }
 
+    // ✅ DETECT DISCREPANCY (Amber Color)
+    bool hasDiscrepancy = !isPicking && isBulk && isDone && (deliveredDisplayQty < qty);
+
     final bool isSelected = _selectedPickingIndex == index;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: hasDiscrepancy ? Colors.orange.shade50 : Colors.white, // ✅ AMBER BACKGROUND IF DISCREPANCY
         borderRadius: BorderRadius.circular(16),
-        border: isSelected ? Border.all(color: _primaryBlue, width: 2) : Border.all(color: Colors.transparent),
+        border: isSelected
+            ? Border.all(color: _primaryBlue, width: 2)
+            : (hasDiscrepancy ? Border.all(color: Colors.orange.shade300) : Border.all(color: Colors.transparent)),
         boxShadow: [
           BoxShadow(
             color: isDone ? _accentGreen.withOpacity(0.1) : Colors.black.withOpacity(0.05),
@@ -925,7 +1075,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         child: Column(
           children: [
             if (isDone)
-              Container(height: 4, width: double.infinity, color: _accentGreen),
+              Container(height: 4, width: double.infinity, color: hasDiscrepancy ? Colors.orange : _accentGreen),
 
             Padding(
               padding: const EdgeInsets.all(16),
@@ -938,12 +1088,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: isDone ? _accentGreen.withOpacity(0.1) : _primaryBlue.withOpacity(0.05),
+                          color: isDone ? (hasDiscrepancy ? Colors.orange.withOpacity(0.1) : _accentGreen.withOpacity(0.1)) : _primaryBlue.withOpacity(0.05),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
                           isBulk ? Icons.grain : Icons.qr_code_2,
-                          color: isDone ? Colors.green : _primaryBlue,
+                          color: isDone ? (hasDiscrepancy ? Colors.orange : Colors.green) : _primaryBlue,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -963,8 +1113,20 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                             if (!isPicking)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4.0),
-                                child: Text(
-                                  isBulk ? 'Quantité: $qty' : 'SN: ${item['serialNumber'] ?? 'N/A'}',
+                                child: isBulk
+                                // ✅ SMART COUNTER DISPLAY
+                                    ? Row(
+                                  children: [
+                                    Text('Cmd: $qty', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                    SizedBox(width: 8),
+                                    Text('Livré: $deliveredDisplayQty', style: TextStyle(
+                                        color: hasDiscrepancy ? Colors.deepOrange : Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14)),
+                                  ],
+                                )
+                                    : Text(
+                                  'SN: ${item['serialNumber'] ?? 'N/A'}',
                                   style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
                               ),
@@ -1006,17 +1168,30 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                           ],
                         )
                       else
-                      // Delivery Mode - Checkbox logic
-                        IconButton(
-                          icon: Icon(
-                              isDone ? Icons.check_box : Icons.check_box_outline_blank,
-                              color: isDone ? Colors.green : Colors.grey
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              item['delivered'] = !isDone;
-                            });
-                          },
+                      // ✅ DELIVERY MODE: Checkbox + Edit Button for Bulk
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isBulk && isDone)
+                              IconButton(
+                                icon: Icon(Icons.edit, color: Colors.blueGrey, size: 20),
+                                onPressed: () {
+                                  final key = item['productId'] ?? item['productName'];
+                                  _showDeliveryQuantityDialog(key, qty, deliveredDisplayQty);
+                                },
+                              ),
+                            IconButton(
+                              icon: Icon(
+                                  isDone ? Icons.check_box : Icons.check_box_outline_blank,
+                                  color: isDone ? Colors.green : Colors.grey
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  item['delivered'] = !isDone;
+                                });
+                              },
+                            ),
+                          ],
                         )
                     ],
                   ),

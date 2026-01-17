@@ -419,4 +419,37 @@ class StockService {
       });
     });
   }
+
+  // ✅ NEW: HANDLE PARTIAL DELIVERY RESTOCK (Refus Client / Surplus)
+  Future<void> restockFromPartialDelivery(String productId, int quantity, {String? productName, String? deliveryId}) async {
+    final String userName = await _fetchUserName();
+    final productRef = _db.collection('produits').doc(productId);
+
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(productRef);
+      if (!snapshot.exists) throw Exception("Produit introuvable lors du retour stock");
+
+      // 1. Determine Product Name if not passed
+      final String finalName = productName ?? snapshot.data()?['nom'] ?? 'Produit Inconnu';
+
+      // 2. Increment Stock
+      transaction.update(productRef, {
+        'quantiteEnStock': FieldValue.increment(quantity),
+        'lastModifiedBy': userName,
+        'lastModifiedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 3. Create Stock Movement Log
+      final movementRef = _db.collection('stock_movements').doc();
+      transaction.set(movementRef, {
+        'productId': productId,
+        'productName': finalName,
+        'quantityChange': quantity, // Positive because it comes back
+        'type': 'RETOUR_LIVRAISON', // New Type for filtering
+        'notes': 'Retour immédiat (Livraison Partielle)${deliveryId != null ? " - BL: $deliveryId" : ""}',
+        'user': userName,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    });
+  }
 }

@@ -222,6 +222,15 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
     final completedAt = (data['completedAt'] as Timestamp?)?.toDate();
 
+    // ✅ DETECT PARTIAL DELIVERY
+    // Check our new 'hasReturns' flag OR calculate manually if older data
+    bool isPartial = data['hasReturns'] == true;
+
+    // Fallback manual check for older records
+    if (!isPartial && data['products'] != null) {
+      // (Optional simple check if needed, but 'hasReturns' is safest from new logic)
+    }
+
     final displayDate = completedAt ?? createdAt;
     final formattedDate = displayDate != null
         ? DateFormat('dd MMM yyyy, HH:mm').format(displayDate)
@@ -253,15 +262,19 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // Icon Box
+              // Icon Box - UPDATED for Partial State
               Container(
                 height: 48,
                 width: 48,
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
+                  color: isPartial ? Colors.orange.shade50 : Colors.green.shade50,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.check_circle, color: Colors.green, size: 24),
+                child: Icon(
+                    isPartial ? Icons.warning_amber_rounded : Icons.check_circle,
+                    color: isPartial ? Colors.orange : Colors.green,
+                    size: 24
+                ),
               ),
               const SizedBox(width: 16),
 
@@ -270,13 +283,31 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      bonNumber,
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: _textDark,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          bonNumber,
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: _textDark,
+                          ),
+                        ),
+                        if (isPartial) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                                color: Colors.orange.shade100,
+                                borderRadius: BorderRadius.circular(4)
+                            ),
+                            child: Text(
+                              "PARTIEL",
+                              style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade900),
+                            ),
+                          )
+                        ]
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(

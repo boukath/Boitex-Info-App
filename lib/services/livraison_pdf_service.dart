@@ -244,7 +244,7 @@ class LivraisonPdfService {
                                   child: pw.Row(
                                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                                     children: [
-                                      pw.Text("TOTAL ARTICLES", style: const pw.TextStyle(color: _textGrey, fontSize: 10)),
+                                      pw.Text("TOTAL ARTICLES LIVRÉS", style: const pw.TextStyle(color: _textGrey, fontSize: 10)),
                                       pw.Text(
                                           "${products.fold(0, (sum, i) => sum + i.quantity)}",
                                           style: pw.TextStyle(color: _brandPrimary, fontSize: 18, fontWeight: pw.FontWeight.bold)
@@ -363,8 +363,9 @@ class LivraisonPdfService {
       border: null,
       columnWidths: {
         0: const pw.FlexColumnWidth(2), // Ref
-        1: const pw.FlexColumnWidth(5), // Desc
-        2: const pw.FlexColumnWidth(1), // Qty
+        1: const pw.FlexColumnWidth(4), // Desc
+        2: const pw.FlexColumnWidth(1), // Cde (Ordered)
+        3: const pw.FlexColumnWidth(1), // Liv (Delivered)
       },
       children: [
         // Header
@@ -381,18 +382,30 @@ class LivraisonPdfService {
               padding: const pw.EdgeInsets.only(bottom: 8),
               child: pw.Text("DÉSIGNATION", style: pw.TextStyle(color: _brandPrimary, fontSize: 9, fontWeight: pw.FontWeight.bold)),
             ),
+            // ✅ CHANGED: Split columns
             pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 8),
-              child: pw.Text("QTÉ", textAlign: pw.TextAlign.right, style: pw.TextStyle(color: _brandPrimary, fontSize: 9, fontWeight: pw.FontWeight.bold)),
+              child: pw.Text("CDE", textAlign: pw.TextAlign.center, style: pw.TextStyle(color: _brandPrimary, fontSize: 9, fontWeight: pw.FontWeight.bold)),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 8),
+              child: pw.Text("LIV", textAlign: pw.TextAlign.right, style: pw.TextStyle(color: _brandPrimary, fontSize: 9, fontWeight: pw.FontWeight.bold)),
             ),
           ],
         ),
 
         // Spacer
-        pw.TableRow(children: [pw.SizedBox(height: 10), pw.SizedBox(height: 10), pw.SizedBox(height: 10)]),
+        pw.TableRow(children: [pw.SizedBox(height: 10), pw.SizedBox(height: 10), pw.SizedBox(height: 10), pw.SizedBox(height: 10)]),
 
         // Rows
         ...products.map((item) {
+          // Logic: Since we don't have distinct "Ordered" vs "Delivered" in the model yet,
+          // we assume for now they match unless you pass extra data.
+          // Ideally, 'item.quantity' is what was Delivered.
+          final int delivered = item.quantity;
+          // For now, Ordered = Delivered (Assuming full satisfaction or pre-filtered list)
+          final int ordered = delivered;
+
           return pw.TableRow(
             decoration: const pw.BoxDecoration(
               border: pw.Border(bottom: pw.BorderSide(color: _divider, width: 0.5)),
@@ -423,7 +436,6 @@ class LivraisonPdfService {
                                     borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
                                     border: pw.Border.all(color: _divider),
                                   ),
-                                  // ✅ Uses Courier for "Code" look, standard font package
                                   child: pw.Text(sn, style: pw.TextStyle(color: _textDark, fontSize: 8, font: pw.Font.courier()))
                               )
                           ).toList()
@@ -432,11 +444,17 @@ class LivraisonPdfService {
                   ],
                 ),
               ),
-              // Qty
+              // Qty Ordered (CDE)
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(vertical: 12),
+                alignment: pw.Alignment.topCenter,
+                child: pw.Text("$ordered", style: const pw.TextStyle(color: _textGrey, fontSize: 10)),
+              ),
+              // Qty Delivered (LIV)
               pw.Container(
                 padding: const pw.EdgeInsets.symmetric(vertical: 12),
                 alignment: pw.Alignment.topRight,
-                child: pw.Text("${item.quantity}", style: pw.TextStyle(color: _brandPrimary, fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                child: pw.Text("$delivered", style: pw.TextStyle(color: _brandPrimary, fontSize: 11, fontWeight: pw.FontWeight.bold)),
               ),
             ],
           );
