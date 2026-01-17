@@ -90,10 +90,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   bool get _isPickingMode => _status == 'À Préparer';
 
-  // ✅ Colors for the "High Quality" Vibe
-  final Color _primaryBlue = const Color(0xFF2962FF); // Premium Blue
-  final Color _accentGreen = const Color(0xFF00E676); // Neon Green
-  final Color _bgLight = const Color(0xFFF4F6F9); // Clean Grey/White
+  final Color _primaryBlue = const Color(0xFF2962FF);
+  final Color _accentGreen = const Color(0xFF00E676);
+  final Color _bgLight = const Color(0xFFF4F6F9);
 
   // ✅ UPDATED: Validation logic for delivery phase (Support Partial)
   // We no longer block if items are missing, but we track it.
@@ -255,7 +254,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               if (bulkMap.containsKey(key)) {
                 bulkMap[key]!['quantity'] = (bulkMap[key]!['quantity'] as int) + quantity;
                 bulkMap[key]!['pickedQuantity'] = (bulkMap[key]!['pickedQuantity'] as int) + pickedQuantity;
-                // Accumulate delivered quantity for bulk logic (not perfect for distinct products, but fits bulk model)
+                // Accumulate delivered quantity for bulk logic
               } else {
                 bulkMap[key] = {
                   'productName': productName,
@@ -321,9 +320,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         // Logic to reconstruct PDF items based on what is CURRENTLY showing (Delivery Note)
         final Map<String, Map<String, dynamic>> groupedMap = {};
         for (var item in _serializedItems) {
-          // Include item in PDF if it is marked as delivered OR if the ticket is completed
-          // (For partial delivery PDF, we might only want to show delivered items?
-          // For now, let's show everything but we could filter where delivered == true)
           final key = item['partNumber'] ?? item['productName'];
           if (!groupedMap.containsKey(key)) {
             groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
@@ -529,7 +525,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   // ✅ NEW: Main Action for Delivery - Checks for Discrepancies
-  // ✅ MODIFIED: Auto-handle "Resolved" returns and skip dialog
   Future<void> _completeLivraison() async {
     if (_isLivraisonCompleted) return;
 
@@ -554,6 +549,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     // ✅ CHECK BULK DISCREPANCY & IDENTIFY RETURNS
     for (var item in _bulkItems) {
       final key = item['productId'] ?? item['productName'];
+      // The delivered quantity comes from the edit dialog (modified) or defaults to original quantity
       final int deliveredQty = _modifiedQuantities[key] ?? item['quantity'];
 
       if (item['delivered'] != true) {
@@ -649,22 +645,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               Map<String, dynamic> product = Map<String, dynamic>.from(currentProducts[i]);
 
               // We need to accumulate if multiple partial deliveries happen
-              // But for now, let's assume deliveredQuantity is replaced or added
-              // NOTE: deliveredQuantity in Firestore should track TOTAL delivered over time
               int prevDelivered = product['deliveredQuantity'] ?? 0;
 
-              // If this is a new partial action, we add actualDeliveredQty to prev?
-              // Wait, _modifiedQuantities tracks what is delivered *TODAY*.
-              // Ideally we add it.
-              // But if the user rejects the rest, we might need to handle the return logic here.
-
+              // For partials, assume we're adding this delivery's successful count
+              // Note: If reusing delivery notes, careful with accumulation logic
               product['deliveredQuantity'] = prevDelivered + actualDeliveredQty;
               currentProducts[i] = product;
 
               // ⚠️ CRITICAL: Handle the RETURN TO STOCK logic here if needed
-              // If actualDeliveredQty < initialQty, the difference (initialQty - actualDeliveredQty) is effectively "returned" to stock
-              // Because we deducted the FULL initialQty during preparation.
-              // This is the "Client Change Mind" logic.
               final int refusedQty = initialQty - actualDeliveredQty;
               if (refusedQty > 0 && localItem['productId'] != null) {
                 await StockService().restockFromPartialDelivery(
@@ -682,7 +670,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       // 2. Add Event Log
       final newEvent = {
         'event': 'partial_delivery',
-        'timestamp': Timestamp.now(), // ✅ FIXED: Changed from FieldValue.serverTimestamp()
+        'timestamp': Timestamp.now(),
         'technician': user?.displayName ?? 'Technicien',
         'reason': result['reason'],
         'note': result['note'],
@@ -712,21 +700,61 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     }
   }
 
+  // ✅ UPDATED: Finalize Delivery Logic to save "deliveredQuantity"
   Future<void> _finalizeFullDelivery() async {
-    // Note: _isCompleting is managed by caller now for bulk flow
-    // If called directly, ensure state is set
-    // But since _completeLivraison handles state for the "Happy Path + Return", we just proceed
     try {
       String? sigUrl = await _uploadSignature();
+
+      // 1. Fetch current document state to preserve structure
+      final doc = await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).get();
+      List<dynamic> currentProducts = List.from(doc.get('products') ?? []);
+
+      // 2. Re-Build Product List injecting the Final Quantities
+      List<dynamic> updatedProducts = [];
+
+      for (var product in currentProducts) {
+        Map<String, dynamic> p = Map<String, dynamic>.from(product);
+        final key = p['productId'] ?? p['productName'];
+
+        // A. Handle Quantity (Bulk Logic)
+        if (_modifiedQuantities.containsKey(key)) {
+          // 🟢 Case 1: Quantity was modified (Client accepted less)
+          p['deliveredQuantity'] = _modifiedQuantities[key];
+        } else {
+          // 🟢 Case 2: Full delivery (Default)
+          // Since we are in _finalizeFullDelivery (Happy Path), we assume full acceptance
+          // unless it was a Serialized item that was missing (but `_completeLivraison` filters those).
+          p['deliveredQuantity'] = p['quantity'];
+        }
+
+        // B. Handle Serial Numbers (Serialized Logic)
+        // Ensure "deliveredSerials" matches "serialNumbers" for full delivery
+        // This is important because History Page might count serials
+        if (p['serialNumbers'] != null && (p['serialNumbers'] as List).isNotEmpty) {
+          p['deliveredSerials'] = p['serialNumbers'];
+        }
+
+        updatedProducts.add(p);
+      }
+
+      // 3. Update Firestore with the injected quantities
       await FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId).update({
         'status': 'Livré',
         'completedAt': FieldValue.serverTimestamp(),
         'signatureUrl': sigUrl,
         'recipientName': _recipientNameController.text,
         'recipientPhone': _recipientPhoneController.text,
+        // ✅ CRITICAL FIX: Save the updated products list
+        'products': updatedProducts,
       });
+
       if (mounted) Navigator.pop(context);
-    } catch (e) { debugPrint("Error: $e"); } finally { if (mounted) setState(() => _isCompleting = false); }
+    } catch (e) {
+      debugPrint("Error: $e");
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur de finalisation: $e")));
+    } finally {
+      if (mounted) setState(() => _isCompleting = false);
+    }
   }
 
   // ✅ UI: Mandatory Discrepancy Dialog
