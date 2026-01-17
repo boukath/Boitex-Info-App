@@ -34,6 +34,21 @@ class NotificationGroup {
   });
 }
 
+// ✅ HELPER CLASS FOR STATUS STYLING
+class _StatusAttributes {
+  final Color color;
+  final Color bgColor;
+  final String label;
+  final IconData badgeIcon;
+
+  _StatusAttributes({
+    required this.color,
+    required this.bgColor,
+    required this.label,
+    required this.badgeIcon,
+  });
+}
+
 class NotificationsPage extends StatefulWidget {
   final String userRole;
 
@@ -52,10 +67,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
   bool _isLoading = false;
 
   // 🎨 Theme Colors (Premium Palette)
-  final Color _bgLight = const Color(0xFFF0F2F5); // Slightly darker for contrast
+  final Color _bgLight = const Color(0xFFF0F2F5);
   final Color _cardWhite = Colors.white;
   final Color _primaryBlue = const Color(0xFF2962FF);
-  final Color _textDark = const Color(0xFF111111); // Darker black
+  final Color _textDark = const Color(0xFF111111);
   final Color _textGrey = const Color(0xFF616161);
 
   @override
@@ -120,45 +135,111 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return clean;
   }
 
-  /// ✅ STATUS PILL LOGIC (Updated Style)
-  Widget _buildStatusPill(String body) {
-    Color pillColor = Colors.grey.shade100;
-    Color textColor = Colors.grey.shade700;
-    String statusText = "INFO";
-
+  /// ✅ CENTRALIZED STATUS LOGIC
+  /// Analyzes the text and returns Colors, Labels, and Icons
+  _StatusAttributes _getStatusAttributes(String body) {
     final lowerBody = body.toLowerCase();
 
     if (lowerBody.contains("terminé") || lowerBody.contains("clôturé") || lowerBody.contains("livré") || lowerBody.contains("validé")) {
-      pillColor = const Color(0xFFE8F5E9);
-      textColor = const Color(0xFF1B5E20);
-      statusText = "TERMINÉ";
+      return _StatusAttributes(
+        color: const Color(0xFF1B5E20),
+        bgColor: const Color(0xFFE8F5E9),
+        label: "TERMINÉ",
+        badgeIcon: Icons.check_circle_rounded,
+      );
     } else if (lowerBody.contains("en cours") || lowerBody.contains("démarré") || lowerBody.contains("traitement")) {
-      pillColor = const Color(0xFFFFF3E0);
-      textColor = const Color(0xFFE65100);
-      statusText = "EN COURS";
-    } else if (lowerBody.contains("nouveau") || lowerBody.contains("assigné") || lowerBody.contains("créé")) {
-      pillColor = const Color(0xFFE3F2FD);
-      textColor = const Color(0xFF0D47A1);
-      statusText = "NOUVEAU";
+      return _StatusAttributes(
+        color: const Color(0xFFE65100),
+        bgColor: const Color(0xFFFFF3E0),
+        label: "EN COURS",
+        badgeIcon: Icons.schedule_rounded, // or sync
+      );
     } else if (lowerBody.contains("urgent") || lowerBody.contains("problème") || lowerBody.contains("panne")) {
-      pillColor = const Color(0xFFFFEBEE);
-      textColor = const Color(0xFFB71C1C);
-      statusText = "URGENT";
+      return _StatusAttributes(
+        color: const Color(0xFFB71C1C),
+        bgColor: const Color(0xFFFFEBEE),
+        label: "URGENT",
+        badgeIcon: Icons.warning_rounded,
+      );
+    } else {
+      // Default / Nouveau
+      return _StatusAttributes(
+        color: const Color(0xFF0D47A1),
+        bgColor: const Color(0xFFE3F2FD),
+        label: "INFO",
+        badgeIcon: Icons.info_rounded,
+      );
     }
+  }
 
+  /// ✅ DYNAMIC STORYTELLER ICON
+  /// Combines the Collection Icon (Truck, Wrench) with the Status (Color, Badge)
+  Widget _buildDynamicStoryIcon(String collection, String body) {
+    final status = _getStatusAttributes(body);
+    final IconData mainIcon = _getIconForCollection(collection);
+
+    return Stack(
+      children: [
+        // 1. Base Container
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: status.bgColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: status.color.withOpacity(0.15), width: 1.5),
+          ),
+          child: Icon(
+            mainIcon,
+            color: status.color.withOpacity(0.85),
+            size: 24,
+          ),
+        ),
+        // 2. Status Badge Overlay
+        Positioned(
+          bottom: -2,
+          right: -2,
+          child: Container(
+            padding: const EdgeInsets.all(2), // White border effect
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: status.color,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: status.color.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2)),
+                ],
+              ),
+              child: Icon(
+                status.badgeIcon,
+                color: Colors.white,
+                size: 10,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// ✅ STATUS PILL (Updated to use centralized logic)
+  Widget _buildStatusPill(_StatusAttributes status) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: pillColor,
-        borderRadius: BorderRadius.circular(8), // Less rounded, more "tag" like
-        border: Border.all(color: textColor.withOpacity(0.1)),
+        color: status.bgColor,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        statusText,
+        status.label,
         style: GoogleFonts.poppins(
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: FontWeight.w700,
-          color: textColor,
+          color: status.color,
           letterSpacing: 0.5,
         ),
       ),
@@ -310,6 +391,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final String rawBody = latestData['body'] ?? '';
     final String cleanTitle = _cleanTitle(rawTitle);
     final int count = group.events.length;
+    final status = _getStatusAttributes(rawBody); // Get status info once
 
     // Determine category name from collection
     String categoryName = group.collection.toUpperCase();
@@ -318,10 +400,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return Container(
       decoration: BoxDecoration(
         color: _cardWhite,
-        borderRadius: BorderRadius.circular(24), // Big rounded corners
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08), // Deep soft shadow
+            color: Colors.black.withOpacity(0.08),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -337,26 +419,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
               // 1. TOP HEADER BANNER (Gradient)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8), // Slimmer header
                 decoration: BoxDecoration(
                   gradient: _getGradientForType(group.collection),
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      _getIconForCollection(group.collection),
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 10),
+                    // Small icon removed from here, moved to main body
                     Expanded(
                       child: Text(
                         categoryName,
                         style: GoogleFonts.poppins(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 1.2,
+                          letterSpacing: 1.5,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -364,7 +441,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     ),
                     if (group.hasUnread)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(20),
@@ -373,7 +450,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           "NOUVEAU",
                           style: GoogleFonts.poppins(
                             color: Colors.white,
-                            fontSize: 10,
+                            fontSize: 9,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -382,55 +459,68 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
               ),
 
-              // 2. HERO CONTENT
+              // 2. HERO CONTENT (With Dynamic Storyteller Icon)
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-                child: Column(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      cleanTitle, // Big Store Name
-                      style: GoogleFonts.poppins(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: _textDark,
-                        height: 1.1,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _buildStatusPill(rawBody),
-                        if (count > 1) ...[
-                          const SizedBox(width: 8),
+                    // 🔥 THE NEW PRO ICON
+                    _buildDynamicStoryIcon(group.collection, rawBody),
+
+                    const SizedBox(width: 16),
+
+                    // TEXT CONTENT
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            "+${count - 1} maj",
+                            cleanTitle,
                             style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: _textGrey,
+                              fontSize: 18, // Slightly smaller to fit better
+                              fontWeight: FontWeight.w700,
+                              color: _textDark,
+                              height: 1.2,
                             ),
                           ),
-                        ]
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      rawBody,
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        color: _textGrey,
-                        height: 1.5,
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              _buildStatusPill(status),
+                              if (count > 1) ...[
+                                const SizedBox(width: 8),
+                                Text(
+                                  "+${count - 1} maj",
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: _textGrey,
+                                  ),
+                                ),
+                              ]
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            rawBody,
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: _textGrey,
+                              height: 1.5,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 10),
-              Divider(color: Colors.grey.shade100, thickness: 1.5),
+              const SizedBox(height: 0), // Removed extra space
+              Divider(color: Colors.grey.shade100, thickness: 1.5, height: 1),
 
               // 3. ACTION FOOTER
               Padding(
@@ -449,9 +539,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     ),
                     const Spacer(),
                     Text(
-                      "VOIR LES DÉTAILS",
+                      "VOIR",
                       style: GoogleFonts.poppins(
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: _primaryBlue,
                         letterSpacing: 0.5,
