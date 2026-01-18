@@ -24,6 +24,16 @@ class ManageStoresPage extends StatelessWidget {
     String storeId = doc.id;
     String storeName = data['name'] ?? 'Magasin';
 
+    // ✅ NEW: Extract and Format Location
+    dynamic rawLocation = data['location'];
+    String? formattedLocation;
+
+    if (rawLocation is GeoPoint) {
+      formattedLocation = "${rawLocation.latitude.toStringAsFixed(4)}, ${rawLocation.longitude.toStringAsFixed(4)}";
+    } else if (rawLocation is String) {
+      formattedLocation = rawLocation;
+    }
+
     String? token = data['qr_access_token'];
 
     if (token == null || token.isEmpty) {
@@ -35,11 +45,13 @@ class ManageStoresPage extends StatelessWidget {
     }
 
     if (context.mounted) {
+      // ✅ UPDATED: Added formattedLocation as the 5th argument
       await StoreQrPdfService.generateStoreQr(
         storeName,
         clientName,
         storeId,
         token,
+        formattedLocation,
       );
     }
   }
@@ -177,8 +189,17 @@ class ManageStoresPage extends StatelessWidget {
               var storeDoc = stores[index];
               var storeData = storeDoc.data() as Map<String, dynamic>;
               String storeName = storeData['name'] ?? 'Nom Inconnu';
-              String storeLocation = storeData['location'] ?? 'Localisation Inconnue';
-              String? logoUrl = storeData['logoUrl']; // ✅ FETCH LOGO URL
+
+              // Formatting the location for the UI display
+              dynamic loc = storeData['location'];
+              String displayLocation = "Localisation Inconnue";
+              if (loc is GeoPoint) {
+                displayLocation = "${loc.latitude.toStringAsFixed(3)}, ${loc.longitude.toStringAsFixed(3)}";
+              } else if (loc is String) {
+                displayLocation = loc;
+              }
+
+              String? logoUrl = storeData['logoUrl'];
               String storeId = storeDoc.id;
 
               // 🟢 EXTRACT CONTRACT INFO FOR PILLS
@@ -236,7 +257,6 @@ class ManageStoresPage extends StatelessWidget {
                         ),
                       );
                     },
-                    // Long press to edit details
                     onLongPress: () {
                       Navigator.push(
                         context,
@@ -266,7 +286,6 @@ class ManageStoresPage extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          // ✅ UPDATED: Show Logo if available, else show Icon
                           logoUrl != null
                               ? CircleAvatar(
                             radius: 24,
@@ -303,7 +322,7 @@ class ManageStoresPage extends StatelessWidget {
                                     const SizedBox(width: 4),
                                     Expanded(
                                       child: Text(
-                                        storeLocation,
+                                        displayLocation,
                                         style: TextStyle(
                                             fontSize: 13,
                                             color: Colors.grey.shade600),
@@ -312,8 +331,6 @@ class ManageStoresPage extends StatelessWidget {
                                     ),
                                   ],
                                 ),
-
-                                // 🆕 CREDIT WALLET PILLS
                                 if (hasActiveContract) ...[
                                   const SizedBox(height: 8),
                                   Row(
@@ -369,7 +386,6 @@ class ManageStoresPage extends StatelessWidget {
     );
   }
 
-  // 💊 HELPER FOR CREDIT BADGES
   Widget _buildCreditBadge(String label, int used, int quota, Color baseColor) {
     int remaining = quota - used;
     bool isLow = remaining <= 0;

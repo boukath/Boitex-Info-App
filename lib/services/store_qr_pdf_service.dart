@@ -8,12 +8,13 @@ import 'package:printing/printing.dart';
 
 class StoreQrPdfService {
 
-  /// Generates and prints the QR Code PDF for a specific store
+  /// Generates and prints the QR Code PDF for a specific store including location data
   static Future<void> generateStoreQr(
       String storeName,
       String clientName,
       String storeId,
-      String token
+      String token,
+      String? location // ✅ Added location parameter
       ) async {
     final pdf = pw.Document();
 
@@ -42,6 +43,18 @@ class StoreQrPdfService {
                 pw.SizedBox(height: 10),
                 pw.Text(clientName.toUpperCase(), style: const pw.TextStyle(fontSize: 18, color: PdfColors.grey700)),
                 pw.Text(storeName, style: pw.TextStyle(fontSize: 30, fontWeight: pw.FontWeight.bold)),
+
+                // ✅ Added Location Display
+                if (location != null && location.isNotEmpty) ...[
+                  pw.SizedBox(height: 8),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    children: [
+                      pw.Text("Localisation: ", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+                      pw.Text(location, style: const pw.TextStyle(color: PdfColors.grey700)),
+                    ],
+                  ),
+                ],
 
                 pw.SizedBox(height: 40),
 
