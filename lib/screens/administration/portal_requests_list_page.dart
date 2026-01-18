@@ -146,6 +146,18 @@ class _PortalRequestsListPageState extends State<PortalRequestsListPage> {
     final IconData statusIcon = isCorrective ? Icons.verified_user_rounded : Icons.euro_symbol_rounded;
     final String statusLabel = isCorrective ? "SOUS CONTRAT" : "FACTURABLE";
 
+    // ✅ 3. STORE NAME & LOCATION LOGIC
+    String storeName = data['storeName'] ?? 'Magasin Inconnu';
+    dynamic rawLocation = data['storeLocation'];
+    String locationSuffix = '';
+
+    // Only show if it's a String (Text address) and not empty
+    if (rawLocation is String && rawLocation.isNotEmpty) {
+      locationSuffix = " - $rawLocation";
+    }
+
+    String finalStoreDisplay = "$storeName$locationSuffix";
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -231,7 +243,7 @@ class _PortalRequestsListPageState extends State<PortalRequestsListPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            data['storeName'] ?? 'Magasin Inconnu',
+                            finalStoreDisplay, // ✅ UPDATED DISPLAY
                             style: GoogleFonts.poppins(
                               fontWeight: FontWeight.w700,
                               fontSize: 16,

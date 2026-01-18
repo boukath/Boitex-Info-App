@@ -357,6 +357,18 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
       typeIcon = Icons.attach_money;
     }
 
+    // ✅ PREPARE STORE NAME & LOCATION
+    String storeName = data['storeName'] ?? 'Magasin Inconnu';
+    dynamic rawLocation = data['storeLocation'];
+    String locationSuffix = '';
+
+    // Only append if it's a valid text string
+    if (rawLocation is String && rawLocation.isNotEmpty) {
+      locationSuffix = " - $rawLocation";
+    }
+
+    String finalStoreDisplay = "$storeName$locationSuffix";
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
@@ -400,7 +412,7 @@ class _PortalRequestDetailsPageState extends State<PortalRequestDetailsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        data['storeName'] ?? 'Magasin Inconnu',
+                        finalStoreDisplay, // ✅ UPDATED: Shows "Store - Location"
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       Text(

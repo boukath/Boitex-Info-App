@@ -154,12 +154,25 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         }
       }
 
+      // ✅ PREPARE STORE NAME & LOCATION STRING
+      String storeName = storeData['name'] ?? 'Magasin Inconnu';
+
+      // ✅ CHANGED: Format as "Store Name - Store Location" (Text only, no Geolocation/Coords)
+      String finalStoreDisplay = storeName;
+      dynamic rawLocation = storeData['location'];
+
+      if (rawLocation is String && rawLocation.isNotEmpty) {
+        finalStoreDisplay = "$storeName - $rawLocation";
+      }
+
       if (mounted) {
         setState(() {
           _storeDoc = storeDoc;
           _clientDoc = clientDoc;
           _clientNameController.text = clientData['name'] ?? 'Client Inconnu';
-          _storeNameController.text = storeData['name'] ?? 'Magasin Inconnu';
+
+          // ✅ UPDATE STORE NAME CONTROLLER
+          _storeNameController.text = finalStoreDisplay;
 
           _activeContract = foundContract;
           _hasContract = hasContract;
