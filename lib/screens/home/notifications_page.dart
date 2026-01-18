@@ -142,34 +142,47 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
     if (lowerBody.contains("terminé") || lowerBody.contains("clôturé") || lowerBody.contains("livré") || lowerBody.contains("validé")) {
       return _StatusAttributes(
-        color: const Color(0xFF1B5E20),
+        color: const Color(0xFF1B5E20), // Green
         bgColor: const Color(0xFFE8F5E9),
         label: "TERMINÉ",
         badgeIcon: Icons.check_circle_rounded,
       );
-    } else if (lowerBody.contains("en cours") || lowerBody.contains("démarré") || lowerBody.contains("traitement")) {
+    } else if (lowerBody.contains("en cours") || lowerBody.contains("démarré") || lowerBody.contains("traitement") || lowerBody.contains("update") || lowerBody.contains("mise à jour")) {
       return _StatusAttributes(
-        color: const Color(0xFFE65100),
+        color: const Color(0xFFE65100), // Orange
         bgColor: const Color(0xFFFFF3E0),
         label: "EN COURS",
-        badgeIcon: Icons.schedule_rounded, // or sync
+        badgeIcon: Icons.schedule_rounded,
       );
     } else if (lowerBody.contains("urgent") || lowerBody.contains("problème") || lowerBody.contains("panne")) {
       return _StatusAttributes(
-        color: const Color(0xFFB71C1C),
+        color: const Color(0xFFB71C1C), // Red
         bgColor: const Color(0xFFFFEBEE),
         label: "URGENT",
         badgeIcon: Icons.warning_rounded,
       );
     } else {
-      // Default / Nouveau
+      // Default / Nouveau / Created
       return _StatusAttributes(
-        color: const Color(0xFF0D47A1),
+        color: const Color(0xFF2962FF), // Blue
         bgColor: const Color(0xFFE3F2FD),
-        label: "INFO",
+        label: "NOUVEAU",
         badgeIcon: Icons.info_rounded,
       );
     }
+  }
+
+  /// ✅ HELPER: Generate Gradient based on Status Color
+  /// This replaces the old logic that used Collection Type
+  LinearGradient _getGradientForStatus(_StatusAttributes status) {
+    return LinearGradient(
+      colors: [
+        status.color.withOpacity(0.85), // Slightly lighter start
+        status.color,                   // Solid color end
+      ],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
   }
 
   /// ✅ DYNAMIC STORYTELLER ICON
@@ -226,7 +239,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  /// ✅ STATUS PILL (Updated to use centralized logic)
+  /// ✅ STATUS PILL
   Widget _buildStatusPill(_StatusAttributes status) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -258,20 +271,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
       case 'channels': return Icons.forum_rounded;
       case 'reminders': return Icons.alarm_rounded;
       default: return Icons.notifications_rounded;
-    }
-  }
-
-  LinearGradient _getGradientForType(String? collection) {
-    switch (collection) {
-      case 'interventions': return const LinearGradient(colors: [Color(0xFFFF9966), Color(0xFFFF5E62)]);
-      case 'missions': return const LinearGradient(colors: [Color(0xFFFF512F), Color(0xFFDD2476)]);
-      case 'installations': return const LinearGradient(colors: [Color(0xFF11998E), Color(0xFF38EF7D)]);
-      case 'livraisons': return const LinearGradient(colors: [Color(0xFF00B09B), Color(0xFF96C93D)]);
-      case 'sav_tickets': return const LinearGradient(colors: [Color(0xFF8E2DE2), Color(0xFF4A00E0)]);
-      case 'requisitions': return const LinearGradient(colors: [Color(0xFFB24592), Color(0xFFF15F79)]);
-      case 'projects': return const LinearGradient(colors: [Color(0xFF0575E6), Color(0xFF021B79)]);
-      case 'reminders': return const LinearGradient(colors: [Color(0xFFF2994A), Color(0xFFF2C94C)]);
-      default: return const LinearGradient(colors: [Color(0xFF4B6CB7), Color(0xFF182848)]);
     }
   }
 
@@ -391,7 +390,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final String rawBody = latestData['body'] ?? '';
     final String cleanTitle = _cleanTitle(rawTitle);
     final int count = group.events.length;
-    final status = _getStatusAttributes(rawBody); // Get status info once
+    final status = _getStatusAttributes(rawBody); // Get status info
 
     // Determine category name from collection
     String categoryName = group.collection.toUpperCase();
@@ -416,16 +415,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. TOP HEADER BANNER (Gradient)
+              // 1. TOP HEADER BANNER (Updated Logic: Color by Status)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8), // Slimmer header
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 decoration: BoxDecoration(
-                  gradient: _getGradientForType(group.collection),
+                  // ⚡ CHANGED: Uses status color instead of collection color
+                  gradient: _getGradientForStatus(status),
                 ),
                 child: Row(
                   children: [
-                    // Small icon removed from here, moved to main body
                     Expanded(
                       child: Text(
                         categoryName,
@@ -447,7 +446,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          "NOUVEAU",
+                          "NON LU", // ⚡ UPDATED: Changed from "NOUVEAU" to "NON LU"
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontSize: 9,
@@ -459,13 +458,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
               ),
 
-              // 2. HERO CONTENT (With Dynamic Storyteller Icon)
+              // 2. HERO CONTENT
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 🔥 THE NEW PRO ICON
+                    // Dynamic Icon (Matches Status Color)
                     _buildDynamicStoryIcon(group.collection, rawBody),
 
                     const SizedBox(width: 16),
@@ -478,7 +477,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           Text(
                             cleanTitle,
                             style: GoogleFonts.poppins(
-                              fontSize: 18, // Slightly smaller to fit better
+                              fontSize: 18,
                               fontWeight: FontWeight.w700,
                               color: _textDark,
                               height: 1.2,
@@ -519,7 +518,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
               ),
 
-              const SizedBox(height: 0), // Removed extra space
+              const SizedBox(height: 0),
               Divider(color: Colors.grey.shade100, thickness: 1.5, height: 1),
 
               // 3. ACTION FOOTER
