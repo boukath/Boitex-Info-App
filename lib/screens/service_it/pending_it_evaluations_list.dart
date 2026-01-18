@@ -20,6 +20,13 @@ class PendingItEvaluationsListPage extends StatelessWidget {
       Color(0xFF0E7490),
     ];
 
+    // ✅ FIXED: Composite Filter logic for IT Projects
+    // Finds (hasItModule == true) OR (serviceType == 'Service IT')
+    final filter = Filter.or(
+      Filter('hasItModule', isEqualTo: true),
+      Filter('serviceType', isEqualTo: 'Service IT'),
+    );
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -49,11 +56,9 @@ class PendingItEvaluationsListPage extends StatelessWidget {
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('projects')
-                .where('status', isEqualTo: 'Nouvelle Demande')
-            // ***** START FIXED CODE *****
-            // Add this line to filter by service type
-                .where('serviceType', isEqualTo: 'Service IT')
-            // ***** END FIXED CODE *****
+            // ✅ APPLY THE OR FILTER HERE
+                .where(filter)
+                .where('status', whereIn: ['Nouvelle Demande', 'En Cours d\'Évaluation'])
                 .orderBy('createdAt', descending: true)
                 .snapshots(),
             builder: (context, snapshot) {
@@ -64,12 +69,12 @@ class PendingItEvaluationsListPage extends StatelessWidget {
               if (snapshot.hasError) {
                 return Center(
                     child: Text(
-                      "Une erreur s'est produite.",
+                      "Une erreur s'est produite: ${snapshot.error}",
                       style: GoogleFonts.lato(color: Colors.white70, fontSize: 16),
+                      textAlign: TextAlign.center,
                     ));
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                // Using the _buildEmptyState method from the previous design
                 return _buildEmptyState();
               }
 
@@ -80,7 +85,6 @@ class PendingItEvaluationsListPage extends StatelessWidget {
                 itemCount: projects.length,
                 itemBuilder: (context, index) {
                   final projectDoc = projects[index];
-                  // Using the _EvaluationListItem widget from the previous design
                   return _EvaluationListItem(
                     projectDoc: projectDoc,
                     userRole: userRole,
@@ -95,7 +99,6 @@ class PendingItEvaluationsListPage extends StatelessWidget {
     );
   }
 
-  // Widget for the beautiful empty state (IT Version - copied from previous design)
   Widget _buildEmptyState() {
     return Center(
       child: Padding(
@@ -135,7 +138,6 @@ class PendingItEvaluationsListPage extends StatelessWidget {
   }
 }
 
-// Custom Widget for each list item with animation (copied from previous design)
 class _EvaluationListItem extends StatefulWidget {
   final DocumentSnapshot projectDoc;
   final String userRole;
@@ -171,7 +173,6 @@ class _EvaluationListItemState extends State<_EvaluationListItem>
         _controller.forward();
       }
     });
-
 
     _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _slideAnimation = Tween<Offset>(
@@ -287,7 +288,6 @@ class _EvaluationListItemState extends State<_EvaluationListItem>
   }
 }
 
-// Helper widget for icon + text rows (copied from previous design)
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String text;

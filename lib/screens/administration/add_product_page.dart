@@ -40,6 +40,9 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   String? _mainCategory;
   String? _selectedSubcategory;
 
+  // ✅ NEW: Service Target Selection
+  String? _targetService; // 'Technique', 'IT', 'Universel'
+
   // Image related state
   // ✅ MODIFIED: Use XFile for cross-platform compatibility (Web & Mobile)
   final List<XFile> _selectedImages = [];
@@ -88,6 +91,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       _nomController.text = data['nom'] ?? '';
       _mainCategory = data['mainCategory'];
       _selectedSubcategory = data['categorie'];
+      _targetService = data['targetService']; // Load existing service target
+
       _marqueController.text = data['marque'] ?? '';
       _descriptionController.text = data['description'] ?? '';
       _referenceController.text = data['reference'] ?? '';
@@ -598,6 +603,13 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   // ✅ MODIFIED: _saveProduct with User Signature Fix
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // ✅ VALIDATE Service Target
+    if (_targetService == null) {
+      _showErrorSnackBar('Veuillez sélectionner le Service Concerné (Technique, IT, Universel)');
+      return;
+    }
+
     if (_mainCategory == null) {
       _showErrorSnackBar('Veuillez sélectionner une catégorie principale');
       return;
@@ -657,6 +669,10 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         'nom': _nomController.text.trim(),
         'mainCategory': _mainCategory,
         'categorie': _selectedSubcategory,
+
+        // ✅ NEW FIELD: Target Service
+        'targetService': _targetService,
+
         'marque': _marqueController.text.trim(),
         'description': _descriptionController.text.trim(),
         'reference': _referenceController.text.trim(),
@@ -720,6 +736,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                     child: ListView(
                       padding: const EdgeInsets.all(20),
                       children: [
+                        _buildTargetServiceSection(), // ✅ NEW: Service Selection
+                        const SizedBox(height: 20),
                         _buildMainCategorySection(),
                         const SizedBox(height: 20),
                         _buildSubcategorySection(),
@@ -864,6 +882,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
+
   Widget _buildLoadingState() {
     return Center(
       child: Column(
@@ -905,6 +924,75 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
+
+  // ✅ NEW WIDGET: Target Service Selection
+  Widget _buildTargetServiceSection() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.7)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Colors.orange, Colors.deepOrange],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.merge_type, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 16),
+                const Text(
+                  'Service Concerné *',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1F2937),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: DropdownButtonFormField<String>(
+              value: _targetService,
+              items: const [
+                DropdownMenuItem(value: 'Technique', child: Text('Technique (Installation, Portiques...)')),
+                DropdownMenuItem(value: 'IT', child: Text('IT (Réseau, Serveurs, IP...)')),
+                DropdownMenuItem(value: 'Universel', child: Text('Universel (Consommables, Câbles...)')),
+              ],
+              onChanged: (val) => setState(() => _targetService = val),
+              decoration: InputDecoration(
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+              ),
+              validator: (value) => value == null ? 'Requis' : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMainCategorySection() {
     return Container(
       decoration: BoxDecoration(

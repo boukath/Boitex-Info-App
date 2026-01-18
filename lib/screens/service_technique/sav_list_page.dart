@@ -164,7 +164,7 @@ class _SavListPageState extends State<SavListPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Tickets SAV - ${widget.serviceType}'),
+        title: Text('SAV - ${widget.serviceType}'),
         backgroundColor: Colors.orange,
         // ✅ ADDED: History Action Button
         actions: [

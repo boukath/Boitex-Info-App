@@ -68,10 +68,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   void _initializeData() {
-    // ✅ FIX: Safely cast data
     final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
 
-    // ✅ FIX 1: Safe Date Parsing
     if (data['installationDate'] != null) {
       if (data['installationDate'] is Timestamp) {
         _scheduledDate = (data['installationDate'] as Timestamp).toDate();
@@ -80,7 +78,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       }
     }
 
-    // ✅ FIX 2: Safe Technician List Parsing
     if (data['assignedTechnicians'] != null && data['assignedTechnicians'] is List) {
       final rawList = data['assignedTechnicians'] as List;
       _assignedTechnicians = rawList.map((item) {
@@ -97,7 +94,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
     _fetchTechnicians();
 
-    // Check for status or signature (handle missing signatureUrl key gracefully)
     if (data['status'] == 'Terminée' || (data.containsKey('signatureUrl') && data['signatureUrl'] != null)) {
       _fetchReportDetails();
     }
@@ -124,7 +120,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             .get();
         final mainData = mainDoc.data();
         if (mainData != null) {
-          // Check keys safely
           if (mainData.containsKey('effectiveTechnicians') ||
               mainData.containsKey('signatureUrl') ||
               mainData.containsKey('assignedTechnicianNames')) {
@@ -331,7 +326,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ... (PDF / Share Functions) ...
   Future<Map<String, dynamic>?> _fetchPdfBytes() async {
     setState(() => _isLoading = true);
     try {
@@ -389,10 +383,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     return l.endsWith('.mp4') || l.endsWith('.mov') || l.endsWith('.avi');
   }
 
-  // ===============================================================
-  // 🎨 NEW HIGH-QUALITY UI WIDGETS
-  // ===============================================================
-
   Widget _buildTimeline(String status) {
     int step = 0;
     if (status == 'Planifiée') step = 1;
@@ -440,6 +430,14 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   }
 
   Widget _buildJobTicket(Map<String, dynamic> data) {
+    // ✅ NEW: Read the installation type (Identity)
+    final serviceType = data['serviceType'] ?? 'Service Technique';
+    final isIT = serviceType == 'Service IT';
+
+    // Choose icon/color based on type
+    final typeColor = isIT ? Colors.blue : Colors.deepPurple;
+    final typeIcon = isIT ? Icons.dns : Icons.settings_input_component;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))]),
@@ -447,14 +445,24 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: _primaryBlue.withOpacity(0.05), borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
+            decoration: BoxDecoration(
+              // Gradient based on service type
+              gradient: LinearGradient(colors: [typeColor.withOpacity(0.1), Colors.white]),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("CLIENT", style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                    Row(
+                      children: [
+                        Icon(typeIcon, size: 14, color: typeColor),
+                        const SizedBox(width: 6),
+                        Text(serviceType.toUpperCase(), style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: typeColor, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
                     const SizedBox(height: 4),
                     Text(data['clientName'] ?? 'Inconnu', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
                   ],
@@ -462,7 +470,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 CircleAvatar(
                   backgroundColor: Colors.white,
                   child: IconButton(
-                    // ✅ FIXED: Check nulls for old installations
                     icon: const Icon(Icons.map, color: Colors.blue),
                     onPressed: () => _launchMaps("${data['storeName'] ?? ''} ${data['storeLocation'] ?? ''}"),
                   ),
@@ -480,7 +487,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 const SizedBox(height: 8),
                 _buildInfoRow(Icons.store, data['storeName'] ?? 'Magasin Inconnu'),
                 const SizedBox(height: 8),
-                // ✅ ADDED: Store Location Field (Safe)
                 _buildInfoRow(Icons.location_on, data['storeLocation'] ?? 'Ville Inconnue'),
                 const SizedBox(height: 8),
                 _buildInfoRow(Icons.description, data['initialRequest'] ?? 'Pas de description'),
@@ -507,9 +513,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ NEW: Completion Report Card (Notes + Signature)
   Widget _buildCompletionReport() {
-    // ✅ FIX: Use data map for safe access on old documents
     final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
 
     final notes = _installationReport?['notes'] ?? data['notes'];
@@ -588,7 +592,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ FIX 3: Safe Product List Parsing
   Widget _buildProductsCard(dynamic products) {
     List safeProducts = [];
     if (products is List) {
@@ -629,6 +632,65 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
+  // ✅ NEW: Widget Switcher Logic
+  Widget _buildEvaluationSection(Map<String, dynamic> data) {
+    final String serviceType = data['serviceType'] ?? 'Service Technique';
+
+    // Switch between IT and Technique
+    if (serviceType == 'Service IT') {
+      final itData = data['itEvaluation'] as Map<String, dynamic>? ?? {};
+      return _buildITEvalCard(itData);
+    } else {
+      final rawEvals = data['technicalEvaluation'];
+      final evals = (rawEvals is List) ? rawEvals : (rawEvals is Map ? [rawEvals] : []);
+      return _buildTechEvalList(evals);
+    }
+  }
+
+  // ✅ NEW: IT Specific Widget
+  Widget _buildITEvalCard(Map<String, dynamic> itData) {
+    if (itData.isEmpty) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.blue.shade200)),
+      child: ExpansionTile(
+        title: Text("Détails IT & Réseau", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.blue.shade800)),
+        leading: const Icon(Icons.dns, color: Colors.blue),
+        backgroundColor: Colors.transparent,
+        childrenPadding: const EdgeInsets.all(16),
+        children: [
+          // Network Info
+          Text("Réseau & Baie", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blue)),
+          const Divider(),
+          _buildBooleanRow('Réseau Existant', itData['networkExists']),
+          _buildBooleanRow('Baie Présente', itData['hasNetworkRack']),
+          if (itData['rackLocation'] != null) _buildDetailRow('Emplacement Baie', itData['rackLocation']),
+          _buildBooleanRow('Espace Dispo', itData['hasRackSpace']),
+
+          const SizedBox(height: 12),
+          // Cabling Info
+          Text("Câblage", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blue)),
+          const Divider(),
+          _buildDetailRow('Catégorie', itData['cableCategoryType']),
+          _buildBooleanRow('Chemins Câbles', itData['hasCablePaths']),
+          _buildDetailRow('Distance Max', itData['cableDistance']),
+
+          const SizedBox(height: 12),
+          // Internet Info
+          Text("Connexion", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blue)),
+          const Divider(),
+          _buildDetailRow('FAI', itData['internetProvider']),
+          _buildDetailRow('Type', itData['internetAccessType']),
+          _buildDetailRow('Modem', itData['modemLocation']),
+        ],
+      ),
+    );
+  }
+
+  // Existing Technical Widget (Unchanged logic)
   Widget _buildTechEvalList(List<dynamic> evals) {
     if (evals.isEmpty) return const SizedBox.shrink();
     return Column(
@@ -676,7 +738,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ FIX 4: Safe Media Gallery Parsing
   Widget _buildMediaGallery(Map<String, dynamic> data) {
     final rawMedia = data['mediaUrls'];
     final List<String> urls = (rawMedia is List)
@@ -729,8 +790,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   Widget build(BuildContext context) {
     final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
     final status = data['status'] ?? 'Inconnu';
-    final rawEvals = data['technicalEvaluation'];
-    final evals = (rawEvals is List) ? rawEvals : (rawEvals is Map ? [rawEvals] : []);
 
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
@@ -757,16 +816,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           children: [
             _buildTimeline(status),
             _buildJobTicket(data),
-            _buildCompletionReport(), // ✅ ADDED: Completion Report Card (Notes + Signature)
+            _buildCompletionReport(),
             const SizedBox(height: 20),
             _buildTechnicianList(),
             const SizedBox(height: 20),
-            // ✅ FIX 3 Applied Here
             _buildProductsCard(data['orderedProducts']),
             const SizedBox(height: 20),
-            _buildTechEvalList(evals),
+            // ✅ CHANGED: Now calls the smart switcher instead of hardcoded Tech eval
+            _buildEvaluationSection(data),
             const SizedBox(height: 20),
-            // ✅ FIX 4 Applied Here
             _buildMediaGallery(data),
           ],
         ),

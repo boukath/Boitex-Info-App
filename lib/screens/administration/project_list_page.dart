@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/screens/administration/project_details_page.dart';
-import 'package:boitex_info_app/utils/user_roles.dart'; // ✅ AJOUTÉ: Import pour la gestion des rôles
+import 'package:boitex_info_app/utils/user_roles.dart';
 
 class ProjectListPage extends StatefulWidget {
   final String userRole;
-  final String serviceType;
+  final String serviceType; // 'Service Technique' OR 'Service IT'
 
   const ProjectListPage({
     super.key,
@@ -23,20 +23,21 @@ class ProjectListPage extends StatefulWidget {
 class _ProjectListPageState extends State<ProjectListPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  bool _canDelete = false; // ✅ AJOUTÉ: État pour la permission de suppression
+  bool _canDelete = false;
 
-  // ✅ NEW: This list is now our single source of truth for the pipeline.
-  // It defines the title and the statuses for each tab.
   final List<Map<String, dynamic>> _pipelineStages = [
     {
       'title': 'Nouvelles',
       'statuses': ['Nouvelle Demande']
     },
     {
-      'title': 'Éval. Terminée',
-      'statuses': ['Évaluation Technique Terminé', 'Évaluation IT Terminé']
+      'title': 'En Cours',
+      'statuses': ['En Cours d\'Évaluation']
     },
-    // "Devis Envoyé" removed here
+    {
+      'title': 'Éval. Terminée',
+      'statuses': ['Évaluation Technique Terminé', 'Évaluation IT Terminé', 'Évaluation Terminée']
+    },
     {
       'title': 'Finalisation',
       'statuses': ['Finalisation de la Commande']
@@ -52,7 +53,7 @@ class _ProjectListPageState extends State<ProjectListPage>
     super.initState();
     _tabController =
         TabController(length: _pipelineStages.length, vsync: this);
-    _checkUserPermissions(); // ✅ AJOUTÉ: Vérification des permissions au démarrage
+    _checkUserPermissions();
   }
 
   @override
@@ -61,20 +62,15 @@ class _ProjectListPageState extends State<ProjectListPage>
     super.dispose();
   }
 
-  // ✅ NOUVEAU: Vérification de la permission de suppression (réservée aux managers)
   Future<void> _checkUserPermissions() async {
-    // Utilise la vérification d'accès complet existante
     final canDelete = await RolePermissions.canCurrentUserDeleteLivraison();
     if (mounted) {
       setState(() {
         _canDelete = canDelete;
-      }
-      );
+      });
     }
   }
 
-  // ✅ NOUVEAU: Fonction de suppression avec dialogue de confirmation
-  /// Affiche une boîte de dialogue de confirmation et supprime le projet si confirmé.
   Future<void> _deleteProject(String projectId, String clientName) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -127,7 +123,6 @@ class _ProjectListPageState extends State<ProjectListPage>
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,9 +131,7 @@ class _ProjectListPageState extends State<ProjectListPage>
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
-          // ✅ MODIFIED: The tabs are now built dynamically from our list
           tabs: _pipelineStages.map((stage) {
-            // We use our new badge-aware widget for each tab
             return _ProjectPipelineTab(
               serviceType: widget.serviceType,
               tabTitle: stage['title'] as String,
@@ -147,18 +140,16 @@ class _ProjectListPageState extends State<ProjectListPage>
           }).toList(),
         ),
       ),
-      // ✅ MODIFIED: Passing state and callback to _ProjectListStream
       body: TabBarView(
         controller: _tabController,
         children: _pipelineStages.map((stage) {
-          // We re-use the same list widget for each tab's content
           return _ProjectListStream(
             userRole: widget.userRole,
             serviceType: widget.serviceType,
             statuses: stage['statuses'] as List<String>,
             emptyMessage: 'Aucun projet dans "${stage['title']}".',
-            canDelete: _canDelete, // ✅ PASSAGE DE L'ÉTAT
-            onDelete: _deleteProject, // ✅ PASSAGE DU CALLBACK
+            canDelete: _canDelete,
+            onDelete: _deleteProject,
           );
         }).toList(),
       ),
@@ -166,9 +157,7 @@ class _ProjectListPageState extends State<ProjectListPage>
   }
 }
 
-// ✅ --- NEW WIDGET ---
-// This widget is responsible for building a single tab and
-// fetching its own count to display a badge.
+// ✅ --- UPDATED: BADGE TAB WITH COMPOSITE FILTER (OR Logic) ---
 class _ProjectPipelineTab extends StatelessWidget {
   final String serviceType;
   final String tabTitle;
@@ -182,25 +171,30 @@ class _ProjectPipelineTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // We use a StreamBuilder to listen for the count
+    // 🧠 LOGIC: Check EITHER the boolean flag OR the legacy string
+    final String flagName = serviceType == 'Service IT' ? 'hasItModule' : 'hasTechniqueModule';
+
+    // We create a filter that says: (Flag == true) OR (LegacyString == 'Service X')
+    final filter = Filter.or(
+      Filter(flagName, isEqualTo: true),
+      Filter('serviceType', isEqualTo: serviceType),
+    );
+
     return StreamBuilder<int>(
-      // ✅ This query is very efficient. .map((s) => s.size)
-      // gets ONLY the count, not all the documents.
       stream: FirebaseFirestore.instance
           .collection('projects')
-          .where('serviceType', isEqualTo: serviceType)
+      // ✅ APPLY THE OR FILTER
+          .where(filter)
           .where('status', whereIn: statuses)
           .snapshots()
           .map((snapshot) => snapshot.size),
       builder: (context, snapshot) {
         final int count = snapshot.data ?? 0;
 
-        // If count is 0, just show the text
         if (count == 0) {
           return Tab(text: tabTitle);
         }
 
-        // If count > 0, show the text + badge
         return Tab(
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -210,7 +204,7 @@ class _ProjectPipelineTab extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(5),
                 decoration: const BoxDecoration(
-                  color: Colors.red, // Badge color
+                  color: Colors.red,
                   shape: BoxShape.circle,
                 ),
                 child: Text(
@@ -230,34 +224,34 @@ class _ProjectPipelineTab extends StatelessWidget {
   }
 }
 
-// ✅ --- This is the same list widget from before, now updated ---
-// It displays the actual list of projects for a given tab.
+// ✅ --- UPDATED: LIST STREAM WITH COMPOSITE FILTER (OR Logic) ---
 class _ProjectListStream extends StatelessWidget {
   final String userRole;
   final String serviceType;
   final List<String> statuses;
   final String emptyMessage;
-  final bool canDelete; // ✅ NOUVEAU: Permission de suppression
-  final Function(String, String) onDelete; // ✅ NOUVEAU: Callback de suppression
+  final bool canDelete;
+  final Function(String, String) onDelete;
 
   const _ProjectListStream({
     required this.userRole,
     required this.serviceType,
     required this.statuses,
     required this.emptyMessage,
-    required this.canDelete, // ✅ AJOUTÉ AU CONSTRUCTEUR
-    required this.onDelete, // ✅ AJOUTÉ AU CONSTRUCTEUR
+    required this.canDelete,
+    required this.onDelete,
   });
 
   Color _getStatusColor(String status) {
     switch (status) {
       case 'Nouvelle Demande':
         return Colors.blue;
+      case 'En Cours d\'Évaluation':
+        return Colors.orangeAccent;
       case 'Évaluation Technique Terminé':
       case 'Évaluation IT Terminé':
-        return Colors.orange;
-      case 'Devis Envoyé':
-        return Colors.purple;
+      case 'Évaluation Terminée':
+        return Colors.green;
       case 'Finalisation de la Commande':
         return Colors.teal;
       case 'À Planifier':
@@ -269,10 +263,20 @@ class _ProjectListStream extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 🧠 LOGIC: Check EITHER the boolean flag OR the legacy string
+    final String flagName = serviceType == 'Service IT' ? 'hasItModule' : 'hasTechniqueModule';
+
+    // We create a filter that says: (Flag == true) OR (LegacyString == 'Service X')
+    final filter = Filter.or(
+      Filter(flagName, isEqualTo: true),
+      Filter('serviceType', isEqualTo: serviceType),
+    );
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('projects')
-          .where('serviceType', isEqualTo: serviceType)
+      // ✅ APPLY THE OR FILTER
+          .where(filter)
           .where('status', whereIn: statuses)
           .orderBy('createdAt', descending: true)
           .snapshots(),
@@ -281,7 +285,7 @@ class _ProjectListStream extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return const Center(child: Text('Une erreur est survenue.'));
+          return Center(child: Text('Une erreur est survenue: ${snapshot.error}'));
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return Center(child: Text(emptyMessage));
@@ -295,7 +299,7 @@ class _ProjectListStream extends StatelessWidget {
           itemBuilder: (context, index) {
             final projectDoc = projectDocs[index];
             final projectData = projectDoc.data() as Map<String, dynamic>;
-            final String projectId = projectDoc.id; // ✅ Récupération de l'ID
+            final String projectId = projectDoc.id;
             final createdAt = (projectData['createdAt'] as Timestamp).toDate();
 
             return Card(
@@ -345,7 +349,7 @@ class _ProjectListStream extends StatelessWidget {
                               ],
                             ),
                           ),
-                          // ✅ MODIFIÉ: Ajout d'un Row pour le Chip et le bouton de menu
+                          // Row for Chip and Delete Button
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -359,12 +363,10 @@ class _ProjectListStream extends StatelessWidget {
                                 _getStatusColor(projectData['status'] ?? ''),
                                 padding: const EdgeInsets.symmetric(horizontal: 8),
                               ),
-                              // ✅ NOUVEAU: PopupMenuButton pour la suppression
                               if (canDelete)
                                 PopupMenuButton<String>(
                                   onSelected: (value) {
                                     if (value == 'delete') {
-                                      // Appel du callback de suppression passé par le parent
                                       onDelete(projectId, projectData['clientName'] ?? 'Projet Inconnu');
                                     }
                                   },

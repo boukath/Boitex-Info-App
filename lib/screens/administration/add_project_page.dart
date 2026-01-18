@@ -45,7 +45,11 @@ class _AddProjectPageState extends State<AddProjectPage> {
   final _storeSearchController = TextEditingController();
 
   bool _isLoading = false;
-  String? _selectedServiceType;
+
+  // ✅ CHANGED: Replaced single selection with boolean flags
+  bool _hasTechniqueModule = false;
+  bool _hasItModule = false;
+
   List<Client> _clients = [];
   Client? _selectedClient;
   List<Store> _stores = [];
@@ -300,6 +304,17 @@ class _AddProjectPageState extends State<AddProjectPage> {
   Future<void> _saveProject() async {
     FocusScope.of(context).unfocus();
 
+    // ✅ VALIDATION: Ensure at least one service is selected
+    if (!_hasTechniqueModule && !_hasItModule) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Veuillez sélectionner au moins un type de service (Technique ou IT).'),
+            backgroundColor: Colors.orange
+        ),
+      );
+      return;
+    }
+
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
@@ -313,8 +328,21 @@ class _AddProjectPageState extends State<AddProjectPage> {
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
 
+        // ✅ Determine a string for backward compatibility with existing lists
+        // Note: This helps the project appear in at least one list until the list pages are updated.
+        String legacyServiceType = 'Service Technique';
+        if (_hasItModule && !_hasTechniqueModule) {
+          legacyServiceType = 'Service IT';
+        }
+        // If both are true, it defaults to 'Service Technique' for the legacy field,
+        // but the new boolean flags will be the source of truth for the updated details page.
+
         await FirebaseFirestore.instance.collection('projects').add({
-          'serviceType': _selectedServiceType,
+          // ✅ UPDATED: Save boolean flags for modules
+          'hasTechniqueModule': _hasTechniqueModule,
+          'hasItModule': _hasItModule,
+          'serviceType': legacyServiceType, // Kept for backward compatibility
+
           'clientId': _selectedClient!.id,
           'clientName': _selectedClient!.name,
           'clientPhone': _clientPhoneController.text.trim(),
@@ -366,27 +394,50 @@ class _AddProjectPageState extends State<AddProjectPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Type de Service
-                DropdownButtonFormField<String>(
-                  value: _selectedServiceType,
-                  decoration: InputDecoration(
-                    labelText: 'Type de Service',
-                    enabledBorder: defaultBorder,
-                    focusedBorder: focusedBorder,
-                    floatingLabelStyle: const TextStyle(color: primaryColor),
+                // ✅ UPDATED: Replaced Dropdown with Multi-Select Checkboxes
+                const Text(
+                  'Services Requis *',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor
                   ),
-                  items: ['Service Technique', 'Service IT'].map((String service) {
-                    return DropdownMenuItem(value: service, child: Text(service));
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() => _selectedServiceType = value);
-                  },
-                  validator: (value) => value == null ? 'Veuillez sélectionner un service' : null,
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  child: Column(
+                    children: [
+                      CheckboxListTile(
+                        title: const Text('Service Technique'),
+                        subtitle: const Text('Installation, Câblage, Portiques...'),
+                        value: _hasTechniqueModule,
+                        activeColor: primaryColor,
+                        onChanged: (val) {
+                          setState(() => _hasTechniqueModule = val ?? false);
+                        },
+                      ),
+                      const Divider(height: 1),
+                      CheckboxListTile(
+                        title: const Text('Service IT'),
+                        subtitle: const Text('Réseau, Serveurs, Baies...'),
+                        value: _hasItModule,
+                        activeColor: Colors.blue, // Differentiate visually
+                        onChanged: (val) {
+                          setState(() => _hasItModule = val ?? false);
+                        },
+                      ),
+                    ],
+                  ),
                 ),
 
                 const SizedBox(height: 20),
 
-                // ✅ NEW: Client Autocomplete with Add Button
+                // Client Autocomplete with Add Button
                 Row(
                   children: [
                     Expanded(
@@ -438,7 +489,7 @@ class _AddProjectPageState extends State<AddProjectPage> {
 
                 const SizedBox(height: 20),
 
-                // ✅ NEW: Store Autocomplete with Add Button
+                // Store Autocomplete with Add Button
                 Row(
                   children: [
                     Expanded(

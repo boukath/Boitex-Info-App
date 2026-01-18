@@ -37,9 +37,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   bool _isLoadingData = true;
   bool _isSaving = false;
 
+  // ✅ NEW: Service Type State
+  String _serviceType = 'Service Technique';
+
   final _notesController = TextEditingController();
   final _emailController = TextEditingController();
-  // ✅ ADDED: Controller for the person on site
   final _signatoryNameController = TextEditingController();
 
   final ImagePicker _picker = ImagePicker();
@@ -49,7 +51,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   // Fulfillment State
   List<Map<String, dynamic>> _installedSystems = [];
 
-  // ✅ ADDED: State for Technicians Selection
+  // State for Technicians Selection
   List<Map<String, dynamic>> _availableTechnicians = [];
   List<String> _selectedTechnicianIds = [];
 
@@ -62,13 +64,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
-  // File size limit (50MB in bytes)
   static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
 
   @override
   void initState() {
     super.initState();
-    _fetchTechnicians(); // ✅ Fetch techs on init
+    _fetchTechnicians();
     _fetchInstallationDetails();
   }
 
@@ -76,37 +77,23 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   void dispose() {
     _notesController.dispose();
     _emailController.dispose();
-    // ✅ ADDED: Dispose name controller
     _signatoryNameController.dispose();
     _signatureController.dispose();
     super.dispose();
   }
 
-  // ✅ UPDATED: Fetch users and prioritize 'displayName'
   Future<void> _fetchTechnicians() async {
     try {
       final snapshot = await FirebaseFirestore.instance.collection('users').get();
 
       final techs = snapshot.docs.map((doc) {
         final data = doc.data();
-
-        // 1. Try 'displayName' first (as requested)
         String name = data['displayName'] ?? '';
-
-        // 2. If no displayName, try First + Last Name
         if (name.isEmpty && data['firstName'] != null && data['lastName'] != null) {
           name = "${data['firstName']} ${data['lastName']}";
         }
-
-        // 3. If still empty, try 'name' field
-        if (name.isEmpty) {
-          name = data['name'] ?? '';
-        }
-
-        // 4. Fallback to email if absolutely nothing else exists
-        if (name.isEmpty) {
-          name = data['email'] ?? 'Inconnu';
-        }
+        if (name.isEmpty) name = data['name'] ?? '';
+        if (name.isEmpty) name = data['email'] ?? 'Inconnu';
 
         return {
           'id': doc.id,
@@ -114,7 +101,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           'role': data['role'] ?? '',
         };
       }).where((t) {
-        // ✅ FILTER: Exclude PDG from the list as requested
         final role = t['role'] as String;
         return role != 'PDG';
       }).toList();
@@ -139,14 +125,14 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       if (snapshot.exists) {
         final data = snapshot.data() as Map<String, dynamic>;
 
+        // ✅ FETCH SERVICE TYPE
+        final String type = data['serviceType'] ?? 'Service Technique';
+
         List<Map<String, dynamic>> initialSystems = [];
 
-        // ✅ LOGIC: Load existing work OR pre-fill from Order
         if (data['systems'] != null && (data['systems'] as List).isNotEmpty) {
-          // 1. If we already saved work, load it
           initialSystems = List<Map<String, dynamic>>.from(data['systems']);
         } else if (data['orderedProducts'] != null) {
-          // 2. If new report, pre-fill with Ordered Products
           final orders = List<Map<String, dynamic>>.from(data['orderedProducts']);
 
           initialSystems = orders.map((o) {
@@ -159,22 +145,23 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               'category': o['category'] ?? 'N/A',
               'image': o['imageUrl'] ?? o['image'],
               'quantity': qty,
-              // Initialize empty serial number slots
               'serialNumbers': List<String>.filled(qty, ''),
+
+              // ✅ NEW: Initialize IT fields if needed
+              'ipAddresses': List<String>.filled(qty, ''),
+              'macAddresses': List<String>.filled(qty, ''),
+              'portNumbers': List<String>.filled(qty, ''),
             };
           }).toList();
         }
 
-        // ✅ FIXED: Handle Technicians correctly (List of Maps vs List of Strings)
         List<String> loadedTechIds = [];
         if (data['assignedTechnicians'] != null) {
           final rawTechs = data['assignedTechnicians'] as List;
           if (rawTechs.isNotEmpty) {
             if (rawTechs.first is Map) {
-              // Format: [{uid: "123", displayName: "Athmane"}]
               loadedTechIds = rawTechs.map((t) => t['uid'] as String).toList();
             } else if (rawTechs.first is String) {
-              // Format: ["123", "456"]
               loadedTechIds = List<String>.from(rawTechs);
             }
           }
@@ -182,14 +169,14 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
         setState(() {
           _installationDoc = snapshot;
+          _serviceType = type; // ✅ Set Service Type
           _notesController.text = data['notes'] ?? '';
           _emailController.text = data['clientEmail'] ?? '';
-          // ✅ ADDED: Load existing contact name if available
           _signatoryNameController.text = data['signatoryName'] ?? data['contactName'] ?? '';
           _existingMediaUrls =
           List<String>.from(data['mediaUrls'] ?? data['photoUrls'] ?? []);
           _installedSystems = initialSystems;
-          _selectedTechnicianIds = loadedTechIds; // Set state
+          _selectedTechnicianIds = loadedTechIds;
           _isLoadingData = false;
         });
       } else {
@@ -252,7 +239,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       final code = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
       if (code == null) return;
 
-      // Fetch by reference
       final query = await FirebaseFirestore.instance.collection('produits').where('reference', isEqualTo: code).limit(1).get();
       if (query.docs.isNotEmpty) {
         productData = query.docs.first.data();
@@ -284,73 +270,121 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           'image': images.isNotEmpty ? images.first : null,
           'quantity': qty,
           'serialNumbers': List<String>.filled(qty, ''),
+          // ✅ Initialize IT fields
+          'ipAddresses': List<String>.filled(qty, ''),
+          'macAddresses': List<String>.filled(qty, ''),
+          'portNumbers': List<String>.filled(qty, ''),
         });
       });
     }
   }
 
-  Future<void> _manageSerialNumbers(int index) async {
+  // ✅ UPDATED: Edit Logic to support IT Fields
+  Future<void> _manageSystemDetails(int index) async {
     final system = _installedSystems[index];
     final int qty = system['quantity'] ?? 1;
-    List<String> currentSerials = List.from(system['serialNumbers'] ?? List.filled(qty, ''));
+    final bool isIT = _serviceType == 'Service IT';
 
-    // Adjust list size if quantity changed
-    if (currentSerials.length != qty) {
-      if (currentSerials.length < qty) {
-        currentSerials.addAll(List.filled(qty - currentSerials.length, ''));
+    // Helper to resize lists safely
+    List<String> resizeList(List<dynamic>? input, int size) {
+      final list = input != null ? List<String>.from(input) : <String>[];
+      if (list.length < size) {
+        list.addAll(List.filled(size - list.length, ''));
       } else {
-        currentSerials = currentSerials.sublist(0, qty);
+        return list.sublist(0, size);
       }
+      return list;
     }
+
+    // Load current values
+    List<String> serials = resizeList(system['serialNumbers'], qty);
+    List<String> ips = resizeList(system['ipAddresses'], qty);
+    List<String> macs = resizeList(system['macAddresses'], qty);
+    List<String> ports = resizeList(system['portNumbers'], qty);
 
     await showDialog(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(builder: (context, setStateDialog) {
           return AlertDialog(
-            title: Text("S/N (${system['name']})"),
+            title: Text(isIT ? "Config IT (${system['name']})" : "S/N (${system['name']})"),
             content: SizedBox(
               width: double.maxFinite,
-              height: 300,
+              height: 400, // Taller dialog for IT
               child: Column(
                 children: [
-                  const Text("Saisissez ou scannez les numéros de série.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  Text(isIT
+                      ? "Saisissez les adresses IP, MAC et Ports."
+                      : "Saisissez ou scannez les numéros de série.",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   const SizedBox(height: 12),
                   Expanded(
                     child: ListView.builder(
                       itemCount: qty,
                       itemBuilder: (context, i) {
-                        final controller = TextEditingController(text: currentSerials[i]);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8.0),
-                          child: Row(
-                            children: [
-                              Text("#${i + 1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextFormField(
-                                  controller: controller,
+                        return Card(
+                          elevation: 0,
+                          color: Colors.grey.shade50,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Unité #${i + 1}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                                const SizedBox(height: 8),
+
+                                // SERIAL NUMBER (Common)
+                                TextFormField(
+                                  initialValue: serials[i],
                                   decoration: InputDecoration(
-                                    hintText: "Écrire ou Scan S/N",
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    labelText: "Numéro de Série",
+                                    isDense: true,
+                                    border: const OutlineInputBorder(),
                                     suffixIcon: IconButton(
-                                      icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF667EEA)),
+                                      icon: const Icon(Icons.qr_code_scanner, size: 20),
                                       onPressed: () async {
                                         final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductScannerPage()));
                                         if (scanned != null) {
-                                          setStateDialog(() {
-                                            currentSerials[i] = scanned;
-                                            controller.text = scanned;
-                                          });
+                                          setStateDialog(() => serials[i] = scanned);
                                         }
                                       },
                                     ),
                                   ),
-                                  onChanged: (val) => currentSerials[i] = val,
+                                  onChanged: (val) => serials[i] = val,
                                 ),
-                              ),
-                            ],
+
+                                // ✅ IT SPECIFIC FIELDS
+                                if (isIT) ...[
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextFormField(
+                                          initialValue: ips[i],
+                                          decoration: const InputDecoration(labelText: "IP (ex: 192.168.1.10)", isDense: true, border: OutlineInputBorder()),
+                                          onChanged: (val) => ips[i] = val,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: TextFormField(
+                                          initialValue: ports[i],
+                                          decoration: const InputDecoration(labelText: "Port (ex: 8080)", isDense: true, border: OutlineInputBorder()),
+                                          onChanged: (val) => ports[i] = val,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextFormField(
+                                    initialValue: macs[i],
+                                    decoration: const InputDecoration(labelText: "Adresse MAC", isDense: true, border: OutlineInputBorder()),
+                                    onChanged: (val) => macs[i] = val,
+                                  ),
+                                ]
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -363,7 +397,14 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
               ElevatedButton(
                 onPressed: () {
-                  setState(() => _installedSystems[index]['serialNumbers'] = currentSerials);
+                  setState(() {
+                    _installedSystems[index]['serialNumbers'] = serials;
+                    if (isIT) {
+                      _installedSystems[index]['ipAddresses'] = ips;
+                      _installedSystems[index]['macAddresses'] = macs;
+                      _installedSystems[index]['portNumbers'] = ports;
+                    }
+                  });
                   Navigator.pop(ctx);
                 },
                 child: const Text("Valider"),
@@ -472,13 +513,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   Future<void> _saveReport() async {
     if (_isSaving) return;
 
-    // ✅ CHECK 1: Ensure products exist
     if (_installedSystems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez ajouter au moins un équipement installé."), backgroundColor: Colors.red));
       return;
     }
 
-    // ✅ CHECK 2: MANDATORY NAME VALIDATION
     if (_signatoryNameController.text.trim().isEmpty) {
       showDialog(
         context: context,
@@ -500,7 +539,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       return;
     }
 
-    // ✅ CHECK 3: MANDATORY EMAIL VALIDATION
     if (_emailController.text.trim().isEmpty) {
       showDialog(
         context: context,
@@ -522,7 +560,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       return;
     }
 
-    // ✅ CHECK 4: Simple Regex for Email Format
     if (!_emailController.text.contains('@') || !_emailController.text.contains('.')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Format d'email invalide."), backgroundColor: Colors.red),
@@ -538,7 +575,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
       final signatureBytes = await _signatureController.toPngBytes();
       String? signatureUrl;
 
-      // 1. Upload Signature
       if (signatureBytes != null) {
         final storageRef = FirebaseStorage.instance.ref().child(
             'signatures/installations/${widget.installationId}_${DateTime.now().millisecondsSinceEpoch}.png');
@@ -547,7 +583,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         signatureUrl = await snapshot.ref.getDownloadURL();
       }
 
-      // 2. Upload Media to Backblaze B2
       List<String> uploadedMediaUrls = List.from(_existingMediaUrls);
       for (XFile file in _mediaFilesToUpload) {
         final b2Credentials = await _getB2UploadCredentials();
@@ -562,13 +597,11 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         }
       }
 
-      // ✅ LOGIC: Get names of selected technicians for easy display later
       final selectedNames = _availableTechnicians
           .where((t) => _selectedTechnicianIds.contains(t['id']))
           .map((t) => t['name'] as String)
           .toList();
 
-      // 3. Update Firestore Document
       await FirebaseFirestore.instance
           .collection('installations')
           .doc(widget.installationId)
@@ -576,13 +609,12 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         'status': 'Terminée',
         'notes': _notesController.text,
         'clientEmail': _emailController.text.trim(),
-        'signatoryName': _signatoryNameController.text.trim(), // ✅ Saved specific to this report
-        'contactName': _signatoryNameController.text.trim(), // ✅ Update main contact for email template
+        'signatoryName': _signatoryNameController.text.trim(),
+        'contactName': _signatoryNameController.text.trim(),
         'signatureUrl': signatureUrl,
         'mediaUrls': uploadedMediaUrls,
         'photoUrls': FieldValue.delete(),
         'systems': _installedSystems,
-        // ✅ SAVE NEW FIELDS
         'assignedTechnicians': _selectedTechnicianIds,
         'assignedTechnicianNames': selectedNames,
         'completedAt': FieldValue.serverTimestamp(),
@@ -619,7 +651,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     final storeLocation = data?['storeLocation'] ?? 'Localisation inconnue';
     final bool isReadOnly = data?['status'] == 'Terminée';
 
-    // ✅ Logic to display technicians safely
     String technicianNames = "Non assigné";
     final techs = data?['assignedTechnicians'];
     if (techs != null && techs is List && techs.isNotEmpty) {
@@ -638,7 +669,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ NEW: Job Context Header (Client, Store, Location)
             Container(
               padding: const EdgeInsets.all(16),
               width: double.infinity,
@@ -680,7 +710,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // ✅ Display assigned technicians from document
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -699,7 +728,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             ),
             const SizedBox(height: 24),
 
-            // ✅ ADDED: Multi-Select Dialog for Technicians (Correction / Addition)
             const Text("Correction / Ajout Techniciens :", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
             AbsorbPointer(
@@ -733,7 +761,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             ),
             const SizedBox(height: 24),
 
-            // ✅ FULFILLMENT UI (Pre-filled from Ordered Products)
             _buildSystemsList(isReadOnly),
 
             const SizedBox(height: 24),
@@ -752,7 +779,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
             const SizedBox(height: 24),
 
-            // ✅ NEW: Name Field (Person on site)
             TextField(
               controller: _signatoryNameController,
               readOnly: isReadOnly,
@@ -775,7 +801,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             ),
             const SizedBox(height: 16),
 
-            // ✅ EMAIL FIELD UI - Updated Decoration
             TextField(
               controller: _emailController,
               readOnly: isReadOnly,
@@ -836,7 +861,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     );
   }
 
-  // ✅ SYSTEMS LIST UI (Handles Adding/Removing/Scanning)
   Widget _buildSystemsList(bool isReadOnly) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -844,7 +868,8 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("Matériel Installé (Vérification)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            // ✅ Display context-aware title
+            Text(_serviceType == 'Service IT' ? "Config IT & Matériel" : "Matériel Installé", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             if (!isReadOnly)
               Row(
                 children: [
@@ -887,8 +912,15 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
             final index = entry.key;
             final system = entry.value;
             final qty = system['quantity'];
+
+            // Check completeness based on service type
             final serials = (system['serialNumbers'] as List).where((s) => s.toString().isNotEmpty).length;
-            final isComplete = serials == qty;
+            bool isComplete = serials == qty;
+
+            // For IT, also check IP if needed (simplified check)
+            if (_serviceType == 'Service IT') {
+              // You can add stricter checks here for IP validity
+            }
 
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
@@ -897,7 +929,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 leading: CircleAvatar(
                   backgroundColor: isComplete ? Colors.green.shade100 : Colors.orange.shade100,
-                  child: Icon(isComplete ? Icons.check : Icons.qr_code, color: isComplete ? Colors.green : Colors.orange),
+                  child: Icon(isComplete ? Icons.check : (_serviceType == 'Service IT' ? Icons.settings_ethernet : Icons.qr_code), color: isComplete ? Colors.green : Colors.orange),
                 ),
                 title: Text(system['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Column(
@@ -905,23 +937,20 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
                   children: [
                     Text("Reference: ${system['reference'] ?? 'N/A'}"),
                     const SizedBox(height: 4),
-                    Text("Qté: $qty | S/N Scannés: $serials/$qty", style: TextStyle(color: isComplete ? Colors.green : Colors.black87)),
+                    Text("Qté: $qty | Config: $serials/$qty", style: TextStyle(color: isComplete ? Colors.green : Colors.black87)),
                     if (!isComplete)
-                      const Text("Touchez pour scanner les S/N", style: TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold)),
+                      Text(_serviceType == 'Service IT' ? "Touchez pour configurer IP/Port" : "Touchez pour scanner les S/N", style: const TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold)),
                   ],
                 ),
-                // ✅ Permission to remove material
                 trailing: isReadOnly ? null : IconButton(icon: const Icon(Icons.delete, color: Colors.grey), onPressed: () => setState(() => _installedSystems.removeAt(index))),
-                // ✅ Permission to check/scan material
-                onTap: isReadOnly ? null : () => _manageSerialNumbers(index),
+                // ✅ UPDATED: Call new management dialog
+                onTap: isReadOnly ? null : () => _manageSystemDetails(index),
               ),
             );
           }).toList(),
       ],
     );
   }
-
-  // --- START: MEDIA SECTION WIDGETS ---
 
   Widget _buildMediaSection(bool isReadOnly) {
     return Column(
@@ -934,7 +963,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           const Text('Aucun fichier ajouté.',
               style: TextStyle(color: Colors.grey)),
 
-        // Existing media
         Wrap(
           spacing: 8.0,
           runSpacing: 8.0,
@@ -952,7 +980,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
               .toList(),
         ),
 
-        // New media
         Wrap(
           spacing: 8.0,
           runSpacing: 8.0,
@@ -981,7 +1008,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
     );
   }
 
-  // Helper to check for video extensions
   bool _isVideoUrl(String path) {
     final lowercasePath = path.toLowerCase();
     return lowercasePath.endsWith('.mp4') ||
@@ -990,7 +1016,6 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
         lowercasePath.endsWith('.mkv');
   }
 
-  // Open the correct media player
   void _openMedia(String url) {
     if (_isVideoUrl(url)) {
       Navigator.of(context).push(

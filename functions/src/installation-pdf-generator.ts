@@ -61,8 +61,9 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
 
   doc.moveDown(3);
 
-  // 4. The Equipment Table
-  _buildInventoryTable(doc, data.systems || []);
+  // 4. The Equipment Table (Polymorphic: IT vs Tech)
+  // ✅ UPDATED: Pass serviceType to decide layout
+  _buildInventoryTable(doc, data.systems || [], data.serviceType);
 
   doc.moveDown(2);
 
@@ -116,11 +117,14 @@ function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null, data: 
   }
 
   // 3. Title & Meta (Right Side)
+  // ✅ UPDATED: Dynamic Title based on Service Type
+  const typeTitle = data.serviceType === 'Service IT' ? "RAPPORT IT / RÉSEAU" : "RAPPORT D'INSTALLATION";
+
   doc
     .font("Helvetica-Bold")
     .fontSize(18)
     .fillColor("white")
-    .text("RAPPORT D'INSTALLATION", doc.page.width - MARGIN - 300, 35, {
+    .text(typeTitle, doc.page.width - MARGIN - 300, 35, {
       width: 300,
       align: "right",
     });
@@ -185,15 +189,17 @@ function _buildClientInfo(doc: PDFKit.PDFDocument, data: any) {
   }
 }
 
-function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
+// ✅ UPDATED: Polymorphic Table Builder
+function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[], serviceType: string = 'Service Technique') {
   const startX = MARGIN;
   let currentY = doc.y;
+  const isIT = serviceType === 'Service IT';
 
   // Column Widths
   const wName = 140;
   const wDetails = 100;
   const wQty = 50;
-  const wSerial = 220;
+  const wConfig = 220; // Replaces wSerial
 
   // -- Table Header --
   doc
@@ -204,7 +210,10 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
   doc.text("PRODUIT", startX + 5, currentY);
   doc.text("MARQUE / RÉF", startX + wName + 5, currentY);
   doc.text("QTÉ", startX + wName + wDetails, currentY, { width: wQty, align: "center" });
-  doc.text("NUMÉROS DE SÉRIE", startX + wName + wDetails + wQty + 10, currentY);
+
+  // ✅ Dynamic Header
+  const configHeader = isIT ? "CONFIGURATION (IP / MAC / PORT)" : "NUMÉROS DE SÉRIE";
+  doc.text(configHeader, startX + wName + wDetails + wQty + 10, currentY);
 
   // Header Line
   currentY += 15;
@@ -224,36 +233,50 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
     const marque = item.marque || item.brand || "-";
     const ref = item.reference || "-";
     const details = `${marque}\n${ref}`;
+    const qty = item.quantity || 1;
 
-    // Handle Serials
-    let serials = "N/A";
-    let qty = 0;
+    // ✅ Dynamic Data Formatting
+    let configText = "N/A";
 
-    if (Array.isArray(item.serialNumbers)) {
-        // Filter out empty strings
-        const validSerials = item.serialNumbers.filter((s: string) => s && s.trim().length > 0);
-        serials = validSerials.length > 0 ? validSerials.join(", ") : "N/A";
-        qty = item.quantity || item.serialNumbers.length;
-    } else if (item.serialNumber) {
-        serials = item.serialNumber;
-        qty = 1;
+    if (isIT) {
+      // Build IT Configuration List
+      const lines: string[] = [];
+      for (let i = 0; i < qty; i++) {
+        const ip = (item.ipAddresses && item.ipAddresses[i]) ? `IP: ${item.ipAddresses[i]}` : null;
+        const port = (item.portNumbers && item.portNumbers[i]) ? `Port: ${item.portNumbers[i]}` : null;
+        const mac = (item.macAddresses && item.macAddresses[i]) ? `MAC: ${item.macAddresses[i]}` : null;
+        const serial = (item.serialNumbers && item.serialNumbers[i]) ? `S/N: ${item.serialNumbers[i]}` : null;
+
+        // Construct line components
+        const parts = [ip, port, mac, serial].filter(Boolean); // Remove nulls
+        if (parts.length > 0) {
+          lines.push(`${qty > 1 ? `[#${i + 1}] ` : ''}${parts.join(" | ")}`);
+        }
+      }
+      configText = lines.length > 0 ? lines.join("\n") : "Non Configuré";
+
     } else {
-        qty = item.quantity || 1;
+      // Standard Technical Serial Numbers
+      if (Array.isArray(item.serialNumbers)) {
+        const validSerials = item.serialNumbers.filter((s: string) => s && s.trim().length > 0);
+        configText = validSerials.length > 0 ? validSerials.join(", ") : "N/A";
+      } else if (item.serialNumber) {
+        configText = item.serialNumber;
+      }
     }
 
-    // Calculate Row Height to avoid overlap
-    // Use smaller width for serial calculation to force wrap if needed
-    const serialHeight = doc.heightOfString(serials, { width: wSerial - 10 });
+    // Calculate Row Height
+    const configHeight = doc.heightOfString(configText, { width: wConfig - 10 });
     const nameHeight = doc.heightOfString(name, { width: wName - 10 });
-    const rowHeight = Math.max(serialHeight, nameHeight, 30) + 15;
+    const rowHeight = Math.max(configHeight, nameHeight, 30) + 15;
 
     // Page Break Check
     if (currentY + rowHeight > 720) {
       doc.addPage();
-      currentY = MARGIN + 40; // Give some space on new page
+      currentY = MARGIN + 40;
     }
 
-    // Zebra Striping (Light Gray Background)
+    // Zebra Striping
     if (index % 2 === 0) {
       doc
         .rect(startX, currentY - 5, doc.page.width - MARGIN * 2, rowHeight)
@@ -266,7 +289,7 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
     doc.text(name, startX + 5, currentY, { width: wName - 10 });
     doc.text(details, startX + wName + 5, currentY, { width: wDetails - 10 });
     doc.text(qty.toString(), startX + wName + wDetails, currentY, { width: wQty, align: "center" });
-    doc.text(serials, startX + wName + wDetails + wQty + 10, currentY, { width: wSerial - 10 });
+    doc.text(configText, startX + wName + wDetails + wQty + 10, currentY, { width: wConfig - 10 });
 
     currentY += rowHeight;
 
@@ -275,7 +298,7 @@ function _buildInventoryTable(doc: PDFKit.PDFDocument, systems: any[]) {
     currentY += 10;
   });
 
-  doc.y = currentY; // Update global cursor
+  doc.y = currentY;
 }
 
 function _buildNotesSection(doc: PDFKit.PDFDocument, notes: string) {
@@ -341,7 +364,7 @@ function _buildSignatureSection(
 
   const sigY = startY + 25;
 
-  // ✅ LOGIC: Use assignedTechnicianNames first (String Array), fall back to Object Array
+  // Logic: Use assignedTechnicianNames first, fall back to Object Array
   let techNames = "Service Technique";
 
   if (data.assignedTechnicianNames && Array.isArray(data.assignedTechnicianNames) && data.assignedTechnicianNames.length > 0) {
@@ -371,10 +394,9 @@ function _buildSignatureSection(
     doc.fontSize(9).fillColor(LINE_COLOR).text("(Non signé)", 350, sigY + 30);
   }
 
-  // ✅ NEW: Display the Specific Signatory Name
+  // ✅ Display the Specific Signatory Name
   const clientNameY = sigY + 90;
   doc.font("Helvetica-Bold").fontSize(10).fillColor(TEXT_COLOR);
-  // Priority: Signatory (Person on site) -> Contact -> Client
   const finalSignatory = data.signatoryName || data.contactName || data.clientName || "";
   doc.text(finalSignatory, 350, clientNameY);
 }

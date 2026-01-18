@@ -451,6 +451,13 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   }
 
   List<Widget> _buildQuickActions(BuildContext context) {
+    // ✅ NEW FILTER FOR EVALUATIONS BADGE
+    // (hasItModule == true) OR (serviceType == 'Service IT')
+    final evaluationsFilter = Filter.or(
+      Filter('hasItModule', isEqualTo: true),
+      Filter('serviceType', isEqualTo: 'Service IT'),
+    );
+
     final actions = <_ActionData>[
       // ✅ INTERVENTIONS
       _ActionData(
@@ -581,7 +588,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           MaterialPageRoute(builder: (_) => const ItActivityFeedPage()),
         ),
       ),
-      // ✅ EVALUATIONS
+      // ✅ EVALUATIONS (UPDATED with Smart Logic)
       _ActionData(
         'Évaluations',
         Icons.dns_rounded,
@@ -595,8 +602,9 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
         ),
         countStream: FirebaseFirestore.instance
             .collection('projects')
+        // ✅ APPLY SMART FILTER (OR Logic)
+            .where(evaluationsFilter)
             .where('status', isEqualTo: 'Nouvelle Demande')
-            .where('serviceType', isEqualTo: 'Service IT')
             .snapshots(),
       ),
     ];
