@@ -618,11 +618,12 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       _showErrorSnackBar('Veuillez sélectionner une catégorie');
       return;
     }
-    // Keep image check if images are mandatory
-    if (_existingImageUrls.isEmpty && _selectedImages.isEmpty) {
-      _showErrorSnackBar('Veuillez ajouter au moins une image du produit');
-      return;
-    }
+
+    // ⚡ MODIFIED: Image upload is now optional. Validation block commented out.
+    // if (_existingImageUrls.isEmpty && _selectedImages.isEmpty) {
+    //   _showErrorSnackBar('Veuillez ajouter au moins une image du produit');
+    //   return;
+    // }
 
     setState(() => _isLoading = true);
 
