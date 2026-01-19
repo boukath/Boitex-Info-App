@@ -373,6 +373,38 @@ export const onInterventionCreated_v2 = onDocumentCreated("interventions/{interv
     relatedCollection: "interventions",
   });
 
+  // --------------------------------------------------------
+  // ✅ LOGIC UPDATE: Handle Portal Requests ("En Attente Validation")
+  // --------------------------------------------------------
+  if (data.status === "En Attente Validation") {
+    console.log(`🔒 Portal Request detected (${snapshot.id}). Notifying Managers ONLY.`);
+
+    // Custom Message for Validation
+    const requestTitle = `Demande de Validation : ${storeName}`;
+    const requestBody = `Nouvelle demande client pour ${data.clientName}. Validation requise.`;
+
+    // 1. Notify Managers ONLY
+    await createNotificationsForRoles(
+      ROLES_MANAGERS,
+      {
+        title: requestTitle,
+        body: requestBody,
+        relatedDocId: snapshot.id,
+        // 🚨 IMPORTANT: Route to "portal_requests" so App opens Validation Page, NOT details page.
+        relatedCollection: "portal_requests"
+      },
+      "interventions",
+      actorId
+    );
+
+    // 2. 🛑 EXIT: Do NOT notify Technicians yet.
+    // They will be notified via onInterventionStatusUpdate when a Manager approves it.
+    return;
+  }
+
+  // --------------------------------------------------------
+  // ✅ STANDARD FLOW (Admin/Manager created directly)
+  // --------------------------------------------------------
   const notificationData = { title, body, relatedDocId: snapshot.id, relatedCollection: "interventions" };
 
   await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions", actorId);

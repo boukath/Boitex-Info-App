@@ -33,6 +33,9 @@ import 'package:boitex_info_app/screens/administration/project_details_page.dart
 import 'package:boitex_info_app/screens/administration/replacement_request_details_page.dart';
 import 'package:boitex_info_app/screens/announce/channel_chat_page.dart';
 
+// ✅ NEW IMPORT: For Portal Request Validation (The "En Attente" Page)
+import 'package:boitex_info_app/screens/administration/portal_request_details_page.dart';
+
 // ✅ IMPORT UPDATE SERVICE
 import 'package:boitex_info_app/services/update_service.dart';
 
@@ -236,6 +239,17 @@ class FirebaseApi {
 
     try {
       switch (collection) {
+      // ------------------------------------------------
+      // 🚨 SPECIAL ROUTE: Portal Requests (Validation)
+      // ------------------------------------------------
+        case 'portal_requests':
+        // Only opens if the backend flagged it as a request (En Attente Validation)
+          page = PortalRequestDetailsPage(interventionId: docId);
+          break;
+
+      // ------------------------------------------------
+      // STANDARD ROUTES
+      // ------------------------------------------------
         case 'interventions':
           final doc = await FirebaseFirestore.instance
               .collection('interventions')

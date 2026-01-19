@@ -17,6 +17,9 @@ import 'package:boitex_info_app/screens/administration/requisition_details_page.
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
 
+// ✅ NEW IMPORT: For Portal Request Validation
+import 'package:boitex_info_app/screens/administration/portal_request_details_page.dart';
+
 // ✅ HELPER CLASS FOR GROUPING
 class NotificationGroup {
   final String docId;
@@ -136,7 +139,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   /// ✅ CENTRALIZED STATUS LOGIC
-  /// Analyzes the text and returns Colors, Labels, and Icons
   _StatusAttributes _getStatusAttributes(String body) {
     final lowerBody = body.toLowerCase();
 
@@ -162,7 +164,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
         badgeIcon: Icons.warning_rounded,
       );
     } else {
-      // Default / Nouveau / Created
       return _StatusAttributes(
         color: const Color(0xFF2962FF), // Blue
         bgColor: const Color(0xFFE3F2FD),
@@ -173,7 +174,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   /// ✅ HELPER: Generate Gradient based on Status Color
-  /// This replaces the old logic that used Collection Type
   LinearGradient _getGradientForStatus(_StatusAttributes status) {
     return LinearGradient(
       colors: [
@@ -186,14 +186,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   /// ✅ DYNAMIC STORYTELLER ICON
-  /// Combines the Collection Icon (Truck, Wrench) with the Status (Color, Badge)
   Widget _buildDynamicStoryIcon(String collection, String body) {
     final status = _getStatusAttributes(body);
     final IconData mainIcon = _getIconForCollection(collection);
 
     return Stack(
       children: [
-        // 1. Base Container
         Container(
           width: 48,
           height: 48,
@@ -208,7 +206,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
             size: 24,
           ),
         ),
-        // 2. Status Badge Overlay
         Positioned(
           bottom: -2,
           right: -2,
@@ -261,6 +258,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   IconData _getIconForCollection(String? collection) {
     switch (collection) {
+      case 'portal_requests': return Icons.lock_clock; // Special Icon for Requests
       case 'interventions': return Icons.handyman_rounded;
       case 'installations': return Icons.router_rounded;
       case 'sav_tickets': return Icons.assignment_return_rounded;
@@ -274,7 +272,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
-  // ✅ NAVIGATION LOGIC
+  // ✅ NAVIGATION LOGIC (UPDATED WITH SMART REDIRECT)
   Future<void> _navigateToDetails(String? collection, String? docId, List<DocumentSnapshot> groupEvents) async {
     for (var doc in groupEvents) {
       final data = doc.data() as Map<String, dynamic>;
@@ -295,7 +293,35 @@ class _NotificationsPageState extends State<NotificationsPage> {
     try {
       Widget? pageToNavigate;
 
-      if (['interventions', 'sav_tickets', 'installations', 'projects', 'livraisons', 'requisitions'].contains(collection)) {
+      // ----------------------------------------------------------------------
+      // 🚀 1. SPECIAL LOGIC: PORTAL REQUESTS
+      // ----------------------------------------------------------------------
+      if (collection == 'portal_requests') {
+        // We know these are actually stored in 'interventions', so we fetch from there.
+        final doc = await FirebaseFirestore.instance.collection('interventions').doc(docId).get()
+            .timeout(const Duration(seconds: 10));
+
+        if (doc.exists) {
+          final data = doc.data() as Map<String, dynamic>;
+          final status = data['status'] ?? '';
+
+          // 🧠 SMART CHECK: Is it still needing validation?
+          if (status == 'En Attente Validation') {
+            // Yes -> Go to Validation Page
+            pageToNavigate = PortalRequestDetailsPage(interventionId: docId);
+          } else {
+            // No -> It was already validated (e.g. "Planifiée") -> Go to Standard Page
+            pageToNavigate = InterventionDetailsPage(interventionDoc: doc);
+          }
+        } else {
+          throw Exception("Cette demande n'existe plus.");
+        }
+      }
+
+      // ----------------------------------------------------------------------
+      // 2. STANDARD LOGIC
+      // ----------------------------------------------------------------------
+      else if (['interventions', 'sav_tickets', 'installations', 'projects', 'livraisons', 'requisitions'].contains(collection)) {
         final doc = await FirebaseFirestore.instance.collection(collection!).doc(docId).get()
             .timeout(const Duration(seconds: 10));
 
@@ -395,6 +421,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
     // Determine category name from collection
     String categoryName = group.collection.toUpperCase();
     if (group.collection == 'sav_tickets') categoryName = "SERVICE APRÈS-VENTE";
+    // ✅ Fix Display Name for Request
+    if (group.collection == 'portal_requests') categoryName = "DEMANDE CLIENT";
 
     return Container(
       decoration: BoxDecoration(
