@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ Needed for Hybrid Logic
 
 // ✅ SERVICES & MODELS
 import 'package:boitex_info_app/services/inventory_service.dart';
@@ -122,7 +123,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     super.dispose();
   }
 
-  // 🔥 HARDWARE KEY LISTENER
+  // 🔥 HARDWARE KEY LISTENER (PDA Only)
   void _onKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return;
 
@@ -155,7 +156,7 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
     }
   }
 
-  // ✅ 3. BUILD METHOD
+  // ✅ 3. BUILD METHOD (HYBRID ARCHITECTURE)
   @override
   Widget build(BuildContext context) {
     // 🎨 Dynamic Colors based on Mode
@@ -170,97 +171,107 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
       secondaryColor = Colors.purple.shade800;
     }
 
-    return Focus(
-      autofocus: true,
-      onKeyEvent: (node, event) {
-        _onKeyEvent(event);
-        return KeyEventResult.handled;
-      },
-      child: Scaffold(
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: _isInventoryMode
-                  ? [Colors.amber.shade50, Colors.orange.shade50, Colors.deepOrange.shade50]
-                  : (_isReturnMode
-                  ? [Colors.purple.shade50, Colors.deepPurple.shade50, Colors.indigo.shade50]
-                  : [Colors.blue.shade50, Colors.purple.shade50, Colors.pink.shade50]),
-            ),
-          ),
-          child: SafeArea(
-            child: Column(
-              children: [
-                _buildAppBar(primaryColor, secondaryColor),
-
-                // ⚠️ Mode Banners
-                if (_isInventoryMode)
-                  _buildModeBanner("MODE INVENTAIRE ACTIF (${_currentScope ?? 'Global'})", Icons.warning_amber_rounded, Colors.deepOrange, Colors.amber.shade100),
-
-                if (_isReturnMode)
-                  _buildModeBanner("MODE RETOUR CLIENT ACTIF", Icons.assignment_return, Colors.deepPurple, Colors.purple.shade100),
-
-                _buildSearchBar(primaryColor),
-
-                Expanded(
-                  child: FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: _searchQuery.isNotEmpty
-                        ? _buildSearchResults(primaryColor)
-                        : _buildMainCategories(),
-                  ),
-                ),
-              ],
-            ),
+    // ✅ DEFINE THE CONTENT (SCAFFOLD)
+    final Widget pageContent = Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: _isInventoryMode
+                ? [Colors.amber.shade50, Colors.orange.shade50, Colors.deepOrange.shade50]
+                : (_isReturnMode
+                ? [Colors.purple.shade50, Colors.deepPurple.shade50, Colors.indigo.shade50]
+                : [Colors.blue.shade50, Colors.purple.shade50, Colors.pink.shade50]),
           ),
         ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildAppBar(primaryColor, secondaryColor),
 
-        // 🏗️ Floating Action Button (Dynamic)
-        floatingActionButton: _isInventoryMode
-            ? FloatingActionButton.extended(
-          onPressed: _finishInventorySession,
-          backgroundColor: Colors.red.shade600,
-          icon: const Icon(Icons.stop_circle_outlined, color: Colors.white),
-          label: const Text("FINIR INVENTAIRE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        )
-            : (_isReturnMode
-            ? FloatingActionButton.extended(
-          onPressed: () => setState(() => _isReturnMode = false),
-          backgroundColor: Colors.red,
-          icon: const Icon(Icons.close, color: Colors.white),
-          label: const Text("Quitter Mode Retour", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        )
-            : Container(
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF10B981), Color(0xFF059669)],
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF10B981).withOpacity(0.4),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
+              // ⚠️ Mode Banners
+              if (_isInventoryMode)
+                _buildModeBanner("MODE INVENTAIRE ACTIF (${_currentScope ?? 'Global'})", Icons.warning_amber_rounded, Colors.deepOrange, Colors.amber.shade100),
+
+              if (_isReturnMode)
+                _buildModeBanner("MODE RETOUR CLIENT ACTIF", Icons.assignment_return, Colors.deepPurple, Colors.purple.shade100),
+
+              _buildSearchBar(primaryColor),
+
+              Expanded(
+                child: FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: _searchQuery.isNotEmpty
+                      ? _buildSearchResults(primaryColor)
+                      : _buildMainCategories(),
+                ),
               ),
             ],
           ),
-          child: FloatingActionButton.extended(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (context) => const AddRequisitionPage()),
-              );
-            },
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            label: const Text('Demande d\'Achat',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            icon: const Icon(Icons.add_shopping_cart_rounded),
-          ),
-        )),
+        ),
       ),
+
+      // 🏗️ Floating Action Button (Dynamic)
+      floatingActionButton: _isInventoryMode
+          ? FloatingActionButton.extended(
+        onPressed: _finishInventorySession,
+        backgroundColor: Colors.red.shade600,
+        icon: const Icon(Icons.stop_circle_outlined, color: Colors.white),
+        label: const Text("FINIR INVENTAIRE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      )
+          : (_isReturnMode
+          ? FloatingActionButton.extended(
+        onPressed: () => setState(() => _isReturnMode = false),
+        backgroundColor: Colors.red,
+        icon: const Icon(Icons.close, color: Colors.white),
+        label: const Text("Quitter Mode Retour", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      )
+          : Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF10B981), Color(0xFF059669)],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF10B981).withOpacity(0.4),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                  builder: (context) => const AddRequisitionPage()),
+            );
+          },
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          label: const Text('Demande d\'Achat',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          icon: const Icon(Icons.add_shopping_cart_rounded),
+        ),
+      )),
     );
+
+    // ✅ CONDITIONAL RETURN:
+    // If Web: Return just the content (Standard Keyboard behavior)
+    // If Mobile: Wrap in Focus (Zebra Scanner behavior)
+    if (kIsWeb) {
+      return pageContent;
+    } else {
+      return Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          _onKeyEvent(event);
+          return KeyEventResult.handled;
+        },
+        child: pageContent,
+      );
+    }
   }
 
   Widget _buildModeBanner(String text, IconData icon, Color color, Color bg) {
@@ -1192,6 +1203,8 @@ class _StockPageState extends State<StockPage> with SingleTickerProviderStateMix
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 20, offset: const Offset(0, 10))],
         ),
         child: TextField(
+          // ✅ ADDED: Auto-focus the search bar on Web so typing works immediately
+          autofocus: kIsWeb,
           controller: _searchController,
           onChanged: (value) {
             setState(() => _searchQuery = value);

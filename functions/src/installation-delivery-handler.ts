@@ -61,8 +61,10 @@ async (event) => {
 
       if (counterDoc.exists) {
         const data = counterDoc.data();
-        if (data && typeof data.lastIndex === 'number') {
-          nextIndex = data.lastIndex + 1;
+
+        // ⚠️ FIXED: Now checks for 'count' to match your Flutter App/Database
+        if (data && typeof data.count === 'number') {
+          nextIndex = data.count + 1;
         }
       }
 
@@ -70,7 +72,8 @@ async (event) => {
       const blCode = `BL-${nextIndex}/${currentYear}`;
 
       // C. Update the counter immediately
-      t.set(counterRef, { lastIndex: nextIndex }, { merge: true });
+      // ⚠️ FIXED: Updates 'count' field so Flutter sees the new number too
+      t.set(counterRef, { count: nextIndex }, { merge: true });
 
       // D. Create the Delivery Document
       const newDocRef = livraisonsRef.doc(); // Auto-ID
