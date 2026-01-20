@@ -15,13 +15,18 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart'; // For Gallery
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/models/vehicle.dart';
+import 'package:boitex_info_app/models/maintenance_log.dart'; // ✅ STEP 1 IMPORT
 import 'package:boitex_info_app/screens/fleet/edit_vehicle_compliance_page.dart';
+import 'package:boitex_info_app/screens/fleet/widgets/maintenance_entry_dialog.dart'; // ✅ STEP 2 IMPORT
+// ✅ Import Inspection Page
+import 'package:boitex_info_app/screens/fleet/inspection_page.dart';
 
 // 🏎️ SCUDERIA THEME CONSTANTS
 const Color kCeramicWhite = Color(0xFFFFFFFF);
 const Color kRacingRed = Color(0xFFFF2800); // Rosso Corsa
 const Color kCarbonBlack = Color(0xFF1C1C1C);
 const Color kAsphaltGrey = Color(0xFFF2F3F5);
+const Color kMechanicBlue = Color(0xFF2962FF); // New color for custom parts
 const double kPadding = 24.0;
 
 class VehiclePassportPage extends StatefulWidget {
@@ -113,13 +118,13 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
           _isUploading = false;
         });
         HapticFeedback.heavyImpact();
-        _showScuderiaSnackBar("VISUAL UPDATED", kRacingRed);
+        _showScuderiaSnackBar("VISUEL MIS À JOUR", kRacingRed);
       }
     } catch (e) {
       debugPrint("❌ Error uploading photo: $e");
       if (mounted) {
         setState(() => _isUploading = false);
-        _showScuderiaSnackBar("UPLOAD FAILED", kCarbonBlack);
+        _showScuderiaSnackBar("ÉCHEC ENVOI", kCarbonBlack);
       }
     }
   }
@@ -174,6 +179,174 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
   }
 
   // ---------------------------------------------------------------------------
+  // 📝 MILEAGE EDIT LOGIC (THE PENCIL)
+  // ---------------------------------------------------------------------------
+
+  void _showMileageEditDialog() {
+    final TextEditingController mileageCtrl = TextEditingController(text: _vehicle.currentMileage.toString());
+    bool isSaving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      "MISE À JOUR KILOMÉTRAGE",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.grey,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: mileageCtrl,
+                      keyboardType: TextInputType.number,
+                      autofocus: true,
+                      style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: kCarbonBlack),
+                      decoration: InputDecoration(
+                        suffixText: "KM",
+                        suffixStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey.shade400),
+                        border: InputBorder.none,
+                        filled: true,
+                        fillColor: kAsphaltGrey,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: kRacingRed, width: 2),
+                        ),
+                      ),
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      "Actuel : ${NumberFormat('#,###').format(_vehicle.currentMileage)} KM",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kCarbonBlack,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        onPressed: isSaving
+                            ? null
+                            : () async {
+                          final newVal = int.tryParse(mileageCtrl.text);
+                          if (newVal != null) {
+                            setModalState(() => isSaving = true);
+                            await _updateMileage(newVal);
+                            Navigator.pop(context);
+                          }
+                        },
+                        child: isSaving
+                            ? const CupertinoActivityIndicator(color: Colors.white)
+                            : const Text("VALIDER", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _updateMileage(int newMileage) async {
+    try {
+      await FirebaseFirestore.instance.collection('vehicles').doc(_vehicle.id).update({
+        'currentMileage': newMileage,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      setState(() {
+        _vehicle = _vehicle.copyWith(currentMileage: newMileage);
+      });
+
+      HapticFeedback.mediumImpact();
+      _showScuderiaSnackBar("KILOMÉTRAGE MIS À JOUR", Colors.black);
+
+      if (_vehicle.needsOilChange) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          _showScuderiaSnackBar("⚠️ ENTRETIEN REQUIS", kRacingRed);
+          HapticFeedback.heavyImpact();
+        });
+      }
+    } catch (e) {
+      debugPrint("Error updating mileage: $e");
+      _showScuderiaSnackBar("ÉCHEC MISE À JOUR", kRacingRed);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🛠️ SERVICE RESET LOGIC (NEW: MAINTENANCE COCKPIT)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _showServiceResetDialog() async {
+    // We launch the new Cockpit Dialog.
+    // It handles its own saving to 'maintenance_logs' and updates the vehicle doc.
+    final bool? result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => MaintenanceEntryDialog(vehicle: _vehicle),
+    );
+
+    // If the dialog returned true, it means an operation was saved.
+    // We must refresh the local Vehicle state to reflect new mileage/oil status.
+    if (result == true && mounted) {
+      try {
+        final updatedDoc = await FirebaseFirestore.instance.collection('vehicles').doc(_vehicle.id).get();
+        if (updatedDoc.exists) {
+          setState(() {
+            _vehicle = Vehicle.fromFirestore(updatedDoc);
+          });
+          HapticFeedback.heavyImpact();
+          _showScuderiaSnackBar("ENTRETIEN ENREGISTRÉ", const Color(0xFF00C853)); // Green
+        }
+      } catch (e) {
+        debugPrint("Error refreshing vehicle: $e");
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // 🎨 UI BUILD
   // ---------------------------------------------------------------------------
 
@@ -197,6 +370,22 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
           ),
         ),
         actions: [
+          // ✅ ADD BUTTON: The new button you requested in the AppBar
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+            child: IconButton(
+              icon: const Icon(CupertinoIcons.add, color: kRacingRed),
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                // Navigate to InspectionPage
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => InspectionPage(vehicle: _vehicle)),
+                );
+              },
+            ),
+          ),
           Container(
             margin: const EdgeInsets.only(right: 8),
             decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
@@ -228,7 +417,7 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
             // 2. TWIN TURBO GAUGES
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: kPadding),
-              child: _buildSectionHeader("TELEMETRY"),
+              child: _buildSectionHeader("TÉLÉMÉTRIE"),
             ),
             const SizedBox(height: 20),
             _buildTwinTurboGauges(),
@@ -238,7 +427,7 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
             // 3. FUEL INJECTION (FLUIDS)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: kPadding),
-              child: _buildSectionHeader("FLUID SYSTEMS"),
+              child: _buildSectionHeader("MÉCANIQUE & FLUIDES"),
             ),
             const SizedBox(height: 20),
             Padding(
@@ -251,12 +440,278 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
             // 4. DATA VAULT (CAROUSEL)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: kPadding),
-              child: _buildSectionHeader("DATA VAULT"),
+              child: _buildSectionHeader("DOCUMENTS DE BORD"),
             ),
             const SizedBox(height: 20),
             _buildDataCarousel(),
 
-            const SizedBox(height: 50),
+            const SizedBox(height: 40),
+
+            // 5. ✅ NEW: SERVICE HISTORY TIMELINE WITH ADD BUTTON
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kPadding),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildSectionHeader("HISTORIQUE D'ENTRETIEN"),
+
+                  // ✨ THE NEW VISIBLE BUTTON ✨
+                  InkWell(
+                    onTap: _showServiceResetDialog, // Opens the Cockpit
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: kRacingRed.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: kRacingRed.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(CupertinoIcons.add, size: 14, color: kRacingRed),
+                          SizedBox(width: 4),
+                          Text(
+                            "AJOUTER",
+                            style: TextStyle(
+                              color: kRacingRed,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 10,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildMaintenanceTimeline(),
+
+            const SizedBox(height: 100), // Bottom padding
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 📜 TIMELINE WIDGET
+  // ---------------------------------------------------------------------------
+
+  Widget _buildMaintenanceTimeline() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('vehicles')
+          .doc(_vehicle.id)
+          .collection('maintenance_logs')
+          .orderBy('date', descending: true)
+          .limit(10)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const Center(child: CupertinoActivityIndicator());
+
+        final logs = snapshot.data!.docs;
+
+        if (logs.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text("Aucun historique disponible", style: TextStyle(color: Colors.grey.shade400, fontWeight: FontWeight.bold)),
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: EdgeInsets.zero,
+          shrinkWrap: true, // Crucial for nesting in ScrollView
+          physics: const NeverScrollableScrollPhysics(), // Scroll managed by parent
+          itemCount: logs.length,
+          itemBuilder: (context, index) {
+            final data = logs[index].data() as Map<String, dynamic>;
+            final log = MaintenanceLog.fromMap(data, logs[index].id);
+            return _buildTimelineItem(log, isLast: index == logs.length - 1);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildTimelineItem(MaintenanceLog log, {bool isLast = false}) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Date Column
+          SizedBox(
+            width: 70,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kPadding, vertical: 4),
+              child: Column(
+                children: [
+                  Text(
+                    DateFormat('dd').format(log.date),
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: kCarbonBlack),
+                  ),
+                  Text(
+                    DateFormat('MMM').format(log.date).toUpperCase(),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // 2. Timeline Line
+          Column(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: kRacingRed,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: [BoxShadow(color: kRacingRed.withOpacity(0.3), blurRadius: 4)],
+                ),
+              ),
+              if (!isLast)
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    color: kAsphaltGrey,
+                  ),
+                ),
+            ],
+          ),
+
+          // 3. Content Card
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16, right: kPadding, bottom: 24),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "${NumberFormat('#,###').format(log.mileage)} KM",
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                        ),
+                        if (log.invoiceUrl != null)
+                          InkWell(
+                            onTap: () => _showInvoice(log.invoiceUrl!),
+                            child: const Icon(Icons.receipt_long, size: 18, color: kRacingRed),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ✅ HYBRID DISPLAY: STANDARD ICONS + CUSTOM TEXT BADGES
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        // Standard Items (Icons)
+                        ...log.performedItems.map((item) => _buildItemIcon(item)),
+                        // Custom Parts (Text Badges)
+                        ...log.customParts.map((part) => _buildCustomBadge(part)),
+                      ],
+                    ),
+
+                    if (log.notes != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          log.notes!,
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🔹 Maps Tags to Visual Icons
+  Widget _buildItemIcon(String itemKey) {
+    IconData icon;
+    Color color = Colors.grey.shade700;
+
+    switch (itemKey) {
+      case MaintenanceItems.oilChange: icon = CupertinoIcons.drop_fill; color = Colors.black; break;
+      case MaintenanceItems.oilFilter: icon = CupertinoIcons.tornado; break; // Wind/Filter
+      case MaintenanceItems.airFilter: icon = CupertinoIcons.wind; break;
+      case MaintenanceItems.brakesFront: icon = CupertinoIcons.stop_circle_fill; color = Colors.red; break;
+      case MaintenanceItems.brakesRear: icon = CupertinoIcons.stop_circle; color = Colors.red; break;
+      case MaintenanceItems.tires: icon = CupertinoIcons.circle_grid_hex; break;
+      default: icon = CupertinoIcons.wrench_fill;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: kAsphaltGrey,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, size: 14, color: color),
+    );
+  }
+
+  // 🔹 ✅ NEW: Custom Text Badge for Timeline
+  Widget _buildCustomBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: kMechanicBlue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kMechanicBlue.withOpacity(0.3)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: kMechanicBlue,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  void _showInvoice(String url) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(url, fit: BoxFit.contain),
+            ),
+            Positioned(
+              top: 10, right: 10,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
           ],
         ),
       ),
@@ -418,15 +873,15 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         _buildOpenArcGauge(
-          label: "INSURANCE",
+          label: "ASSURANCE",
           value: assDays < 0 ? "EXP" : "$assDays",
-          unit: "DAYS",
+          unit: "JOURS",
           percent: assPercent,
         ),
         _buildOpenArcGauge(
-          label: "TECH CONTROL",
+          label: "CONTRÔLE TECH",
           value: ctDays < 0 ? "EXP" : "$ctDays",
-          unit: "DAYS",
+          unit: "JOURS",
           percent: ctPercent,
         ),
       ],
@@ -522,7 +977,25 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("OIL INTEGRITY", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Row(
+                children: [
+                  const Text("INTÉGRITÉ HUILE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(width: 8),
+                  // ✅ NEW: RESET SERVICE BUTTON (Triggers the new Dialog)
+                  InkWell(
+                    onTap: _showServiceResetDialog,
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: kAsphaltGrey,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(CupertinoIcons.arrow_2_circlepath, size: 14, color: kCarbonBlack),
+                    ),
+                  ),
+                ],
+              ),
               Text("${(remaining * 100).toInt()}%", style: const TextStyle(color: kRacingRed, fontWeight: FontWeight.w900, fontSize: 18)),
             ],
           ),
@@ -590,8 +1063,30 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("${NumberFormat('#,###').format(current)} KM", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
-              Text("NEXT: ${NumberFormat('#,###').format(next)}", style: const TextStyle(fontWeight: FontWeight.w900, color: kCarbonBlack)),
+              // ✅ EXISTING: PENCIL BUTTON
+              Row(
+                children: [
+                  Text(
+                      "${NumberFormat('#,###').format(current)} KM",
+                      style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _showMileageEditDialog, // ✨ Opens the UPDATE Dialog
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: kAsphaltGrey,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(CupertinoIcons.pencil, size: 14, color: kRacingRed),
+                    ),
+                  ),
+                ],
+              ),
+
+              Text("PROCH: ${NumberFormat('#,###').format(next)}", style: const TextStyle(fontWeight: FontWeight.w900, color: kCarbonBlack)),
             ],
           ),
         ],
@@ -610,11 +1105,11 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: kPadding),
         children: [
-          _buildCarbonCard("REGISTRATION", _vehicle.carteGrisePhotoUrl != null),
+          _buildCarbonCard("CARTE GRISE", _vehicle.carteGrisePhotoUrl != null),
           const SizedBox(width: 16),
-          _buildCarbonCard("INSURANCE", _vehicle.assurancePhotoUrl != null),
+          _buildCarbonCard("ASSURANCE", _vehicle.assurancePhotoUrl != null),
           const SizedBox(width: 16),
-          _buildCarbonCard("TECH REPORT", _vehicle.controlTechniquePhotoUrl != null),
+          _buildCarbonCard("CONTRÔLE TECH", _vehicle.controlTechniquePhotoUrl != null),
         ],
       ),
     );

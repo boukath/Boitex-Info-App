@@ -8,6 +8,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/vehicle.dart';
 import 'package:boitex_info_app/screens/fleet/vehicle_passport_page.dart';
+// ✅ IMPORT THE NEW ADD PAGE
+import 'package:boitex_info_app/screens/fleet/add_vehicle_page.dart';
 
 class FleetListPage extends StatefulWidget {
   const FleetListPage({super.key});
@@ -301,7 +303,7 @@ class _FleetListPageState extends State<FleetListPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Title Row
+              // 1. Title Row with ADD BUTTON
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -314,16 +316,40 @@ class _FleetListPageState extends State<FleetListPage> {
                       color: Colors.black,
                     ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        shape: BoxShape.circle,
+                  Row(
+                    children: [
+                      // ✅ NEW: ADD BUTTON
+                      IconButton(
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const AddVehiclePage()),
+                          );
+                        },
+                        icon: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: const BoxDecoration(
+                            color: Colors.black, // High contrast button
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(CupertinoIcons.add, color: Colors.white, size: 20),
+                        ),
                       ),
-                      child: const Icon(Icons.close, color: Colors.black, size: 20),
-                    ),
+                      const SizedBox(width: 8),
+                      // Existing Close Button
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.close, color: Colors.black, size: 20),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
