@@ -45,8 +45,20 @@ class StockService {
   Future<void> confirmDeliveryStockOut({
     required String deliveryId,
     required List<Map<String, dynamic>> products,
+    String? technicianName,
+    String? clientName,
+    String? bonLivraisonCode,
   }) async {
-    final String userName = await _fetchUserName();
+    // ✅ Logic: Use passed technician name first, fallback to fetch if null/empty
+    String userName;
+    if (technicianName != null && technicianName.isNotEmpty) {
+      userName = technicianName;
+    } else {
+      userName = await _fetchUserName();
+    }
+
+    // ✅ Logic: Construct Notes String
+    final String notes = "Sortie ${bonLivraisonCode ?? 'N/A'} confirmée (Livré) ${clientName ?? ''}";
 
     await _db.runTransaction((transaction) async {
       for (var item in products) {
@@ -78,7 +90,7 @@ class StockService {
           'quantityChange': -qtyToDeduct,
           'type': 'LIVRAISON_CLIENT',
           'livraisonId': deliveryId,
-          'notes': 'Sortie de stock confirmée (Livré)',
+          'notes': notes,
           'user': userName,
           'timestamp': FieldValue.serverTimestamp(),
         });

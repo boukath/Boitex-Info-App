@@ -80,7 +80,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   final _recipientNameController = TextEditingController();
   final _recipientPhoneController = TextEditingController();
-  final _recipientEmailController = TextEditingController();
+  final _recipientEmailController = TextEditingController(); // ✅ Added Email Controller
 
   double? _storeLat;
   double? _storeLng;
@@ -138,7 +138,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     _signatureController.dispose();
     _recipientNameController.dispose();
     _recipientPhoneController.dispose();
-    _recipientEmailController.dispose();
+    _recipientEmailController.dispose(); // ✅ Dispose Email Controller
     for (var controller in _pickingControllers.values) {
       controller.dispose();
     }
@@ -186,7 +186,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         final bool isCompleted = _status == 'Livré';
         _recipientNameController.text = data['recipientName'] ?? '';
         _recipientPhoneController.text = data['recipientPhone'] ?? '';
-        _recipientEmailController.text = data['recipientEmail'] ?? '';
+        _recipientEmailController.text = data['recipientEmail'] ?? ''; // ✅ Load Email
 
         List<Map<String, dynamic>> pickingList = [];
         List<Map<String, dynamic>> serializedList = [];
@@ -701,6 +701,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       List<dynamic> updatedProducts = [];
       List<Map<String, dynamic>> newEvents = [];
 
+      // ✅ NEW: EXTRACT DATA FOR SERVICE CALL
+      final String? technicianName = doc.data()?['technicianName'];
+      final String? clientName = doc.data()?['clientName'];
+      final String? bonLivraisonCode = doc.data()?['bonLivraisonCode'];
+
       // ✅ NEW: COLLECT ACCEPTED ITEMS FOR STOCK DEDUCTION
       List<Map<String, dynamic>> acceptedItemsForStock = [];
 
@@ -771,7 +776,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       if (acceptedItemsForStock.isNotEmpty) {
         await StockService().confirmDeliveryStockOut(
             deliveryId: widget.livraisonId,
-            products: acceptedItemsForStock
+            products: acceptedItemsForStock,
+            technicianName: technicianName,
+            clientName: clientName,
+            bonLivraisonCode: bonLivraisonCode
         );
       }
 
@@ -782,6 +790,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         'signatureUrl': sigUrl,
         'recipientName': _recipientNameController.text,
         'recipientPhone': _recipientPhoneController.text,
+        'recipientEmail': _recipientEmailController.text, // ✅ Added Email
         'products': updatedProducts,
       };
 
@@ -1485,6 +1494,40 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                               filled: true, fillColor: Colors.grey.shade50,
                             ),
                             validator: (v) => (v == null || v.isEmpty) ? 'Requis' : null,
+                          ),
+                          const SizedBox(height: 16),
+                          // ✅ Updated Phone Field (Now Optional)
+                          TextFormField(
+                            controller: _recipientPhoneController,
+                            decoration: InputDecoration(
+                              labelText: 'Téléphone (Optionnel)',
+                              prefixIcon: const Icon(Icons.phone_outlined),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              filled: true, fillColor: Colors.grey.shade50,
+                            ),
+                            keyboardType: TextInputType.phone,
+                          ),
+                          const SizedBox(height: 16),
+                          // ✅ New Email Field (Optional)
+                          TextFormField(
+                            controller: _recipientEmailController,
+                            decoration: InputDecoration(
+                              labelText: 'Email du Client (Optionnel)',
+                              prefixIcon: const Icon(Icons.email_outlined),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              filled: true, fillColor: Colors.grey.shade50,
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            validator: (val) {
+                              if (val != null && val.isNotEmpty) {
+                                // Basic email regex validation
+                                final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
+                                if (!emailRegex.hasMatch(val)) {
+                                  return 'Email invalide';
+                                }
+                              }
+                              return null;
+                            },
                           ),
                           const SizedBox(height: 16),
                           Container(
