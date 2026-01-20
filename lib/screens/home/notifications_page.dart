@@ -8,6 +8,9 @@ import 'package:google_fonts/google_fonts.dart';
 
 // ✅ IMPORTS
 import 'package:boitex_info_app/models/sav_ticket.dart';
+import 'package:boitex_info_app/models/mission.dart'; // Mission Model
+import 'package:boitex_info_app/models/channel_model.dart'; // ✅ ADDED: Channel Model
+
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
@@ -15,10 +18,15 @@ import 'package:boitex_info_app/screens/administration/project_details_page.dart
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
 import 'package:boitex_info_app/screens/administration/requisition_details_page.dart';
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
+import 'package:boitex_info_app/screens/announce/channel_chat_page.dart'; // ✅ ADDED: Chat Page
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
+import 'package:boitex_info_app/screens/administration/mission_details_page.dart'; // Mission Details
 
 // ✅ NEW IMPORT: For Portal Request Validation
 import 'package:boitex_info_app/screens/administration/portal_request_details_page.dart';
+
+// ✅ NEW IMPORT: For Fleet Navigation
+import 'package:boitex_info_app/screens/fleet/fleet_list_page.dart';
 
 // ✅ HELPER CLASS FOR GROUPING
 class NotificationGroup {
@@ -268,6 +276,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       case 'projects': return Icons.folder_shared_rounded;
       case 'channels': return Icons.forum_rounded;
       case 'reminders': return Icons.alarm_rounded;
+      case 'vehicles': return Icons.directions_car_rounded;
       default: return Icons.notifications_rounded;
     }
   }
@@ -297,7 +306,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
       // 🚀 1. SPECIAL LOGIC: PORTAL REQUESTS
       // ----------------------------------------------------------------------
       if (collection == 'portal_requests') {
-        // We know these are actually stored in 'interventions', so we fetch from there.
         final doc = await FirebaseFirestore.instance.collection('interventions').doc(docId).get()
             .timeout(const Duration(seconds: 10));
 
@@ -305,12 +313,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
           final data = doc.data() as Map<String, dynamic>;
           final status = data['status'] ?? '';
 
-          // 🧠 SMART CHECK: Is it still needing validation?
           if (status == 'En Attente Validation') {
-            // Yes -> Go to Validation Page
             pageToNavigate = PortalRequestDetailsPage(interventionId: docId);
           } else {
-            // No -> It was already validated (e.g. "Planifiée") -> Go to Standard Page
             pageToNavigate = InterventionDetailsPage(interventionDoc: doc);
           }
         } else {
@@ -321,7 +326,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       // ----------------------------------------------------------------------
       // 2. STANDARD LOGIC
       // ----------------------------------------------------------------------
-      else if (['interventions', 'sav_tickets', 'installations', 'projects', 'livraisons', 'requisitions'].contains(collection)) {
+      else if (['interventions', 'sav_tickets', 'installations', 'projects', 'livraisons', 'requisitions', 'missions'].contains(collection)) {
         final doc = await FirebaseFirestore.instance.collection(collection!).doc(docId).get()
             .timeout(const Duration(seconds: 10));
 
@@ -337,10 +342,29 @@ class _NotificationsPageState extends State<NotificationsPage> {
           case 'projects': pageToNavigate = ProjectDetailsPage(projectId: docId, userRole: widget.userRole); break;
           case 'livraisons': pageToNavigate = LivraisonDetailsPage(livraisonId: docId); break;
           case 'requisitions': pageToNavigate = RequisitionDetailsPage(requisitionId: docId, userRole: widget.userRole); break;
+          case 'missions':
+            final mission = Mission.fromFirestore(doc);
+            pageToNavigate = MissionDetailsPage(mission: mission);
+            break;
         }
       }
-      else if (collection == 'channels') pageToNavigate = const AnnounceHubPage();
+      // ----------------------------------------------------------------------
+      // 3. CHANNEL LOGIC (Direct Navigation to Chat)
+      // ----------------------------------------------------------------------
+      else if (collection == 'channels') {
+        final doc = await FirebaseFirestore.instance.collection('channels').doc(docId).get()
+            .timeout(const Duration(seconds: 10));
+
+        if (doc.exists) {
+          final channel = ChannelModel.fromFirestore(doc);
+          pageToNavigate = ChannelChatPage(channel: channel);
+        } else {
+          // Fallback to Hub if the specific channel is gone
+          pageToNavigate = const AnnounceHubPage();
+        }
+      }
       else if (collection == 'reminders') pageToNavigate = const RappelPage();
+      else if (collection == 'vehicles') pageToNavigate = const FleetListPage();
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -421,8 +445,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
     // Determine category name from collection
     String categoryName = group.collection.toUpperCase();
     if (group.collection == 'sav_tickets') categoryName = "SERVICE APRÈS-VENTE";
-    // ✅ Fix Display Name for Request
     if (group.collection == 'portal_requests') categoryName = "DEMANDE CLIENT";
+    if (group.collection == 'vehicles') categoryName = "GESTION PARC";
 
     return Container(
       decoration: BoxDecoration(

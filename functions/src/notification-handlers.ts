@@ -1401,3 +1401,41 @@ export const notifyUsersOnAppVersionUpdate = onDocumentUpdated(
     }
   }
 );
+
+// ------------------------------------------------------------------
+// 16. WEEKLY MILEAGE REMINDER (FLEET) - ALGERIA SUNDAY
+// ------------------------------------------------------------------
+// Sends a reminder every Sunday at 10:00 AM (Algeria Time) to check vehicle mileage.
+
+export const weeklyMileageReminder = onSchedule({
+  schedule: "every sunday 10:00",
+  timeZone: "Africa/Algiers",
+}, async (event) => {
+  console.log("🚗 Starting Weekly Mileage Reminder...");
+
+  try {
+    const message: admin.messaging.Message = {
+      topic: "FLEET_REMINDERS", // ⚠️ Ensure users subscribe to this topic!
+      notification: {
+        title: "Relevé Kilométrique 🚗",
+        body: "C'est Dimanche ! Merci de mettre à jour le kilométrage de nos véhicules.",
+      },
+      data: {
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+        screen: "/fleet", // Custom data to guide the app to the Fleet List
+        relatedCollection: "vehicles"
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "high_importance_channel",
+        },
+      },
+    };
+
+    await admin.messaging().send(message);
+    console.log("✅ Weekly mileage reminder sent to FLEET_REMINDERS topic.");
+  } catch (error) {
+    logger.error("❌ Error sending weekly mileage reminder:", error);
+  }
+});

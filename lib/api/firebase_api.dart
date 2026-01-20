@@ -36,6 +36,9 @@ import 'package:boitex_info_app/screens/announce/channel_chat_page.dart';
 // ✅ NEW IMPORT: For Portal Request Validation (The "En Attente" Page)
 import 'package:boitex_info_app/screens/administration/portal_request_details_page.dart';
 
+// ✅ NEW IMPORT: For Fleet Routing
+import 'package:boitex_info_app/screens/fleet/fleet_list_page.dart';
+
 // ✅ IMPORT UPDATE SERVICE
 import 'package:boitex_info_app/services/update_service.dart';
 
@@ -211,6 +214,18 @@ class FirebaseApi {
       // You can add navigation to a specific briefing page here if needed
       // For now, we just print or return
       print('📊 Morning Briefing tapped');
+      return;
+    }
+
+    // --------------------------------------------------------
+    // ✅ 3. HANDLE FLEET / VEHICLE LIST
+    // --------------------------------------------------------
+    // Matches the payload { screen: "/fleet", relatedCollection: "vehicles" }
+    if (data['screen'] == '/fleet' || data['relatedCollection'] == 'vehicles') {
+      print('🚗 Navigating to Fleet List (Mileage Reminder)');
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (context) => const FleetListPage()),
+      );
       return;
     }
 
