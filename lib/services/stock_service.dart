@@ -37,7 +37,57 @@ class StockService {
   }
 
   // ===========================================================================
-  // 1. CLIENT RETURN (EXISTING LOGIC)
+  // 1. CONFIRM DELIVERY (NEW LOGIC: EXIT STOCK AT END)
+  // ===========================================================================
+
+  // ✅ NEW: Called when status becomes "Livré"
+  // Only deducts what the client actually ACCEPTED.
+  Future<void> confirmDeliveryStockOut({
+    required String deliveryId,
+    required List<Map<String, dynamic>> products,
+  }) async {
+    final String userName = await _fetchUserName();
+
+    await _db.runTransaction((transaction) async {
+      for (var item in products) {
+        // We only care about items with a valid Product ID
+        if (item['productId'] == null) continue;
+
+        final String productId = item['productId'];
+        final String productName = item['productName'] ?? 'Produit Inconnu';
+
+        // Use the 'deliveredQuantity' (what client accepted) or fallback to 'quantity'
+        final int qtyToDeduct = item['deliveredQuantity'] ?? item['quantity'] ?? 0;
+
+        if (qtyToDeduct <= 0) continue; // Skip if 0 accepted
+
+        final productRef = _db.collection('produits').doc(productId);
+
+        // 1. Deduct from Physical Stock
+        transaction.update(productRef, {
+          'quantiteEnStock': FieldValue.increment(-qtyToDeduct),
+          'lastModifiedBy': userName,
+          'lastModifiedAt': FieldValue.serverTimestamp(),
+        });
+
+        // 2. Log the Sale Movement
+        final movementRef = _db.collection('stock_movements').doc();
+        transaction.set(movementRef, {
+          'productId': productId,
+          'productName': productName,
+          'quantityChange': -qtyToDeduct,
+          'type': 'LIVRAISON_CLIENT',
+          'livraisonId': deliveryId,
+          'notes': 'Sortie de stock confirmée (Livré)',
+          'user': userName,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
+    });
+  }
+
+  // ===========================================================================
+  // 2. CLIENT RETURN (EXISTING LOGIC)
   // ===========================================================================
 
   Future<void> processClientReturn({
@@ -155,7 +205,7 @@ class StockService {
   }
 
   // ===========================================================================
-  // 2. INTERNAL BREAKAGE (CASE MANAGEMENT)
+  // 3. INTERNAL BREAKAGE (CASE MANAGEMENT)
   // ===========================================================================
 
   Future<void> reportInternalBreakage({
@@ -242,7 +292,7 @@ class StockService {
   }
 
   // ===========================================================================
-  // 3. MANAGEMENT (UPDATE STATUS)
+  // 4. MANAGEMENT (UPDATE STATUS)
   // ===========================================================================
 
   Future<void> updateQuarantineStatus({
@@ -268,7 +318,7 @@ class StockService {
   }
 
   // ===========================================================================
-  // 4. RESOLUTION & SALVAGE (FINALIZE)
+  // 5. RESOLUTION & SALVAGE (FINALIZE)
   // ===========================================================================
 
   Future<void> resolveQuarantineItem({
@@ -329,57 +379,47 @@ class StockService {
     });
   }
 
-  // ✅ NEW: SALVAGE PROCESS (Transform Broken -> Maintenance Stock)
-  // Creates new "Spare Parts" from the dead item
+  // ✅ SALVAGE PROCESS
   Future<void> processSalvage({
     required QuarantineItem item,
-    required List<Map<String, dynamic>> recoveredParts, // List of {productId, quantity, productName}
+    required List<Map<String, dynamic>> recoveredParts,
     required String note,
   }) async {
     final String userName = await _fetchUserName();
 
     await _db.runTransaction((transaction) async {
-      // 1. Get Refs
       final mainProductRef = _db.collection('produits').doc(item.productId);
       final quarantineRef = _db.collection('quarantine_items').doc(item.id);
 
-      // 2. Read Main Product (The broken one)
       final mainSnap = await transaction.get(mainProductRef);
       if (!mainSnap.exists) throw Exception("Produit original introuvable");
 
       final int currentBroken = mainSnap.data()?['quantiteDefectueuse'] ?? 0;
       if (currentBroken < item.quantity) throw Exception("Erreur stock (Déjà traité ?)");
 
-      // 3. Read All Spare Parts (To ensure they exist and get current stock)
-      // NOTE: We do this inside transaction to be safe
       for (var part in recoveredParts) {
         final partRef = _db.collection('produits').doc(part['productId']);
         final partSnap = await transaction.get(partRef);
         if (!partSnap.exists) throw Exception("Pièce détachée introuvable: ${part['productName']}");
       }
 
-      // --- WRITES START HERE ---
-
-      // 4. Decrease Broken Stock (Main Item is destroyed/consumed)
+      // WRITES
       transaction.update(mainProductRef, {
         'quantiteDefectueuse': currentBroken - item.quantity,
       });
 
-      // 5. Increase Maintenance Stock for each Part
       for (var part in recoveredParts) {
         final partRef = _db.collection('produits').doc(part['productId']);
-        // We use FieldValue.increment because we already validated existence
         transaction.update(partRef, {
-          'quantiteMaintenance': FieldValue.increment(part['quantity']), // ✅ ADDS TO NEW STOCK
+          'quantiteMaintenance': FieldValue.increment(part['quantity']),
         });
 
-        // Log movement for the PART
         final partLogRef = _db.collection('stock_movements').doc();
         transaction.set(partLogRef, {
           'productId': part['productId'],
           'productName': part['productName'],
-          'quantityChange': 0, // Not commercial stock
-          'maintenanceStockChange': part['quantity'], // ✅ Track this new flow
+          'quantityChange': 0,
+          'maintenanceStockChange': part['quantity'],
           'type': 'SALVAGE_RECOVERY',
           'sourceItemId': item.productId,
           'sourceItemName': item.productName,
@@ -388,11 +428,10 @@ class StockService {
         });
       }
 
-      // 6. Close the Quarantine Case
       transaction.update(quarantineRef, {
         'status': 'RESOLVED',
         'resolutionType': 'SALVAGE',
-        'salvagedParts': recoveredParts, // Save what we got
+        'salvagedParts': recoveredParts,
         'history': FieldValue.arrayUnion([
           {
             'action': 'SALVAGE_COMPLETED',
@@ -404,7 +443,6 @@ class StockService {
         ])
       });
 
-      // 7. Log movement for the Main Item (Destroyed)
       final mainLogRef = _db.collection('stock_movements').doc();
       transaction.set(mainLogRef, {
         'productId': item.productId,
@@ -420,40 +458,7 @@ class StockService {
     });
   }
 
-  // ✅ NEW: HANDLE PARTIAL DELIVERY RESTOCK (Refus Client / Surplus)
-  Future<void> restockFromPartialDelivery(String productId, int quantity, {String? productName, String? deliveryId}) async {
-    final String userName = await _fetchUserName();
-    final productRef = _db.collection('produits').doc(productId);
-
-    await _db.runTransaction((transaction) async {
-      final snapshot = await transaction.get(productRef);
-      if (!snapshot.exists) throw Exception("Produit introuvable lors du retour stock");
-
-      // 1. Determine Product Name if not passed
-      final String finalName = productName ?? snapshot.data()?['nom'] ?? 'Produit Inconnu';
-
-      // 2. Increment Stock
-      transaction.update(productRef, {
-        'quantiteEnStock': FieldValue.increment(quantity),
-        'lastModifiedBy': userName,
-        'lastModifiedAt': FieldValue.serverTimestamp(),
-      });
-
-      // 3. Create Stock Movement Log
-      final movementRef = _db.collection('stock_movements').doc();
-      transaction.set(movementRef, {
-        'productId': productId,
-        'productName': finalName,
-        'quantityChange': quantity, // Positive because it comes back
-        'type': 'RETOUR_LIVRAISON', // New Type for filtering
-        'notes': 'Retour immédiat (Livraison Partielle)${deliveryId != null ? " - BL: $deliveryId" : ""}',
-        'user': userName,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-    });
-  }
-
-  // ✅ NEW: MOVE TO BROKEN STOCK (Traffic Cop for "Produit Endommagé")
+  // ✅ UPDATED: MOVE TO BROKEN STOCK (Traffic Cop for "Produit Endommagé")
   Future<void> moveToBrokenStock(
       String productId,
       int quantity, {
@@ -462,31 +467,30 @@ class StockService {
         String? reason,
       }) async {
     final String userName = await _fetchUserName();
-    final String userId = FirebaseAuth.instance.currentUser?.uid ?? "unknown"; // Needed for QuarantineItem
+    final String userId = FirebaseAuth.instance.currentUser?.uid ?? "unknown";
     final DateTime now = DateTime.now();
 
     await _db.runTransaction((transaction) async {
-      // 1. Update Physical Product Counter (Increment Defective Stock)
+      // 1. Update Physical Product Counter
       final productRef = _db.collection('produits').doc(productId);
 
-      // Check existence first to be safe
       final snapshot = await transaction.get(productRef);
       if (!snapshot.exists) throw Exception("Produit introuvable pour mise en rebut");
 
       final String finalName = productName ?? snapshot.data()?['nom'] ?? 'Produit Inconnu';
-      final String productRefCode = snapshot.data()?['reference'] ?? 'N/A'; // Fetch reference
+      final String productRefCode = snapshot.data()?['reference'] ?? 'N/A';
 
-      // We increment defective stock.
-      // Note: We do NOT decrement 'quantiteEnStock' here because the item was already
-      // removed from stock during the 'Preparation' phase of the delivery.
-      // It is returning from the field directly to the broken pile.
+      // ⚠️ UPDATED LOGIC FOR "DEDUCT AT END":
+      // Since stock was NOT deducted during preparation, when an item is broken during delivery,
+      // it effectively leaves "QuantiteEnStock" and enters "QuantiteDefectueuse".
       transaction.update(productRef, {
-        'quantiteDefectueuse': FieldValue.increment(quantity),
+        'quantiteEnStock': FieldValue.increment(-quantity), // Remove from Healthy
+        'quantiteDefectueuse': FieldValue.increment(quantity), // Add to Broken
         'lastModifiedBy': userName,
         'lastModifiedAt': FieldValue.serverTimestamp(),
       });
 
-      // 2. CREATE QUARANTINE CASE FILE (Targeting quarantine_items now)
+      // 2. CREATE QUARANTINE CASE FILE
       final quarantineRef = _db.collection('quarantine_items').doc();
 
       final newItem = QuarantineItem(
@@ -496,7 +500,7 @@ class StockService {
         productReference: productRefCode,
         quantity: quantity,
         reason: "Retour Livraison (${deliveryId ?? 'N/A'}) - ${reason ?? 'HS'}",
-        photoUrl: null, // No photo in this flow yet
+        photoUrl: null,
         reportedBy: userName,
         reportedByUid: userId,
         reportedAt: now,
@@ -518,7 +522,7 @@ class StockService {
       transaction.set(movementRef, {
         'productId': productId,
         'productName': finalName,
-        'quantityChange': 0,
+        'quantityChange': -quantity, // It left commercial stock
         'brokenStockChange': quantity,
         'type': 'CLIENT_RETURN_BROKEN',
         'source': 'Retour Livraison',
@@ -527,6 +531,36 @@ class StockService {
         'user': userName,
         'timestamp': FieldValue.serverTimestamp(),
         'quarantineId': quarantineRef.id,
+      });
+    });
+  }
+
+  // ⚠️ DEPRECATED/UNUSED in new flow: Kept for safety or manual corrections
+  Future<void> restockFromPartialDelivery(String productId, int quantity, {String? productName, String? deliveryId}) async {
+    final String userName = await _fetchUserName();
+    final productRef = _db.collection('produits').doc(productId);
+
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(productRef);
+      if (!snapshot.exists) throw Exception("Produit introuvable lors du retour stock");
+
+      final String finalName = productName ?? snapshot.data()?['nom'] ?? 'Produit Inconnu';
+
+      transaction.update(productRef, {
+        'quantiteEnStock': FieldValue.increment(quantity),
+        'lastModifiedBy': userName,
+        'lastModifiedAt': FieldValue.serverTimestamp(),
+      });
+
+      final movementRef = _db.collection('stock_movements').doc();
+      transaction.set(movementRef, {
+        'productId': productId,
+        'productName': finalName,
+        'quantityChange': quantity,
+        'type': 'RETOUR_LIVRAISON',
+        'notes': 'Retour immédiat (Livraison Partielle)${deliveryId != null ? " - BL: $deliveryId" : ""}',
+        'user': userName,
+        'timestamp': FieldValue.serverTimestamp(),
       });
     });
   }

@@ -167,7 +167,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   Future<void> _launchMaps() async {
     if (_storeLat == null || _storeLng == null) return;
-    final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$_storeLat,$_storeLng");
+    final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$_storeLat,$_storeLng?q=$_storeLat,$_storeLng");
     if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
@@ -701,9 +701,13 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       List<dynamic> updatedProducts = [];
       List<Map<String, dynamic>> newEvents = [];
 
+      // ✅ NEW: COLLECT ACCEPTED ITEMS FOR STOCK DEDUCTION
+      List<Map<String, dynamic>> acceptedItemsForStock = [];
+
       for (var product in currentProducts) {
         Map<String, dynamic> p = Map<String, dynamic>.from(product);
         final key = p['productId'] ?? p['productName'];
+        int deliveredQuantity = 0;
 
         // Logic to sync with _itemSplits
         if (_itemSplits.containsKey(key)) {
@@ -714,18 +718,20 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           String note = _itemSplits[key]!['note'] ?? '';
 
           p['deliveredQuantity'] = accepted;
+          deliveredQuantity = accepted;
 
-          // HANDLE STOCK RETURN LOGIC
+          // HANDLE STOCK RETURN LOGIC (BROKEN ONLY)
+          // ⚠️ CHANGED: No more 'restockFromPartialDelivery' because stock wasn't deducted yet.
+          // Only 'moveToBrokenStock' applies if item is damaged, effectively moving it from Healthy -> Defective.
           if (rejected > 0 && p['productId'] != null) {
             if (reason == "Produit Endommagé") {
+              // Moves from Healthy -> Defective
               await StockService().moveToBrokenStock(
                   p['productId'], rejected, productName: p['productName'], deliveryId: widget.livraisonId, reason: "$reason $note"
               );
-            } else {
-              await StockService().restockFromPartialDelivery(
-                  p['productId'], rejected, productName: p['productName'], deliveryId: widget.livraisonId
-              );
             }
+            // If reason is "Refus Client" (non-broken) or "Erreur Commande",
+            // we simply DO NOTHING to the stock. It stays in stock naturally because we won't deduct it below.
 
             // Log Event
             newEvents.add({
@@ -739,18 +745,34 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           }
         } else {
           // If not in splits, it means it was fully accepted (Happy Path Logic)
-          // OR it was serialized and delivered (filtered out of problems list)
           p['deliveredQuantity'] = p['quantity'];
+          deliveredQuantity = p['quantity'];
         }
 
         if (p['serialNumbers'] != null && (p['serialNumbers'] as List).isNotEmpty) {
-          // Basic serial sync: if full delivery, copy all. If partial, just take N.
           int qty = p['deliveredQuantity'] ?? 0;
           List<String> sns = List<String>.from(p['serialNumbers']);
           p['deliveredSerials'] = sns.take(qty).toList();
         }
 
         updatedProducts.add(p);
+
+        // ✅ PREPARE FOR STOCK DEDUCTION
+        if (deliveredQuantity > 0 && p['productId'] != null) {
+          acceptedItemsForStock.add({
+            'productId': p['productId'],
+            'productName': p['productName'],
+            'deliveredQuantity': deliveredQuantity
+          });
+        }
+      }
+
+      // ✅ EXECUTE STOCK DEDUCTION (The New "Exit Point")
+      if (acceptedItemsForStock.isNotEmpty) {
+        await StockService().confirmDeliveryStockOut(
+            deliveryId: widget.livraisonId,
+            products: acceptedItemsForStock
+        );
       }
 
       // Prepare Update Data
@@ -832,30 +854,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   Future<void> _validatePreparation() async {
     if (!_allPicked) return;
     setState(() => _isCompleting = true);
-    final currentUser = FirebaseAuth.instance.currentUser;
+    // ⚠️ CHANGED: No stock transaction here anymore!
+    // Just update status and picked items.
     try {
-      final bonLivraisonCode = _livraisonDoc?.get('bonLivraisonCode') ?? 'N/A';
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final livraisonRef = FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId);
-        List<Map<String, dynamic>> ops = [];
-        for (final item in _pickingItems) {
-          if (item['productId'] != null) {
-            final ref = FirebaseFirestore.instance.collection('produits').doc(item['productId']);
-            final snap = await transaction.get(ref);
-            if (snap.exists) ops.add({'ref': ref, 'snap': snap, 'item': item});
-          }
-        }
-        for (final op in ops) {
-          final int qty = op['item']['quantity'] ?? 0;
-          transaction.update(op['ref'], {'quantiteEnStock': FieldValue.increment(-qty)});
-          final ledgerRef = FirebaseFirestore.instance.collection('stock_movements').doc();
-          transaction.set(ledgerRef, {
-            'productId': op['item']['productId'], 'productName': op['item']['productName'],
-            'quantityChange': -qty, 'type': 'PREPARATION', 'notes': 'Sortie $bonLivraisonCode',
-            'timestamp': FieldValue.serverTimestamp()
-          });
-        }
-        transaction.update(livraisonRef, {'status': 'En Cours de Livraison', 'preparedAt': FieldValue.serverTimestamp(), 'products': _pickingItems});
+      final livraisonRef = FirebaseFirestore.instance.collection('livraisons').doc(widget.livraisonId);
+      await livraisonRef.update({
+        'status': 'En Cours de Livraison',
+        'preparedAt': FieldValue.serverTimestamp(),
+        'products': _pickingItems
       });
       if (mounted) _loadLivraisonDetails();
     } catch (e) { debugPrint("Error: $e"); } finally { if (mounted) setState(() => _isCompleting = false); }
