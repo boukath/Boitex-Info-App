@@ -168,6 +168,28 @@ class Vehicle {
     return currentMileage >= (nextOilChangeMileage! - 500);
   }
 
+  // 🛢️ OIL LIFE ALGORITHM (Fixes the 66% Bug)
+  double get oilLifePercentage {
+    // 1. Safety Check: If we don't have historical data, assume FRESH OIL (100%)
+    // This prevents the "66% stuck" bug on new vehicles.
+    if (lastOilChangeMileage == null || nextOilChangeMileage == null) {
+      return 1.0;
+    }
+
+    // 2. Calculate Interval
+    final int totalInterval = nextOilChangeMileage! - lastOilChangeMileage!;
+    if (totalInterval <= 0) return 0.0; // Avoid division by zero
+
+    // 3. Calculate Distance Driven since last change
+    final int distanceDriven = currentMileage - lastOilChangeMileage!;
+
+    // 4. Calculate Depletion (How much used?)
+    final double depletion = distanceDriven / totalInterval;
+
+    // 5. Return Remaining Life (1.0 - Depletion), clamped between 0 and 1
+    return (1.0 - depletion).clamp(0.0, 1.0);
+  }
+
   String get displayName => '$model ($plateNumber)';
   bool get isAvailable => status == 'available' && currentMissionId == null;
   String get fullInfo => '$vehicleCode - $model - $plateNumber - $year';

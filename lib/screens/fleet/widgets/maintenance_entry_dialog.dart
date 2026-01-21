@@ -124,9 +124,11 @@ class _MaintenanceEntryDialogState extends State<MaintenanceEntryDialog> {
 
     } catch (e) {
       debugPrint("❌ Upload Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Échec de l'upload de la facture"), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Échec de l'upload de la facture"), backgroundColor: Colors.red),
+        );
+      }
       return null;
     } finally {
       setState(() => _isUploading = false);
@@ -138,8 +140,14 @@ class _MaintenanceEntryDialogState extends State<MaintenanceEntryDialog> {
   // ---------------------------------------------------------------------------
 
   Future<void> _submitMaintenance() async {
+    // 1. FIX: Explicitly warn if mileage is invalid
     final int? mileage = int.tryParse(_mileageCtrl.text.replaceAll(' ', ''));
-    if (mileage == null || mileage < 0) return;
+    if (mileage == null || mileage < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ Kilométrage invalide"), backgroundColor: kRacingRed),
+      );
+      return;
+    }
 
     if (widget.vehicle.id == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur: ID Véhicule manquant")));
@@ -189,6 +197,12 @@ class _MaintenanceEntryDialogState extends State<MaintenanceEntryDialog> {
 
     } catch (e) {
       debugPrint("Save Error: $e");
+      // 2. FIX: Show user the error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur: $e"), backgroundColor: kCarbonBlack),
+        );
+      }
       setState(() => _isSaving = false);
     }
   }

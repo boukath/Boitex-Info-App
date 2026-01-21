@@ -18,6 +18,7 @@ import 'package:boitex_info_app/models/vehicle.dart';
 import 'package:boitex_info_app/models/maintenance_log.dart'; // ✅ STEP 1 IMPORT
 import 'package:boitex_info_app/screens/fleet/edit_vehicle_compliance_page.dart';
 import 'package:boitex_info_app/screens/fleet/widgets/maintenance_entry_dialog.dart'; // ✅ STEP 2 IMPORT
+import 'package:boitex_info_app/screens/fleet/widgets/maintenance_details_sheet.dart'; // ✅ STEP 3 IMPORT (New Sheet)
 // ✅ Import Inspection Page
 import 'package:boitex_info_app/screens/fleet/inspection_page.dart';
 
@@ -424,7 +425,7 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
 
             const SizedBox(height: 40),
 
-            // 3. FUEL INJECTION (FLUIDS)
+            // 3. FLUID INTEGRITY MONITOR (Prev. Fuel Injection)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: kPadding),
               child: _buildSectionHeader("MÉCANIQUE & FLUIDES"),
@@ -432,7 +433,8 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
             const SizedBox(height: 20),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: kPadding),
-              child: _buildFuelInjectionSystem(),
+              // ✅ UPDATED: New Segmented LED Telemetry System
+              child: _buildFluidIntegrityMonitor(),
             ),
 
             const SizedBox(height: 40),
@@ -590,55 +592,66 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(left: 16, right: kPadding, bottom: 24),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          "${NumberFormat('#,###').format(log.mileage)} KM",
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
-                        ),
-                        if (log.invoiceUrl != null)
-                          InkWell(
-                            onTap: () => _showInvoice(log.invoiceUrl!),
-                            child: const Icon(Icons.receipt_long, size: 18, color: kRacingRed),
+              // ✅ MODIFICATION: Wrapped in InkWell to open MaintenanceDetailsSheet
+              child: InkWell(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true, // Crucial for 85% height
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => MaintenanceDetailsSheet(log: log),
+                  );
+                },
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "${NumberFormat('#,###').format(log.mileage)} KM",
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    // ✅ HYBRID DISPLAY: STANDARD ICONS + CUSTOM TEXT BADGES
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        // Standard Items (Icons)
-                        ...log.performedItems.map((item) => _buildItemIcon(item)),
-                        // Custom Parts (Text Badges)
-                        ...log.customParts.map((part) => _buildCustomBadge(part)),
-                      ],
-                    ),
-
-                    if (log.notes != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          log.notes!,
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
-                        ),
+                          // Keep icon, but now tapping anywhere works
+                          if (log.invoiceUrl != null)
+                            const Icon(Icons.receipt_long, size: 18, color: kRacingRed),
+                        ],
                       ),
-                  ],
+                      const SizedBox(height: 12),
+
+                      // ✅ HYBRID DISPLAY: STANDARD ICONS + CUSTOM TEXT BADGES
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          // Standard Items (Icons)
+                          ...log.performedItems.map((item) => _buildItemIcon(item)),
+                          // Custom Parts (Text Badges)
+                          ...log.customParts.map((part) => _buildCustomBadge(part)),
+                        ],
+                      ),
+
+                      if (log.notes != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            log.notes!,
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -951,144 +964,208 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
   }
 
   // ---------------------------------------------------------------------------
-  // ⛽ WIDGETS: FUEL INJECTION (FLUIDS)
+  // 🎛️ FLUID INTEGRITY MONITOR (The "F1" Style Gauge)
   // ---------------------------------------------------------------------------
 
-  Widget _buildFuelInjectionSystem() {
-    final int current = _vehicle.currentMileage;
-    final int next = _vehicle.nextOilChangeMileage ?? (current + 10000);
-    final int last = _vehicle.lastOilChangeMileage ?? (current - 5000);
-    final int totalInterval = next - last;
-    final int drivenSinceLast = current - last;
-    double depletion = (drivenSinceLast / totalInterval).clamp(0.0, 1.0);
-    double remaining = 1.0 - depletion;
+  Widget _buildFluidIntegrityMonitor() {
+    // 1. Get Data from Smart Model
+    // If last/next mileage is null, we consider the sensor "Uncalibrated"
+    final bool isCalibrated = _vehicle.lastOilChangeMileage != null && _vehicle.nextOilChangeMileage != null;
+
+    // 2. Calculate Math
+    final double percentage = _vehicle.oilLifePercentage; // 0.0 to 1.0
+    final int totalSegments = 20;
+    final int activeSegments = (percentage * totalSegments).round();
+
+    // 3. Determine Color Dynamic (Blue -> Amber -> Red)
+    Color statusColor;
+    if (!isCalibrated) {
+      statusColor = Colors.grey.shade400; // Dead sensor
+    } else if (percentage > 0.4) {
+      statusColor = kMechanicBlue; // Safe (Cool Operation)
+    } else if (percentage > 0.15) {
+      statusColor = Colors.amber; // Warning (Heat rising)
+    } else {
+      statusColor = kRacingRed; // Critical
+    }
 
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFF1A1A1A), // Deep Carbon Background
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10)),
+          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10)),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // HEADER: Title + Status Badge
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
-                  const Text("INTÉGRITÉ HUILE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  Icon(CupertinoIcons.drop_fill, color: statusColor, size: 16),
                   const SizedBox(width: 8),
-                  // ✅ NEW: RESET SERVICE BUTTON (Triggers the new Dialog)
-                  InkWell(
-                    onTap: _showServiceResetDialog,
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: const BoxDecoration(
-                        color: kAsphaltGrey,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(CupertinoIcons.arrow_2_circlepath, size: 14, color: kCarbonBlack),
+                  Text(
+                    "INTEGRITY MONITOR",
+                    style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.0,
                     ),
                   ),
                 ],
               ),
-              Text("${(remaining * 100).toInt()}%", style: const TextStyle(color: kRacingRed, fontWeight: FontWeight.w900, fontSize: 18)),
+              // Status Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: statusColor.withOpacity(0.3)),
+                ),
+                child: Text(
+                  isCalibrated ? "${(percentage * 100).toInt()}%" : "NO DATA",
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 20),
-          // The Fuel Line
+
+          const SizedBox(height: 24),
+
+          // 📊 THE SEGMENTED LED BAR
           SizedBox(
-            height: 20,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                return Stack(
-                  alignment: Alignment.centerLeft,
-                  clipBehavior: Clip.none,
-                  children: [
-                    // Track
-                    Container(
-                      width: width,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: kAsphaltGrey,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
+            height: 24, // Height of the bars
+            child: Row(
+              children: List.generate(totalSegments, (index) {
+                // Determine if this specific block is "lit"
+                // We fill from left to right.
+                bool isActive = index < activeSegments;
+
+                // If uncalibrated, maybe show a "scanning" pattern or just grey
+                if (!isCalibrated) isActive = false;
+
+                return Expanded(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: isActive ? statusColor : Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(2),
+                      boxShadow: isActive
+                          ? [BoxShadow(color: statusColor.withOpacity(0.6), blurRadius: 4)]
+                          : [],
                     ),
-                    // Liquid Gradient
-                    AnimatedContainer(
-                      duration: const Duration(seconds: 1),
-                      curve: Curves.easeOutExpo,
-                      width: width * remaining,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(6),
-                        gradient: const LinearGradient(
-                          colors: [kRacingRed, Color(0xFFFF5252)],
-                        ),
-                        boxShadow: [
-                          BoxShadow(color: kRacingRed.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4)),
-                        ],
-                      ),
-                    ),
-                    // Droplet Icon Slider
-                    AnimatedPositioned(
-                      duration: const Duration(seconds: 1),
-                      curve: Curves.easeOutExpo,
-                      left: (width * remaining) - 14,
-                      top: -6,
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5),
-                          ],
-                        ),
-                        child: const Icon(CupertinoIcons.drop_fill, color: kRacingRed, size: 16),
-                      ),
-                    ),
-                  ],
+                  ),
                 );
-              },
+              }),
             ),
           ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // ✅ EXISTING: PENCIL BUTTON
-              Row(
-                children: [
-                  Text(
-                      "${NumberFormat('#,###').format(current)} KM",
-                      style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)
-                  ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: _showMileageEditDialog, // ✨ Opens the UPDATE Dialog
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: const BoxDecoration(
-                        color: kAsphaltGrey,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(CupertinoIcons.pencil, size: 14, color: kRacingRed),
-                    ),
-                  ),
-                ],
-              ),
 
-              Text("PROCH: ${NumberFormat('#,###').format(next)}", style: const TextStyle(fontWeight: FontWeight.w900, color: kCarbonBlack)),
-            ],
+          const SizedBox(height: 24),
+
+          // 📉 TELEMETRY DATA (Big Numbers)
+          isCalibrated
+              ? _buildTelemetryData(statusColor)
+              : _buildUncalibratedState(),
+        ],
+      ),
+    );
+  }
+
+  // Helper: Shows the "Big Numbers" when data exists
+  Widget _buildTelemetryData(Color color) {
+    final int remainingKm = (_vehicle.nextOilChangeMileage ?? 0) - _vehicle.currentMileage;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "${NumberFormat('#,###').format(remainingKm)} KM",
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -1.0,
+              ),
+            ),
+            Text(
+              "DISTANCE RESTANTE",
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+
+        // Reset Button (The "Cockpit" Trigger)
+        InkWell(
+          onTap: _showServiceResetDialog,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withOpacity(0.1)),
+            ),
+            child: Icon(CupertinoIcons.wrench_fill, color: color, size: 20),
           ),
+        ),
+      ],
+    );
+  }
+
+  // Helper: Shows the "Setup" button when data is missing
+  Widget _buildUncalibratedState() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: kRacingRed.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kRacingRed.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: kRacingRed),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "CAPTEUR NON CALIBRÉ",
+                  style: TextStyle(color: kRacingRed, fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+                Text(
+                  "Configurez le dernier entretien.",
+                  style: TextStyle(color: kRacingRed.withOpacity(0.7), fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: _showServiceResetDialog,
+            style: TextButton.styleFrom(
+              backgroundColor: kRacingRed,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            child: const Text("SETUP", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+          )
         ],
       ),
     );
