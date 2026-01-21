@@ -1082,47 +1082,105 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
     );
   }
 
-  // Helper: Shows the "Big Numbers" when data exists
+  // ✅ UPDATED: DUAL DISPLAY COCKPIT (Fixed Overflow)
   Widget _buildTelemetryData(Color color) {
     final int remainingKm = (_vehicle.nextOilChangeMileage ?? 0) - _vehicle.currentMileage;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "${NumberFormat('#,###').format(remainingKm)} KM",
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -1.0,
+        // 1. LEFT: REALITY (Current Mileage)
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Use FittedBox to scale text down if it gets too large
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  "${NumberFormat('#,###').format(_vehicle.currentMileage)} KM",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24, // Slightly smaller to fit both
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -1.0,
+                  ),
+                ),
               ),
-            ),
-            Text(
-              "DISTANCE RESTANTE",
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
+              Text(
+                "KILOMÉTRAGE ACTUEL",
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
 
-        // Reset Button (The "Cockpit" Trigger)
-        InkWell(
-          onTap: _showServiceResetDialog,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
-            ),
-            child: Icon(CupertinoIcons.wrench_fill, color: color, size: 20),
+        // 2. CENTER: DIVIDER
+        Container(
+          height: 40,
+          width: 1,
+          color: Colors.white.withOpacity(0.1),
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+
+        // 3. RIGHT: TARGET (Countdown) + RESET
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // ✅ FIXED: Wrapped in Expanded to allow text wrapping/shrinking
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "${NumberFormat('#,###').format(remainingKm)} KM",
+                        style: TextStyle(
+                          color: color, // Uses the status color (Blue/Amber/Red)
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -1.0,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      "DISTANCE RESTANTE",
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis, // ✅ Prevent overflow
+                      maxLines: 1,
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 8), // ✅ Add spacing before button
+
+              // Reset Button (The "Cockpit" Trigger)
+              InkWell(
+                onTap: _showServiceResetDialog,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  child: Icon(CupertinoIcons.wrench_fill, color: color, size: 18),
+                ),
+              ),
+            ],
           ),
         ),
       ],

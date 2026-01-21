@@ -248,10 +248,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
   // 🚗 THE NEW GARAGE ICON WIDGET
   Widget _buildGarageIcon(BuildContext context) {
-    // 🔒 RESTRICTION: Only show for Admin
-    if (widget.userRole != UserRoles.admin) {
-      return const SizedBox.shrink(); // Empty widget for non-admins
-    }
+    // ✅ VISIBLE FOR EVERYONE (Restriction Removed)
 
     return Container(
       decoration: BoxDecoration(
@@ -652,7 +649,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  // 🎨 MOBILE LAYOUT
+  // 🎨 MOBILE LAYOUT (UPDATED FOR OPTION 1)
   Widget _buildMobileLayout(BuildContext context) {
     return Scaffold(
       body: Container(
@@ -678,24 +675,27 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // 1. TOP ROW: Logo (Left) and Greeting (Right)
+                      // 1. TOP ROW: Logo (Left) and Greeting/Identity (Right)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start, // Align to top
                         children: [
                           // Logo
-                          Image.asset(
-                            'assets/images/logo.png',
-                            width: 70,
-                            height: 70,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Icon(Icons.business,
-                                  size: 40, color: Colors.white);
-                            },
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Image.asset(
+                              'assets/images/logo.png',
+                              width: 70,
+                              height: 70,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return const Icon(Icons.business,
+                                    size: 40, color: Colors.white);
+                              },
+                            ),
                           ),
 
-                          // Greeting Text
+                          // Greeting Text & Role Stack
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
@@ -721,62 +721,61 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                   overflow: TextOverflow.ellipsis,
                                   maxLines: 2,
                                 ),
+                                const SizedBox(height: 8),
+
+                                // ✅ MOVED ROLE BADGE HERE
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.3),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min, // Shrink to fit text
+                                    children: [
+                                      Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF10B981),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        widget.userRole,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ),
                           ),
                         ],
                       ),
 
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 24), // Increased spacing for cleaner look
 
-                      // 2. SECOND ROW: All Action Icons (Aligned to Right)
+                      // 2. SECOND ROW: Action Icons Only (Evenly Spaced)
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly, // ✅ Clean Layout
                         children: [
-                          // Role Badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.3),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF10B981),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  widget.userRole,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Spacer(),
-
                           // ✅ CAR ICON (MOBILE)
                           _buildGarageIcon(context),
-                          const SizedBox(width: 8),
 
                           // Bell
                           _buildNotificationBell(context),
-                          const SizedBox(width: 8),
 
                           // Settings
                           Container(
@@ -802,7 +801,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                               },
                             ),
                           ),
-                          const SizedBox(width: 8),
 
                           // ✅ UPDATED MOBILE LOGOUT BUTTON
                           Container(
