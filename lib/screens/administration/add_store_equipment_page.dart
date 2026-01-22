@@ -7,7 +7,7 @@ import 'package:boitex_info_app/screens/administration/global_product_search_pag
 import 'package:boitex_info_app/models/selection_models.dart';
 import 'package:boitex_info_app/widgets/serial_number_scanner_dialog.dart';
 
-// ✅ NEW: Import the Service Contracts model
+// ✅ Import the Service Contracts model
 import 'package:boitex_info_app/models/service_contracts.dart';
 
 // Helper class: Manages each item in the list independently
@@ -91,8 +91,13 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
 
     setState(() {
       _batchItems.add(item);
-      if (data['installDate'] != null) {
-        _installationDate = (data['installDate'] as Timestamp).toDate();
+
+      // ✅ FIXED: Check both 'installDate' AND 'installationDate'
+      // This ensures auto-generated items load their date correctly in the edit form.
+      final Timestamp? ts = data['installDate'] ?? data['installationDate'];
+
+      if (ts != null) {
+        _installationDate = ts.toDate();
       }
     });
   }
@@ -123,7 +128,7 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
         });
       }
     } catch (e) {
-      print("Error fetching details: $e");
+      debugPrint("Error fetching details: $e");
     }
   }
 
@@ -274,7 +279,7 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
         );
       }
     } catch (e) {
-      print("Error batch saving: $e");
+      debugPrint("Error batch saving: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),

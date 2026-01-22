@@ -195,6 +195,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         if (_status == 'À Préparer') {
           pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) {
             final map = Map<String, dynamic>.from(p);
+
+            // 🛠️ FIX 1: Map 'reference' (DB) to 'partNumber' (App)
+            if (map['reference'] != null) {
+              map['partNumber'] = map['reference'];
+            }
+
             if (!map.containsKey('isBulk')) {
               map['isBulk'] = true;
             }
@@ -214,7 +220,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             final int deliveredQuantity = product['deliveredQuantity'] as int? ?? 0;
 
             final String productName = product['productName'] ?? 'N/A';
-            final String? partNumber = product['partNumber'];
+
+            // 🛠️ FIX 2: Prioritize 'reference' from Firebase if available
+            final String? partNumber = product['reference'] ?? product['partNumber'];
+
             final String? productId = product['productId'];
             final List serials = product['serialNumbers'] as List? ?? [];
             final List serialsFound = product['serialNumbersFound'] as List? ?? [];
@@ -319,8 +328,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           if (!groupedMap.containsKey(key)) {
             groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
           }
-          // Only add if accepted
-          if (item['delivered'] == true) {
+
+          // ✅ PDF FIX 1: Include items if they are checked OR if we are in transit status
+          // This prevents empty PDF when status is 'En Cours de Livraison' but boxes aren't ticked yet.
+          bool shouldInclude = item['delivered'] == true || _status == 'En Cours de Livraison';
+
+          if (shouldInclude) {
             groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + 1;
             final sn = item['serialNumber'] ?? item['originalSerialNumber'];
             if (sn != null) (groupedMap[key]!['serialNumbers'] as List<String>).add(sn);
@@ -333,12 +346,15 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             groupedMap[key] = {'productId': item['productId'], 'productName': item['productName'], 'partNumber': item['partNumber'], 'marque': item['marque'] ?? 'N/A', 'quantity': 0, 'serialNumbers': <String>[]};
           }
 
-          // ✅ PDF GENERATION: Use the Split Accepted Quantity
+          // ✅ PDF FIX 2: Handle Bulk Quantity for Transit
           int quantityToPrint = item['quantity'];
+
           if (_itemSplits.containsKey(mapKey)) {
             quantityToPrint = _itemSplits[mapKey]!['accepted'];
-          } else if (item['delivered'] != true) {
-            quantityToPrint = 0; // If unchecked and no split, it's 0
+          } else if (item['delivered'] != true && _status != 'En Cours de Livraison') {
+            // Only set to 0 if we are NOT in transit.
+            // If we are in transit, we print the full truck load.
+            quantityToPrint = 0;
           }
 
           if (quantityToPrint > 0) {
@@ -808,6 +824,18 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         });
       }
 
+      // =======================================================================
+      // ✅ AUTO-EQUIPMENT REGISTRATION LOGIC
+      // Only triggered if Status is "Livré" (Full success) AND Store ID exists
+      // =======================================================================
+      final String? targetClientId = doc.data()?['clientId'];
+      final String? targetStoreId = doc.data()?['storeId'];
+
+      if (finalStatus == 'Livré' && targetClientId != null && targetStoreId != null) {
+        await _registerEquipmentToStore(targetClientId, targetStoreId, updatedProducts);
+      }
+      // =======================================================================
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(hasRejections ? "Livraison partielle enregistrée avec succès." : "Livraison terminée avec succès."),
@@ -820,6 +848,53 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
     } finally {
       if (mounted) setState(() => _isCompleting = false);
+    }
+  }
+
+  // ✅ HELPER: AUTO-REGISTER EQUIPMENT
+  Future<void> _registerEquipmentToStore(String clientId, String storeId, List<dynamic> products) async {
+    final batch = FirebaseFirestore.instance.batch();
+    final equipmentRef = FirebaseFirestore.instance
+        .collection('clients')
+        .doc(clientId)
+        .collection('stores')
+        .doc(storeId)
+        .collection('materiel_installe');
+
+    int count = 0;
+
+    for (var p in products) {
+      // Only register SERIALIZED items that were actually delivered
+      final List serials = p['deliveredSerials'] ?? [];
+
+      if (serials.isEmpty) continue; // Skip items with no accepted serials
+
+      for (String sn in serials) {
+        final newDoc = equipmentRef.doc(); // Generate ID
+        batch.set(newDoc, {
+          'nom': p['productName'] ?? 'Équipement',
+          'category': p['category'] ?? 'N/A', // Try to save category if present
+          'marque': p['marque'] ?? 'N/A',
+          'reference': p['partNumber'] ?? p['reference'] ?? 'N/A',
+          'serialNumber': sn,
+          'installationDate': FieldValue.serverTimestamp(),
+          'status': 'En Service', // Default status for new equipment
+          'warrantyEnd': null, // Can be updated by SAV later
+          'sourceLivraisonId': widget.livraisonId, // Link back to delivery
+          'addedBy': 'Auto-Livraison',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      try {
+        await batch.commit();
+        debugPrint("✅ Auto-registered $count equipment items to store $storeId");
+      } catch (e) {
+        debugPrint("❌ Error auto-registering equipment: $e");
+      }
     }
   }
 
@@ -854,6 +929,32 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     if (!mounted) return;
     await Navigator.push(context, MaterialPageRoute(builder: (context) => ScannerPage(onScan: (code) => scannedSN = code)));
     if (scannedSN != null) _processInputScan(index, scannedSN!);
+  }
+
+  // ✅ LOGIC: Remove a specific serial number from the list
+  void _removeSerialNumber(int index, String serial) {
+    setState(() {
+      // 1. Get current list safely
+      List<String> currentSerials = List<String>.from(_pickingItems[index]['serialNumbers'] ?? []);
+
+      // 2. Remove the item
+      currentSerials.remove(serial);
+
+      // 3. Update State
+      _pickingItems[index]['serialNumbers'] = currentSerials;
+
+      // 4. Update 'pickedQuantity' implicitly for serialized items logic
+      // (Optional depending on your logic, but usually serial count = picked qty)
+    });
+
+    // 5. Save to Firebase
+    _savePickingState();
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text("Numéro de série $serial retiré"),
+      duration: const Duration(milliseconds: 1000),
+      backgroundColor: Colors.orange,
+    ));
   }
 
   Future<void> _savePickingState() async {
@@ -1368,18 +1469,42 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                       )
                   ],
 
-                  // SERIAL LIST
+                  // SERIAL LIST (Updated with Delete Option)
                   if (!isBulk && (item['serialNumbers'] as List? ?? []).isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Wrap(
                         spacing: 6,
                         runSpacing: 6,
-                        children: (item['serialNumbers'] as List).map<Widget>((s) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                          child: Text(s, style: GoogleFonts.robotoMono(fontSize: 12, fontWeight: FontWeight.w600)),
-                        )).toList(),
+                        children: (item['serialNumbers'] as List).map<Widget>((s) {
+                          return InkWell(
+                            // ✅ Only allow deletion in Picking Mode
+                            onTap: isPicking ? () => _removeSerialNumber(index, s.toString()) : null,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                      s,
+                                      style: GoogleFonts.robotoMono(fontSize: 12, fontWeight: FontWeight.w600)
+                                  ),
+                                  // ✅ Show 'X' icon only in Picking Mode
+                                  if (isPicking) ...[
+                                    const SizedBox(width: 6),
+                                    const Icon(Icons.close, size: 14, color: Colors.redAccent)
+                                  ]
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
                       ),
                     )
                 ],

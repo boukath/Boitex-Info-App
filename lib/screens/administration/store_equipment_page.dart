@@ -12,11 +12,11 @@ import 'package:boitex_info_app/screens/administration/add_store_page.dart';
 // ✅ Import Service Contracts for logic
 import 'package:boitex_info_app/models/service_contracts.dart';
 
-class StoreEquipmentPage extends StatelessWidget {
+class StoreEquipmentPage extends StatefulWidget {
   final String clientId;
   final String storeId;
   final String storeName;
-  final String? logoUrl; // ✅ NEW: Optional Logo URL
+  final String? logoUrl;
 
   const StoreEquipmentPage({
     super.key,
@@ -26,7 +26,117 @@ class StoreEquipmentPage extends StatelessWidget {
     this.logoUrl,
   });
 
-  // Helper to get the real name if the saved name is generic
+  @override
+  State<StoreEquipmentPage> createState() => _StoreEquipmentPageState();
+}
+
+class _StoreEquipmentPageState extends State<StoreEquipmentPage> {
+
+  @override
+  void initState() {
+    super.initState();
+    // 🚀 TRIGGER AUTO-IMPORT ON LOAD
+    _syncFromDeliveries();
+  }
+
+  // ==============================================================================
+  // 🔄 AUTO-IMPORT LOGIC (The Lazy Sync)
+  // ==============================================================================
+  Future<void> _syncFromDeliveries() async {
+    try {
+      final deliveriesSnapshot = await FirebaseFirestore.instance
+          .collection('livraisons')
+          .where('clientId', isEqualTo: widget.clientId)
+          .where('storeId', isEqualTo: widget.storeId)
+          .where('status', whereIn: ['Livré', 'Livraison Partielle'])
+          .get();
+
+      if (deliveriesSnapshot.docs.isEmpty) return;
+
+      final equipmentRef = FirebaseFirestore.instance
+          .collection('clients')
+          .doc(widget.clientId)
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('materiel_installe');
+
+      final equipmentSnapshot = await equipmentRef.get();
+      final Set<String> existingSerials = equipmentSnapshot.docs
+          .map((doc) => doc.data()['serialNumber']?.toString().trim().toUpperCase())
+          .where((s) => s != null)
+          .cast<String>()
+          .toSet();
+
+      final batch = FirebaseFirestore.instance.batch();
+      int addedCount = 0;
+
+      for (var doc in deliveriesSnapshot.docs) {
+        final data = doc.data();
+        final List products = data['products'] ?? [];
+        final String deliveryId = doc.id;
+        final Timestamp? deliveryDate = data['completedAt'] as Timestamp? ?? data['createdAt'] as Timestamp?;
+
+        for (var item in products) {
+          List<dynamic> serialsToAdd = [];
+
+          if (item['deliveredSerials'] != null && (item['deliveredSerials'] as List).isNotEmpty) {
+            serialsToAdd = item['deliveredSerials'];
+          }
+          else if (item['serialNumbers'] != null && (item['serialNumbers'] as List).isNotEmpty) {
+            int deliveredQty = item['deliveredQuantity'] ?? item['quantity'] ?? 0;
+            if (deliveredQty > 0) {
+              serialsToAdd = (item['serialNumbers'] as List).take(deliveredQty).toList();
+            }
+          }
+
+          for (var serial in serialsToAdd) {
+            final String serialStr = serial.toString().trim();
+            final String serialCheck = serialStr.toUpperCase();
+
+            if (!existingSerials.contains(serialCheck) && serialStr.isNotEmpty && serialStr != 'N/A') {
+
+              final newDoc = equipmentRef.doc();
+              batch.set(newDoc, {
+                'name': item['productName'] ?? 'Équipement',
+                'category': item['category'] ?? 'N/A',
+                'marque': item['marque'] ?? 'N/A',
+                'reference': item['partNumber'] ?? item['reference'] ?? 'N/A',
+                'serialNumber': serialStr,
+                'installDate': deliveryDate ?? FieldValue.serverTimestamp(),
+                'status': 'Installé',
+                'source': 'Livraison',
+                'firstSeenInstallationId': deliveryId,
+                'warrantyEnd': null,
+                'addedBy': 'Auto-Sync',
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+
+              existingSerials.add(serialCheck);
+              addedCount++;
+            }
+          }
+        }
+      }
+
+      if (addedCount > 0) {
+        await batch.commit();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("$addedCount équipements importés depuis les livraisons 📦"),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+
+    } catch (e) {
+      debugPrint("Error syncing deliveries: $e");
+    }
+  }
+  // ==============================================================================
+
   Future<String> _resolveProductName(Map<String, dynamic> data) async {
     String currentName = data['nom'] ?? data['name'] ?? 'Produit Inconnu';
     String? productId = data['productId'] ?? data['id'];
@@ -55,7 +165,6 @@ class StoreEquipmentPage extends StatelessWidget {
     return currentName;
   }
 
-  // Function to delete equipment
   Future<void> _deleteEquipment(BuildContext context, String equipmentId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -79,9 +188,9 @@ class StoreEquipmentPage extends StatelessWidget {
       try {
         await FirebaseFirestore.instance
             .collection('clients')
-            .doc(clientId)
+            .doc(widget.clientId)
             .collection('stores')
-            .doc(storeId)
+            .doc(widget.storeId)
             .collection('materiel_installe')
             .doc(equipmentId)
             .delete();
@@ -101,14 +210,13 @@ class StoreEquipmentPage extends StatelessWidget {
     }
   }
 
-  // Function to edit equipment
   void _editEquipment(BuildContext context, String equipmentId, Map<String, dynamic> data) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => AddStoreEquipmentPage(
-          clientId: clientId,
-          storeId: storeId,
+          clientId: widget.clientId,
+          storeId: widget.storeId,
           equipmentId: equipmentId,
           initialData: data,
         ),
@@ -116,7 +224,6 @@ class StoreEquipmentPage extends StatelessWidget {
     );
   }
 
-  // Build the Traffic Light Badge for Warranty
   Widget _buildWarrantyBadge(Map<String, dynamic> data) {
     EquipmentWarranty? warranty;
 
@@ -126,8 +233,11 @@ class StoreEquipmentPage extends StatelessWidget {
       } catch (e) {}
     }
 
-    if (warranty == null && data['installDate'] != null) {
-      final installDate = (data['installDate'] as Timestamp).toDate();
+    // ✅ FIXED: Support both 'installDate' and 'installationDate' for warranty check
+    final Timestamp? ts = data['installDate'] ?? data['installationDate'];
+
+    if (warranty == null && ts != null) {
+      final installDate = ts.toDate();
       warranty = EquipmentWarranty.defaultOneYear(installDate);
     }
 
@@ -167,9 +277,8 @@ class StoreEquipmentPage extends StatelessWidget {
     );
   }
 
-  // ✅ BRANDED HEADER WIDGET
   PreferredSizeWidget _buildAppBar(BuildContext context) {
-    if (logoUrl != null) {
+    if (widget.logoUrl != null) {
       return AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -178,7 +287,7 @@ class StoreEquipmentPage extends StatelessWidget {
         title: Row(
           children: [
             CircleAvatar(
-              backgroundImage: NetworkImage(logoUrl!),
+              backgroundImage: NetworkImage(widget.logoUrl!),
               radius: 18,
               backgroundColor: Colors.grey.shade100,
             ),
@@ -187,7 +296,7 @@ class StoreEquipmentPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(storeName, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text(widget.storeName, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
                   const Text("Parc Installé", style: TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
@@ -203,13 +312,12 @@ class StoreEquipmentPage extends StatelessWidget {
         ],
       );
     } else {
-      // Fallback Default AppBar
       return AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Parc Installé', style: TextStyle(fontSize: 16)),
-            Text(storeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400)),
+            Text(widget.storeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400)),
           ],
         ),
         backgroundColor: const Color(0xFF667EEA),
@@ -228,9 +336,9 @@ class StoreEquipmentPage extends StatelessWidget {
   void _openStoreSettings(BuildContext context) {
     FirebaseFirestore.instance
         .collection('clients')
-        .doc(clientId)
+        .doc(widget.clientId)
         .collection('stores')
-        .doc(storeId)
+        .doc(widget.storeId)
         .get()
         .then((doc) {
       if (doc.exists && context.mounted) {
@@ -238,8 +346,8 @@ class StoreEquipmentPage extends StatelessWidget {
           context,
           MaterialPageRoute(
             builder: (context) => AddStorePage(
-              clientId: clientId,
-              storeId: storeId,
+              clientId: widget.clientId,
+              storeId: widget.storeId,
               initialData: doc.data(),
             ),
           ),
@@ -256,11 +364,11 @@ class StoreEquipmentPage extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('clients')
-            .doc(clientId)
+            .doc(widget.clientId)
             .collection('stores')
-            .doc(storeId)
+            .doc(widget.storeId)
             .collection('materiel_installe')
-            .orderBy('installDate', descending: true)
+        // ❌ FIXED: Removed orderBy('installDate') to prevent hiding new items
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -270,7 +378,21 @@ class StoreEquipmentPage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
+          // ✅ SMART SORT: Sort in memory to handle mixed date fields
           final docs = snapshot.data!.docs;
+
+          docs.sort((a, b) {
+            final da = a.data() as Map<String, dynamic>;
+            final db = b.data() as Map<String, dynamic>;
+
+            // Try 'installDate', then 'installationDate', then 'createdAt'
+            final Timestamp? tA = da['installDate'] ?? da['installationDate'] ?? da['createdAt'];
+            final Timestamp? tB = db['installDate'] ?? db['installationDate'] ?? db['createdAt'];
+
+            if (tA == null) return 1; // Put nulls at the end
+            if (tB == null) return -1;
+            return tB.compareTo(tA); // Descending order (Newest first)
+          });
 
           if (docs.isEmpty) {
             return Center(
@@ -294,7 +416,10 @@ class StoreEquipmentPage extends StatelessWidget {
 
               final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
               final Timestamp? lastSeen = data['lastInterventionDate'] as Timestamp?;
-              final Timestamp? installDate = data['installDate'] as Timestamp?;
+
+              // ✅ FIXED: Read from both possible date fields
+              final Timestamp? installDate = (data['installDate'] ?? data['installationDate']) as Timestamp?;
+
               final String? imageUrl = data['image'];
 
               return Slidable(
@@ -331,8 +456,8 @@ class StoreEquipmentPage extends StatelessWidget {
                       context,
                       MaterialPageRoute(
                         builder: (_) => StoreEquipmentDetailsPage(
-                          clientId: clientId,
-                          storeId: storeId,
+                          clientId: widget.clientId,
+                          storeId: widget.storeId,
                           equipmentId: id,
                         ),
                       ),
@@ -374,7 +499,7 @@ class StoreEquipmentPage extends StatelessWidget {
                               children: [
                                 FutureBuilder<String>(
                                     future: _resolveProductName(data),
-                                    initialData: data['nom'] ?? 'Chargement...',
+                                    initialData: data['nom'] ?? data['name'] ?? 'Chargement...',
                                     builder: (context, nameSnapshot) {
                                       return Text(
                                         nameSnapshot.data ?? 'Équipement',
@@ -460,8 +585,8 @@ class StoreEquipmentPage extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => AddStoreEquipmentPage(
-                clientId: clientId,
-                storeId: storeId,
+                clientId: widget.clientId,
+                storeId: widget.storeId,
               ),
             ),
           );
