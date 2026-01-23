@@ -22,6 +22,10 @@ import 'package:boitex_info_app/screens/fleet/widgets/maintenance_details_sheet.
 // ✅ Import Inspection Page
 import 'package:boitex_info_app/screens/fleet/inspection_page.dart';
 
+// ✅ NEW IMPORTS FOR REPAIR MODULE
+import 'package:boitex_info_app/screens/fleet/create_repair_order_page.dart';
+import 'package:boitex_info_app/screens/fleet/repair_orders_list_page.dart';
+
 // 🏎️ SCUDERIA THEME CONSTANTS
 const Color kCeramicWhite = Color(0xFFFFFFFF);
 const Color kRacingRed = Color(0xFFFF2800); // Rosso Corsa
@@ -449,7 +453,12 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
 
             const SizedBox(height: 40),
 
-            // 5. ✅ NEW: SERVICE HISTORY TIMELINE WITH ADD BUTTON
+            // 🛠️ 5. ✅ NEW: REPAIR SHOP MODULE
+            _buildWorkshopSection(),
+
+            const SizedBox(height: 40),
+
+            // 6. ✅ SERVICE HISTORY TIMELINE WITH ADD BUTTON
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: kPadding),
               child: Row(
@@ -492,6 +501,98 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
             _buildMaintenanceTimeline(),
 
             const SizedBox(height: 100), // Bottom padding
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🏭 WORKSHOP SECTION (NEW)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildWorkshopSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: kPadding),
+          child: _buildSectionHeader("ATELIER & RÉPARATIONS"),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: kPadding),
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildWorkshopButton(
+                  label: "NOUVEL ORDRE",
+                  icon: Icons.build_circle_outlined,
+                  color: kCarbonBlack,
+                  onTap: () {
+                    // Navigate to Create Repair Order
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => CreateRepairOrderPage(vehicle: _vehicle)),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildWorkshopButton(
+                  label: "SUIVI ATELIER",
+                  icon: Icons.history,
+                  color: kMechanicBlue,
+                  onTap: () {
+                    // Navigate to Repair List
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const RepairOrdersListPage()),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWorkshopButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
+          ],
+          border: Border.all(color: Colors.grey.shade100),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                color: color,
+                letterSpacing: 0.5,
+              ),
+            ),
           ],
         ),
       ),

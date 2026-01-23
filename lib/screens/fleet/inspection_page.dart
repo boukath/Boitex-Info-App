@@ -11,8 +11,8 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/models/vehicle.dart';
-import 'package:boitex_info_app/models/inspection.dart'; // ✅ Step 1
-import 'package:boitex_info_app/screens/fleet/widgets/car_inspection_widget.dart'; // ✅ Step 2
+import 'package:boitex_info_app/models/inspection.dart';
+import 'package:boitex_info_app/screens/fleet/widgets/car_inspection_widget.dart';
 
 const Color kRacingRed = Color(0xFFFF2800);
 const Color kCarbonBlack = Color(0xFF1C1C1C);
@@ -39,8 +39,20 @@ class _InspectionPageState extends State<InspectionPage> {
   // 🖱️ INTERACTION: TAP ON CAR
   // ---------------------------------------------------------------------------
 
-  void _handleMapTap(double x, double y) async {
-    // Open the "Add Defect" Dialog
+  void _handleMapTap(double x, double y, String viewId) {
+    _openDefectDialog(x: x, y: y, viewId: viewId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🛠️ INTERACTION: GENERAL ISSUE (Engine, noise, smell...)
+  // ---------------------------------------------------------------------------
+
+  void _handleGeneralIssue() {
+    // We use x=-1, y=-1 to indicate "No Position"
+    _openDefectDialog(x: -1, y: -1, viewId: 'general');
+  }
+
+  void _openDefectDialog({required double x, required double y, required String viewId}) async {
     final Defect? newDefect = await showModalBottomSheet<Defect>(
       context: context,
       isScrollControlled: true,
@@ -49,6 +61,7 @@ class _InspectionPageState extends State<InspectionPage> {
         vehicleCode: widget.vehicle.vehicleCode,
         x: x,
         y: y,
+        viewId: viewId,
       ),
     );
 
@@ -68,7 +81,6 @@ class _InspectionPageState extends State<InspectionPage> {
     setState(() => _isSavingSession = true);
 
     try {
-      // 1. Create the Master Inspection Object
       final inspection = Inspection(
         id: '', // Firestore will generate
         vehicleId: widget.vehicle.id!,
@@ -79,18 +91,14 @@ class _InspectionPageState extends State<InspectionPage> {
         isCompleted: true,
       );
 
-      // 2. Save to Sub-Collection
       await FirebaseFirestore.instance
           .collection('vehicles')
           .doc(widget.vehicle.id)
           .collection('inspections')
           .add(inspection.toMap());
 
-      // 3. Update Vehicle Status (Optional: Block vehicle if critical defects?)
-      // For now, we just log it.
-
       if (mounted) {
-        Navigator.pop(context); // Close Page
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("INSPECTION ENREGISTRÉE (${_defects.length} DÉFAUTS)"),
@@ -110,78 +118,97 @@ class _InspectionPageState extends State<InspectionPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Separate defects into "Visual" (on map) and "General" (list)
+    final generalDefects = _defects.where((d) => d.viewId == 'general').toList();
+    final visualDefects = _defects.where((d) => d.viewId != 'general').toList();
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           "INSPECTION 360°",
-          style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, color: Colors.black, fontSize: 16),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, color: Colors.black, fontSize: 16),
         ),
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
       ),
+
+      // 🔹 1. THE "ADD GENERAL ISSUE" BUTTON (FAB)
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 80.0), // Move up above the "Save" button
+        child: FloatingActionButton.extended(
+          onPressed: _handleGeneralIssue,
+          backgroundColor: kCarbonBlack,
+          icon: const Icon(Icons.build_circle, color: Colors.white),
+          label: const Text("SIGNALER AUTRE PROBLÈME", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      ),
+
       body: Column(
         children: [
-          // 1. INSTRUCTIONS
+          // INSTRUCTIONS
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             color: const Color(0xFFF8F9FA),
             width: double.infinity,
             child: const Text(
-              "Appuyez sur la zone exacte du véhicule pour signaler un dommage (rayure, impact, bosse...).",
+              "Touchez le véhicule pour les rayures. Utilisez le bouton 'Signaler Autre' pour les problèmes mécaniques.",
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey, fontSize: 12),
+              style: TextStyle(color: Colors.grey, fontSize: 11),
             ),
           ),
 
-          // 2. THE INTERACTIVE BLUEPRINT
+          // 2. THE CAR BLUEPRINT (Visual Defects)
           Expanded(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: CarInspectionWidget(
-                  defects: _defects,
-                  onTap: _handleMapTap,
-                  onPinTap: (defect) {
-                    // TODO: Show details or allow delete
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(defect.label)));
-                  },
-                ),
+            flex: 3,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: CarInspectionWidget(
+                defects: visualDefects, // Only pass visual defects to the map
+                onTap: _handleMapTap,
+                onPinTap: (defect) => _showDefectOptions(defect),
               ),
             ),
           ),
 
-          // 3. DEFECT LIST SUMMARY
-          if (_defects.isNotEmpty)
-            Container(
-              height: 60,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
+          // 3. THE GENERAL ISSUES LIST (Mechanical/Smell/Noise)
+          if (generalDefects.isNotEmpty) ...[
+            const Divider(),
+            const Padding(
+              padding: EdgeInsets.only(left: 24, bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text("PROBLÈMES GÉNÉRAUX / MÉCANIQUE", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Colors.grey)),
+              ),
+            ),
+            Expanded(
+              flex: 1,
               child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _defects.length,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                itemCount: generalDefects.length,
                 itemBuilder: (context, index) {
-                  final d = _defects[index];
-                  return Container(
-                    margin: const EdgeInsets.only(right: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: kCarbonBlack,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    alignment: Alignment.center,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning, color: kRacingRed, size: 14),
-                        const SizedBox(width: 8),
-                        Text(d.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                      ],
+                  final d = generalDefects[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    color: Colors.red.shade50,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.red.shade100)),
+                    child: ListTile(
+                      leading: const Icon(Icons.warning_amber_rounded, color: kRacingRed),
+                      title: Text(d.label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      subtitle: Text(d.photoUrl != null ? "Photo jointe" : "Aucune photo", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.grey, size: 20),
+                        onPressed: () => setState(() => _defects.remove(d)),
+                      ),
                     ),
                   );
                 },
               ),
             ),
+          ],
 
           const SizedBox(height: 16),
 
@@ -194,7 +221,7 @@ class _InspectionPageState extends State<InspectionPage> {
                 height: 56,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _defects.isEmpty ? const Color(0xFF00C853) : kRacingRed, // Green if clean, Red if damages
+                    backgroundColor: _defects.isEmpty ? const Color(0xFF00C853) : kRacingRed,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     elevation: 4,
@@ -203,7 +230,7 @@ class _InspectionPageState extends State<InspectionPage> {
                   child: _isSavingSession
                       ? const CupertinoActivityIndicator(color: Colors.white)
                       : Text(
-                    _defects.isEmpty ? "R.A.S - VALIDER" : "ENREGISTRER DOMMAGES",
+                    _defects.isEmpty ? "R.A.S - VALIDER" : "ENREGISTRER DOMMAGES (${_defects.length})",
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.0),
                   ),
                 ),
@@ -214,18 +241,50 @@ class _InspectionPageState extends State<InspectionPage> {
       ),
     );
   }
+
+  void _showDefectOptions(Defect defect) {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: Text(defect.label),
+        message: Text("Position: ${defect.viewId}"),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() {
+                _defects.removeWhere((d) => d.id == defect.id);
+              });
+            },
+            isDestructiveAction: true,
+            child: const Text("Supprimer ce défaut"),
+          )
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text("Annuler"),
+        ),
+      ),
+    );
+  }
 }
 
 // =============================================================================
-// 🛠️ INTERNAL WIDGET: ADD DEFECT DIALOG (With Upload)
+// 🛠️ INTERNAL WIDGET: ADD DEFECT DIALOG (Updated)
 // =============================================================================
 
 class _AddDefectDialog extends StatefulWidget {
   final String vehicleCode;
   final double x;
   final double y;
+  final String viewId;
 
-  const _AddDefectDialog({required this.vehicleCode, required this.x, required this.y});
+  const _AddDefectDialog({
+    required this.vehicleCode,
+    required this.x,
+    required this.y,
+    required this.viewId,
+  });
 
   @override
   State<_AddDefectDialog> createState() => _AddDefectDialogState();
@@ -233,27 +292,39 @@ class _AddDefectDialog extends StatefulWidget {
 
 class _AddDefectDialogState extends State<_AddDefectDialog> {
   String _selectedType = 'Rayure';
-  final List<String> _types = ['Rayure', 'Bosse', 'Fissure', 'Cassé', 'Manquant', 'Saleté', 'Autre'];
+  final TextEditingController _commentCtrl = TextEditingController();
+
+  // Different lists based on context
+  late List<String> _types;
+
   File? _image;
   bool _isUploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Logic: If it's a "General" issue, show mechanical tags. If visual, show visual tags.
+    if (widget.viewId == 'general') {
+      _types = ['Moteur', 'Freins', 'Bruit', 'Odeur', 'Intérieur', 'Électronique', 'Pneu', 'Autre'];
+      _selectedType = 'Moteur';
+    } else {
+      _types = ['Rayure', 'Bosse', 'Impact', 'Fissure', 'Cassé', 'Manquant', 'Saleté', 'Autre'];
+    }
+  }
 
   Future<String?> _uploadPhoto() async {
     if (_image == null) return null;
     setState(() => _isUploading = true);
-
     try {
-      // 1. Config
       final uri = Uri.parse('https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl');
       final configResponse = await http.get(uri);
       if (configResponse.statusCode != 200) throw Exception('Auth Error');
       final config = jsonDecode(configResponse.body);
 
-      // 2. Prepare
       final fileName = 'inspections/${widget.vehicleCode}/${DateTime.now().millisecondsSinceEpoch}${path.extension(_image!.path)}';
       final bytes = await _image!.readAsBytes();
       final sha1Checksum = sha1.convert(bytes).toString();
 
-      // 3. Upload
       final uploadResponse = await http.post(
         Uri.parse(config['uploadUrl']),
         headers: {
@@ -266,7 +337,6 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
       );
 
       if (uploadResponse.statusCode != 200) throw Exception('Upload Failed');
-
       return '${config['downloadUrlPrefix']}$fileName';
     } catch (e) {
       debugPrint("Upload Error: $e");
@@ -277,23 +347,48 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
   }
 
   void _confirm() async {
+    // 🔹 VALIDATION: If "Autre" is selected, text must not be empty
+    if (_selectedType == 'Autre' && _commentCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Veuillez décrire le problème pour la catégorie 'Autre'."),
+            backgroundColor: Colors.red,
+          )
+      );
+      return;
+    }
+
     String? url;
     if (_image != null) {
       url = await _uploadPhoto();
       if (url == null) {
-        // Upload failed
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur photo")));
         return;
       }
     }
 
+    // 🔹 FORMATTING:
+    // If "Autre", label is just the comment (e.g. "Radio HS")
+    // If "Moteur", label is "Moteur: Bruit"
+    String finalLabel;
+    if (_selectedType == 'Autre') {
+      finalLabel = _commentCtrl.text.trim();
+    } else {
+      if (_commentCtrl.text.isNotEmpty) {
+        finalLabel = "$_selectedType: ${_commentCtrl.text}";
+      } else {
+        finalLabel = _selectedType;
+      }
+    }
+
     final defect = Defect(
-      id: DateTime.now().millisecondsSinceEpoch.toString(), // Temp ID
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
       x: widget.x,
       y: widget.y,
-      label: _selectedType,
+      label: finalLabel,
       photoUrl: url,
       isRepaired: false,
+      viewId: widget.viewId,
     );
 
     if (mounted) Navigator.pop(context, defect);
@@ -302,7 +397,10 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.only(
+          top: 24, left: 24, right: 24,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24 // Handle Keyboard
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
@@ -311,10 +409,24 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("SIGNALER UN DOMMAGE", style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey, letterSpacing: 1.5, fontSize: 12)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                  widget.viewId == 'general' ? "SIGNALEMENT GÉNÉRAL" : "DOMMAGE VISUEL",
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.grey, letterSpacing: 1.5, fontSize: 12)
+              ),
+              if (widget.viewId != 'general')
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(8)),
+                  child: Text(widget.viewId.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                )
+            ],
+          ),
           const SizedBox(height: 20),
 
-          // 1. TYPE SELECTOR
+          // 1. TYPE TAGS
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -329,9 +441,26 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
               );
             }).toList(),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // 2. PHOTO BUTTON
+          // 2. DESCRIPTION TEXT FIELD
+          // We change the label based on selection
+          TextField(
+            controller: _commentCtrl,
+            decoration: InputDecoration(
+              // If "Autre", imply it is required
+              labelText: _selectedType == 'Autre' ? "Description du problème (Requis)*" : "Description (Optionnel)",
+              hintText: _selectedType == 'Autre' ? "Ex: Radio ne s'allume pas..." : "Ex: Bruit étrange, claquement...",
+              filled: true,
+              fillColor: const Color(0xFFF2F3F5),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              prefixIcon: const Icon(Icons.edit_note, color: Colors.grey),
+            ),
+            maxLines: 2,
+          ),
+          const SizedBox(height: 20),
+
+          // 3. PHOTO BUTTON
           Row(
             children: [
               InkWell(
@@ -356,7 +485,7 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
               const SizedBox(width: 16),
               const Expanded(
                 child: Text(
-                  "Prenez une photo du dommage pour preuve (Optionnel mais recommandé).",
+                  "Ajouter une photo (Recommandé pour les dommages).",
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ),
@@ -364,7 +493,7 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
           ),
           const SizedBox(height: 30),
 
-          // 3. CONFIRM BUTTON
+          // 4. CONFIRM BUTTON
           SizedBox(
             width: double.infinity,
             height: 50,
@@ -380,7 +509,6 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
                   : const Text("CONFIRMER LE POINT", style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
-          Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom)),
         ],
       ),
     );

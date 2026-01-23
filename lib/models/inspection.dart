@@ -90,6 +90,10 @@ class Defect {
   final String? photoUrl; // Proof
   final bool isRepaired;
 
+  // ✅ NEW FIELD: Which angle is this defect on?
+  // Values: 'front', 'left', 'right', 'back', 'top', 'interior'
+  final String viewId;
+
   Defect({
     required this.id,
     required this.x,
@@ -97,6 +101,7 @@ class Defect {
     required this.label,
     this.photoUrl,
     this.isRepaired = false,
+    this.viewId = 'front', // Default to 'front' to support legacy data
   });
 
   Map<String, dynamic> toMap() {
@@ -107,6 +112,7 @@ class Defect {
       'label': label,
       'photoUrl': photoUrl,
       'isRepaired': isRepaired,
+      'viewId': viewId, // ✅ Save the view ID
     };
   }
 
@@ -118,6 +124,7 @@ class Defect {
       label: map['label'] ?? 'Dommage',
       photoUrl: map['photoUrl'],
       isRepaired: map['isRepaired'] ?? false,
+      viewId: map['viewId'] ?? 'front', // ✅ Restore the view ID (Default 'front')
     );
   }
 }
