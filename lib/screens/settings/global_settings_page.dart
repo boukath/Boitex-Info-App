@@ -11,8 +11,9 @@ import 'package:boitex_info_app/services/update_service.dart';
 // ✅ IMPORT THE NEW PROFILE HEADER
 import 'package:boitex_info_app/screens/settings/widgets/profile_header.dart';
 
-// ✅ IMPORT MIGRATION SERVICE
+// ✅ IMPORT MIGRATION SERVICES
 import 'package:boitex_info_app/services/migration_service.dart';
+import 'package:boitex_info_app/services/client_search_migration_service.dart'; // 👈 Added this
 
 class GlobalSettingsPage extends StatelessWidget {
   final String userRole;
@@ -52,7 +53,6 @@ class GlobalSettingsPage extends StatelessWidget {
           children: [
 
             // ✅ 1. THE HERO PROFILE HEADER
-            // Ensure ProfileHeader itself is styled cleanly (transparent/white)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: ProfileHeader(),
@@ -138,16 +138,16 @@ class GlobalSettingsPage extends StatelessWidget {
 
                   _buildDivider(),
 
-                  // ✅ 4. DATABASE MIGRATION (The New Button)
+                  // 4. DATABASE MIGRATION (Slugs)
                   _buildSettingsTile(
                     context,
                     title: 'Maintenance Données',
                     subtitle: 'Migrer les slugs (Anti-doublons)',
                     icon: Icons.engineering_rounded, // Construction icon
                     iconColor: Colors.amber.shade700, // Warning/Amber color
-                    isLast: true,
+                    isLast: false, // 👈 Changed to false to add the next item
                     onTap: () async {
-                      HapticFeedback.heavyImpact(); // Stronger feedback for serious action
+                      HapticFeedback.heavyImpact();
 
                       // Confirmation Dialog
                       bool confirm = await showDialog(
@@ -155,7 +155,7 @@ class GlobalSettingsPage extends StatelessWidget {
                           builder: (ctx) => AlertDialog(
                             title: const Text("⚠️ Attention"),
                             content: const Text(
-                              "Cette action va scanner tous les clients et magasins pour générer les 'Slugs' manquants.\n\nCela ne modifie pas les IDs existants, mais ajoute des champs de recherche.",
+                              "Cette action va scanner tous les clients et magasins pour générer les 'Slugs' manquants.\n\nCela ne modifie pas les IDs existants.",
                             ),
                             actions: [
                               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler")),
@@ -166,7 +166,6 @@ class GlobalSettingsPage extends StatelessWidget {
 
                       if (!confirm) return;
 
-                      // Show loading
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text("Migration en cours... Patientez...")),
@@ -176,7 +175,6 @@ class GlobalSettingsPage extends StatelessWidget {
                       // Run Logic
                       String result = await MigrationService().runSlugMigration();
 
-                      // Show Result
                       if(context.mounted) {
                         showDialog(
                           context: context,
@@ -184,13 +182,75 @@ class GlobalSettingsPage extends StatelessWidget {
                             title: const Text("Rapport de Migration"),
                             content: Text(result),
                             actions: [
-                              TextButton(
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: const Text("OK")
-                              )
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK"))
                             ],
                           ),
                         );
+                      }
+                    },
+                  ),
+
+                  _buildDivider(),
+
+                  // ✅ 5. AUTO-DISCOVERY (Brands) - The New Button
+                  _buildSettingsTile(
+                    context,
+                    title: 'Auto-Discovery (Marques)',
+                    subtitle: 'Scanner et lier les marques aux clients',
+                    icon: Icons.auto_fix_high, // Magic wand icon
+                    iconColor: Colors.teal, // Distinct color
+                    isLast: true, // This is the last item
+                    onTap: () async {
+                      HapticFeedback.heavyImpact();
+
+                      bool confirm = await showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("⚠️ Lancer l'Auto-Discovery ?"),
+                            content: const Text(
+                              "Cette action va scanner tous les magasins existants pour détecter les marques (ex: Zara) et les ajouter aux mots-clés de recherche des clients (ex: Azadea).\n\nPermet de trouver le client en tapant ses enseignes.",
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler")),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Lancer le Scan")),
+                            ],
+                          )
+                      ) ?? false;
+
+                      if (!confirm) return;
+
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Analyse des magasins en cours... Patientez...")),
+                        );
+                      }
+
+                      try {
+                        // Pass userRole for security check inside the service
+                        final stats = await ClientSearchMigrationService().runAutoDiscoveryMigration(userRole);
+
+                        if(context.mounted) {
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text("✅ Terminé"),
+                              content: Text(
+                                "Mise à jour réussie !\n\n"
+                                    "• Clients mis à jour : ${stats['clients']}\n"
+                                    "• Marques détectées : ${stats['brands']}",
+                              ),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK"))
+                              ],
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
+                          );
+                        }
                       }
                     },
                   ),
@@ -198,7 +258,7 @@ class GlobalSettingsPage extends StatelessWidget {
               ),
             ],
 
-            // Footer / Version Info (Optional 2026 touch)
+            // Footer / Version Info
             const SizedBox(height: 50),
             Center(
               child: Text(
@@ -285,9 +345,6 @@ class GlobalSettingsPage extends StatelessWidget {
             ? const BorderRadius.vertical(bottom: Radius.circular(24))
             : (isLast == false && subtitle == 'Version actuelle 1.6.4+6' ? // First item only
         const BorderRadius.vertical(top: Radius.circular(24)) : BorderRadius.zero),
-        // ⚠️ NOTE: The original code logic for borderRadius was simplified.
-        // For a list, usually: First item = Top Radius, Middle = Zero, Last = Bottom.
-        // I kept your original logic but added the migration item as "last".
 
         highlightColor: Colors.grey.shade50,
         splashColor: Colors.grey.shade100,

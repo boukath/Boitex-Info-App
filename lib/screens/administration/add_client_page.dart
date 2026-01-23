@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+// ✅ NEW: Import the search utility we just created
+import 'package:boitex_info_app/utils/search_utils.dart';
 
 // ✅ ContactInfo Model
 class ContactInfo {
@@ -66,8 +68,13 @@ class AddClientPage extends StatefulWidget {
 
 class _AddClientPageState extends State<AddClientPage> {
   final _formKey = GlobalKey<FormState>();
+
+  // Basic Info Controllers
   final _nameController = TextEditingController();
   final _addressController = TextEditingController();
+
+  // ✅ NEW: Controller for Associated Brands (Smart Search)
+  final _brandsController = TextEditingController();
 
   // Controllers for Business Identifiers
   final _rcController = TextEditingController();
@@ -110,6 +117,7 @@ class _AddClientPageState extends State<AddClientPage> {
   void dispose() {
     _nameController.dispose();
     _addressController.dispose();
+    _brandsController.dispose(); // ✅ Dispose new controller
     _rcController.dispose();
     _artController.dispose();
     _fiscController.dispose();
@@ -122,6 +130,12 @@ class _AddClientPageState extends State<AddClientPage> {
     _rcController.text = data['rc'] ?? '';
     _artController.text = data['art'] ?? '';
     _fiscController.text = data['nif'] ?? '';
+
+    // ✅ NEW: Populate Brands (List -> String)
+    if (data['brands'] != null) {
+      final List<dynamic> brands = data['brands'];
+      _brandsController.text = brands.join(', ');
+    }
 
     if (data['services'] != null) {
       final servicesList = List<String>.from(data['services']);
@@ -171,7 +185,7 @@ class _AddClientPageState extends State<AddClientPage> {
     });
   }
 
-  /// ✅ 1. PRO FEATURE: Slug Generator
+  /// ✅ Slug Generator (Preserved)
   String _generateSlug(String input) {
     String slug = input.trim().toLowerCase();
     const withDia = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
@@ -188,18 +202,7 @@ class _AddClientPageState extends State<AddClientPage> {
     return slug;
   }
 
-  /// ✅ 2. PRO FEATURE: Search Keywords Generator
-  List<String> _generateSearchKeywords(String name) {
-    List<String> keywords = [];
-    String current = "";
-    for (int i = 0; i < name.length; i++) {
-      current += name[i].toLowerCase();
-      keywords.add(current);
-    }
-    return keywords;
-  }
-
-  // 🔥 THIS IS THE HYBRID PROTECTION LOGIC 🔥
+  // 🔥 UPDATED SUBMIT LOGIC FOR SMART SEARCH 🔥
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -211,23 +214,41 @@ class _AddClientPageState extends State<AddClientPage> {
           .map((entry) => entry.key)
           .toList();
 
-      // Generate Metadata
+      // 1. Parse Brands from text input ("Zara, Bershka" -> ["Zara", "Bershka"])
+      List<String> brandsList = _brandsController.text
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+
+      // 2. Prepare terms for the Generator
+      // We want the Client Name AND all Brands to be searchable
+      List<String> termsToIndex = [
+        _nameController.text.trim(), // "Azadea"
+        ...brandsList,               // "Zara", "Bershka"...
+      ];
+
+      // 3. Generate the "Pro" Keywords Array 🧠
+      // Uses the new utility function you created in Step 1
+      final searchKeywords = generateSearchKeywords(termsToIndex);
+
       final slug = _generateSlug(_nameController.text);
-      final searchKeywords = _generateSearchKeywords(_nameController.text.trim());
 
       final clientData = {
         'name': _nameController.text.trim(),
         'location': _addressController.text.trim(),
         'services': selectedServices,
+
+        // ✅ NEW: Save Brands & Enhanced Keywords
+        'brands': brandsList,
+        'search_keywords': searchKeywords,
+
         'rc': _rcController.text.trim(),
         'art': _artController.text.trim(),
         'nif': _fiscController.text.trim(),
         'contacts': _contacts.map((c) => c.toMap()).toList(),
         'updatedAt': FieldValue.serverTimestamp(),
-
-        // ✅ CRITICAL: Always save these now
         'slug': slug,
-        'search_keywords': searchKeywords,
       };
 
       if (_isEditMode) {
@@ -241,7 +262,6 @@ class _AddClientPageState extends State<AddClientPage> {
         if (slug.isEmpty) throw "Le nom de l'entreprise est invalide.";
 
         // 1️⃣ CHECK NEW SYSTEM (ID Collision)
-        // Does 'zara_algerie' exist as a document ID?
         final docRef = FirebaseFirestore.instance.collection('clients').doc(slug);
         final docSnapshot = await docRef.get();
 
@@ -250,7 +270,6 @@ class _AddClientPageState extends State<AddClientPage> {
         }
 
         // 2️⃣ CHECK OLD SYSTEM (Field Collision)
-        // Does any document (even with random ID) have 'slug' == 'zara_algerie'?
         final legacyCheck = await FirebaseFirestore.instance
             .collection('clients')
             .where('slug', isEqualTo: slug)
@@ -300,6 +319,8 @@ class _AddClientPageState extends State<AddClientPage> {
             children: [
               _buildSectionTitle('Informations Générales'),
               const SizedBox(height: 16),
+
+              // Name Input
               TextFormField(
                 controller: _nameController,
                 decoration: InputDecoration(
@@ -312,7 +333,26 @@ class _AddClientPageState extends State<AddClientPage> {
                 ),
                 validator: (value) => value!.isEmpty ? 'Veuillez entrer un nom' : null,
               ),
+
+              // ✅ NEW: Brands Input (Smart Search)
               const SizedBox(height: 16),
+              TextFormField(
+                controller: _brandsController,
+                decoration: InputDecoration(
+                  labelText: 'Marques associées (séparées par virgule)',
+                  hintText: 'ex: Zara, Bershka, Pull&Bear',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.sell), // Tag icon
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  helperText: "Permet de trouver ce client en cherchant ses marques.",
+                ),
+                maxLines: 2, // Give it a bit more space
+              ),
+
+              const SizedBox(height: 16),
+
+              // Address Input
               TextFormField(
                 controller: _addressController,
                 decoration: InputDecoration(
