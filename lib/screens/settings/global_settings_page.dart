@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // For HapticFeedback
+import 'package:package_info_plus/package_info_plus.dart'; // ✅ ADDED: For dynamic version check
+
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:boitex_info_app/screens/settings/notification_manager_page.dart';
 import 'package:boitex_info_app/screens/settings/user_role_manager_page.dart';
@@ -13,15 +15,39 @@ import 'package:boitex_info_app/screens/settings/widgets/profile_header.dart';
 
 // ✅ IMPORT MIGRATION SERVICES
 import 'package:boitex_info_app/services/migration_service.dart';
-import 'package:boitex_info_app/services/client_search_migration_service.dart'; // 👈 Added this
+import 'package:boitex_info_app/services/client_search_migration_service.dart';
 
-class GlobalSettingsPage extends StatelessWidget {
+class GlobalSettingsPage extends StatefulWidget {
   final String userRole;
 
   const GlobalSettingsPage({
     super.key,
     required this.userRole,
   });
+
+  @override
+  State<GlobalSettingsPage> createState() => _GlobalSettingsPageState();
+}
+
+class _GlobalSettingsPageState extends State<GlobalSettingsPage> {
+  String _appVersion = "Chargement..."; // Default text while loading
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  /// Fetches the real version from pubspec.yaml (via the native layer)
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        // Example result: "Version actuelle 1.7.1"
+        _appVersion = "Version actuelle ${info.version}";
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,10 +96,11 @@ class GlobalSettingsPage extends StatelessWidget {
                 _buildSettingsTile(
                   context,
                   title: 'Mise à jour',
-                  subtitle: 'Version actuelle 1.6.4+6',
+                  subtitle: _appVersion, // ✅ UPDATED: Uses dynamic variable
                   icon: Icons.system_update_rounded,
                   iconColor: Colors.black, // Monochrome for "General"
-                  isLast: true,
+                  isFirst: true, // ✅ ADDED: It is the first item
+                  isLast: true,  // ✅ ADDED: It is also the last item (Single item group)
                   onTap: () {
                     HapticFeedback.lightImpact(); // Premium feel
                     UpdateService().checkForUpdate(context, showNoUpdateMessage: true);
@@ -87,7 +114,7 @@ class GlobalSettingsPage extends StatelessWidget {
             // ---------------------------------------------------------
             // 🛡️ SECTION ADMIN
             // ---------------------------------------------------------
-            if (userRole == UserRoles.admin) ...[
+            if (widget.userRole == UserRoles.admin) ...[
               _buildSectionTitle("ADMINISTRATION"),
 
               _buildSettingsGroup(
@@ -99,6 +126,7 @@ class GlobalSettingsPage extends StatelessWidget {
                     subtitle: 'Permissions et accès utilisateurs',
                     icon: Icons.shield_rounded,
                     iconColor: const Color(0xFFFF3B30), // iOS System Red
+                    isFirst: true, // ✅ ADDED
                     onTap: () {
                       HapticFeedback.lightImpact();
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const UserRoleManagerPage()));
@@ -145,7 +173,7 @@ class GlobalSettingsPage extends StatelessWidget {
                     subtitle: 'Migrer les slugs (Anti-doublons)',
                     icon: Icons.engineering_rounded, // Construction icon
                     iconColor: Colors.amber.shade700, // Warning/Amber color
-                    isLast: false, // 👈 Changed to false to add the next item
+                    isLast: false,
                     onTap: () async {
                       HapticFeedback.heavyImpact();
 
@@ -227,7 +255,7 @@ class GlobalSettingsPage extends StatelessWidget {
 
                       try {
                         // Pass userRole for security check inside the service
-                        final stats = await ClientSearchMigrationService().runAutoDiscoveryMigration(userRole);
+                        final stats = await ClientSearchMigrationService().runAutoDiscoveryMigration(widget.userRole);
 
                         if(context.mounted) {
                           showDialog(
@@ -327,7 +355,7 @@ class GlobalSettingsPage extends StatelessWidget {
     );
   }
 
-  /// 4. The Premium Tile
+  /// 4. The Premium Tile (UPDATED with better logic)
   Widget _buildSettingsTile(
       BuildContext context, {
         required String title,
@@ -335,17 +363,25 @@ class GlobalSettingsPage extends StatelessWidget {
         required IconData icon,
         required Color iconColor,
         required VoidCallback onTap,
-        bool isLast = false,
+        bool isFirst = false, // ✅ ADDED: Explicit control
+        bool isLast = false,  // Explicit control
       }) {
+
+    // Determine the border radius based on position
+    BorderRadius radius = BorderRadius.zero;
+    if (isFirst && isLast) {
+      radius = BorderRadius.circular(24); // Single item
+    } else if (isFirst) {
+      radius = const BorderRadius.vertical(top: Radius.circular(24));
+    } else if (isLast) {
+      radius = const BorderRadius.vertical(bottom: Radius.circular(24));
+    }
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: isLast
-            ? const BorderRadius.vertical(bottom: Radius.circular(24))
-            : (isLast == false && subtitle == 'Version actuelle 1.6.4+6' ? // First item only
-        const BorderRadius.vertical(top: Radius.circular(24)) : BorderRadius.zero),
-
+        borderRadius: radius, // ✅ Matches the container
         highlightColor: Colors.grey.shade50,
         splashColor: Colors.grey.shade100,
         child: Padding(
