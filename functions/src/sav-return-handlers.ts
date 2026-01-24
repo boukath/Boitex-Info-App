@@ -55,7 +55,7 @@ export const onSavTicketReturned = onDocumentUpdated(
       const returnDate = new Date().toLocaleDateString("fr-FR");
 
       const mailOptions = {
-        from: `"Boitex SAV" <${smtpUser.value()}>`,
+        from: `"Boitex Info SAV" <${smtpUser.value()}>`,
         to: recipient,
         cc: [
           "khaled-mekideche@boitexinfo.com",

@@ -101,7 +101,7 @@ async (event) => {
 
       const emailBodyIntro = isRemoval
         ? "L'équipement suivant a été <strong>désinstallé et laissé sur site</strong> à votre demande :"
-        : "L'équipement suivant a été récupéré par nos services pour diagnostic :";
+        : "L'équipement suivant a été récupéré par nos techniciens pour reparation :";
 
       const problemLabel = isRemoval ? "Motif" : "Panne déclarée";
 
@@ -165,7 +165,7 @@ async (event) => {
             <hr style="border: 0; border-top: 1px solid #eee;" />
             <p style="font-size: 12px; color: #666;">
               Ceci est un message automatique. Merci de ne pas y répondre directement.<br/>
-              <strong>Boitex Info SARL</strong>
+              <strong>SARL Boitex Info</strong>
             </p>
           </div>
         `,

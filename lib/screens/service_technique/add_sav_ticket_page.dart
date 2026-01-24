@@ -16,23 +16,33 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
-import 'package:uuid/uuid.dart'; // ✅ NEW: For generating unique Draft IDs
+import 'package:uuid/uuid.dart';
 import 'package:boitex_info_app/services/sav_draft_service.dart';
-import 'package:boitex_info_app/screens/service_technique/sav_drafts_list_page.dart'; // ✅ NEW: Import List Page
+import 'package:boitex_info_app/screens/service_technique/sav_drafts_list_page.dart';
+import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
+// ✅ IMPORT Selection Models
+import 'package:boitex_info_app/models/selection_models.dart';
 
-// ✅ Helper class for batch items
-class TicketItem {
+// Class to manage individual row inputs
+class TicketItemEditor {
+  final Key key = UniqueKey();
   final String productId;
   final String productName;
-  final String serialNumber;
-  final String problemDescription;
+  final TextEditingController serialController;
+  final TextEditingController problemController;
 
-  TicketItem({
+  TicketItemEditor({
     required this.productId,
     required this.productName,
-    required this.serialNumber,
-    required this.problemDescription,
-  });
+    String? initialSerial,
+    String? initialProblem,
+  })  : serialController = TextEditingController(text: initialSerial),
+        problemController = TextEditingController(text: initialProblem);
+
+  void dispose() {
+    serialController.dispose();
+    problemController.dispose();
+  }
 }
 
 class UserViewModel {
@@ -51,45 +61,25 @@ class AddSavTicketPage extends StatefulWidget {
 
 class _AddSavTicketPageState extends State<AddSavTicketPage> {
   final _formKey = GlobalKey<FormState>();
-  final _itemFormKey = GlobalKey<FormState>();
 
-  // ✅ State for ticket type selector
   String _selectedTicketType = 'standard';
-
-  // ✅ State for Creation Mode (Individual vs Grouped)
-  String _creationMode = 'individual'; // 'individual' or 'grouped'
-
-  // ✅ Track current draft ID (null = new draft)
+  String _creationMode = 'individual';
   String? _currentDraftId;
 
-  // Clients and stores
-  List<QueryDocumentSnapshot> _clients = [];
-  List<QueryDocumentSnapshot> _stores = [];
+  // ✅ UPDATED: Use SelectableItem for Clients/Stores
+  List<SelectableItem> _clients = [];
+  List<SelectableItem> _stores = [];
   bool _isLoadingClients = true;
   bool _isLoadingStores = false;
-  String? _selectedClientId;
-  String? _selectedStoreId;
+  SelectableItem? _selectedClient;
+  SelectableItem? _selectedStore;
 
-  // Categories and products
-  final List<String> _mainCategories = ['Antivol', 'TPV', 'Compteur Client'];
-  String? _selectedMainCategory;
-  List<String> _subCategories = [];
-  bool _isLoadingSubCategories = false;
-  String? _selectedSubCategory;
-  List<QueryDocumentSnapshot> _products = [];
-  bool _isLoadingProducts = false;
-  String? _selectedProductId;
-
-  // Technicians
   List<UserViewModel> _availableTechnicians = [];
   bool _isLoadingTechnicians = true;
   List<UserViewModel> _selectedTechnicians = [];
 
-  // Form controllers
-  final _serialNumberController = TextEditingController();
   final _managerNameController = TextEditingController();
   final _managerEmailController = TextEditingController();
-  final _problemDescriptionController = TextEditingController();
   DateTime? _pickupDate;
   final SignatureController _signatureController = SignatureController(
     penStrokeWidth: 2,
@@ -97,19 +87,15 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     exportBackgroundColor: Colors.white,
   );
   List<File> _pickedMediaFiles = [];
-
-  // ✅ Variable for the specific attached file
   File? _attachedFile;
 
   bool _isLoading = false;
 
-  // ✅ List to store multiple items
-  List<TicketItem> _addedItems = [];
+  final List<TicketItemEditor> _itemEditors = [];
 
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
-  // --- DRAFT LOGIC START ---
   final _draftService = SavDraftService();
 
   @override
@@ -117,208 +103,86 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     super.initState();
     _fetchClients();
     _fetchAvailableTechnicians();
-    // ✅ NOTE: Removed automatic check. User will use the folder icon to load drafts.
   }
-
-  // ✅ 1. Save Current State as Draft (Generates UUID or updates existing)
-  Future<void> _saveDraft() async {
-    if (_selectedClientId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Veuillez au moins sélectionner un Client.')));
-      return;
-    }
-
-    // Find Client Name for the list view
-    String? clientName;
-    try {
-      final clientDoc =
-      _clients.firstWhere((doc) => doc.id == _selectedClientId);
-      clientName = clientDoc['name'];
-    } catch (_) {}
-
-    // Generate ID if it's a new draft, otherwise keep existing
-    final String draftId = _currentDraftId ?? const Uuid().v4();
-
-    final draft = SavDraft(
-      id: draftId,
-      date: DateTime.now(),
-      clientId: _selectedClientId,
-      clientName: clientName,
-      storeId: _selectedStoreId,
-      managerName: _managerNameController.text,
-      managerEmail: _managerEmailController.text,
-      ticketType: _selectedTicketType,
-      creationMode: _creationMode,
-      items: _addedItems
-          .map((i) => {
-        'productId': i.productId,
-        'productName': i.productName,
-        'serialNumber': i.serialNumber,
-        'problemDescription': i.problemDescription,
-      })
-          .toList(),
-      mediaPaths: _pickedMediaFiles.map((f) => f.path).toList(),
-      // ✅ ADDED THIS LINE to save technicians
-      technicianIds: _selectedTechnicians.map((u) => u.id).toList(),
-    );
-
-    await _draftService.saveDraft(draft);
-
-    setState(() {
-      _currentDraftId = draftId; // Set ID so next save overwrites this one
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Brouillon sauvegardé !'),
-            backgroundColor: Colors.teal),
-      );
-    }
-  }
-
-  // ✅ 2. Open Draft List Page
-  Future<void> _openDraftsList() async {
-    // Navigate to list page and wait for result
-    final SavDraft? selectedDraft = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const SavDraftsListPage()),
-    );
-
-    if (selectedDraft != null) {
-      _restoreDraft(selectedDraft);
-    }
-  }
-
-  // ✅ 3. Restore Selected Draft
-  Future<void> _restoreDraft(SavDraft draft) async {
-    setState(() {
-      _currentDraftId = draft.id; // Important: Set ID to track updates
-      _selectedClientId = draft.clientId;
-
-      if (_selectedClientId != null) {
-        _fetchStoresForClient(_selectedClientId!);
-      }
-
-      _selectedStoreId = draft.storeId;
-      _managerNameController.text = draft.managerName ?? '';
-      _managerEmailController.text = draft.managerEmail ?? '';
-      _selectedTicketType = draft.ticketType;
-      _creationMode = draft.creationMode;
-
-      // ✅ ADD THIS LOGIC to restore technicians:
-      if (draft.technicianIds.isNotEmpty) {
-        // We match the IDs from the draft with the available technicians list
-        _selectedTechnicians = _availableTechnicians
-            .where((u) => draft.technicianIds.contains(u.id))
-            .toList();
-      }
-
-      _addedItems = draft.items
-          .map((item) => TicketItem(
-        productId: item['productId']!,
-        productName: item['productName']!,
-        serialNumber: item['serialNumber']!,
-        problemDescription: item['problemDescription']!,
-      ))
-          .toList();
-
-      _pickedMediaFiles = draft.mediaPaths
-          .map((path) => File(path))
-          .where((file) => file.existsSync())
-          .toList();
-    });
-
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Brouillon chargé.')));
-  }
-  // --- DRAFT LOGIC END ---
 
   @override
   void dispose() {
-    _serialNumberController.dispose();
     _managerNameController.dispose();
     _managerEmailController.dispose();
-    _problemDescriptionController.dispose();
     _signatureController.dispose();
+    for (var editor in _itemEditors) {
+      editor.dispose();
+    }
     super.dispose();
   }
 
-  bool _isVideoPath(String filePath) {
-    final p = filePath.toLowerCase();
-    return p.endsWith('.mp4') ||
-        p.endsWith('.mov') ||
-        p.endsWith('.avi') ||
-        p.endsWith('.mkv');
-  }
+  // --- DATA FETCHING ---
 
-  // ⚡️⚡️ FIXED: Fetch Clients with client-side sorting to avoid Index errors ⚡️⚡️
   Future<void> _fetchClients() async {
     setState(() => _isLoadingClients = true);
     try {
-      // 1. Fetch WITHOUT orderBy first to ensure we get data even if index is missing
       final snapshot = await FirebaseFirestore.instance
           .collection('clients')
           .where('services', arrayContains: widget.serviceType)
           .get();
 
-      // 2. Sort the list in Dart (Alphabetical order)
-      final sortedDocs = snapshot.docs.toList()
-        ..sort((a, b) {
-          final nameA = (a['name'] as String?)?.toLowerCase() ?? '';
-          final nameB = (b['name'] as String?)?.toLowerCase() ?? '';
-          return nameA.compareTo(nameB);
-        });
+      final clients = snapshot.docs
+          .map((doc) => SelectableItem(id: doc.id, name: doc['name']))
+          .toList();
+
+      clients.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
       if (mounted) {
         setState(() {
-          _clients = sortedDocs;
+          _clients = clients;
           _isLoadingClients = false;
-
-          // Safety: If the currently selected client is no longer in the list, reset selection
-          if (_selectedClientId != null &&
-              !_clients.any((doc) => doc.id == _selectedClientId)) {
-            _selectedClientId = null;
+          // Validate existing selection
+          if (_selectedClient != null && !_clients.any((c) => c.id == _selectedClient!.id)) {
+            _selectedClient = null;
           }
         });
       }
     } catch (e) {
-      print("❌ Error fetching clients: $e");
       if (mounted) setState(() => _isLoadingClients = false);
     }
   }
 
-  // ⚡️⚡️ FIXED: Fetch Stores with client-side sorting ⚡️⚡️
   Future<void> _fetchStoresForClient(String clientId) async {
     setState(() {
       _isLoadingStores = true;
       _stores = [];
-      _selectedStoreId = null;
+      // Note: We deliberately do NOT clear _selectedStore here to avoid UI flickering during restore,
+      // but we will validate it after fetch.
     });
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('clients')
           .doc(clientId)
           .collection('stores')
-      // .orderBy('name') // REMOVED to prevent index issues
           .get();
 
-      // Sort in Dart
-      final sortedStores = snapshot.docs.toList()
-        ..sort((a, b) {
-          final nameA = (a['name'] as String?)?.toLowerCase() ?? '';
-          final nameB = (b['name'] as String?)?.toLowerCase() ?? '';
-          return nameA.compareTo(nameB);
-        });
+      final stores = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return SelectableItem(
+            id: doc.id,
+            name: data['name'],
+            data: {'location': data['location'] ?? ''}
+        );
+      }).toList();
+
+      stores.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
       if (mounted) {
         setState(() {
-          _stores = sortedStores;
+          _stores = stores;
           _isLoadingStores = false;
+          // If the currently selected store is not in the new list, clear it
+          if (_selectedStore != null && !stores.any((s) => s.id == _selectedStore!.id)) {
+            _selectedStore = null;
+          }
         });
       }
     } catch (e) {
-      print("❌ Error fetching stores: $e");
       if (mounted) setState(() => _isLoadingStores = false);
     }
   }
@@ -327,14 +191,9 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     setState(() => _isLoadingTechnicians = true);
     try {
       final includedRoles = [
-        'Admin',
-        'Responsable Administratif',
-        'Responsable Commercial',
-        'Responsable Technique',
-        'Responsable IT',
-        'Chef de Projet',
-        'Technicien ST',
-        'Technicien IT'
+        'Admin', 'Responsable Administratif', 'Responsable Commercial',
+        'Responsable Technique', 'Responsable IT', 'Chef de Projet',
+        'Technicien ST', 'Technicien IT'
       ];
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
@@ -352,83 +211,242 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         });
       }
     } catch (_) {
-      if (mounted) {
-        setState(() => _isLoadingTechnicians = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur chargement techniciens')),
+      if (mounted) setState(() => _isLoadingTechnicians = false);
+    }
+  }
+
+  // ✅ --- SEARCH DIALOG LOGIC ---
+
+  void _openSearchDialog({
+    required String title,
+    required List<SelectableItem> items,
+    required Function(SelectableItem) onSelected,
+    required VoidCallback onAddPressed,
+    required String addButtonLabel,
+  }) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (context, setStateSB) {
+            final filteredItems = items.where((item) {
+              final nameLower = item.name.toLowerCase();
+              final queryLower = searchQuery.toLowerCase();
+              return nameLower.contains(queryLower);
+            }).toList();
+
+            return AlertDialog(
+              title: Text(title),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Rechercher...',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (val) {
+                        setStateSB(() => searchQuery = val);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.4,
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: filteredItems.length + 1,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          if (index == filteredItems.length) {
+                            return ListTile(
+                              leading: const Icon(Icons.add_circle, color: Colors.blue),
+                              title: Text(addButtonLabel, style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                              onTap: () {
+                                Navigator.pop(context);
+                                onAddPressed();
+                              },
+                            );
+                          }
+                          final item = filteredItems[index];
+                          final subtitle = item.data != null && item.data!.containsKey('location') ? item.data!['location'] : null;
+                          return ListTile(
+                            title: Text(item.name),
+                            subtitle: subtitle != null ? Text(subtitle) : null,
+                            onTap: () {
+                              onSelected(item);
+                              Navigator.pop(context);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  child: const Text("Fermer"),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            );
+          },
         );
-      }
-    }
+      },
+    );
   }
 
-  Future<void> _fetchCategoriesForMainSection(String mainCategory) async {
+  // ✅ --- QUICK ADD LOGIC ---
+
+  Future<void> _addNewClient() async {
+    final TextEditingController nameController = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Nouveau Client'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(labelText: 'Nom du client', border: OutlineInputBorder()),
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              if (name.isNotEmpty) {
+                try {
+                  final ref = await FirebaseFirestore.instance.collection('clients').add({
+                    'name': name,
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'services': [widget.serviceType],
+                  });
+                  final newItem = SelectableItem(id: ref.id, name: name);
+                  setState(() {
+                    _clients.add(newItem);
+                    _clients.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+                    _selectedClient = newItem;
+                    _selectedStore = null;
+                    _stores = [];
+                  });
+                  Navigator.pop(context);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                }
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addNewStore() async {
+    if (_selectedClient == null) return;
+    final TextEditingController nameController = TextEditingController();
+    final TextEditingController addressController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Nouveau Magasin'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nom du magasin', border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+            TextField(controller: addressController, decoration: const InputDecoration(labelText: 'Adresse / Localisation', border: OutlineInputBorder())),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              final address = addressController.text.trim();
+              if (name.isNotEmpty) {
+                try {
+                  final ref = await FirebaseFirestore.instance
+                      .collection('clients')
+                      .doc(_selectedClient!.id)
+                      .collection('stores')
+                      .add({
+                    'name': name,
+                    'location': address,
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+                  final newItem = SelectableItem(id: ref.id, name: name, data: {'location': address});
+                  setState(() {
+                    _stores.add(newItem);
+                    _selectedStore = newItem;
+                  });
+                  Navigator.pop(context);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                }
+              }
+            },
+            child: const Text('Ajouter'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- PRODUCT SEARCH ---
+
+  Future<void> _openProductSearch() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GlobalProductSearchPage(
+          isSelectionMode: true,
+          onProductSelected: (Map<String, dynamic> result) {
+            final String? pid = result['id'] ?? result['productId'];
+            final String? pname = result['nom'] ?? result['productName'];
+
+            if (pid != null && pname != null) {
+              setState(() {
+                _itemEditors.add(TicketItemEditor(
+                  productId: pid,
+                  productName: pname,
+                ));
+              });
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Ajouté: $pname'), duration: const Duration(milliseconds: 800), behavior: SnackBarBehavior.floating),
+              );
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  // --- OTHER HELPERS ---
+
+  void _removeEditor(int index) {
     setState(() {
-      _isLoadingSubCategories = true;
-      _subCategories = [];
-      _selectedSubCategory = null;
-      _products = [];
-      _selectedProductId = null;
+      _itemEditors[index].dispose();
+      _itemEditors.removeAt(index);
     });
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('produits')
-          .where('mainCategory', isEqualTo: mainCategory)
-          .get();
-      final Set<String> categoriesSet = <String>{};
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final cat = data['categorie'];
-        if (cat is String) {
-          categoriesSet.add(cat);
-        }
-      }
-      final sortedList = categoriesSet.toList()..sort();
-      if (mounted) {
-        setState(() {
-          _subCategories = sortedList;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur chargement catégories')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoadingSubCategories = false);
-    }
   }
 
-  Future<void> _fetchProductsForSubCategory(String category) async {
-    setState(() {
-      _isLoadingProducts = true;
-      _products = [];
-      _selectedProductId = null;
-    });
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('produits')
-          .where('categorie', isEqualTo: category)
-          .orderBy('nom')
-          .get();
-      if (mounted) {
-        setState(() {
-          _products = snapshot.docs;
-          _isLoadingProducts = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _isLoadingProducts = false);
-    }
-  }
-
-  Future<void> _openScanner() async {
+  Future<void> _scanSerialForEditor(int index) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ScannerPage(
           onScan: (result) {
             setState(() {
-              _serialNumberController.text = result;
+              _itemEditors[index].serialController.text = result;
             });
           },
         ),
@@ -449,543 +467,357 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
 
   Future<void> _pickMediaFiles() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.media,
-      allowMultiple: true,
-    );
+    final result = await FilePicker.platform.pickFiles(type: FileType.media, allowMultiple: true);
     if (result != null) {
-      const maxFileSize = 50 * 1024 * 1024;
-      final validFiles = result.files.where((file) {
-        if (file.path != null && File(file.path!).existsSync()) {
-          return File(file.path!).lengthSync() <= maxFileSize;
-        }
-        return false;
-      }).toList();
-
-      final rejectedCount = result.files.length - validFiles.length;
-
       setState(() {
-        _pickedMediaFiles = validFiles.map((f) => File(f.path!)).toList();
+        _pickedMediaFiles = result.files.where((f) => f.path != null).map((f) => File(f.path!)).toList();
       });
-
-      if (rejectedCount > 0 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-            Text('$rejectedCount fichier(s) dépassent la limite de 50 Mo.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
     }
   }
 
-  // ✅ NEW: Method to pick a specific document/file
   Future<void> _pickAttachedFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.any, // Allows PDF, Images, etc.
-      allowMultiple: false,
-    );
-
+    final result = await FilePicker.platform.pickFiles(type: FileType.any, allowMultiple: false);
     if (result != null && result.files.single.path != null) {
-      final file = File(result.files.single.path!);
-      // Optional: Check size limit if needed
-      if (file.lengthSync() > 50 * 1024 * 1024) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fichier trop volumineux (>50Mo)')));
-        return;
-      }
-
       setState(() {
-        _attachedFile = file;
+        _attachedFile = File(result.files.single.path!);
       });
     }
   }
 
-  // --- START: NEW QUICK-ADD DIALOGS ---
-  Future<void> _showAddClientDialog() async {
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
+  // --- SAVE LOGIC ---
 
-    final newClientId = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Client'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nom du Client *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Téléphone (Optionnel)',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  final docRef = await FirebaseFirestore.instance
-                      .collection('clients')
-                      .add({
-                    'name': nameController.text.trim(),
-                    'phone': phoneController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'sav_quick_add',
-                    'services': [widget.serviceType],
-                  });
-                  Navigator.pop(context, docRef.id);
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur: $e')),
-                    );
-                  }
-                }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
-      ),
-    );
-
-    // ⚡️⚡️ FIXED: Ensure list refresh and safe selection ⚡️⚡️
-    if (newClientId != null && mounted) {
-      await _fetchClients();
-
-      final exists = _clients.any((doc) => doc.id == newClientId);
-
-      setState(() {
-        if (exists) {
-          _selectedClientId = newClientId;
-          // Reset stores for new client
-          _stores = [];
-          _selectedStoreId = null;
-        }
-      });
-
-      if (exists) {
-        _fetchStoresForClient(newClientId!);
-      }
-    }
-  }
-
-  Future<void> _showAddStoreDialog() async {
-    if (_selectedClientId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Veuillez d\'abord sélectionner un client')),
-      );
-      return;
-    }
-
-    final nameController = TextEditingController();
-    final locationController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final newStoreId = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Magasin'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nom du Magasin *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: locationController,
-                decoration: const InputDecoration(
-                  labelText: 'Emplacement *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  final docRef = await FirebaseFirestore.instance
-                      .collection('clients')
-                      .doc(_selectedClientId!)
-                      .collection('stores')
-                      .add({
-                    'name': nameController.text.trim(),
-                    'location': locationController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'sav_quick_add',
-                  });
-                  Navigator.pop(context, docRef.id);
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur: $e')),
-                    );
-                  }
-                }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
-      ),
-    );
-
-    if (newStoreId != null && mounted) {
-      await _fetchStoresForClient(_selectedClientId!);
-      setState(() {
-        _selectedStoreId = newStoreId;
-      });
-    }
-  }
-  // --- END: NEW QUICK-ADD DIALOGS ---
-
-  // ✅ --- START: B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final response =
-      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
       if (response.statusCode == 200) {
         return json.decode(response.body) as Map<String, dynamic>;
-      } else {
-        debugPrint('Failed to get B2 credentials: ${response.body}');
-        return null;
       }
+      return null;
     } catch (e) {
-      debugPrint('Error calling Cloud Function: $e');
       return null;
     }
   }
 
-  Future<String?> _uploadFileToB2(
-      File file, Map<String, dynamic> b2Creds) async {
+  Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds) async {
     try {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+      final uploadUri = Uri.parse(b2Creds['uploadUrl']);
       final fileName = path.basename(file.path);
-
-      String? mimeType;
-      if (fileName.toLowerCase().endsWith('.jpg') ||
-          fileName.toLowerCase().endsWith('.jpeg')) {
-        mimeType = 'image/jpeg';
-      } else if (fileName.toLowerCase().endsWith('.png')) {
-        mimeType = 'image/png';
-      } else if (fileName.toLowerCase().endsWith('.mp4')) {
-        mimeType = 'video/mp4';
-      } else if (fileName.toLowerCase().endsWith('.mov')) {
-        mimeType = 'video/quicktime';
-      }
-
       final resp = await http.post(
         uploadUri,
         headers: {
-          'Authorization': b2Creds['authorizationToken'] as String,
+          'Authorization': b2Creds['authorizationToken'],
           'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': mimeType ?? 'b2/x-auto',
+          'Content-Type': 'b2/x-auto',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': fileBytes.length.toString(),
         },
         body: fileBytes,
       );
-
       if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String)
-            .split('/')
-            .map(Uri.encodeComponent)
-            .join('/');
-        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
-      } else {
-        debugPrint('Failed to upload to B2: ${resp.body}');
-        return null;
+        final body = json.decode(resp.body);
+        final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix']) + encodedPath;
       }
+      return null;
     } catch (e) {
-      debugPrint('Error uploading file to B2: $e');
       return null;
     }
   }
-  // ✅ --- END: B2 HELPER FUNCTIONS ---
 
-  void _addItemToList() {
-    if (_itemFormKey.currentState!.validate()) {
-      final prodDoc =
-      _products.firstWhere((doc) => doc.id == _selectedProductId);
-
-      setState(() {
-        _addedItems.add(TicketItem(
-          productId: _selectedProductId!,
-          productName: prodDoc['nom'],
-          serialNumber: _serialNumberController.text,
-          problemDescription: _problemDescriptionController.text,
-        ));
-
-        _serialNumberController.clear();
-        _problemDescriptionController.clear();
-        _selectedProductId = null;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Produit ajouté à la liste!')),
-      );
-    }
-  }
-
-  void _removeItemFromList(int index) {
-    setState(() {
-      _addedItems.removeAt(index);
-    });
-  }
-
-  // ✅ UPDATED: Save Logic for both Individual and Grouped modes
   Future<void> _saveTicket() async {
-    // Basic validation
-    if (_selectedClientId == null || _managerNameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Veuillez remplir les infos client/gérant.')));
+    if (_selectedClient == null || _managerNameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez remplir les infos client/gérant.')));
       return;
     }
 
-    if (_addedItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ajoutez au moins un produit à la liste.')));
+    if (_itemEditors.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La liste des appareils est vide.')));
       return;
     }
-
-    // ✅ MODIFIED: Removed required check for signature.
-    // if (_signatureController.isEmpty) {
-    //   ScaffoldMessenger.of(context)
-    //       .showSnackBar(const SnackBar(content: Text('Signature requise.')));
-    //   return;
-    // }
 
     setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
     try {
-      final clientDoc =
-      _clients.firstWhere((doc) => doc.id == _selectedClientId);
-
       String? storeName;
-      if (_selectedStoreId != null) {
-        final storeDoc =
-        _stores.firstWhere((doc) => doc.id == _selectedStoreId);
-        storeName = '${storeDoc['name']} - ${storeDoc['location']}';
+      if (_selectedStore != null) {
+        storeName = '${_selectedStore!.name} - ${_selectedStore!.data?['location'] ?? ''}';
       }
 
-      // --- 1. Reserve Codes based on Mode ---
-      // If Grouped: We need only 1 code.
-      // If Individual: We need 1 code per item.
-      final int itemsToCreate =
-      _creationMode == 'grouped' ? 1 : _addedItems.length;
+      final int itemsToCreate = _creationMode == 'grouped' ? 1 : _itemEditors.length;
       final year = DateTime.now().year;
-      final counterRef = FirebaseFirestore.instance
-          .collection('counters')
-          .doc('sav_tickets_$year');
+      final counterRef = FirebaseFirestore.instance.collection('counters').doc('sav_tickets_$year');
 
-      final int startCount =
-      await FirebaseFirestore.instance.runTransaction((tx) async {
+      final int startCount = await FirebaseFirestore.instance.runTransaction((tx) async {
         final snap = await tx.get(counterRef);
         final current = (snap.data()?['count'] as int?) ?? 0;
         final nextEnd = current + itemsToCreate;
         tx.set(counterRef, {'count': nextEnd}, SetOptions(merge: true));
-        return current + 1; // First ID
+        return current + 1;
       });
 
-      // --- 2. Upload Shared Assets (Signature & Media) ---
-      // ✅ MODIFIED: Handle optional signature
       String sigUrl = '';
       if (_signatureController.isNotEmpty) {
-        final sigCode = 'BATCH-${startCount}_$year';
-        final Uint8List? sigData = await _signatureController.toPngBytes();
-        if (sigData != null) { // Check if not null
-          final sigRef =
-          FirebaseStorage.instance.ref('sav_signatures/$sigCode.png');
+        final sigData = await _signatureController.toPngBytes();
+        if (sigData != null) {
+          final sigRef = FirebaseStorage.instance.ref('sav_signatures/BATCH-${startCount}_$year.png');
           await sigRef.putData(sigData);
           sigUrl = await sigRef.getDownloadURL();
         }
       }
 
-      // Upload Media
-      List<String> mediaUrls = [];
-      // 1. Get credentials only once for everything
       final b2Credentials = await _getB2UploadCredentials();
+      List<String> mediaUrls = [];
+      String? attachedFileUrl;
 
-      if (_pickedMediaFiles.isNotEmpty && b2Credentials != null) {
+      if (b2Credentials != null) {
         for (var file in _pickedMediaFiles) {
-          final downloadUrl = await _uploadFileToB2(file, b2Credentials);
-          if (downloadUrl != null) {
-            mediaUrls.add(downloadUrl);
-          }
+          final url = await _uploadFileToB2(file, b2Credentials);
+          if (url != null) mediaUrls.add(url);
+        }
+        if (_attachedFile != null) {
+          attachedFileUrl = await _uploadFileToB2(_attachedFile!, b2Credentials);
         }
       }
 
-      // ✅ NEW: Upload the Attached File (if selected)
-      String? attachedFileUrl;
-      if (_attachedFile != null && b2Credentials != null) {
-        attachedFileUrl = await _uploadFileToB2(_attachedFile!, b2Credentials);
-      }
-
-      // --- 3. Write to Firestore based on Mode ---
       final batch = FirebaseFirestore.instance.batch();
-      final ticketsCollection =
-      FirebaseFirestore.instance.collection('sav_tickets');
+      final ticketsCollection = FirebaseFirestore.instance.collection('sav_tickets');
 
       if (_creationMode == 'grouped') {
-        // --- GROUPED MODE (1 Ticket, Multiple Products) ---
         final codeStr = 'SAV-$startCount/$year';
-
-        // Convert local TicketItem to Model's SavProductItem
-        final savItems = _addedItems
-            .map((item) => SavProductItem(
-          productId: item.productId,
-          productName: item.productName,
-          serialNumber: item.serialNumber,
-          problemDescription: item.problemDescription,
-        ))
-            .toList();
+        final savItems = _itemEditors.map((e) => SavProductItem(
+          productId: e.productId,
+          productName: e.productName,
+          serialNumber: e.serialController.text,
+          problemDescription: e.problemController.text,
+        )).toList();
 
         final ticket = SavTicket(
           serviceType: widget.serviceType,
           savCode: codeStr,
-          clientId: _selectedClientId!,
-          clientName: clientDoc['name'],
-          storeId: _selectedStoreId,
+          clientId: _selectedClient!.id,
+          clientName: _selectedClient!.name,
+          storeId: _selectedStore?.id,
           storeName: storeName,
           pickupDate: _pickupDate ?? DateTime.now(),
           pickupTechnicianIds: _selectedTechnicians.map((u) => u.id).toList(),
-          pickupTechnicianNames:
-          _selectedTechnicians.map((u) => u.name).toList(),
-          // Use summary strings for the main fields
-          productName: 'Lot de ${_addedItems.length} Appareils',
+          pickupTechnicianNames: _selectedTechnicians.map((u) => u.name).toList(),
+          productName: 'Lot de ${_itemEditors.length} Appareils',
           serialNumber: 'VOIR LISTE',
           problemDescription: 'Voir liste des appareils ci-dessous',
-          multiProducts: savItems, // ✅ Populating the new list
+          multiProducts: savItems,
           itemPhotoUrls: mediaUrls,
           storeManagerName: _managerNameController.text,
-          storeManagerEmail: _managerEmailController.text.trim().isEmpty
-              ? null
-              : _managerEmailController.text.trim(),
+          storeManagerEmail: _managerEmailController.text.isEmpty ? null : _managerEmailController.text,
           storeManagerSignatureUrl: sigUrl,
-          // ✅ CHANGED: If removal, status is 'Dépose'. If standard, 'Nouveau'.
           status: _selectedTicketType == 'removal' ? 'Dépose' : 'Nouveau',
           ticketType: _selectedTicketType,
           createdBy: 'Current User',
           createdAt: DateTime.now(),
-          // ✅ Pass the new URL
           uploadedFileUrl: attachedFileUrl,
         );
-
         batch.set(ticketsCollection.doc(), ticket.toJson());
+
       } else {
-        // --- INDIVIDUAL MODE (Loop creates 1 Ticket per Item) ---
-        for (int i = 0; i < _addedItems.length; i++) {
-          final item = _addedItems[i];
+        for (int i = 0; i < _itemEditors.length; i++) {
+          final e = _itemEditors[i];
           final currentCodeNumber = startCount + i;
           final codeStr = 'SAV-$currentCodeNumber/$year';
 
           final ticket = SavTicket(
             serviceType: widget.serviceType,
             savCode: codeStr,
-            clientId: _selectedClientId!,
-            clientName: clientDoc['name'],
-            storeId: _selectedStoreId,
+            clientId: _selectedClient!.id,
+            clientName: _selectedClient!.name,
+            storeId: _selectedStore?.id,
             storeName: storeName,
             pickupDate: _pickupDate ?? DateTime.now(),
-            pickupTechnicianIds:
-            _selectedTechnicians.map((u) => u.id).toList(),
-            pickupTechnicianNames:
-            _selectedTechnicians.map((u) => u.name).toList(),
-            productName: item.productName,
-            serialNumber: item.serialNumber,
-            problemDescription: item.problemDescription,
-            multiProducts: [], // Empty for individual tickets
+            pickupTechnicianIds: _selectedTechnicians.map((u) => u.id).toList(),
+            pickupTechnicianNames: _selectedTechnicians.map((u) => u.name).toList(),
+            productName: e.productName,
+            serialNumber: e.serialController.text,
+            problemDescription: e.problemController.text,
+            multiProducts: [],
             itemPhotoUrls: mediaUrls,
             storeManagerName: _managerNameController.text,
-            storeManagerEmail: _managerEmailController.text.trim().isEmpty
-                ? null
-                : _managerEmailController.text.trim(),
+            storeManagerEmail: _managerEmailController.text.isEmpty ? null : _managerEmailController.text,
             storeManagerSignatureUrl: sigUrl,
-            // ✅ CHANGED: If removal, status is 'Dépose'. If standard, 'Nouveau'.
             status: _selectedTicketType == 'removal' ? 'Dépose' : 'Nouveau',
             ticketType: _selectedTicketType,
             createdBy: 'Current User',
             createdAt: DateTime.now(),
-            // ✅ Pass the new URL (Same file for all tickets in batch)
             uploadedFileUrl: attachedFileUrl,
           );
-
           batch.set(ticketsCollection.doc(), ticket.toJson());
         }
       }
 
       await batch.commit();
 
-      // ✅ 4. Remove draft on success (if editing one)
       if (_currentDraftId != null) {
         await _draftService.deleteDraft(_currentDraftId!);
       }
 
-      if (!mounted) return;
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-            content: Text(_creationMode == 'grouped'
-                ? 'Ticket Groupé créé avec succès!'
-                : '${_addedItems.length} Tickets créés avec succès!')),
-      );
-      navigator.pop();
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text(_creationMode == 'grouped' ? 'SAV Groupé créé !' : '${_itemEditors.length} SAV créés !')),
+        );
+        navigator.pop();
+      }
     } catch (e) {
-      if (!mounted) return;
-      scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  // Helper Widget for Toggle Buttons
+  // --- DRAFTS ---
+
+  Future<void> _openDraftsList() async {
+    final SavDraft? selectedDraft = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SavDraftsListPage()),
+    );
+
+    if (selectedDraft != null) {
+      _restoreDraft(selectedDraft);
+    }
+  }
+
+  Future<void> _restoreDraft(SavDraft draft) async {
+    // 1. Set Initial Data (Sync)
+    setState(() {
+      _currentDraftId = draft.id;
+      if (draft.clientId != null) {
+        _selectedClient = SelectableItem(id: draft.clientId!, name: draft.clientName ?? 'Client Inconnu');
+      }
+      _managerNameController.text = draft.managerName ?? '';
+      _managerEmailController.text = draft.managerEmail ?? '';
+      _selectedTicketType = draft.ticketType;
+      _creationMode = draft.creationMode;
+    });
+
+    // 2. Fetch Stores (Async) if client is present
+    if (draft.clientId != null) {
+      await _fetchStoresForClient(draft.clientId!);
+    }
+
+    // 3. Set Store (Sync, after fetch)
+    if (draft.storeId != null && mounted) {
+      setState(() {
+        // Try to find the store object from the fetched list to get accurate details
+        try {
+          _selectedStore = _stores.firstWhere((s) => s.id == draft.storeId);
+        } catch (e) {
+          // Fallback if store not found in list
+          _selectedStore = SelectableItem(id: draft.storeId!, name: 'Magasin (ID: ${draft.storeId})');
+        }
+      });
+    }
+
+    // 4. Restore Items and other fields
+    if (mounted) {
+      setState(() {
+        if (draft.technicianIds.isNotEmpty) {
+          _selectedTechnicians = _availableTechnicians
+              .where((u) => draft.technicianIds.contains(u.id))
+              .toList();
+        }
+
+        _itemEditors.clear();
+        for (var item in draft.items) {
+          _itemEditors.add(TicketItemEditor(
+            productId: item['productId']!,
+            productName: item['productName']!,
+            initialSerial: item['serialNumber'],
+            initialProblem: item['problemDescription'],
+          ));
+        }
+
+        _pickedMediaFiles = draft.mediaPaths
+            .map((path) => File(path))
+            .where((file) => file.existsSync())
+            .toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Brouillon chargé.')));
+    }
+  }
+
+  // --- DRAFT SAVE ---
+  Future<void> _saveDraftLogic() async {
+    if (_selectedClient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sélectionner un client.')));
+      return;
+    }
+
+    final String draftId = _currentDraftId ?? const Uuid().v4();
+
+    final draft = SavDraft(
+      id: draftId,
+      date: DateTime.now(),
+      clientId: _selectedClient!.id,
+      clientName: _selectedClient!.name,
+      storeId: _selectedStore?.id,
+      managerName: _managerNameController.text,
+      managerEmail: _managerEmailController.text,
+      ticketType: _selectedTicketType,
+      creationMode: _creationMode,
+      items: _itemEditors.map((editor) => {
+        'productId': editor.productId,
+        'productName': editor.productName,
+        'serialNumber': editor.serialController.text,
+        'problemDescription': editor.problemController.text,
+      }).toList(),
+      mediaPaths: _pickedMediaFiles.map((f) => f.path).toList(),
+      technicianIds: _selectedTechnicians.map((u) => u.id).toList(),
+    );
+
+    await _draftService.saveDraft(draft);
+    setState(() => _currentDraftId = draftId);
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Brouillon sauvegardé !')));
+  }
+
+  // --- WIDGETS ---
+
+  Widget _buildSearchableDropdown({
+    required String label,
+    required SelectableItem? value,
+    required IconData icon,
+    required VoidCallback onTap,
+    VoidCallback? onClear,
+  }) {
+    String text = '';
+    if (value != null) {
+      text = value.name;
+      if (value.data != null && value.data!.containsKey('location') && value.data!['location'].toString().isNotEmpty) {
+        text += ' - ${value.data!['location']}';
+      }
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AbsorbPointer(
+        child: TextFormField(
+          controller: TextEditingController(text: text),
+          decoration: InputDecoration(
+            labelText: label,
+            prefixIcon: Icon(icon, color: Colors.grey[600]),
+            suffixIcon: (value != null && onClear != null)
+                ? IconButton(icon: const Icon(Icons.clear, color: Colors.red), onPressed: onClear)
+                : const Icon(Icons.arrow_drop_down),
+            filled: true,
+            fillColor: Colors.grey[200],
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildModeButton(String label, String value, IconData icon) {
     final isSelected = _creationMode == value;
     return Expanded(
@@ -1000,8 +832,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           ),
           child: Column(
             children: [
-              Icon(icon,
-                  color: isSelected ? Colors.white : Colors.grey, size: 20),
+              Icon(icon, color: isSelected ? Colors.white : Colors.grey, size: 20),
               const SizedBox(height: 4),
               Text(
                 label,
@@ -1018,13 +849,14 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     );
   }
 
+  bool _isVideoPath(String filePath) {
+    final p = filePath.toLowerCase();
+    return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
+  }
+
   @override
   Widget build(BuildContext context) {
     const primaryColor = Colors.orange;
-    final focusedBorder = OutlineInputBorder(
-      borderSide: const BorderSide(color: primaryColor, width: 2),
-      borderRadius: BorderRadius.circular(12),
-    );
     final defaultBorder = OutlineInputBorder(
       borderSide: BorderSide(color: Colors.grey.shade300),
       borderRadius: BorderRadius.circular(12),
@@ -1032,21 +864,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Nouveau Ticket SAV (${widget.serviceType})'),
+        title: Text('Nouveau SAV (${widget.serviceType})'),
         backgroundColor: primaryColor,
         actions: [
-          // ✅ NEW: Drafts List Button (Folder)
-          IconButton(
-            icon: const Icon(Icons.folder_open),
-            tooltip: 'Mes Brouillons',
-            onPressed: _openDraftsList,
-          ),
-          // ✅ NEW: Save Current Draft Button
-          IconButton(
-            icon: const Icon(Icons.save_outlined),
-            tooltip: 'Sauvegarder Brouillon',
-            onPressed: _saveDraft,
-          ),
+          IconButton(icon: const Icon(Icons.folder_open), onPressed: _openDraftsList),
+          IconButton(icon: const Icon(Icons.save_outlined), onPressed: _saveDraftLogic),
         ],
       ),
       body: Form(
@@ -1057,137 +879,71 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Informations Client',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
               const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedClientId,
-                      items: _clients
-                          .map((doc) => DropdownMenuItem(
-                        value: doc.id,
-                        child: Text(doc['name']),
-                      ))
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _selectedClientId = value;
-                            _selectedStoreId = null;
-                            _stores = [];
-                            _fetchStoresForClient(value);
-                          });
-                        }
-                      },
-                      decoration: InputDecoration(
-                        labelText: 'Client',
-                        border: defaultBorder,
-                        focusedBorder: focusedBorder,
-                        prefixIcon: _isLoadingClients
-                            ? const Padding(
-                          padding: EdgeInsets.all(8),
-                          child:
-                          CircularProgressIndicator(strokeWidth: 2),
-                        )
-                            : const Icon(Icons.person_outline),
-                      ),
-                      validator: (v) =>
-                      v == null ? 'Sélectionner un client' : null,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle, size: 30),
-                    color: primaryColor,
-                    onPressed: _showAddClientDialog,
-                    tooltip: 'Ajouter un nouveau client',
-                    padding: const EdgeInsets.only(top: 8),
-                  ),
-                ],
+
+              // ✅ REPLACED: Searchable Client Dropdown
+              _buildSearchableDropdown(
+                label: 'Client',
+                value: _selectedClient,
+                icon: Icons.person_outline,
+                onClear: () {
+                  setState(() {
+                    _selectedClient = null;
+                    _selectedStore = null;
+                    _stores = [];
+                  });
+                },
+                onTap: () => _openSearchDialog(
+                  title: 'Rechercher un Client',
+                  items: _clients,
+                  onSelected: (item) {
+                    setState(() {
+                      _selectedClient = item;
+                      _selectedStore = null;
+                      _stores = [];
+                    });
+                    _fetchStoresForClient(item.id);
+                  },
+                  onAddPressed: _addNewClient,
+                  addButtonLabel: '+ Nouveau Client',
+                ),
               ),
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedStoreId,
-                      items: _stores
-                          .map((doc) => DropdownMenuItem(
-                        value: doc.id,
-                        child:
-                        Text('${doc['name']} - ${doc['location']}'),
-                      ))
-                          .toList(),
-                      onChanged: _selectedClientId == null
-                          ? null
-                          : (v) => setState(() => _selectedStoreId = v),
-                      decoration: InputDecoration(
-                        labelText: 'Magasin (Optionnel)',
-                        border: defaultBorder,
-                        focusedBorder: focusedBorder,
-                        filled: _selectedClientId == null,
-                        fillColor: _selectedClientId == null
-                            ? Colors.grey.shade200
-                            : null,
-                        prefixIcon: _isLoadingStores
-                            ? const Padding(
-                          padding: EdgeInsets.all(8),
-                          child:
-                          CircularProgressIndicator(strokeWidth: 2),
-                        )
-                            : const Icon(Icons.store_outlined),
-                      ),
-                    ),
+
+              const SizedBox(height: 12),
+
+              // ✅ REPLACED: Searchable Store Dropdown
+              if (_selectedClient != null)
+                _buildSearchableDropdown(
+                  label: 'Magasin (Optionnel)',
+                  value: _selectedStore,
+                  icon: Icons.store_outlined,
+                  onClear: () => setState(() => _selectedStore = null),
+                  onTap: () => _openSearchDialog(
+                    title: 'Rechercher un Magasin',
+                    items: _stores,
+                    onSelected: (item) => setState(() => _selectedStore = item),
+                    onAddPressed: _addNewStore,
+                    addButtonLabel: '+ Nouveau Magasin',
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle, size: 30),
-                    color:
-                    _selectedClientId != null ? primaryColor : Colors.grey,
-                    onPressed:
-                    _selectedClientId != null ? _showAddStoreDialog : null,
-                    tooltip: 'Ajouter un nouveau magasin',
-                    padding: const EdgeInsets.only(top: 8),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
+                ),
+
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _managerNameController,
-                decoration: InputDecoration(
-                  labelText: 'Nom du Gérant/Contact',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: const Icon(Icons.badge_outlined),
-                ),
-                validator: (v) =>
-                v == null || v.isEmpty ? 'Entrer le nom' : null,
+                decoration: InputDecoration(labelText: 'Nom du Gérant/Contact', border: defaultBorder, prefixIcon: const Icon(Icons.badge_outlined)),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _managerEmailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: 'Email du Gérant (Optionnel)',
-                  hintText: 'pour recevoir le rapport PDF',
-                  border: defaultBorder,
-                  focusedBorder: focusedBorder,
-                  prefixIcon: const Icon(Icons.alternate_email_rounded),
-                ),
+                decoration: InputDecoration(labelText: 'Email (Optionnel)', border: defaultBorder, prefixIcon: const Icon(Icons.alternate_email_rounded)),
               ),
               const SizedBox(height: 16),
 
-              // Ticket Type Selector
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
@@ -1199,392 +955,175 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     isExpanded: true,
                     icon: const Icon(Icons.arrow_drop_down, color: Colors.blue),
                     items: const [
-                      DropdownMenuItem(
-                        value: 'standard',
-                        child: Row(
-                          children: [
-                            Icon(Icons.build_circle, color: Colors.orange),
-                            SizedBox(width: 12),
-                            Text('Réparation Standard (Atelier)'),
-                          ],
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'removal',
-                        child: Row(
-                          children: [
-                            Icon(Icons.remove_circle, color: Colors.red),
-                            SizedBox(width: 12),
-                            Text('Dépose Matériel (Laissé sur site)'),
-                          ],
-                        ),
-                      ),
+                      DropdownMenuItem(value: 'standard', child: Text('Réparation Standard (Atelier)')),
+                      DropdownMenuItem(value: 'removal', child: Text('Dépose Matériel (Laissé sur site)')),
                     ],
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _selectedTicketType = value);
-                      }
+                      if (value != null) setState(() => _selectedTicketType = value);
                     },
                   ),
                 ),
               ),
 
-              // ✅ NEW: Creation Mode Toggle
               Container(
-                margin: const EdgeInsets.only(bottom: 24),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
+                decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
                 padding: const EdgeInsets.all(4),
                 child: Row(
                   children: [
-                    _buildModeButton('Individuel (1 Ticket/Article)',
-                        'individual', Icons.list),
+                    _buildModeButton('Individuel (1 SAV/Article)', 'individual', Icons.list),
                     const SizedBox(width: 4),
-                    _buildModeButton('Groupé (1 Ticket Global)', 'grouped',
-                        Icons.folder_copy_outlined),
+                    _buildModeButton('Groupé (1 SAV Global)', 'grouped', Icons.folder_copy_outlined),
                   ],
                 ),
               ),
 
-              const Divider(height: 20),
-              const Text('Détails de la Récupération',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor)),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: _selectDate,
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Date de récupération',
-                    border: defaultBorder,
-                    focusedBorder: focusedBorder,
-                    prefixIcon: const Icon(Icons.calendar_today_outlined),
+              const Divider(height: 24),
+              const Text('Appareils à Récupérer', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
+              const SizedBox(height: 10),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _openProductSearch,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade50,
+                    foregroundColor: Colors.blue.shade800,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.blue.shade200)),
                   ),
-                  child: Text(_pickupDate == null
-                      ? 'Sélectionner une date'
-                      : DateFormat('dd MMMM yyyy', 'fr_FR')
-                      .format(_pickupDate!)),
+                  icon: const Icon(Icons.add_shopping_cart_rounded),
+                  label: const Text('AJOUTER DES APPAREILS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ),
+
               const SizedBox(height: 16),
-              MultiSelectDialogField<UserViewModel>(
-                items: _availableTechnicians
-                    .map((u) => MultiSelectItem<UserViewModel>(u, u.name))
-                    .toList(),
-                title: const Text('Techniciens'),
-                buttonText: _isLoadingTechnicians
-                    ? const Text('Chargement...')
-                    : const Text('Assigner techniciens'),
-                onConfirm: (results) =>
-                    setState(() => _selectedTechnicians = results),
-                chipDisplay: MultiSelectChipDisplay(
-                  chipColor: primaryColor.withOpacity(0.1),
-                  textStyle: const TextStyle(color: primaryColor),
-                ),
-                decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(12)),
-                validator: (vals) => vals == null || vals.isEmpty
-                    ? 'Assigner au moins un'
-                    : null,
-              ),
 
-              const Divider(height: 40),
-
-              if (_addedItems.isNotEmpty) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Appareils à récupérer',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue)),
-                    Chip(
-                      label: Text('${_addedItems.length}',
-                          style: const TextStyle(color: Colors.white)),
-                      backgroundColor: Colors.blue,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
+              if (_itemEditors.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(30),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300, style: BorderStyle.none),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.inventory_2_outlined, size: 40, color: Colors.grey.shade400),
+                      const SizedBox(height: 8),
+                      Text("Aucun appareil ajouté", style: TextStyle(color: Colors.grey.shade500)),
+                    ],
+                  ),
+                )
+              else
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _addedItems.length,
+                  itemCount: _itemEditors.length,
                   itemBuilder: (context, index) {
-                    final item = _addedItems[index];
+                    final editor = _itemEditors[index];
                     return Card(
+                      key: editor.key,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
                       elevation: 2,
-                      margin: const EdgeInsets.only(bottom: 8),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.blue.shade100,
-                          child: const Icon(Icons.devices, color: Colors.blue),
-                        ),
-                        title: Text(item.productName,
-                            style:
-                            const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                            'S/N: ${item.serialNumber}\nPanne: ${item.problemDescription}'),
-                        isThreeLine: true,
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline,
-                              color: Colors.red),
-                          onPressed: () => _removeItemFromList(index),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: Colors.blue.shade100,
+                                  child: Text('${index + 1}', style: TextStyle(color: Colors.blue.shade800, fontSize: 12, fontWeight: FontWeight.bold)),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(editor.productName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, color: Colors.red, size: 20),
+                                  onPressed: () => _removeEditor(index),
+                                ),
+                              ],
+                            ),
+                            const Divider(),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: editor.serialController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Numéro de Série',
+                                      isDense: true,
+                                      border: const OutlineInputBorder(),
+                                      suffixIcon: IconButton(
+                                        icon: const Icon(Icons.qr_code_scanner),
+                                        onPressed: () => _scanSerialForEditor(index),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: editor.problemController,
+                              decoration: const InputDecoration(labelText: 'Description Panne', isDense: true, border: OutlineInputBorder()),
+                            ),
+                          ],
                         ),
                       ),
                     );
                   },
                 ),
-                const Divider(height: 30),
-              ],
 
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Form(
-                  key: _itemFormKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Ajouter un Appareil',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87)),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        value: _selectedMainCategory,
-                        items: _mainCategories
-                            .map((c) =>
-                            DropdownMenuItem(value: c, child: Text(c)))
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) {
-                            setState(() {
-                              _selectedMainCategory = v;
-                              _fetchCategoriesForMainSection(v);
-                            });
-                          }
-                        },
-                        decoration: InputDecoration(
-                          labelText: 'Section Principale',
-                          border: defaultBorder,
-                          focusedBorder: focusedBorder,
-                          prefixIcon: const Icon(Icons.category_outlined),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 12),
-                        ),
-                        validator: (v) => v == null ? 'Requis' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _selectedSubCategory,
-                        items: _subCategories
-                            .map((c) =>
-                            DropdownMenuItem(value: c, child: Text(c)))
-                            .toList(),
-                        onChanged: _selectedMainCategory == null ||
-                            _isLoadingSubCategories
-                            ? null
-                            : (v) {
-                          if (v != null) {
-                            setState(() {
-                              _selectedSubCategory = v;
-                              _fetchProductsForSubCategory(v);
-                            });
-                          }
-                        },
-                        decoration: InputDecoration(
-                          labelText: 'Catégorie',
-                          border: defaultBorder,
-                          focusedBorder: focusedBorder,
-                          prefixIcon: _isLoadingSubCategories
-                              ? const Padding(
-                            padding: EdgeInsets.all(8),
-                            child:
-                            CircularProgressIndicator(strokeWidth: 2),
-                          )
-                              : const Icon(Icons.dashboard_customize_outlined),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 12),
-                        ),
-                        validator: (v) => v == null ? 'Requis' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _selectedProductId,
-                        items: _products
-                            .map((doc) => DropdownMenuItem(
-                          value: doc.id,
-                          child: Text(doc['nom']),
-                        ))
-                            .toList(),
-                        onChanged:
-                        _selectedSubCategory == null || _isLoadingProducts
-                            ? null
-                            : (v) => setState(() => _selectedProductId = v),
-                        decoration: InputDecoration(
-                          labelText: 'Produit',
-                          border: defaultBorder,
-                          focusedBorder: focusedBorder,
-                          prefixIcon: _isLoadingProducts
-                              ? const Padding(
-                            padding: EdgeInsets.all(8),
-                            child:
-                            CircularProgressIndicator(strokeWidth: 2),
-                          )
-                              : const Icon(Icons.inventory_2_outlined),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 12),
-                        ),
-                        validator: (v) => v == null ? 'Requis' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _serialNumberController,
-                        decoration: InputDecoration(
-                          labelText: 'Numéro de Série',
-                          border: defaultBorder,
-                          focusedBorder: focusedBorder,
-                          prefixIcon: const Icon(Icons.qr_code_2_outlined),
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.qr_code_scanner),
-                            onPressed: _openScanner,
-                            color: primaryColor,
-                          ),
-                        ),
-                        validator: (v) =>
-                        v == null || v.isEmpty ? 'Requis' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _problemDescriptionController,
-                        decoration: InputDecoration(
-                            labelText: 'Description du Problème',
-                            border: defaultBorder,
-                            focusedBorder: focusedBorder,
-                            prefixIcon:
-                            const Icon(Icons.report_problem_outlined),
-                            alignLabelWithHint: true),
-                        maxLines: 2,
-                        validator: (v) =>
-                        v == null || v.isEmpty ? 'Requis' : null,
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _addItemToList,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey.shade200,
-                            foregroundColor: Colors.black87,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: BorderSide(color: Colors.grey.shade400)),
-                          ),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Ajouter cet appareil à la liste'),
-                        ),
-                      ),
-                    ],
-                  ),
+              const Divider(height: 24),
+              InkWell(
+                onTap: _selectDate,
+                child: InputDecorator(
+                  decoration: InputDecoration(labelText: 'Date de récupération', border: defaultBorder, prefixIcon: const Icon(Icons.calendar_today_outlined)),
+                  child: Text(_pickupDate == null ? 'Sélectionner une date' : DateFormat('dd MMMM yyyy', 'fr_FR').format(_pickupDate!)),
                 ),
               ),
+              const SizedBox(height: 16),
+              MultiSelectDialogField<UserViewModel>(
+                items: _availableTechnicians.map((u) => MultiSelectItem<UserViewModel>(u, u.name)).toList(),
+                title: const Text('Techniciens'),
+                buttonText: _isLoadingTechnicians ? const Text('Chargement...') : const Text('Assigner techniciens'),
+                onConfirm: (results) => setState(() => _selectedTechnicians = results),
+                chipDisplay: MultiSelectChipDisplay(chipColor: primaryColor.withOpacity(0.1), textStyle: const TextStyle(color: primaryColor)),
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
+                validator: (vals) => vals == null || vals.isEmpty ? 'Assigner au moins un' : null,
+              ),
 
-              const Divider(height: 40),
+              const Divider(height: 30),
               OutlinedButton.icon(
                 onPressed: _pickMediaFiles,
                 icon: const Icon(Icons.perm_media_outlined),
-                label: Text(
-                    'Ajouter Photos/Vidéos (Lot complet) (${_pickedMediaFiles.length})'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: primaryColor,
-                  side: const BorderSide(color: primaryColor),
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
+                label: Text('Photos/Vidéos Globales (${_pickedMediaFiles.length})'),
               ),
-
               if (_pickedMediaFiles.isNotEmpty)
                 Container(
-                  height: 100,
-                  margin: const EdgeInsets.only(top: 16),
+                  height: 80,
+                  margin: const EdgeInsets.only(top: 8),
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
                     itemCount: _pickedMediaFiles.length,
                     itemBuilder: (context, index) {
                       final file = _pickedMediaFiles[index];
                       final isVideo = _isVideoPath(file.path);
-
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: SizedBox(
-                          width: 100,
-                          height: 100,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: isVideo
-                                ? FutureBuilder<Uint8List?>(
-                              future: VideoThumbnail.thumbnailData(
-                                video: file.path,
-                                imageFormat: ImageFormat.JPEG,
-                                maxWidth: 100,
-                                quality: 30,
-                              ),
-                              builder: (context, snapshot) {
-                                if (snapshot.connectionState ==
-                                    ConnectionState.waiting) {
-                                  return const Center(
-                                      child: CircularProgressIndicator());
-                                }
-                                if (snapshot.hasData &&
-                                    snapshot.data != null) {
-                                  return Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      Image.memory(snapshot.data!,
-                                          fit: BoxFit.cover),
-                                      const Center(
-                                          child: Icon(
-                                              Icons
-                                                  .play_circle_fill_outlined,
-                                              color: Colors.white70,
-                                              size: 30)),
-                                    ],
-                                  );
-                                }
-                                return const Center(
-                                    child: Icon(Icons.videocam_outlined,
-                                        size: 40,
-                                        color: Colors.black54));
-                              },
-                            )
-                                : Image.file(file, fit: BoxFit.cover),
-                          ),
-                        ),
+                        child: ClipRRect(borderRadius: BorderRadius.circular(8), child: isVideo ? Container(width: 80, color: Colors.black, child: const Icon(Icons.videocam, color: Colors.white)) : Image.file(file, width: 80, height: 80, fit: BoxFit.cover)),
                       );
                     },
                   ),
                 ),
 
-              // ✅ NEW UI: Button to pick the specific file
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -1592,54 +1131,25 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     child: OutlinedButton.icon(
                       onPressed: _pickAttachedFile,
                       icon: const Icon(Icons.attach_file),
-                      label: Text(_attachedFile == null
-                          ? 'Joindre un Fichier (Optionnel)'
-                          : 'Fichier joint: ${path.basename(_attachedFile!.path)}'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        // Change color if file is selected
-                        foregroundColor: _attachedFile != null ? Colors.green : Colors.grey[700],
-                        side: BorderSide(color: _attachedFile != null ? Colors.green : Colors.grey[400]!),
-                      ),
+                      label: Text(_attachedFile == null ? 'Joindre un Fichier (Optionnel)' : 'Fichier joint: ${path.basename(_attachedFile!.path)}'),
                     ),
                   ),
                   if (_attachedFile != null)
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.red),
-                      onPressed: () => setState(() => _attachedFile = null),
-                      tooltip: 'Supprimer le fichier',
-                    )
+                    IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => setState(() => _attachedFile = null)),
                 ],
               ),
 
               const Divider(height: 40),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Signature du Gérant/Contact',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: primaryColor)),
-                  TextButton(
-                    child: const Text('Effacer'),
-                    onPressed: () => _signatureController.clear(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
+              const Text('Signature du Gérant/Contact', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
+              const SizedBox(height: 8),
               Container(
-                height: 150,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade400),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Signature(
-                  controller: _signatureController,
-                  backgroundColor: Colors.grey[200]!,
-                ),
+                height: 120,
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(12)),
+                child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Signature(controller: _signatureController, backgroundColor: Colors.grey.shade100)),
               ),
-              const SizedBox(height: 32),
+              Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => _signatureController.clear(), child: const Text('Effacer'))),
+
+              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -1648,26 +1158,13 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                     backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  icon: _isLoading
-                      ? Container()
-                      : const Icon(Icons.save_alt_outlined),
-                  label: _isLoading
-                      ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 3,
-                      ))
-                  // ✅ Button text changes based on mode
-                      : Text(_creationMode == 'grouped'
-                      ? 'Créer 1 Ticket Groupé (${_addedItems.length} articles)'
-                      : 'Créer ${_addedItems.length} Tickets Individuels'),
+                  icon: _isLoading ? const SizedBox.shrink() : const Icon(Icons.check_circle_outline),
+                  label: _isLoading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : Text(_creationMode == 'grouped' ? 'VALIDER 1 SAV GROUPÉ (${_itemEditors.length} Articles)' : 'VALIDER ${_itemEditors.length} SAV INDIVIDUELS'),
                 ),
               ),
+              const SizedBox(height: 40),
             ],
           ),
         ),
