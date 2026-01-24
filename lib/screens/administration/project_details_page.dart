@@ -1,6 +1,7 @@
 // lib/screens/administration/project_details_page.dart
 
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb; // ✅ REQUIRED FOR WEB FIX
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -24,10 +25,12 @@ import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
-import 'package:path_provider/path_provider.dart';
 
 // Import the Dispatcher Dialog
 import 'package:boitex_info_app/screens/administration/widgets/installation_dispatcher_dialog.dart';
+
+// ✅ NEW IMPORT: Your Fixed Service
+import 'package:boitex_info_app/services/project_dossier_service.dart';
 
 class ProjectDetailsPage extends StatefulWidget {
   final String projectId;
@@ -44,7 +47,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   bool _isActionInProgress = false;
   static const Color primaryColor = Colors.deepPurple;
   static const Color itPrimaryColor = Colors.blue;
-  static const Color countingColor = Colors.teal; // Add color for counting
+  static const Color countingColor = Colors.teal;
 
   // B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -178,6 +181,27 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       }
     } catch (e) {
       debugPrint("Error updating status: $e");
+    } finally {
+      if (mounted) setState(() => _isActionInProgress = false);
+    }
+  }
+
+  // ✅ NEW: PREMIUM PDF GENERATION (WEB COMPATIBLE)
+  // Replaces the old crashing _downloadProDossier
+  Future<void> _generateAndOpenDossier(Map<String, dynamic> projectData) async {
+    setState(() => _isActionInProgress = true);
+    try {
+      final String fileName = 'Dossier_Projet_${widget.projectId}.pdf';
+
+      // 🚀 Calls your fixed service which handles Web/Mobile logic internally
+      await ProjectDossierService.generateAndOpen(projectData, fileName);
+
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur PDF: $e'), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isActionInProgress = false);
     }
@@ -344,7 +368,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-  // Smart Logic to decide between Single or Dual Task Creation
   Future<void> _handleInstallationCreation(Map<String, dynamic> projectData) async {
     final bool hasTech = projectData['hasTechniqueModule'] ?? (projectData['serviceType'] == 'Service Technique');
     final bool hasIt = projectData['hasItModule'] ?? (projectData['serviceType'] == 'Service IT');
@@ -416,7 +439,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             'storeName': projectData['storeName'],
             'initialRequest': projectData['initialRequest'] ?? 'N/A',
             'technicalEvaluation': projectData['technical_evaluation'] ?? [],
-            'itEvaluation': {}, // Empty for Tech
+            'itEvaluation': {},
             'orderedProducts': techProducts,
             'serviceType': 'Service Technique',
             'status': 'À Planifier',
@@ -436,7 +459,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             'storeId': projectData['storeId'],
             'storeName': projectData['storeName'],
             'initialRequest': projectData['initialRequest'] ?? 'N/A',
-            'technicalEvaluation': [], // Empty for IT
+            'technicalEvaluation': [],
             'itEvaluation': projectData['it_evaluation'] ?? {},
             'orderedProducts': itProducts,
             'serviceType': 'Service IT',
@@ -654,6 +677,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   }
 
   Future<void> _openPdfViewer(String pdfUrl, String title) async {
+    // ✅ WEB FIX: Detect Web platform and open in new tab instead of crashing
+    if (kIsWeb) {
+      await _openUrl(pdfUrl); // Uses your existing launchUrl logic
+      return;
+    }
+
     setState(() => _isActionInProgress = true);
     ScaffoldMessengerState? scaffoldMessenger;
     if (mounted) scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -1104,6 +1133,20 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       appBar: AppBar(
         title: const Text('Détails du Projet'),
         backgroundColor: primaryColor,
+        // ✅ NEW: ADDED BUTTON TO GENERATE PDF
+        actions: [
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('projects').doc(widget.projectId).snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox.shrink();
+              return IconButton(
+                icon: const Icon(Icons.print_outlined),
+                tooltip: "Générer le Dossier PDF",
+                onPressed: () => _generateAndOpenDossier(snapshot.data!.data() as Map<String, dynamic>),
+              );
+            },
+          )
+        ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
@@ -1643,6 +1686,24 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         (projectData['serviceType'] == 'Service Technique');
     final bool hasIt = projectData['hasItModule'] ??
         (projectData['serviceType'] == 'Service IT');
+
+    // ✅ ADDED: Premium 2026 PDF Export Button (Available once evaluation is done)
+    if (status != 'Nouvelle Demande') {
+      buttons.add(SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: () => _generateAndOpenDossier(projectData),
+          icon: const Icon(Icons.picture_as_pdf),
+          label: const Text('Extraire Dossier PDF Pro (2026)'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.black87,
+            foregroundColor: Colors.white,
+            elevation: 8,
+          ),
+        ),
+      ));
+      buttons.add(const SizedBox(height: 12));
+    }
 
     // 1. Technical Evaluation Button
     if (hasTechnique &&
