@@ -98,6 +98,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   double? _storeLng;
   bool _isLoadingGps = false;
 
+  // ✅ NEW: Live Scheduled Date (Local State)
+  DateTime? _scheduledAt;
+
   // Backblaze B2 helper function endpoint
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
@@ -151,6 +154,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _signatureController = SignatureController();
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
+
+    // ✅ Load Schedule
+    if (data['scheduledAt'] != null) {
+      _scheduledAt = (data['scheduledAt'] as Timestamp).toDate();
+    }
 
     // ✅ DATA MIGRATION: Handle old single-product vs new multi-product-quantity
     if (data['systems'] != null) {
@@ -271,6 +279,72 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Impossible d'ouvrir la carte.")),
+        );
+      }
+    }
+  }
+
+  // ✅ NEW: Rescheduling Logic
+  Future<void> _editSchedule() async {
+    final now = DateTime.now();
+    final initialDate = _scheduledAt ?? now;
+    final initialTime =
+    _scheduledAt != null ? TimeOfDay.fromDateTime(_scheduledAt!) : const TimeOfDay(hour: 9, minute: 0);
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2023),
+      lastDate: now.add(const Duration(days: 365)),
+    );
+
+    if (pickedDate == null) return;
+
+    if (!mounted) return;
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+    );
+
+    if (pickedTime == null) return;
+
+    final newSchedule = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    setState(() => _isLoading = true);
+
+    try {
+      String flashNote = "📅 Rendez-vous reprogrammé au ${DateFormat('dd/MM HH:mm').format(newSchedule)}";
+      if (_scheduledAt != null) {
+        flashNote += " (était: ${DateFormat('dd/MM HH:mm').format(_scheduledAt!)})";
+      }
+
+      await widget.interventionDoc.reference.update({
+        'scheduledAt': Timestamp.fromDate(newSchedule),
+        'lastFollowUpNote': flashNote,
+        'lastFollowUpDate': FieldValue.serverTimestamp(),
+      });
+
+      setState(() {
+        _scheduledAt = newSchedule;
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Planning mis à jour avec succès!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -1641,6 +1715,51 @@ L'équipe BOITEX INFO'''
                         ],
                       ),
                     ),
+
+                  // 📅 ✅ NEW: Scheduled Appointment Card
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue.shade100),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: Colors.blue.shade100,
+                          radius: 20,
+                          child: Icon(Icons.calendar_month, color: Colors.blue.shade800),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Rendez-vous planifié",
+                                style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                _scheduledAt != null
+                                    ? DateFormat('EEEE d MMMM à HH:mm', 'fr_FR').format(_scheduledAt!)
+                                    : "Aucune date définie",
+                                style: TextStyle(color: Colors.blue.shade700, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!isReadOnly)
+                          IconButton(
+                            icon: const Icon(Icons.edit_calendar, color: Color(0xFF667EEA)),
+                            onPressed: _editSchedule,
+                            tooltip: "Modifier le planning",
+                          ),
+                      ],
+                    ),
+                  ),
 
                   // Suggestion Banner (if found)
                   if (_suggestedSystemsFromHistory != null &&

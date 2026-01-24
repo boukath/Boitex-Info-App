@@ -279,6 +279,9 @@ class _InterventionListPageState extends State<InterventionListPage> {
               final DateTime? createdAt = (data['createdAt'] as Timestamp?)?.toDate();
               final String timeAgoDate = createdAt != null ? timeago.format(createdAt, locale: 'fr') : 'N/A';
 
+              // ✅ NEW: Extract Scheduled Date
+              final DateTime? scheduledAt = (data['scheduledAt'] as Timestamp?)?.toDate();
+
               // 🔍 TYPE DETECTION
               final String? type = data['interventionType']; // Correct field
               final String? billingStatus = data['billingStatus'];
@@ -413,6 +416,34 @@ class _InterventionListPageState extends State<InterventionListPage> {
                                       ),
 
                                       const SizedBox(height: 16),
+
+                                      // --- 📅 SCHEDULED DATE DISPLAY (NEW) ---
+                                      if (scheduledAt != null) ...[
+                                        Container(
+                                          margin: const EdgeInsets.only(bottom: 8),
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue.shade50,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: Colors.blue.shade100),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.calendar_today_rounded, size: 14, color: Colors.blue.shade700),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                "Prévu le : ${DateFormat('dd/MM/yyyy à HH:mm').format(scheduledAt)}",
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.blue.shade900,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
 
                                       // --- ⚡️ FLASH INFO or TIME ---
                                       if (hasFlash)

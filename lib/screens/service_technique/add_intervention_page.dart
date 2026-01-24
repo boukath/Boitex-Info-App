@@ -128,6 +128,10 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   // ✅ NEW: Lock Mechanism for Preventive Interventions
   bool _isTypeLocked = false;
 
+  // ✅ NEW: Scheduling State
+  DateTime? _scheduledDate;
+  TimeOfDay? _scheduledTime;
+
   // ✅ NEW: Temporary storage for parsed coordinates
   double? _parsedLat;
   double? _parsedLng;
@@ -156,6 +160,32 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     _equipmentSearchController.dispose();
     _gpsLinkController.dispose();
     super.dispose();
+  }
+
+  // ----------------------------------------------------------------------
+  // 📅 SCHEDULING HELPERS
+  // ----------------------------------------------------------------------
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _scheduledDate ?? now,
+      firstDate: DateTime(2023), // Allow picking past dates for logging
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (picked != null) {
+      setState(() => _scheduledDate = picked);
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _scheduledTime ?? const TimeOfDay(hour: 9, minute: 0),
+    );
+    if (picked != null) {
+      setState(() => _scheduledTime = picked);
+    }
   }
 
   // ----------------------------------------------------------------------
@@ -664,6 +694,19 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
         final billingInfo = _calculateBillingStatus();
 
+        // 📅 Calculate Scheduled Date & Time (if set)
+        DateTime? scheduledFullDate;
+        if (_scheduledDate != null) {
+          final t = _scheduledTime ?? const TimeOfDay(hour: 9, minute: 0); // Default to 9:00 AM
+          scheduledFullDate = DateTime(
+            _scheduledDate!.year,
+            _scheduledDate!.month,
+            _scheduledDate!.day,
+            t.hour,
+            t.minute,
+          );
+        }
+
         transaction.set(interventionRef, {
           'interventionCode': finalInterventionCode,
           'serviceType': widget.serviceType,
@@ -683,6 +726,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           'priority': _selectedInterventionPriority,
           'status': 'Nouvelle Demande',
           'createdAt': Timestamp.now(),
+          'scheduledAt': scheduledFullDate != null ? Timestamp.fromDate(scheduledFullDate) : null, // 👈 Saved Here
           'createdByUid': user.uid,
           'createdByName': creatorName,
           'mediaUrls': _uploadedMediaUrls,
@@ -1019,6 +1063,52 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                 items: ['Haute', 'Moyenne', 'Basse'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
                                 onChanged: (v) => setState(() => _selectedInterventionPriority = v),
                                 validator: (v) => v == null ? 'Requis' : null,
+                              ),
+                            ),
+
+                            // ✅ 📅 NEW: Scheduled Date & Time Pickers
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: _pickDate,
+                                      child: InputDecorator(
+                                        decoration: const InputDecoration(
+                                          labelText: 'Date d\'Intervention',
+                                          prefixIcon: Icon(Icons.calendar_today),
+                                        ),
+                                        child: Text(
+                                          _scheduledDate != null
+                                              ? DateFormat('dd/MM/yyyy').format(_scheduledDate!)
+                                              : 'Sélectionner Date',
+                                          style: TextStyle(
+                                              color: _scheduledDate != null ? Colors.black87 : Colors.grey.shade600),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: _pickTime,
+                                      child: InputDecorator(
+                                        decoration: const InputDecoration(
+                                          labelText: 'Heure',
+                                          prefixIcon: Icon(Icons.access_time),
+                                        ),
+                                        child: Text(
+                                          _scheduledTime != null
+                                              ? _scheduledTime!.format(context)
+                                              : '--:--',
+                                          style: TextStyle(
+                                              color: _scheduledTime != null ? Colors.black87 : Colors.grey.shade600),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
 
