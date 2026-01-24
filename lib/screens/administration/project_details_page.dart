@@ -907,7 +907,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
-                      errorBuilder: (_,__,___) => const Icon(Icons.broken_image, size: 20),
+                      errorBuilder: (_, __, ___) =>
+                      const Icon(Icons.broken_image, size: 20),
                     ),
                   ),
                 ),
@@ -984,7 +985,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 padding: const EdgeInsets.all(12.0),
                 child: Column(
                   children: [
-                    _buildDetailItem('Type', device['deviceType']),
+                    // ✅ UPDATED: Include photo URL
+                    _buildDetailItem('Type', device['deviceType'],
+                        photoUrl: device['photoUrl']),
                     _buildDetailItem('Marque', device['brand']),
                     _buildDetailItem('Modèle', 'model'),
                     _buildDetailItem('OS', device['osType']),
@@ -1028,8 +1031,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                       Text(item['name'] ?? 'Item',
                           style: const TextStyle(fontWeight: FontWeight.bold)),
                       const Divider(),
+                      // ✅ UPDATED: Include photo URL for the item (attached to first field)
                       _buildDetailItem(
-                          'Prise Électrique', item['hasPriseElectrique']),
+                          'Prise Électrique', item['hasPriseElectrique'],
+                          photoUrl: item['photoUrl']),
                       if (item['hasPriseElectrique'] == true)
                         _buildDetailItem(
                             'Qté Électrique', item['quantityPriseElectrique']),
@@ -1192,7 +1197,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                 // ✅ Updated: Width now supports a photo
                                 _buildDetailItem('Largeur',
                                     '${technicalEvaluation[i]['entranceWidth'] ?? 'N/A'} m',
-                                    photoUrl: technicalEvaluation[i]['widthPhotoUrl']),
+                                    photoUrl: technicalEvaluation[i]
+                                    ['widthPhotoUrl']),
                                 const SizedBox(height: 12),
                                 const Text("Alimentation Électrique",
                                     style:
@@ -1201,7 +1207,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                 _buildDetailItem(
                                     'Prise 220V disponible (< 2m)',
                                     technicalEvaluation[i]['isPowerAvailable'],
-                                    photoUrl: technicalEvaluation[i]['powerPhotoUrl']),
+                                    photoUrl: technicalEvaluation[i]
+                                    ['powerPhotoUrl']),
                                 if (technicalEvaluation[i]['powerNotes'] !=
                                     null &&
                                     technicalEvaluation[i]['powerNotes']
@@ -1213,17 +1220,22 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                     style:
                                     TextStyle(fontWeight: FontWeight.bold)),
                                 // ✅ Updated: Floor/Conduit/Trench photos
-                                _buildDetailItem('Sol finalisé',
+                                _buildDetailItem(
+                                    'Sol finalisé',
                                     technicalEvaluation[i]['isFloorFinalized'],
-                                    photoUrl: technicalEvaluation[i]['floorPhotoUrl']),
+                                    photoUrl: technicalEvaluation[i]
+                                    ['floorPhotoUrl']),
                                 _buildDetailItem(
                                     'Fourreau dispo.',
-                                    technicalEvaluation[i]['isConduitAvailable'],
-                                    photoUrl: technicalEvaluation[i]['conduitPhotoUrl']),
+                                    technicalEvaluation[i]
+                                    ['isConduitAvailable'],
+                                    photoUrl: technicalEvaluation[i]
+                                    ['conduitPhotoUrl']),
                                 _buildDetailItem(
                                     'Saignée autorisée',
                                     technicalEvaluation[i]['canMakeTrench'],
-                                    photoUrl: technicalEvaluation[i]['trenchPhotoUrl']),
+                                    photoUrl: technicalEvaluation[i]
+                                    ['trenchPhotoUrl']),
                                 const SizedBox(height: 12),
                                 const Text("Zone d'Installation",
                                     style:
@@ -1232,7 +1244,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                 _buildDetailItem(
                                     'Obstacles présents',
                                     technicalEvaluation[i]['hasObstacles'],
-                                    photoUrl: technicalEvaluation[i]['obstaclePhotoUrl']),
+                                    photoUrl: technicalEvaluation[i]
+                                    ['obstaclePhotoUrl']),
                                 if (technicalEvaluation[i]['obstacleNotes'] !=
                                     null &&
                                     technicalEvaluation[i]['obstacleNotes']
@@ -1247,12 +1260,15 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                 // ✅ Updated: Environmental photos
                                 _buildDetailItem(
                                     'Structures métalliques',
-                                    technicalEvaluation[i]['hasMetalStructures'],
-                                    photoUrl: technicalEvaluation[i]['metalPhotoUrl']),
+                                    technicalEvaluation[i]
+                                    ['hasMetalStructures'],
+                                    photoUrl: technicalEvaluation[i]
+                                    ['metalPhotoUrl']),
                                 _buildDetailItem(
                                     'Autres systèmes',
                                     technicalEvaluation[i]['hasOtherSystems'],
-                                    photoUrl: technicalEvaluation[i]['otherSystemsPhotoUrl']),
+                                    photoUrl: technicalEvaluation[i]
+                                    ['otherSystemsPhotoUrl']),
 
                                 // Legacy generic media display
                                 if (technicalEvaluation[i]['media'] != null &&
@@ -1307,8 +1323,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                   fontSize: 16,
                                   color: itPrimaryColor)),
                           const Divider(),
+                          // ✅ UPDATED: Added networkPhotoUrl
                           _buildDetailItem('Réseau déjà installé',
-                              itEvaluation['networkExists']),
+                              itEvaluation['networkExists'],
+                              photoUrl: itEvaluation['networkPhotoUrl']),
                           _buildDetailItem(
                               'Multi-étages', itEvaluation['isMultiFloor']),
                           _buildDetailItem(
@@ -1320,8 +1338,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                   fontSize: 16,
                                   color: itPrimaryColor)),
                           const Divider(),
+                          // ✅ UPDATED: Added highVoltagePhotoUrl
                           _buildDetailItem('Haute tension à proximité',
-                              itEvaluation['hasHighVoltage']),
+                              itEvaluation['hasHighVoltage'],
+                              photoUrl: itEvaluation['highVoltagePhotoUrl']),
                           _buildDetailItem('Notes Haute Tension',
                               itEvaluation['highVoltageNotes']),
                           const SizedBox(height: 16),
@@ -1331,14 +1351,17 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                   fontSize: 16,
                                   color: itPrimaryColor)),
                           const Divider(),
+                          // ✅ UPDATED: Added rackPhotoUrl & upsPhotoUrl
                           _buildDetailItem(
-                              'Baie présente', itEvaluation['hasNetworkRack']),
+                              'Baie présente', itEvaluation['hasNetworkRack'],
+                              photoUrl: itEvaluation['rackPhotoUrl']),
                           _buildDetailItem(
                               'Emplacement Baie', itEvaluation['rackLocation']),
                           _buildDetailItem('Espace disponible',
                               itEvaluation['hasRackSpace']),
                           _buildDetailItem('Onduleur (UPS) présent',
-                              itEvaluation['hasUPS']),
+                              itEvaluation['hasUPS'],
+                              photoUrl: itEvaluation['upsPhotoUrl']),
                           const SizedBox(height: 16),
                           const Text("Accès Internet",
                               style: TextStyle(
@@ -1350,8 +1373,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                               itEvaluation['internetAccessType']),
                           _buildDetailItem('Fournisseur (FAI)',
                               itEvaluation['internetProvider']),
+                          // ✅ UPDATED: Added modemPhotoUrl
                           _buildDetailItem('Emplacement Modem',
-                              itEvaluation['modemLocation']),
+                              itEvaluation['modemLocation'],
+                              photoUrl: itEvaluation['modemPhotoUrl']),
                           const SizedBox(height: 16),
                           const Text("Câblage",
                               style: TextStyle(
@@ -1363,8 +1388,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                               itEvaluation['cableShieldType']),
                           _buildDetailItem('Catégorie de Câble',
                               itEvaluation['cableCategoryType']),
+                          // ✅ UPDATED: Added cablingPathPhotoUrl
                           _buildDetailItem('Chemins de câbles',
-                              itEvaluation['hasCablePaths']),
+                              itEvaluation['hasCablePaths'],
+                              photoUrl: itEvaluation['cablingPathPhotoUrl']),
                           _buildDetailItem(
                               'Distance max.', itEvaluation['cableDistance']),
                           const SizedBox(height: 16),
@@ -1554,8 +1581,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     // ✅ UPDATED: Use boolean flags instead of single ServiceType
     final bool hasTechnique = projectData['hasTechniqueModule'] ??
         (projectData['serviceType'] == 'Service Technique');
-    final bool hasIt =
-        projectData['hasItModule'] ?? (projectData['serviceType'] == 'Service IT');
+    final bool hasIt = projectData['hasItModule'] ??
+        (projectData['serviceType'] == 'Service IT');
 
     // 1. Technical Evaluation Button
     if (hasTechnique &&
@@ -1564,7 +1591,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           projectData['technical_evaluation'] as List<dynamic>? ?? [];
       final bool isTechDone = techList.isNotEmpty;
 
-      if (!isTechDone || status == 'Nouvelle Demande' || status == 'En Cours d\'Évaluation') {
+      if (!isTechDone ||
+          status == 'Nouvelle Demande' ||
+          status == 'En Cours d\'Évaluation') {
         buttons.add(SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -1588,7 +1617,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       final itMap = projectData['it_evaluation'] as Map<String, dynamic>? ?? {};
       final bool isItDone = itMap.isNotEmpty;
 
-      if (!isItDone || status == 'Nouvelle Demande' || status == 'En Cours d\'Évaluation') {
+      if (!isItDone ||
+          status == 'Nouvelle Demande' ||
+          status == 'En Cours d\'Évaluation') {
         buttons.add(SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
