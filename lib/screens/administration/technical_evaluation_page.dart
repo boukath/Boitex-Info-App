@@ -3,11 +3,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// import 'package:firebase_storage/firebase_storage.dart'; // ✅ REMOVED: No longer needed for files
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 
-// ✅ ADDED: Imports for Backblaze B2 upload
+// ✅ Imports for Backblaze B2 upload
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
@@ -15,6 +14,18 @@ import 'dart:convert';
 class EntranceData {
   String? entranceType;
   String? doorType;
+
+  // ✅ Specific media files for each question
+  File? powerMedia;
+  File? floorMedia;
+  File? conduitMedia;
+  File? trenchMedia;
+  File? obstacleMedia;
+  File? widthMedia;
+  File? metalMedia;
+  File? otherSystemsMedia;
+
+  // Keep generic list for extra files
   List<File> mediaFiles = [];
 
   bool? isPowerAvailable;
@@ -37,13 +48,11 @@ class EntranceData {
     entranceWidthController.dispose();
   }
 
-  // ✅ CHANGED: This function no longer uploads. It just prepares the data map.
-  // The file URLs will be added later in _saveEvaluation.
   Map<String, dynamic> getDataMap() {
     return {
       'entranceType': entranceType,
       'doorType': doorType,
-      // 'media' key will be added in _saveEvaluation after B2 upload
+      // Note: File URLs are added in _saveEvaluation
       'isPowerAvailable': isPowerAvailable,
       'powerNotes': powerNotesController.text,
       'isFloorFinalized': isFloorFinalized,
@@ -71,7 +80,6 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
   bool _isLoading = false;
   static const Color primaryColor = Colors.deepPurple;
 
-  // ✅ ADDED: B2 Cloud Function URL constant (cloned from add_sav_ticket_page.dart)
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
@@ -89,7 +97,7 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     super.dispose();
   }
 
-  // ✅ --- START: ADDED B2 HELPER FUNCTIONS (cloned from add_sav_ticket_page.dart) ---
+  // ✅ --- B2 HELPER FUNCTIONS ---
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
@@ -107,36 +115,39 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     }
   }
 
-  // ✅ MODIFIED: This version is cloned from add_sav_ticket_page.dart
-  // but customized with the storage path from *this* file's original toMap logic.
   Future<String?> _uploadFileToB2(
       File file,
       Map<String, dynamic> b2Creds, {
         required String projectId,
         required int entranceIndex,
+        String? category, // ✅ Added category for folder organization
       }) async {
     try {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
 
-      // --- Start: Logic from original toMap ---
       final String originalFileName = path.basename(file.path);
       final String extension = path.extension(originalFileName).toLowerCase();
-      String fileTypeFolder;
-      if (['.jpg', '.jpeg', '.png'].contains(extension)) {
-        fileTypeFolder = 'photos';
-      } else if (['.mp4', '.mov', '.avi'].contains(extension)) {
-        fileTypeFolder = 'videos';
-      } else if (extension == '.pdf') {
-        fileTypeFolder = 'pdfs';
+
+      String folderName;
+      if (category != null) {
+        folderName = category;
       } else {
-        fileTypeFolder = 'other_files';
+        // Fallback logic
+        if (['.jpg', '.jpeg', '.png'].contains(extension)) {
+          folderName = 'photos';
+        } else if (['.mp4', '.mov', '.avi'].contains(extension)) {
+          folderName = 'videos';
+        } else if (extension == '.pdf') {
+          folderName = 'pdfs';
+        } else {
+          folderName = 'other_files';
+        }
       }
 
-      // This is the B2-compatible file name (which is the full path)
+      // Construct B2 File Name
       final String b2FileName =
-          'technical_evaluations/$projectId/entrance_$entranceIndex/$fileTypeFolder/$originalFileName';
-      // --- End: Logic from original toMap ---
+          'technical_evaluations/$projectId/entrance_$entranceIndex/$folderName/$originalFileName';
 
       // Determine mime type
       String? mimeType;
@@ -158,7 +169,7 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
         uploadUri,
         headers: {
           'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(b2FileName), // Use the full path
+          'X-Bz-File-Name': Uri.encodeComponent(b2FileName),
           'Content-Type': mimeType ?? 'b2/x-auto',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': fileBytes.length.toString(),
@@ -168,7 +179,6 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
 
       if (resp.statusCode == 200) {
         final body = json.decode(resp.body) as Map<String, dynamic>;
-        // Correctly encode each part of the path
         final encodedPath = (body['fileName'] as String)
             .split('/')
             .map(Uri.encodeComponent)
@@ -183,8 +193,6 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
       return null;
     }
   }
-  // ✅ --- END: ADDED B2 HELPER FUNCTIONS ---
-
 
   void _addEntrance() {
     setState(() {
@@ -199,6 +207,33 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     });
   }
 
+  // ✅ Generic File Picker for specific fields
+  Future<void> _pickSingleFile(ValueChanged<File?> onFilePicked) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+      allowMultiple: false,
+    );
+
+    if (result != null && result.files.isNotEmpty) {
+      final file = File(result.files.first.path!);
+      const maxFileSize = 50 * 1024 * 1024; // 50 MB
+      if (file.lengthSync() <= maxFileSize) {
+        onFilePicked(file);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Le fichier dépasse la limite de 50 Mo.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // ✅ RESTORED: Bulk picker for generic/extra files
   Future<void> _pickMedia(int entranceIndex) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -207,7 +242,6 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     );
 
     if (result != null) {
-      // ✅ ADDED: File size check (cloned from add_sav_ticket_page.dart)
       const maxFileSize = 50 * 1024 * 1024; // 50 MB
       final validFiles = result.files.where((file) {
         if (file.path != null && File(file.path!).existsSync()) {
@@ -235,11 +269,45 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     }
   }
 
-  // ✅ CHANGED: This function now orchestrates the B2 upload
+  // Helper to open photo
+  void _openMediaPreview(BuildContext context, File file) {
+    final String extension = path.extension(file.path).toLowerCase();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: const CloseButton(color: Colors.black),
+            ),
+            if (['.jpg', '.jpeg', '.png'].contains(extension))
+              Image.file(file)
+            else
+              Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  children: [
+                    const Icon(Icons.insert_drive_file, size: 60, color: Colors.grey),
+                    const SizedBox(height: 10),
+                    Text(path.basename(file.path)),
+                    const Text("(Format non supporté pour la prévisualisation rapide)"),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ CHANGED: Saves all specific files
   Future<void> _saveEvaluation() async {
     setState(() { _isLoading = true; });
 
-    // ✅ ADDED: Get B2 credentials ONCE.
     final b2Credentials = await _getB2UploadCredentials();
     if (b2Credentials == null) {
       if (mounted) {
@@ -252,17 +320,40 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     }
 
     try {
-      // ✅ CHANGED: We build the list manually instead of using Future.wait
       final List<Map<String, dynamic>> evaluationData = [];
 
       for (final entry in _entrances.asMap().entries) {
         final int index = entry.key;
         final EntranceData entrance = entry.value;
 
-        // 1. Get the non-file data from the model
         final Map<String, dynamic> entranceMap = entrance.getDataMap();
 
-        // 2. Upload files for this entrance to B2
+        // --- Upload Specific Files ---
+
+        // Helper to upload and set key
+        Future<void> uploadAndSet(File? file, String category, String keyName) async {
+          if (file != null) {
+            String? url = await _uploadFileToB2(
+                file,
+                b2Credentials,
+                projectId: widget.projectId,
+                entranceIndex: index,
+                category: category
+            );
+            if (url != null) entranceMap[keyName] = url;
+          }
+        }
+
+        await uploadAndSet(entrance.powerMedia, 'power', 'powerPhotoUrl');
+        await uploadAndSet(entrance.floorMedia, 'floor', 'floorPhotoUrl');
+        await uploadAndSet(entrance.conduitMedia, 'conduit', 'conduitPhotoUrl');
+        await uploadAndSet(entrance.trenchMedia, 'trench', 'trenchPhotoUrl');
+        await uploadAndSet(entrance.obstacleMedia, 'obstacles', 'obstaclePhotoUrl');
+        await uploadAndSet(entrance.widthMedia, 'width', 'widthPhotoUrl');
+        await uploadAndSet(entrance.metalMedia, 'environment', 'metalPhotoUrl');
+        await uploadAndSet(entrance.otherSystemsMedia, 'environment', 'otherSystemsPhotoUrl');
+
+        // --- Upload Generic Gallery Files ---
         final List<String> mediaUrls = [];
         for (final file in entrance.mediaFiles) {
           final String? downloadUrl = await _uploadFileToB2(
@@ -270,23 +361,15 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
             b2Credentials,
             projectId: widget.projectId,
             entranceIndex: index,
+            // No category means it uses extension-based folders (photos/videos)
           );
-          if (downloadUrl != null) {
-            mediaUrls.add(downloadUrl);
-          } else {
-            debugPrint('Failed to upload file: ${path.basename(file.path)}');
-            // Optionally throw an error or show a snackbar for the failed file
-          }
+          if (downloadUrl != null) mediaUrls.add(downloadUrl);
         }
-
-        // 3. Add the uploaded URLs to the map
         entranceMap['media'] = mediaUrls;
 
-        // 4. Add the completed map to the final list
         evaluationData.add(entranceMap);
       }
 
-      // 5. Save the final list to Firestore
       await FirebaseFirestore.instance.collection('projects').doc(widget.projectId).update({
         'technical_evaluation': evaluationData,
         'status': 'Évaluation Technique Terminé',
@@ -416,6 +499,8 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
                     question: 'Prise 220V disponible à moins de 2m ?',
                     value: entrance.isPowerAvailable,
                     onChanged: (val) => setState(() => entrance.isPowerAvailable = val),
+                    mediaFile: entrance.powerMedia,
+                    onMediaChanged: (f) => setState(() => entrance.powerMedia = f),
                   ),
                   if (entrance.isPowerAvailable == false)
                     _buildConditionalTextField(
@@ -434,18 +519,24 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
                     question: 'L\'état du sol est-il finalisé ?',
                     value: entrance.isFloorFinalized,
                     onChanged: (val) => setState(() => entrance.isFloorFinalized = val),
+                    mediaFile: entrance.floorMedia,
+                    onMediaChanged: (f) => setState(() => entrance.floorMedia = f),
                   ),
                   if (entrance.isFloorFinalized == true)
                     _buildYesNoQuestion(
                       question: 'Un fourreau vide est-il disponible ?',
                       value: entrance.isConduitAvailable,
                       onChanged: (val) => setState(() => entrance.isConduitAvailable = val),
+                      mediaFile: entrance.conduitMedia,
+                      onMediaChanged: (f) => setState(() => entrance.conduitMedia = f),
                     ),
                   if (entrance.isConduitAvailable == false)
                     _buildYesNoQuestion(
                       question: 'Le client autorise-t-il une saignée ?',
                       value: entrance.canMakeTrench,
                       onChanged: (val) => setState(() => entrance.canMakeTrench = val),
+                      mediaFile: entrance.trenchMedia,
+                      onMediaChanged: (f) => setState(() => entrance.trenchMedia = f),
                     ),
                 ],
               ),
@@ -459,6 +550,8 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
                     question: 'Y a-t-il des obstacles (portes, rideaux) ?',
                     value: entrance.hasObstacles,
                     onChanged: (val) => setState(() => entrance.hasObstacles = val),
+                    mediaFile: entrance.obstacleMedia,
+                    onMediaChanged: (f) => setState(() => entrance.obstacleMedia = f),
                   ),
                   if (entrance.hasObstacles == true)
                     _buildConditionalTextField(
@@ -466,10 +559,24 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
                       labelText: 'Veuillez les décrire',
                     ),
                   const SizedBox(height: 16),
-                  TextFormField(
-                    controller: entrance.entranceWidthController,
-                    decoration: const InputDecoration(labelText: 'Mesure de la largeur de l\'entrée (m)', border: OutlineInputBorder()),
-                    keyboardType: TextInputType.number,
+
+                  // Width field with specific photo button
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: entrance.entranceWidthController,
+                          decoration: const InputDecoration(labelText: 'Largeur de l\'entrée (m)', border: OutlineInputBorder()),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildMiniMediaButton(
+                          file: entrance.widthMedia,
+                          onChanged: (f) => setState(() => entrance.widthMedia = f)
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -483,20 +590,25 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
                     question: 'Grandes structures métalliques à proximité ?',
                     value: entrance.hasMetalStructures,
                     onChanged: (val) => setState(() => entrance.hasMetalStructures = val),
+                    mediaFile: entrance.metalMedia,
+                    onMediaChanged: (f) => setState(() => entrance.metalMedia = f),
                   ),
                   _buildYesNoQuestion(
                     question: 'Autres systèmes électroniques présents ?',
                     value: entrance.hasOtherSystems,
                     onChanged: (val) => setState(() => entrance.hasOtherSystems = val),
+                    mediaFile: entrance.otherSystemsMedia,
+                    onMediaChanged: (f) => setState(() => entrance.otherSystemsMedia = f),
                   ),
                 ],
               ),
             ),
             _buildExpansionSection(
-              title: 'Fichiers et Photos',
+              title: 'Photos Supplémentaires',
               icon: Icons.camera_alt_outlined,
               child: Column(
                 children: [
+                  // Legacy bulk upload for extra photos
                   if (entrance.mediaFiles.isNotEmpty)
                     Container(
                       height: 100,
@@ -512,9 +624,9 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => _pickMedia(index),
-                      icon: const Icon(Icons.attach_file),
-                      label: const Text('Ajouter des Fichiers'),
+                      onPressed: () => _pickMedia(index), // Keeps bulk picker for generic files
+                      icon: const Icon(Icons.add_photo_alternate),
+                      label: const Text('Ajouter d\'autres photos/vidéos'),
                     ),
                   ),
                 ],
@@ -526,44 +638,31 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     );
   }
 
+  // Legacy builder for list
   Widget _buildMediaThumbnail(File file) {
     String extension = path.extension(file.path).toLowerCase();
     Widget thumbnail;
 
     if (['.jpg', '.jpeg', '.png'].contains(extension)) {
       thumbnail = Image.file(file, width: 100, height: 100, fit: BoxFit.cover);
-    } else if (['.mp4', '.mov', '.avi'].contains(extension)) {
-      thumbnail = Container(
-        width: 100,
-        height: 100,
-        color: Colors.grey.shade300,
-        child: const Icon(Icons.video_library, size: 40, color: Colors.black54),
-      );
-    } else if (extension == '.pdf') {
-      thumbnail = Container(
-        width: 100,
-        height: 100,
-        color: Colors.grey.shade300,
-        child: const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red),
-      );
     } else {
       thumbnail = Container(
-        width: 100,
-        height: 100,
-        color: Colors.grey.shade300,
+        width: 100, height: 100, color: Colors.grey.shade300,
         child: const Icon(Icons.insert_drive_file, size: 40, color: Colors.black54),
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8.0),
-        child: thumbnail,
+    return GestureDetector(
+      onTap: () => _openMediaPreview(context, file),
+      child: Padding(
+        padding: const EdgeInsets.only(right: 8.0),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8.0),
+          child: thumbnail,
+        ),
       ),
     );
   }
-
 
   Widget _buildExpansionSection({required String title, required IconData icon, required Widget child}) {
     return ExpansionTile(
@@ -574,11 +673,29 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
     );
   }
 
-  Widget _buildYesNoQuestion({required String question, required bool? value, required ValueChanged<bool> onChanged}) {
+  // ✅ UPDATED: Now supports a specific media file next to the buttons
+  Widget _buildYesNoQuestion({
+    required String question,
+    required bool? value,
+    required ValueChanged<bool> onChanged,
+    File? mediaFile,
+    ValueChanged<File?>? onMediaChanged,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(question, style: const TextStyle(fontSize: 14)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: Text(question, style: const TextStyle(fontSize: 14))),
+            if (onMediaChanged != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 8.0),
+                child: _buildMiniMediaButton(file: mediaFile, onChanged: onMediaChanged),
+              ),
+          ],
+        ),
         const SizedBox(height: 8),
         ToggleButtons(
           isSelected: [value == true, value == false],
@@ -596,6 +713,42 @@ class _TechnicalEvaluationPageState extends State<TechnicalEvaluationPage> {
         const SizedBox(height: 16),
       ],
     );
+  }
+
+  // ✅ New Widget: Small camera button that becomes a thumbnail
+  Widget _buildMiniMediaButton({required File? file, required ValueChanged<File?> onChanged}) {
+    if (file != null) {
+      return GestureDetector(
+        onTap: () => _openMediaPreview(context, file),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(file, width: 48, height: 48, fit: BoxFit.cover),
+            ),
+            Positioned(
+              top: -8,
+              right: -8,
+              child: GestureDetector(
+                onTap: () => onChanged(null), // Remove photo
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, size: 12, color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      return IconButton(
+        onPressed: () => _pickSingleFile(onChanged),
+        icon: const Icon(Icons.add_a_photo, color: Colors.grey),
+        tooltip: "Ajouter une preuve photo",
+      );
+    }
   }
 
   Widget _buildConditionalTextField({required TextEditingController controller, required String labelText}) {

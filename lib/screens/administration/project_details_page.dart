@@ -26,7 +26,7 @@ import 'dart:convert';
 import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 import 'package:path_provider/path_provider.dart';
 
-// ✅ NEW: Import the Dispatcher Dialog
+// Import the Dispatcher Dialog
 import 'package:boitex_info_app/screens/administration/widgets/installation_dispatcher_dialog.dart';
 
 class ProjectDetailsPage extends StatefulWidget {
@@ -343,19 +343,16 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-  // ✅ MODIFIED: Smart Logic to decide between Single or Dual Task Creation
+  // Smart Logic to decide between Single or Dual Task Creation
   Future<void> _handleInstallationCreation(Map<String, dynamic> projectData) async {
-    // 1. Determine Project Type
     final bool hasTech = projectData['hasTechniqueModule'] ?? (projectData['serviceType'] == 'Service Technique');
     final bool hasIt = projectData['hasItModule'] ?? (projectData['serviceType'] == 'Service IT');
 
-    // 2. Case: Single Service (Simple)
     if (!(hasTech && hasIt)) {
       await _createInstallationTask(projectData);
       return;
     }
 
-    // 3. Case: Hybrid Project (Open Dispatcher)
     final orderedProducts = projectData['orderedProducts'] as List<dynamic>? ?? [];
 
     if (orderedProducts.isEmpty) {
@@ -365,14 +362,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       return;
     }
 
-    // Open Dispatcher Dialog
     final result = await showDialog<Map<String, List<dynamic>>>(
       context: context,
       barrierDismissible: false,
       builder: (context) => InstallationDispatcherDialog(orderedProducts: orderedProducts),
     );
 
-    // If User Confirmed Dispatch
     if (result != null) {
       final techProducts = result['technique']!;
       final itProducts = result['it']!;
@@ -385,7 +380,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     }
   }
 
-  // ✅ NEW: Creates TWO tasks (Tech + IT) in one transaction
   Future<void> _createDualInstallationTasks({
     required Map<String, dynamic> projectData,
     required List<dynamic> techProducts,
@@ -407,11 +401,9 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         final counterDoc = await transaction.get(counterRef);
         final currentCount = (counterDoc.data()?['count'] as int? ?? 0);
 
-        // Generate two codes
         final techCode = 'INST-${currentCount + 1}/$currentYear (T)';
         final itCode = 'INST-${currentCount + 2}/$currentYear (IT)';
 
-        // 1. Create Tech Task
         if (techProducts.isNotEmpty) {
           transaction.set(techRef, {
             'installationCode': techCode,
@@ -425,7 +417,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             'technicalEvaluation': projectData['technical_evaluation'] ?? [],
             'itEvaluation': {}, // Empty for Tech
             'orderedProducts': techProducts,
-            'serviceType': 'Service Technique', // Explicitly Tech
+            'serviceType': 'Service Technique',
             'status': 'À Planifier',
             'createdAt': Timestamp.now(),
             'createdByUid': FirebaseAuth.instance.currentUser?.uid,
@@ -433,7 +425,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           });
         }
 
-        // 2. Create IT Task
         if (itProducts.isNotEmpty) {
           transaction.set(itRef, {
             'installationCode': itCode,
@@ -447,7 +438,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             'technicalEvaluation': [], // Empty for IT
             'itEvaluation': projectData['it_evaluation'] ?? {},
             'orderedProducts': itProducts,
-            'serviceType': 'Service IT', // Explicitly IT
+            'serviceType': 'Service IT',
             'status': 'À Planifier',
             'createdAt': Timestamp.now(),
             'createdByUid': FirebaseAuth.instance.currentUser?.uid,
@@ -455,10 +446,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           });
         }
 
-        // 3. Update Counter (+2)
         transaction.set(counterRef, {'count': currentCount + 2}, SetOptions(merge: true));
 
-        // 4. Update Project Status & Link
         transaction.update(projectRef, {
           'status': 'Transféré à l\'Installation',
           'installations': {
@@ -472,7 +461,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Deux tâches d\'installation créées avec succès !'), backgroundColor: Colors.green),
         );
-        navigator.pop(); // Go back to list or stay
+        navigator.pop();
       }
 
     } catch (e) {
@@ -484,7 +473,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     }
   }
 
-  // Legacy Single Creation (Used for non-hybrid projects)
   Future<void> _createInstallationTask(Map<String, dynamic> projectData) async {
     setState(() => _isActionInProgress = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -849,7 +837,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         ));
   }
 
-  Widget _buildDetailItem(String label, dynamic value) {
+  // ✅ MODIFIED: Now accepts an optional photoUrl to display next to the value
+  Widget _buildDetailItem(String label, dynamic value, {String? photoUrl}) {
     String displayValue;
     IconData? icon;
     Color? iconColor;
@@ -889,12 +878,46 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             flex: 3,
             child: Text(displayValue),
           ),
+
+          // ✅ ADDED: Photo Thumbnail if URL exists
+          if (photoUrl != null && photoUrl.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 8.0),
+              child: InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ImageGalleryPage(
+                        imageUrls: [photoUrl],
+                        initialIndex: 0,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Image.network(
+                      photoUrl,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_,__,___) => const Icon(Icons.broken_image, size: 20),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  // IT Evaluation Widgets
   Widget _buildItPhotosSection({required Map<String, dynamic> itData}) {
     final List<dynamic> photos = itData['photos'] as List<dynamic>? ?? [];
     if (photos.isEmpty) return const SizedBox.shrink();
@@ -1166,15 +1189,19 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                     technicalEvaluation[i]['entranceType']),
                                 _buildDetailItem('Type de porte',
                                     technicalEvaluation[i]['doorType']),
+                                // ✅ Updated: Width now supports a photo
                                 _buildDetailItem('Largeur',
-                                    '${technicalEvaluation[i]['entranceWidth'] ?? 'N/A'} m'),
+                                    '${technicalEvaluation[i]['entranceWidth'] ?? 'N/A'} m',
+                                    photoUrl: technicalEvaluation[i]['widthPhotoUrl']),
                                 const SizedBox(height: 12),
                                 const Text("Alimentation Électrique",
                                     style:
                                     TextStyle(fontWeight: FontWeight.bold)),
+                                // ✅ Updated: Power now supports a photo
                                 _buildDetailItem(
                                     'Prise 220V disponible (< 2m)',
-                                    technicalEvaluation[i]['isPowerAvailable']),
+                                    technicalEvaluation[i]['isPowerAvailable'],
+                                    photoUrl: technicalEvaluation[i]['powerPhotoUrl']),
                                 if (technicalEvaluation[i]['powerNotes'] !=
                                     null &&
                                     technicalEvaluation[i]['powerNotes']
@@ -1185,22 +1212,27 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                 const Text("Sol et Passage Câbles",
                                     style:
                                     TextStyle(fontWeight: FontWeight.bold)),
+                                // ✅ Updated: Floor/Conduit/Trench photos
                                 _buildDetailItem('Sol finalisé',
-                                    technicalEvaluation[i]['isFloorFinalized']),
+                                    technicalEvaluation[i]['isFloorFinalized'],
+                                    photoUrl: technicalEvaluation[i]['floorPhotoUrl']),
                                 _buildDetailItem(
                                     'Fourreau dispo.',
-                                    technicalEvaluation[i]
-                                    ['isConduitAvailable']),
+                                    technicalEvaluation[i]['isConduitAvailable'],
+                                    photoUrl: technicalEvaluation[i]['conduitPhotoUrl']),
                                 _buildDetailItem(
                                     'Saignée autorisée',
-                                    technicalEvaluation[i]['canMakeTrench']),
+                                    technicalEvaluation[i]['canMakeTrench'],
+                                    photoUrl: technicalEvaluation[i]['trenchPhotoUrl']),
                                 const SizedBox(height: 12),
                                 const Text("Zone d'Installation",
                                     style:
                                     TextStyle(fontWeight: FontWeight.bold)),
+                                // ✅ Updated: Obstacles photos
                                 _buildDetailItem(
                                     'Obstacles présents',
-                                    technicalEvaluation[i]['hasObstacles']),
+                                    technicalEvaluation[i]['hasObstacles'],
+                                    photoUrl: technicalEvaluation[i]['obstaclePhotoUrl']),
                                 if (technicalEvaluation[i]['obstacleNotes'] !=
                                     null &&
                                     technicalEvaluation[i]['obstacleNotes']
@@ -1212,19 +1244,23 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                                 const Text("Environnement",
                                     style:
                                     TextStyle(fontWeight: FontWeight.bold)),
+                                // ✅ Updated: Environmental photos
                                 _buildDetailItem(
                                     'Structures métalliques',
-                                    technicalEvaluation[i]
-                                    ['hasMetalStructures']),
+                                    technicalEvaluation[i]['hasMetalStructures'],
+                                    photoUrl: technicalEvaluation[i]['metalPhotoUrl']),
                                 _buildDetailItem(
                                     'Autres systèmes',
-                                    technicalEvaluation[i]['hasOtherSystems']),
+                                    technicalEvaluation[i]['hasOtherSystems'],
+                                    photoUrl: technicalEvaluation[i]['otherSystemsPhotoUrl']),
+
+                                // Legacy generic media display
                                 if (technicalEvaluation[i]['media'] != null &&
                                     (technicalEvaluation[i]['media'] as List)
                                         .isNotEmpty) ...[
                                   const SizedBox(height: 16),
                                   const Text(
-                                    'Fichiers d\'Évaluation:',
+                                    'Autres Fichiers (Galerie):',
                                     style:
                                     TextStyle(fontWeight: FontWeight.bold),
                                   ),
@@ -1522,14 +1558,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         projectData['hasItModule'] ?? (projectData['serviceType'] == 'Service IT');
 
     // 1. Technical Evaluation Button
-    // Show if module is active AND permissions allow
     if (hasTechnique &&
         RolePermissions.canPerformTechnicalEvaluation(userRole)) {
       final techList =
           projectData['technical_evaluation'] as List<dynamic>? ?? [];
       final bool isTechDone = techList.isNotEmpty;
 
-      // Show button if not done, or always show to allow editing
       if (!isTechDone || status == 'Nouvelle Demande' || status == 'En Cours d\'Évaluation') {
         buttons.add(SizedBox(
             width: double.infinity,
@@ -1579,7 +1613,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     }
 
     // 3. Global Actions (Upload Quote / Finalize)
-    // Only show if the unified status implies completion
     if ((status == 'Évaluation Terminée' ||
         status == 'Évaluation Technique Terminé' ||
         status == 'Évaluation IT Terminé') &&
@@ -1618,7 +1651,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       buttons.add(SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            // ✅ CHANGED: Calls new handler logic
             onPressed: () => _handleInstallationCreation(projectData),
             icon: const Icon(Icons.send_to_mobile),
             label: const Text('Créer la Tâche d\'Installation'),
