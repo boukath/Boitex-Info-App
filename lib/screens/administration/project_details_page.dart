@@ -44,6 +44,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   bool _isActionInProgress = false;
   static const Color primaryColor = Colors.deepPurple;
   static const Color itPrimaryColor = Colors.blue;
+  static const Color countingColor = Colors.teal; // Add color for counting
 
   // B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -1116,16 +1117,18 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
           final projectData = snapshot.data!.data() as Map<String, dynamic>;
           final createdAt = (projectData['createdAt'] as Timestamp).toDate();
-          final technicalEvaluation =
-          projectData['technical_evaluation'] as List<dynamic>?;
-          final itEvaluation =
-          projectData['it_evaluation'] as Map<String, dynamic>?;
 
+          final technicalEvaluation = projectData['technical_evaluation'] as List<dynamic>?;
+          // Counting Global Data
+          final countingGlobal = projectData['counting_evaluation_global'] as Map<String, dynamic>?;
+          final bool hasCountingStudy = projectData['has_counting_study'] == true;
+          final bool isMallMode = projectData['is_mall_mode'] == true;
+          final bool hasAntivolEval = projectData['has_antivol_evaluation'] == true;
+
+          final itEvaluation = projectData['it_evaluation'] as Map<String, dynamic>?;
           final status = projectData['status'] ?? 'Inconnu';
-          final orderedProducts =
-          projectData['orderedProducts'] as List<dynamic>?;
-          final projectFiles =
-              projectData['projectFiles'] as List<dynamic>? ?? [];
+          final orderedProducts = projectData['orderedProducts'] as List<dynamic>?;
+          final projectFiles = projectData['projectFiles'] as List<dynamic>? ?? [];
 
           return ListView(
             padding: const EdgeInsets.all(16.0),
@@ -1166,9 +1169,66 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   ),
                 ],
               ),
-              if (technicalEvaluation != null && technicalEvaluation.isNotEmpty)
+
+              // ✅ NEW: COUNTING EVALUATION CARD
+              if (hasCountingStudy && technicalEvaluation != null)
                 _buildInfoCard(
-                  title: 'Évaluation Technique',
+                  title: 'Étude Comptage & Flux',
+                  icon: Icons.people_outline,
+                  children: [
+                    // Global Infra Section
+                    if (countingGlobal != null) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text("Infrastructure Globale", style: TextStyle(fontWeight: FontWeight.bold, color: countingColor)),
+                            const Divider(),
+                            _buildDetailItem('Serveur / Hôte', countingGlobal['hostingDevice'], photoUrl: countingGlobal['hostingUrl']),
+                            _buildDetailItem('Switch PoE', countingGlobal['hasPoeSwitch'], photoUrl: countingGlobal['poe_switchUrl']),
+                            _buildDetailItem('Espace Baie', countingGlobal['hasRackSpace'], photoUrl: countingGlobal['rack_spaceUrl']),
+                          ],
+                        ),
+                      ),
+                      const Divider(thickness: 4, color: Colors.grey),
+                    ],
+
+                    // Camera Points List
+                    for (int i = 0; i < technicalEvaluation.length; i++)
+                      if (technicalEvaluation[i]['needsCountCamera'] == true)
+                        ExpansionTile(
+                          leading: const Icon(Icons.camera_alt, color: countingColor),
+                          title: Text(
+                            isMallMode
+                                ? '${technicalEvaluation[i]['locationName'] ?? 'Point Inconnu'} (${technicalEvaluation[i]['zoneName'] ?? 'Zone N/A'})'
+                                : 'Caméra - Entrée #${i + 1}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: isMallMode ? Text(technicalEvaluation[i]['flowType'] ?? 'Flux Standard') : null,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                              child: Column(
+                                children: [
+                                  _buildDetailItem('Hauteur (m)', technicalEvaluation[i]['cameraHeight'], photoUrl: technicalEvaluation[i]['cameraHeightPhotoUrl']),
+                                  _buildDetailItem('Type Plafond', technicalEvaluation[i]['ceilingType'], photoUrl: technicalEvaluation[i]['ceilingTypePhotoUrl']),
+                                  _buildDetailItem('Support Requis', technicalEvaluation[i]['needsPoleSupport'], photoUrl: technicalEvaluation[i]['polePhotoUrl']),
+                                  _buildDetailItem('Câble Cat6 Dispo', technicalEvaluation[i]['hasCat6'], photoUrl: technicalEvaluation[i]['cat6PhotoUrl']),
+                                  if (technicalEvaluation[i]['hasCat6'] == false)
+                                    _buildDetailItem('Distance Tirage (m)', technicalEvaluation[i]['cableDistance'], photoUrl: technicalEvaluation[i]['cableDistancePhotoUrl']),
+                                ],
+                              ),
+                            )
+                          ],
+                        ),
+                  ],
+                ),
+
+              // ✅ CONDITIONAL: TECHNICAL EVALUATION (ANTIVOL)
+              if (hasAntivolEval && technicalEvaluation != null && technicalEvaluation.isNotEmpty)
+                _buildInfoCard(
+                  title: 'Évaluation Technique (Antivol)',
                   icon: Icons.square_foot_outlined,
                   children: [
                     for (int i = 0; i < technicalEvaluation.length; i++)
