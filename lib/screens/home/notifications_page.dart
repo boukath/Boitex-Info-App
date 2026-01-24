@@ -5,11 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart'; // ✅ REQUIRED FOR DATE FORMATTING
 
 // ✅ IMPORTS
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/models/mission.dart'; // Mission Model
-import 'package:boitex_info_app/models/channel_model.dart'; // ✅ ADDED: Channel Model
+import 'package:boitex_info_app/models/channel_model.dart'; // Channel Model
 
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
@@ -18,7 +19,7 @@ import 'package:boitex_info_app/screens/administration/project_details_page.dart
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
 import 'package:boitex_info_app/screens/administration/requisition_details_page.dart';
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
-import 'package:boitex_info_app/screens/announce/channel_chat_page.dart'; // ✅ ADDED: Chat Page
+import 'package:boitex_info_app/screens/announce/channel_chat_page.dart'; // Chat Page
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
 import 'package:boitex_info_app/screens/administration/mission_details_page.dart'; // Mission Details
 
@@ -126,6 +127,50 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
     groupList.sort((a, b) => b.latestTimestamp.compareTo(a.latestTimestamp));
     return groupList;
+  }
+
+  /// ✅ SMART DATE FORMATTING LOGIC
+  /// Returns "TimeAgo" if < 24h, otherwise explicit Date/Time
+  String _formatSmartDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inHours < 24) {
+      return timeago.format(date, locale: 'fr');
+    } else {
+      // Example: "24 janv. à 14:30"
+      return DateFormat('d MMM à HH:mm', 'fr').format(date);
+    }
+  }
+
+  /// ✅ BATCH DELETE LOGIC (SWIPE ACTION)
+  Future<void> _deleteNotificationGroup(NotificationGroup group) async {
+    final batch = FirebaseFirestore.instance.batch();
+
+    // Delete all individual notifications in this group
+    for (var doc in group.events) {
+      batch.delete(doc.reference);
+    }
+
+    try {
+      await batch.commit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Notifications supprimées"),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: _textDark,
+              duration: const Duration(seconds: 2),
+            )
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   /// ✅ PARSING LOGIC: Cleans up title
@@ -425,7 +470,34 @@ class _NotificationsPageState extends State<NotificationsPage> {
             physics: const BouncingScrollPhysics(),
             separatorBuilder: (ctx, i) => const SizedBox(height: 20),
             itemBuilder: (context, index) {
-              return _buildBigCard(groups[index]);
+              // ⚡⚡⚡ WRAP IN DISMISSIBLE FOR SWIPE-TO-DELETE
+              return Dismissible(
+                key: Key(groups[index].docId), // Unique Key for the Group
+                direction: DismissDirection.endToStart, // Swipe Right to Left
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade400,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        "Supprimer",
+                        style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.delete_outline_rounded, color: Colors.white, size: 28),
+                    ],
+                  ),
+                ),
+                onDismissed: (direction) {
+                  _deleteNotificationGroup(groups[index]);
+                },
+                child: _buildBigCard(groups[index]),
+              );
             },
           );
         },
@@ -580,8 +652,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   children: [
                     Icon(Icons.access_time_rounded, size: 14, color: _textGrey.withOpacity(0.6)),
                     const SizedBox(width: 6),
+                    // ⚡⚡⚡ UPDATED: Uses Smart Date Logic
                     Text(
-                      timeago.format(group.latestTimestamp, locale: 'fr'),
+                      _formatSmartDate(group.latestTimestamp),
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         color: _textGrey.withOpacity(0.8),
