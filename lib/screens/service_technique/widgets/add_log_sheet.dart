@@ -52,9 +52,21 @@ class _AddLogSheetState extends State<AddLogSheet> {
 
   final Map<String, dynamic> _logTypes = {
     'work': {'label': 'Travail', 'icon': Icons.build, 'color': Colors.blue},
-    'blockage': {'label': 'Blocage', 'icon': Icons.warning_amber, 'color': Colors.red},
-    'material': {'label': 'Matériel', 'icon': Icons.inventory_2, 'color': Colors.orange},
-    'info': {'label': 'Info', 'icon': Icons.info_outline, 'color': Colors.grey},
+    'blockage': {
+      'label': 'Blocage',
+      'icon': Icons.warning_amber,
+      'color': Colors.red
+    },
+    'material': {
+      'label': 'Matériel',
+      'icon': Icons.inventory_2,
+      'color': Colors.orange
+    },
+    'info': {
+      'label': 'Info',
+      'icon': Icons.info_outline,
+      'color': Colors.grey
+    },
   };
 
   @override
@@ -68,8 +80,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
           bottom: MediaQuery.of(context).viewInsets.bottom + 20,
           left: 16,
           right: 16,
-          top: 20
-      ),
+          top: 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -78,7 +89,9 @@ class _AddLogSheetState extends State<AddLogSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("Nouveau Log", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
+              Text("Nouveau Log",
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold, fontSize: 18)),
               IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: _isSubmitting ? null : () => Navigator.pop(context),
@@ -97,11 +110,16 @@ class _AddLogSheetState extends State<AddLogSheet> {
                   padding: const EdgeInsets.only(right: 8.0),
                   child: ChoiceChip(
                     label: Text(entry.value['label']),
-                    avatar: Icon(entry.value['icon'], size: 16, color: isSelected ? Colors.white : entry.value['color']),
+                    avatar: Icon(entry.value['icon'],
+                        size: 16,
+                        color: isSelected ? Colors.white : entry.value['color']),
                     selected: isSelected,
                     selectedColor: entry.value['color'],
-                    labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
-                    onSelected: _isSubmitting ? null : (bool selected) {
+                    labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : Colors.black87),
+                    onSelected: _isSubmitting
+                        ? null
+                        : (bool selected) {
                       setState(() => _selectedType = entry.key);
                     },
                   ),
@@ -118,7 +136,9 @@ class _AddLogSheetState extends State<AddLogSheet> {
             enabled: !_isSubmitting,
             decoration: InputDecoration(
               hintText: "Décrivez l'action...",
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none),
               filled: true,
               fillColor: Colors.grey.shade100,
               contentPadding: const EdgeInsets.all(12),
@@ -160,16 +180,23 @@ class _AddLogSheetState extends State<AddLogSheet> {
             child: ElevatedButton.icon(
               onPressed: _isSubmitting ? null : _submitLog,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isSubmitting ? Colors.grey : Colors.blue.shade800,
+                backgroundColor:
+                _isSubmitting ? Colors.grey : Colors.blue.shade800,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
               icon: _isSubmitting
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.send, color: Colors.white),
               label: Text(
                 _isSubmitting ? "ENREGISTREMENT..." : "ENREGISTRER",
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
           ),
@@ -212,7 +239,8 @@ class _AddLogSheetState extends State<AddLogSheet> {
         final data = jsonResponse['result'] ?? jsonResponse;
         return Map<String, dynamic>.from(data);
       } else {
-        debugPrint('❌ Erreur HTTP Cloud Function: ${response.statusCode} - ${response.body}');
+        debugPrint(
+            '❌ Erreur HTTP Cloud Function: ${response.statusCode} - ${response.body}');
         return null;
       }
     } catch (e) {
@@ -222,14 +250,16 @@ class _AddLogSheetState extends State<AddLogSheet> {
   }
 
   // 2. Upload File (Updated to use XFile and correct MimeType)
-  Future<String?> _uploadFileToB2(XFile file, Map<String, dynamic> b2Credentials) async {
+  Future<String?> _uploadFileToB2(
+      XFile file, Map<String, dynamic> b2Credentials) async {
     try {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
 
       // Generate a clean filename with timestamp
-      final String fileName = "logs/${DateTime.now().millisecondsSinceEpoch}_${file.name.split('/').last}";
+      final String fileName =
+          "logs/${DateTime.now().millisecondsSinceEpoch}_${file.name.split('/').last}";
 
       // ✅ DETECT REAL MIME TYPE
       final String mimeType = file.mimeType ?? 'application/octet-stream';
@@ -296,7 +326,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
         }
       }
 
-      // 3. Prepare Data
+      // 3. Prepare Log Data
       final logRef = FirebaseFirestore.instance
           .collection('installations')
           .doc(widget.installationId)
@@ -311,25 +341,53 @@ class _AddLogSheetState extends State<AddLogSheet> {
         'technicianId': user?.uid ?? 'unknown',
         'technicianName': user?.displayName ?? 'Technicien',
         'mediaUrls': uploadedUrls,
-        'mediaStatus': _attachments.isNotEmpty && uploadedUrls.isEmpty ? 'error' : 'ready',
+        'mediaStatus':
+        _attachments.isNotEmpty && uploadedUrls.isEmpty ? 'error' : 'ready',
       };
 
-      // 4. Batch Updates
-      batch.set(logRef, logData);
-      batch.update(
-          FirebaseFirestore.instance.collection('installations').doc(widget.installationId),
-          {'lastActivity': FieldValue.serverTimestamp()}
-      );
+      // 4. Batch Updates & Status Logic
+      final installationRef = FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationId);
 
+      // 🔍 READ FIRST: Check current status to decide if we update it
+      // This prevents re-opening 'Terminée' jobs accidentally.
+      final installationDoc = await installationRef.get();
+
+      Map<String, dynamic> installationUpdateData = {
+        'lastActivity': FieldValue.serverTimestamp(),
+      };
+
+      String feedbackMessage = "Log ajouté avec succès !";
+
+      if (installationDoc.exists) {
+        final currentStatus = installationDoc.data()?['status'];
+
+        // ✅ AUTO-UPDATE LOGIC:
+        // Only switch to 'En Cours' if it is currently 'Planifiée'
+        if (currentStatus == 'Planifiée') {
+          installationUpdateData['status'] = 'En Cours';
+          feedbackMessage = "Log ajouté & Installation démarrée (En Cours) 🚀";
+        }
+      }
+
+      // Add operations to batch
+      batch.set(logRef, logData);
+      batch.update(installationRef, installationUpdateData);
+
+      // Commit all changes atomically
       await batch.commit();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Log ajouté avec succès !'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text(feedbackMessage),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
         );
         Navigator.pop(context);
       }
-
     } catch (e) {
       // ✅ Affiche l'erreur réelle à l'utilisateur pour le débogage
       debugPrint("Error submitting log: $e");
@@ -337,7 +395,8 @@ class _AddLogSheetState extends State<AddLogSheet> {
         setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur: ${e.toString().replaceAll("Exception:", "")}'),
+            content:
+            Text('Erreur: ${e.toString().replaceAll("Exception:", "")}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),
@@ -350,18 +409,28 @@ class _AddLogSheetState extends State<AddLogSheet> {
   // 📸 UI HELPERS
   // ------------------------------------------------------------------------
 
-  Widget _buildAddButton({required IconData icon, required String label, required Color color, required Color iconColor, required VoidCallback onTap}) {
+  Widget _buildAddButton(
+      {required IconData icon,
+        required String label,
+        required Color color,
+        required Color iconColor,
+        required VoidCallback onTap}) {
     return GestureDetector(
       onTap: _isSubmitting ? null : onTap,
       child: Container(
         width: 80,
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)),
+        decoration:
+        BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, color: iconColor),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(fontSize: 10, color: iconColor, fontWeight: FontWeight.bold)),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: iconColor,
+                    fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -378,19 +447,29 @@ class _AddLogSheetState extends State<AddLogSheet> {
             borderRadius: BorderRadius.circular(12),
             color: Colors.black,
             image: media.isVideo && media.thumbnailBytes != null
-                ? DecorationImage(image: MemoryImage(media.thumbnailBytes!), fit: BoxFit.cover, opacity: 0.7)
-                : DecorationImage(image: FileImage(File(media.file.path)), fit: BoxFit.cover),
+                ? DecorationImage(
+                image: MemoryImage(media.thumbnailBytes!),
+                fit: BoxFit.cover,
+                opacity: 0.7)
+                : DecorationImage(
+                image: FileImage(File(media.file.path)), fit: BoxFit.cover),
           ),
           child: media.isVideo
-              ? const Center(child: Icon(Icons.play_circle_fill, color: Colors.white, size: 30))
+              ? const Center(
+              child: Icon(Icons.play_circle_fill,
+                  color: Colors.white, size: 30))
               : null,
         ),
         if (!_isSubmitting)
           Positioned(
-            top: 2, right: 10,
+            top: 2,
+            right: 10,
             child: GestureDetector(
               onTap: () => setState(() => _attachments.remove(media)),
-              child: const CircleAvatar(radius: 10, backgroundColor: Colors.white, child: Icon(Icons.close, size: 14, color: Colors.red)),
+              child: const CircleAvatar(
+                  radius: 10,
+                  backgroundColor: Colors.white,
+                  child: Icon(Icons.close, size: 14, color: Colors.red)),
             ),
           )
       ],
@@ -405,12 +484,18 @@ class _AddLogSheetState extends State<AddLogSheet> {
           ListTile(
             leading: const Icon(Icons.image, color: Colors.blue),
             title: const Text("Photos (Multiples)"),
-            onTap: () { Navigator.pop(ctx); _pickMultiImages(); },
+            onTap: () {
+              Navigator.pop(ctx);
+              _pickMultiImages();
+            },
           ),
           ListTile(
             leading: const Icon(Icons.videocam, color: Colors.purple),
             title: const Text("Vidéo"),
-            onTap: () { Navigator.pop(ctx); _pickVideo(); },
+            onTap: () {
+              Navigator.pop(ctx);
+              _pickVideo();
+            },
           ),
         ],
       ),
@@ -418,7 +503,8 @@ class _AddLogSheetState extends State<AddLogSheet> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    final XFile? image = await _picker.pickImage(source: source, imageQuality: 50);
+    final XFile? image =
+    await _picker.pickImage(source: source, imageQuality: 50);
     if (image != null) {
       setState(() => _attachments.add(LocalMedia(file: image, isVideo: false)));
     }
@@ -428,7 +514,8 @@ class _AddLogSheetState extends State<AddLogSheet> {
     final List<XFile> images = await _picker.pickMultiImage(imageQuality: 50);
     if (images.isNotEmpty) {
       setState(() {
-        _attachments.addAll(images.map((x) => LocalMedia(file: x, isVideo: false)));
+        _attachments
+            .addAll(images.map((x) => LocalMedia(file: x, isVideo: false)));
       });
     }
   }
@@ -443,7 +530,8 @@ class _AddLogSheetState extends State<AddLogSheet> {
         quality: 50,
       );
       setState(() {
-        _attachments.add(LocalMedia(file: video, isVideo: true, thumbnailBytes: thumb));
+        _attachments.add(
+            LocalMedia(file: video, isVideo: true, thumbnailBytes: thumb));
       });
     }
   }

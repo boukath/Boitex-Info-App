@@ -29,7 +29,8 @@ class InstallationTimelinePage extends StatefulWidget {
   });
 
   @override
-  State<InstallationTimelinePage> createState() => _InstallationTimelinePageState();
+  State<InstallationTimelinePage> createState() =>
+      _InstallationTimelinePageState();
 }
 
 class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
@@ -58,13 +59,15 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
               const SizedBox(height: 32),
               Text(
                 "L'IA analyse les logs...",
-                style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
+                style: GoogleFonts.poppins(
+                    fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               Text(
                 "Génération du rapport technique en cours.\nVeuillez patienter.",
                 textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(color: Colors.grey.shade600, fontSize: 14),
+                style: GoogleFonts.poppins(
+                    color: Colors.grey.shade600, fontSize: 14),
               ),
             ],
           ),
@@ -81,11 +84,13 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
           children: [
             Text(
               "Suivi d'Installation",
-              style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600),
+              style: GoogleFonts.poppins(
+                  fontSize: 16, fontWeight: FontWeight.w600),
             ),
             Text(
               widget.installationData['clientName'] ?? 'Client Inconnu',
-              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w400),
+              style: GoogleFonts.poppins(
+                  fontSize: 12, fontWeight: FontWeight.w400),
             ),
           ],
         ),
@@ -98,14 +103,15 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
             icon: const Icon(Icons.auto_awesome, color: Colors.amber, size: 20),
             label: Text(
               "CLÔTURER",
-              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold),
+              style: GoogleFonts.poppins(
+                  color: Colors.white, fontWeight: FontWeight.bold),
             ),
           )
         ],
       ),
       body: Column(
         children: [
-          // 📍 Sticky Header: Status & Info
+          // 📍 Sticky Header: Status & Info (Now Reactive)
           _buildStatusHeader(),
 
           // 📜 The Feed
@@ -119,7 +125,9 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return const Center(child: Text("Erreur de chargement", style: TextStyle(color: Colors.red)));
+                  return const Center(
+                      child: Text("Erreur de chargement",
+                          style: TextStyle(color: Colors.red)));
                 }
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -165,7 +173,8 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         // ✅ UPDATED TEXT to reflect Draft Mode
-        title: Text("Générer le rapport ?", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text("Générer le rapport ?",
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
           "L'IA va analyser les logs et préparer le brouillon du rapport.\n\nVous pourrez ensuite relire, faire signer le client et valider la clôture.",
           style: GoogleFonts.poppins(fontSize: 14, height: 1.5),
@@ -174,16 +183,19 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text("Annuler", style: TextStyle(color: Colors.grey.shade600)),
+            child:
+            Text("Annuler", style: TextStyle(color: Colors.grey.shade600)),
           ),
           ElevatedButton.icon(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: _primaryBlue,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
             ),
             icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
-            label: const Text("Générer le Brouillon", style: TextStyle(color: Colors.white)),
+            label: const Text("Générer le Brouillon",
+                style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -216,7 +228,6 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
           ),
         ),
       );
-
     } catch (e) {
       if (!mounted) return;
       setState(() => _isGeneratingReport = false);
@@ -235,46 +246,98 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
   // 🧩 UI COMPONENTS
   // ------------------------------------------------------------------------
 
+  // ✅ UPDATED: Dynamic Status Header Listening to Firestore
   Widget _buildStatusHeader() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.green.shade50,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.green.shade200),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.sync, size: 16, color: Colors.green),
-                const SizedBox(width: 6),
-                Text(
-                  "EN COURS",
-                  style: GoogleFonts.poppins(
-                    color: Colors.green.shade800,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        // Fallback to initial widget data if loading
+        final data = snapshot.hasData && snapshot.data!.exists
+            ? snapshot.data!.data() as Map<String, dynamic>
+            : widget.installationData;
+
+        final String status = data['status'] ?? 'Planifiée';
+        final String location = data['storeLocation'] ?? "Unknown";
+
+        // Determine Style based on Status
+        Color statusColor;
+        Color bgColor;
+        IconData statusIcon;
+
+        switch (status) {
+          case 'En Cours':
+            statusColor = Colors.green.shade800;
+            bgColor = Colors.green.shade50;
+            statusIcon = Icons.sync;
+            break;
+          case 'Terminée':
+            statusColor = Colors.grey.shade700;
+            bgColor = Colors.grey.shade200;
+            statusIcon = Icons.check_circle_outline;
+            break;
+          case 'Bloquée':
+            statusColor = Colors.red.shade800;
+            bgColor = Colors.red.shade50;
+            statusIcon = Icons.warning_amber_rounded;
+            break;
+          case 'Planifiée':
+          default:
+            statusColor = Colors.blue.shade800;
+            bgColor = Colors.blue.shade50;
+            statusIcon = Icons.calendar_today;
+            break;
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: statusColor.withOpacity(0.3)),
                 ),
-              ],
-            ),
+                child: Row(
+                  children: [
+                    Icon(statusIcon, size: 16, color: statusColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      status.toUpperCase(),
+                      style: GoogleFonts.poppins(
+                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              const Icon(Icons.location_on, size: 16, color: Colors.grey),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  location,
+                  style: GoogleFonts.poppins(
+                      color: Colors.grey.shade700, fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                ),
+              ),
+            ],
           ),
-          const Spacer(),
-          const Icon(Icons.location_on, size: 16, color: Colors.grey),
-          const SizedBox(width: 4),
-          Text(
-            widget.installationData['storeLocation'] ?? "Unknown",
-            style: GoogleFonts.poppins(color: Colors.grey.shade700, fontSize: 13),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -348,12 +411,15 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
               context: context,
               isScrollControlled: true,
               backgroundColor: Colors.transparent,
-              builder: (context) => AddLogSheet(installationId: widget.installationId),
+              builder: (context) =>
+                  AddLogSheet(installationId: widget.installationId),
             );
           },
           backgroundColor: _primaryBlue,
           icon: const Icon(Icons.add_comment, color: Colors.white),
-          label: Text("AJOUTER UN LOG", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
+          label: Text("AJOUTER UN LOG",
+              style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w600, color: Colors.white)),
         ),
         const SizedBox(height: 12),
         FloatingActionButton(
@@ -363,7 +429,8 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
               context: context,
               isScrollControlled: true,
               backgroundColor: Colors.transparent,
-              builder: (context) => AddLogSheet(installationId: widget.installationId),
+              builder: (context) =>
+                  AddLogSheet(installationId: widget.installationId),
             );
           },
           backgroundColor: Colors.white,
@@ -375,8 +442,10 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
 
   bool _shouldShowDateHeader(List<QueryDocumentSnapshot> docs, int index) {
     if (index == 0) return true;
-    final current = (docs[index].data() as Map<String, dynamic>)['timestamp'] as Timestamp;
-    final previous = (docs[index - 1].data() as Map<String, dynamic>)['timestamp'] as Timestamp;
+    final current =
+    (docs[index].data() as Map<String, dynamic>)['timestamp'] as Timestamp;
+    final previous = (docs[index - 1].data() as Map<String, dynamic>)['timestamp']
+    as Timestamp;
     final currDate = current.toDate();
     final prevDate = previous.toDate();
     return currDate.day != prevDate.day || currDate.month != prevDate.month;
@@ -408,9 +477,18 @@ class _DailyLogCard extends StatelessWidget {
     Color typeColor;
 
     switch (log.type) {
-      case 'blockage': typeIcon = Icons.warning_amber_rounded; typeColor = Colors.red; break;
-      case 'material': typeIcon = Icons.inventory_2_outlined; typeColor = Colors.orange; break;
-      case 'work': default: typeIcon = Icons.build_circle_outlined; typeColor = Colors.blue;
+      case 'blockage':
+        typeIcon = Icons.warning_amber_rounded;
+        typeColor = Colors.red;
+        break;
+      case 'material':
+        typeIcon = Icons.inventory_2_outlined;
+        typeColor = Colors.orange;
+        break;
+      case 'work':
+      default:
+        typeIcon = Icons.build_circle_outlined;
+        typeColor = Colors.blue;
     }
 
     return Container(
@@ -433,26 +511,46 @@ class _DailyLogCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(backgroundColor: typeColor.withOpacity(0.1), radius: 16, child: Icon(typeIcon, size: 18, color: typeColor)),
+                CircleAvatar(
+                    backgroundColor: typeColor.withOpacity(0.1),
+                    radius: 16,
+                    child: Icon(typeIcon, size: 18, color: typeColor)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(log.technicianName, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
-                      Text(timeago.format(log.timestamp, locale: 'fr'), style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                      Text(log.technicianName,
+                          style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
+                      Text(timeago.format(log.timestamp, locale: 'fr'),
+                          style: TextStyle(
+                              color: Colors.grey.shade500, fontSize: 11)),
                     ],
                   ),
                 ),
-                if (log.type == 'blockage') Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.red.shade100)),
-                  child: Text("BLOQUÉ", style: TextStyle(fontSize: 10, color: Colors.red.shade800, fontWeight: FontWeight.bold)),
-                ),
+                if (log.type == 'blockage')
+                  Container(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.red.shade100)),
+                    child: Text("BLOQUÉ",
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.red.shade800,
+                            fontWeight: FontWeight.bold)),
+                  ),
               ],
             ),
             const SizedBox(height: 12),
-            Text(log.description, style: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF2D3436), height: 1.5)),
+            Text(log.description,
+                style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: const Color(0xFF2D3436),
+                    height: 1.5)),
 
             // ✅ DISPLAY MEDIA THUMBNAILS WITH CLICK ACTIONS
             if (log.mediaUrls.isNotEmpty) ...[
@@ -483,7 +581,9 @@ class _DailyLogCard extends StatelessWidget {
                           // 2. If IMAGE: Open Gallery
                           else {
                             // Filter list to only contain images (so gallery doesn't break on videos)
-                            final onlyImages = log.mediaUrls.where((u) => !_isVideo(u)).toList();
+                            final onlyImages = log.mediaUrls
+                                .where((u) => !_isVideo(u))
+                                .toList();
                             // Find the new index in this filtered list
                             final newIndex = onlyImages.indexOf(url);
 
@@ -511,12 +611,21 @@ class _DailyLogCard extends StatelessWidget {
                               fit: BoxFit.cover,
                               // If it's a video, we might not get a thumbnail easily without a cloud function generator.
                               // Fallback: Show a generic placeholder or the image itself if backend provides thumbs.
-                              placeholder: (context, url) => Container(width: 80, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                              placeholder: (context, url) => Container(
+                                  width: 80,
+                                  color: Colors.grey.shade100,
+                                  child: const Center(
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))),
                               errorWidget: (context, url, error) => Container(
                                 width: 80,
                                 height: 80,
                                 color: Colors.black12,
-                                child: Icon(isVideo ? Icons.videocam_off : Icons.broken_image, color: Colors.grey),
+                                child: Icon(
+                                    isVideo
+                                        ? Icons.videocam_off
+                                        : Icons.broken_image,
+                                    color: Colors.grey),
                               ),
                             ),
 
@@ -529,7 +638,8 @@ class _DailyLogCard extends StatelessWidget {
                                   color: Colors.black.withOpacity(0.5),
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
+                                child: const Icon(Icons.play_arrow,
+                                    color: Colors.white, size: 20),
                               ),
                           ],
                         ),
@@ -543,9 +653,16 @@ class _DailyLogCard extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                  const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
                   const SizedBox(width: 8),
-                  Text("Envoi des médias...", style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontStyle: FontStyle.italic)),
+                  Text("Envoi des médias...",
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                          fontStyle: FontStyle.italic)),
                 ],
               )
             ]

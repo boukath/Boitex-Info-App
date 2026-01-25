@@ -72,22 +72,25 @@ class InstallationListPage extends StatelessWidget {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Supprimer ?', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(
-            'Voulez-vous vraiment supprimer cette installation ?',
+        title: Text('Supprimer ?',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text('Voulez-vous vraiment supprimer cette installation ?',
             style: GoogleFonts.poppins()),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Annuler', style: GoogleFonts.poppins(color: Colors.grey)),
+            child:
+            Text('Annuler', style: GoogleFonts.poppins(color: Colors.grey)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            child: Text('Supprimer', style: GoogleFonts.poppins(color: Colors.white)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
+            child: Text('Supprimer',
+                style: GoogleFonts.poppins(color: Colors.white)),
           ),
         ],
       ),
@@ -95,15 +98,21 @@ class InstallationListPage extends StatelessWidget {
 
     if (confirm == true) {
       try {
-        await FirebaseFirestore.instance.collection('installations').doc(docId).delete();
+        await FirebaseFirestore.instance
+            .collection('installations')
+            .doc(docId)
+            .delete();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Installation supprimée.'), backgroundColor: Colors.green),
+            const SnackBar(
+                content: Text('Installation supprimée.'),
+                backgroundColor: Colors.green),
           );
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('Erreur: $e')));
         }
       }
     }
@@ -131,7 +140,8 @@ class InstallationListPage extends StatelessWidget {
         actions: [
           Container(
             margin: const EdgeInsets.only(right: 16),
-            decoration: BoxDecoration(color: _bgLight, borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(
+                color: _bgLight, borderRadius: BorderRadius.circular(12)),
             child: IconButton(
               icon: const Icon(Icons.history_rounded, color: Colors.black87),
               tooltip: "Historique",
@@ -158,10 +168,13 @@ class InstallationListPage extends StatelessWidget {
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator(color: _primaryBlue));
+            return Center(
+                child: CircularProgressIndicator(color: _primaryBlue));
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Erreur', style: GoogleFonts.poppins(color: Colors.red)));
+            return Center(
+                child: Text('Erreur',
+                    style: GoogleFonts.poppins(color: Colors.red)));
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return Center(
@@ -173,14 +186,21 @@ class InstallationListPage extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       shape: BoxShape.circle,
-                      boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 10, spreadRadius: 5)],
+                      boxShadow: [
+                        BoxShadow(
+                            color: Colors.grey.shade200,
+                            blurRadius: 10,
+                            spreadRadius: 5)
+                      ],
                     ),
-                    child: Icon(Icons.router_outlined, size: 50, color: Colors.grey.shade400),
+                    child: Icon(Icons.router_outlined,
+                        size: 50, color: Colors.grey.shade400),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'Aucune installation active',
-                    style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey.shade500),
+                    style: GoogleFonts.poppins(
+                        fontSize: 16, color: Colors.grey.shade500),
                   ),
                 ],
               ),
@@ -201,7 +221,8 @@ class InstallationListPage extends StatelessWidget {
               final storeName = data['storeName'] ?? 'Magasin inconnu';
               final status = data['status'] ?? 'À Planifier';
 
-              final DateTime? installationDate = (data['installationDate'] as Timestamp?)?.toDate();
+              final DateTime? installationDate =
+              (data['installationDate'] as Timestamp?)?.toDate();
               final String dateDisplay = installationDate != null
                   ? DateFormat('dd MMM yyyy', 'fr_FR').format(installationDate)
                   : 'Date non définie';
@@ -212,7 +233,10 @@ class InstallationListPage extends StatelessWidget {
                   color: _cardWhite,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 15, offset: const Offset(0, 5)),
+                    BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 15,
+                        offset: const Offset(0, 5)),
                   ],
                 ),
                 child: Slidable(
@@ -227,15 +251,18 @@ class InstallationListPage extends StatelessWidget {
                         foregroundColor: Colors.white,
                         icon: Icons.edit,
                         label: 'Modifier',
-                        borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                        borderRadius: const BorderRadius.horizontal(
+                            left: Radius.circular(16)),
                       ),
                       SlidableAction(
-                        onPressed: (ctx) => _confirmDelete(context, doc.id),
+                        onPressed: (ctx) =>
+                            _confirmDelete(context, doc.id),
                         backgroundColor: Colors.redAccent,
                         foregroundColor: Colors.white,
                         icon: Icons.delete,
                         label: 'Supprimer',
-                        borderRadius: const BorderRadius.horizontal(right: Radius.circular(16)),
+                        borderRadius: const BorderRadius.horizontal(
+                            right: Radius.circular(16)),
                       ),
                     ],
                   )
@@ -258,7 +285,8 @@ class InstallationListPage extends StatelessWidget {
                                   color: Colors.blue.shade50,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Icon(Icons.router_outlined, color: _primaryBlue, size: 24),
+                                child: Icon(Icons.router_outlined,
+                                    color: _primaryBlue, size: 24),
                               ),
                               const SizedBox(width: 16),
 
@@ -278,14 +306,20 @@ class InstallationListPage extends StatelessWidget {
                                     const SizedBox(height: 4),
                                     Row(
                                       children: [
-                                        Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade500),
+                                        Icon(Icons.calendar_today,
+                                            size: 12,
+                                            color: Colors.grey.shade500),
                                         const SizedBox(width: 6),
                                         Text(
                                           dateDisplay,
                                           style: GoogleFonts.poppins(
                                             fontSize: 12,
-                                            color: installationDate != null ? _textDark : Colors.red,
-                                            fontWeight: installationDate != null ? FontWeight.w500 : FontWeight.bold,
+                                            color: installationDate != null
+                                                ? _textDark
+                                                : Colors.red,
+                                            fontWeight: installationDate != null
+                                                ? FontWeight.w500
+                                                : FontWeight.bold,
                                           ),
                                         ),
                                       ],
@@ -296,7 +330,8 @@ class InstallationListPage extends StatelessWidget {
 
                               // Status Badge
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
                                 decoration: BoxDecoration(
                                   color: _getStatusBgColor(status),
                                   borderRadius: BorderRadius.circular(8),
@@ -320,12 +355,14 @@ class InstallationListPage extends StatelessWidget {
                           // Location Info
                           Row(
                             children: [
-                              const Icon(Icons.business, size: 16, color: Colors.grey),
+                              const Icon(Icons.business,
+                                  size: 16, color: Colors.grey),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   clientName,
-                                  style: GoogleFonts.poppins(fontSize: 14, color: _textDark),
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 14, color: _textDark),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -334,13 +371,16 @@ class InstallationListPage extends StatelessWidget {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              const Icon(Icons.storefront, size: 16, color: Colors.grey),
+                              const Icon(Icons.storefront,
+                                  size: 16, color: Colors.grey),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   // ✅ UPDATED: Added Store Location
                                   '$storeName ${data['storeLocation'] != null ? "- ${data['storeLocation']}" : ""}',
-                                  style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      color: Colors.grey.shade600),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -371,9 +411,12 @@ class InstallationListPage extends StatelessWidget {
         },
         backgroundColor: _primaryBlue,
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         icon: const Icon(Icons.add, color: Colors.white),
-        label: Text('NOUVELLE', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white)),
+        label: Text('NOUVELLE',
+            style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold, color: Colors.white)),
       )
           : null,
     );

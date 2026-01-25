@@ -81,7 +81,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       }
     }
 
-    if (data['assignedTechnicians'] != null && data['assignedTechnicians'] is List) {
+    if (data['assignedTechnicians'] != null &&
+        data['assignedTechnicians'] is List) {
       final rawList = data['assignedTechnicians'] as List;
       _assignedTechnicians = rawList.map((item) {
         if (item is String) {
@@ -97,7 +98,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
     _fetchTechnicians();
 
-    if (data['status'] == 'Terminée' || (data.containsKey('signatureUrl') && data['signatureUrl'] != null)) {
+    if (data['status'] == 'Terminée' ||
+        (data.containsKey('signatureUrl') && data['signatureUrl'] != null)) {
       _fetchReportDetails();
     }
   }
@@ -253,8 +255,10 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text('Planification', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Planification',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -321,7 +325,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 _saveSchedule();
               },
               style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue),
-              child: Text('Enregistrer', style: GoogleFonts.poppins(color: Colors.white)),
+              child: Text('Enregistrer',
+                  style: GoogleFonts.poppins(color: Colors.white)),
             ),
           ],
         ),
@@ -336,8 +341,15 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           .httpsCallable('getInstallationPdf')
           .call({'installationId': widget.installationDoc.id});
       final data = result.data as Map<dynamic, dynamic>;
-      return {'bytes': base64Decode(data['pdfBase64']), 'filename': data['filename']};
-    } catch (e) { return null; } finally { if (mounted) setState(() => _isLoading = false); }
+      return {
+        'bytes': base64Decode(data['pdfBase64']),
+        'filename': data['filename']
+      };
+    } catch (e) {
+      return null;
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<File> _saveFileForMobile(Uint8List bytes, String filename) async {
@@ -351,9 +363,17 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     final pdfData = await _fetchPdfBytes();
     if (pdfData == null) return;
     if (kIsWeb) {
-      await FileSaver.instance.saveFile(name: pdfData['filename'].replaceAll('.pdf', ''), bytes: pdfData['bytes'], ext: 'pdf', mimeType: MimeType.pdf);
+      await FileSaver.instance.saveFile(
+          name: pdfData['filename'].replaceAll('.pdf', ''),
+          bytes: pdfData['bytes'],
+          ext: 'pdf',
+          mimeType: MimeType.pdf);
     } else {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => PdfViewerPage(pdfBytes: pdfData['bytes'], title: pdfData['filename'])));
+      Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => PdfViewerPage(
+                  pdfBytes: pdfData['bytes'], title: pdfData['filename'])));
     }
   }
 
@@ -361,24 +381,31 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     if (kIsWeb) return;
     final pdfData = await _fetchPdfBytes();
     if (pdfData != null) {
-      final file = await _saveFileForMobile(pdfData['bytes'], pdfData['filename']);
-      await Share.shareXFiles([XFile(file.path)], text: "Rapport Installation");
+      final file =
+      await _saveFileForMobile(pdfData['bytes'], pdfData['filename']);
+      await Share.shareXFiles([XFile(file.path)],
+          text: "Rapport Installation");
     }
   }
 
+  // ignore: unused_element
   Future<void> _shareViaEmail() async {
     if (kIsWeb) return;
     final pdfData = await _fetchPdfBytes();
     if (pdfData != null) {
-      final file = await _saveFileForMobile(pdfData['bytes'], pdfData['filename']);
-      await Share.shareXFiles([XFile(file.path)], subject: "Rapport", text: "Ci-joint le rapport.");
+      final file =
+      await _saveFileForMobile(pdfData['bytes'], pdfData['filename']);
+      await Share.shareXFiles([XFile(file.path)],
+          subject: "Rapport", text: "Ci-joint le rapport.");
     }
   }
 
   Future<void> _launchMaps(String? address) async {
     if (address == null || address.isEmpty) return;
-    final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}");
-    if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
+    final url = Uri.parse(
+        "https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}");
+    if (await canLaunchUrl(url))
+      await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
   bool _isVideoUrl(String path) {
@@ -414,22 +441,32 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 300),
-          width: 36, height: 36,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: active ? _primaryBlue : Colors.grey.shade300,
             shape: BoxShape.circle,
-            boxShadow: active ? [BoxShadow(color: _primaryBlue.withOpacity(0.4), blurRadius: 8)] : [],
+            boxShadow: active
+                ? [BoxShadow(color: _primaryBlue.withOpacity(0.4), blurRadius: 8)]
+                : [],
           ),
           child: Icon(icon, color: Colors.white, size: 18),
         ),
         const SizedBox(height: 6),
-        Text(label, style: GoogleFonts.poppins(fontSize: 10, color: active ? _primaryBlue : Colors.grey)),
+        Text(label,
+            style: GoogleFonts.poppins(
+                fontSize: 10,
+                color: active ? _primaryBlue : Colors.grey)),
       ],
     );
   }
 
   Widget _buildLine(bool active) {
-    return Container(width: 20, height: 2, color: active ? _primaryBlue : Colors.grey.shade300, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 15));
+    return Container(
+        width: 20,
+        height: 2,
+        color: active ? _primaryBlue : Colors.grey.shade300,
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 15));
   }
 
   Widget _buildJobTicket(Map<String, dynamic> data) {
@@ -443,14 +480,21 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))]),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))
+          ]),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               // Gradient based on service type
-              gradient: LinearGradient(colors: [typeColor.withOpacity(0.1), Colors.white]),
+              gradient: LinearGradient(
+                  colors: [typeColor.withOpacity(0.1), Colors.white]),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             ),
             child: Row(
@@ -463,18 +507,26 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                       children: [
                         Icon(typeIcon, size: 14, color: typeColor),
                         const SizedBox(width: 6),
-                        Text(serviceType.toUpperCase(), style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: typeColor, fontWeight: FontWeight.bold)),
+                        Text(serviceType.toUpperCase(),
+                            style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                letterSpacing: 1.5,
+                                color: typeColor,
+                                fontWeight: FontWeight.bold)),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(data['clientName'] ?? 'Inconnu', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(data['clientName'] ?? 'Inconnu',
+                        style: GoogleFonts.poppins(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
                   ],
                 ),
                 CircleAvatar(
                   backgroundColor: Colors.white,
                   child: IconButton(
                     icon: const Icon(Icons.map, color: Colors.blue),
-                    onPressed: () => _launchMaps("${data['storeName'] ?? ''} ${data['storeLocation'] ?? ''}"),
+                    onPressed: () => _launchMaps(
+                        "${data['storeName'] ?? ''} ${data['storeLocation'] ?? ''}"),
                   ),
                 )
               ],
@@ -484,15 +536,20 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                _buildInfoRow(Icons.person, data['contactName'] ?? 'Contact non spécifié'),
+                _buildInfoRow(
+                    Icons.person, data['contactName'] ?? 'Contact non spécifié'),
                 const SizedBox(height: 8),
-                _buildInfoRow(Icons.phone, data['clientPhone'] ?? 'N/A', isLink: true),
+                _buildInfoRow(Icons.phone, data['clientPhone'] ?? 'N/A',
+                    isLink: true),
                 const SizedBox(height: 8),
-                _buildInfoRow(Icons.store, data['storeName'] ?? 'Magasin Inconnu'),
+                _buildInfoRow(
+                    Icons.store, data['storeName'] ?? 'Magasin Inconnu'),
                 const SizedBox(height: 8),
-                _buildInfoRow(Icons.location_on, data['storeLocation'] ?? 'Ville Inconnue'),
+                _buildInfoRow(Icons.location_on,
+                    data['storeLocation'] ?? 'Ville Inconnue'),
                 const SizedBox(height: 8),
-                _buildInfoRow(Icons.description, data['initialRequest'] ?? 'Pas de description'),
+                _buildInfoRow(Icons.description,
+                    data['initialRequest'] ?? 'Pas de description'),
               ],
             ),
           )
@@ -509,7 +566,11 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         Expanded(
           child: InkWell(
             onTap: isLink ? () => launchUrl(Uri.parse("tel:$text")) : null,
-            child: Text(text, style: GoogleFonts.poppins(fontSize: 14, color: isLink ? Colors.blue : _textDark, decoration: isLink ? TextDecoration.underline : null)),
+            child: Text(text,
+                style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: isLink ? Colors.blue : _textDark,
+                    decoration: isLink ? TextDecoration.underline : null)),
           ),
         ),
       ],
@@ -520,7 +581,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
 
     final notes = _installationReport?['notes'] ?? data['notes'];
-    final signName = _installationReport?['signatoryName'] ?? data['signatoryName'];
+    final signName =
+        _installationReport?['signatoryName'] ?? data['signatoryName'];
     final signUrl = _installationReport?['signatureUrl'] ?? data['signatureUrl'];
 
     if (notes == null && signUrl == null) return const SizedBox.shrink();
@@ -529,7 +591,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       elevation: 0,
       margin: const EdgeInsets.only(top: 20),
       color: Colors.green.shade50,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.green.shade200)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.green.shade200)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -538,28 +602,50 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             Row(children: [
               const Icon(Icons.verified, color: Colors.green, size: 20),
               const SizedBox(width: 8),
-              Text("RAPPORT DE CLÔTURE", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.green.shade800, letterSpacing: 1)),
+              Text("RAPPORT DE CLÔTURE",
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                      letterSpacing: 1)),
             ]),
             const Divider(color: Colors.green),
             if (notes != null) ...[
               const SizedBox(height: 8),
-              Text("Description / Notes:", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.green.shade900)),
-              Text(notes, style: GoogleFonts.poppins(fontSize: 14, color: _textDark)),
+              Text("Description / Notes:",
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      color: Colors.green.shade900)),
+              Text(notes,
+                  style: GoogleFonts.poppins(fontSize: 14, color: _textDark)),
             ],
             if (signUrl != null) ...[
               const SizedBox(height: 16),
-              Text("Signature:", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.green.shade900)),
+              Text("Signature:",
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      color: Colors.green.shade900)),
               const SizedBox(height: 4),
               Container(
                 height: 100,
                 width: double.infinity,
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
-                child: Image.network(signUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Text("Erreur image")),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300)),
+                child: Image.network(signUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Text("Erreur image")),
               ),
               if (signName != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
-                  child: Text("Signé par: $signName", style: GoogleFonts.poppins(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey.shade700)),
+                  child: Text("Signé par: $signName",
+                      style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.grey.shade700)),
                 ),
             ]
           ],
@@ -573,21 +659,45 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     return Card(
       elevation: 0,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.grey.shade200)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Icon(Icons.engineering, color: _primaryBlue, size: 20), const SizedBox(width: 8), Text(hasReport ? "Techs Effectifs" : "Techs Planifiés", style: GoogleFonts.poppins(fontWeight: FontWeight.w600))]),
+            Row(children: [
+              Icon(Icons.engineering, color: _primaryBlue, size: 20),
+              const SizedBox(width: 8),
+              Text(hasReport ? "Techs Effectifs" : "Techs Planifiés",
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600))
+            ]),
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               children: hasReport
-                  ? _effectiveTechniciansNames.map((name) => Chip(label: Text(name), avatar: const Icon(Icons.check_circle, size: 16, color: Colors.green), backgroundColor: Colors.green.shade50)).toList()
+                  ? _effectiveTechniciansNames
+                  .map((name) => Chip(
+                  label: Text(name),
+                  avatar: const Icon(Icons.check_circle,
+                      size: 16, color: Colors.green),
+                  backgroundColor: Colors.green.shade50))
+                  .toList()
                   : _assignedTechnicians.isNotEmpty
-                  ? _assignedTechnicians.map((u) => Chip(label: Text(u.displayName), avatar: const Icon(Icons.account_circle, size: 16), backgroundColor: Colors.blue.shade50)).toList()
-                  : [Text("Non assigné", style: GoogleFonts.poppins(fontStyle: FontStyle.italic, color: Colors.grey))],
+                  ? _assignedTechnicians
+                  .map((u) => Chip(
+                  label: Text(u.displayName),
+                  avatar:
+                  const Icon(Icons.account_circle, size: 16),
+                  backgroundColor: Colors.blue.shade50))
+                  .toList()
+                  : [
+                Text("Non assigné",
+                    style: GoogleFonts.poppins(
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey))
+              ],
             )
           ],
         ),
@@ -606,13 +716,19 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     return Card(
       elevation: 0,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.grey.shade200)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("MATÉRIEL À INSTALLER", style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600)),
+            Text("MATÉRIEL À INSTALLER",
+                style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade600)),
             const SizedBox(height: 10),
             ...safeProducts.map((p) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -620,11 +736,19 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 children: [
                   const Icon(Icons.inbox, size: 16, color: Colors.orange),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(p['productName'] ?? 'N/A', style: GoogleFonts.poppins(fontSize: 14))),
+                  Expanded(
+                      child: Text(p['productName'] ?? 'N/A',
+                          style: GoogleFonts.poppins(fontSize: 14))),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-                    child: Text("x${p['quantity'] ?? '0'}", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Text("x${p['quantity'] ?? '0'}",
+                        style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange.shade800)),
                   )
                 ],
               ),
@@ -645,7 +769,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       return _buildITEvalCard(itData);
     } else {
       final rawEvals = data['technicalEvaluation'];
-      final evals = (rawEvals is List) ? rawEvals : (rawEvals is Map ? [rawEvals] : []);
+      final evals =
+      (rawEvals is List) ? rawEvals : (rawEvals is Map ? [rawEvals] : []);
       return _buildTechEvalList(evals);
     }
   }
@@ -658,24 +783,33 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.blue.shade200)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.blue.shade200)),
       child: ExpansionTile(
-        title: Text("Détails IT & Réseau", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.blue.shade800)),
+        title: Text("Détails IT & Réseau",
+            style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600, color: Colors.blue.shade800)),
         leading: const Icon(Icons.dns, color: Colors.blue),
         backgroundColor: Colors.transparent,
         childrenPadding: const EdgeInsets.all(16),
         children: [
           // Network Info
-          Text("Réseau & Baie", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blue)),
+          Text("Réseau & Baie",
+              style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.bold, color: Colors.blue)),
           const Divider(),
           _buildBooleanRow('Réseau Existant', itData['networkExists']),
           _buildBooleanRow('Baie Présente', itData['hasNetworkRack']),
-          if (itData['rackLocation'] != null) _buildDetailRow('Emplacement Baie', itData['rackLocation']),
+          if (itData['rackLocation'] != null)
+            _buildDetailRow('Emplacement Baie', itData['rackLocation']),
           _buildBooleanRow('Espace Dispo', itData['hasRackSpace']),
 
           const SizedBox(height: 12),
           // Cabling Info
-          Text("Câblage", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blue)),
+          Text("Câblage",
+              style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.bold, color: Colors.blue)),
           const Divider(),
           _buildDetailRow('Catégorie', itData['cableCategoryType']),
           _buildBooleanRow('Chemins Câbles', itData['hasCablePaths']),
@@ -683,7 +817,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
           const SizedBox(height: 12),
           // Internet Info
-          Text("Connexion", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blue)),
+          Text("Connexion",
+              style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.bold, color: Colors.blue)),
           const Divider(),
           _buildDetailRow('FAI', itData['internetProvider']),
           _buildDetailRow('Type', itData['internetAccessType']),
@@ -703,9 +839,12 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           elevation: 0,
           margin: const EdgeInsets.only(bottom: 12),
           color: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.grey.shade200)),
           child: ExpansionTile(
-            title: Text("Évaluation Tech #${entry.key + 1}", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            title: Text("Évaluation Tech #${entry.key + 1}",
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
             leading: Icon(Icons.square_foot, color: _primaryBlue),
             backgroundColor: Colors.transparent,
             childrenPadding: const EdgeInsets.all(16),
@@ -714,7 +853,12 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               _buildDetailRow('Porte', e['doorType']),
               _buildBooleanRow('Alim. Élec', e['isPowerAvailable']),
               _buildBooleanRow('Conduit', e['isConduitAvailable']),
-              if (e['generalNotes'] != null) Text("Note: ${e['generalNotes']}", style: GoogleFonts.poppins(fontStyle: FontStyle.italic, fontSize: 12, color: Colors.grey.shade700)),
+              if (e['generalNotes'] != null)
+                Text("Note: ${e['generalNotes']}",
+                    style: GoogleFonts.poppins(
+                        fontStyle: FontStyle.italic,
+                        fontSize: 12,
+                        color: Colors.grey.shade700)),
             ],
           ),
         );
@@ -725,7 +869,12 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   Widget _buildDetailRow(String label, dynamic val) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: Row(children: [Text("$label: ", style: GoogleFonts.poppins(color: Colors.grey)), Expanded(child: Text(val?.toString() ?? 'N/A', style: GoogleFonts.poppins(fontWeight: FontWeight.w500)))]),
+      child: Row(children: [
+        Text("$label: ", style: GoogleFonts.poppins(color: Colors.grey)),
+        Expanded(
+            child: Text(val?.toString() ?? 'N/A',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w500)))
+      ]),
     );
   }
 
@@ -734,25 +883,32 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(children: [
         Text("$label: ", style: GoogleFonts.poppins(color: Colors.grey)),
-        Icon(val == true ? Icons.check : Icons.close, size: 16, color: val == true ? Colors.green : Colors.red),
+        Icon(val == true ? Icons.check : Icons.close,
+            size: 16, color: val == true ? Colors.green : Colors.red),
         const SizedBox(width: 4),
-        Text(val == true ? "Oui" : "Non", style: GoogleFonts.poppins(fontWeight: FontWeight.w500, color: val == true ? Colors.green : Colors.red))
+        Text(val == true ? "Oui" : "Non",
+            style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w500,
+                color: val == true ? Colors.green : Colors.red))
       ]),
     );
   }
 
   Widget _buildMediaGallery(Map<String, dynamic> data) {
     final rawMedia = data['mediaUrls'];
-    final List<String> urls = (rawMedia is List)
-        ? rawMedia.map((e) => e.toString()).toList()
-        : [];
+    final List<String> urls =
+    (rawMedia is List) ? rawMedia.map((e) => e.toString()).toList() : [];
 
     if (urls.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text("GALERIE MÉDIA", style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600)),
+        Text("GALERIE MÉDIA",
+            style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade600)),
         const SizedBox(height: 10),
         SizedBox(
           height: 100,
@@ -765,20 +921,36 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               return GestureDetector(
                 onTap: () {
                   if (isVideo) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)));
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => VideoPlayerPage(videoUrl: url)));
                   } else {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => ImageGalleryPage(imageUrls: urls.where((u) => !_isVideoUrl(u)).toList(), initialIndex: 0)));
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => ImageGalleryPage(
+                                imageUrls:
+                                urls.where((u) => !_isVideoUrl(u)).toList(),
+                                initialIndex: 0)));
                   }
                 },
                 child: Container(
                   width: 100,
                   margin: const EdgeInsets.only(right: 8),
-                  decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12)),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: isVideo
-                        ? Center(child: Icon(Icons.play_circle_fill, color: _primaryBlue, size: 32))
-                        : Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.error)),
+                        ? Center(
+                        child: Icon(Icons.play_circle_fill,
+                            color: _primaryBlue, size: 32))
+                        : Image.network(url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.error)),
                   ),
                 ),
               );
@@ -791,62 +963,86 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
-    final status = data['status'] ?? 'Inconnu';
+    // ✅ STREAM BUILDER IMPLEMENTATION
+    // This replaces the static access to widget.installationDoc.data()
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationDoc.id)
+          .snapshots(),
+      builder: (context, snapshot) {
+        // Use live data if available, otherwise fallback to widget data
+        final currentDoc =
+        snapshot.hasData ? snapshot.data! : widget.installationDoc;
+        final data = currentDoc.data() as Map<String, dynamic>? ?? {};
+        final status = data['status'] ?? 'Inconnu';
 
-    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        if (_isLoading)
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
 
-    return Scaffold(
-      backgroundColor: _bgLight,
-      appBar: AppBar(
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          data['installationCode'] ?? 'Détails',
-          style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-      ),
-      bottomNavigationBar: _buildStickyFooter(status),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16).copyWith(bottom: 100),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildTimeline(status),
-            _buildJobTicket(data),
-            _buildCompletionReport(),
-            const SizedBox(height: 20),
-            _buildTechnicianList(),
-            const SizedBox(height: 20),
-            _buildProductsCard(data['orderedProducts']),
-            const SizedBox(height: 20),
-            // ✅ CHANGED: Now calls the smart switcher instead of hardcoded Tech eval
-            _buildEvaluationSection(data),
-            const SizedBox(height: 20),
-            _buildMediaGallery(data),
-          ],
-        ),
-      ),
+        return Scaffold(
+          backgroundColor: _bgLight,
+          appBar: AppBar(
+            centerTitle: true,
+            backgroundColor: Colors.white,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new,
+                  color: Colors.black87, size: 20),
+              onPressed: () => Navigator.pop(context),
+            ),
+            title: Text(
+              data['installationCode'] ?? 'Détails',
+              style: GoogleFonts.poppins(
+                  color: Colors.black87,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18),
+            ),
+          ),
+          bottomNavigationBar: _buildStickyFooter(status, data),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16).copyWith(bottom: 100),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTimeline(status),
+                _buildJobTicket(data),
+                _buildCompletionReport(),
+                const SizedBox(height: 20),
+                _buildTechnicianList(),
+                const SizedBox(height: 20),
+                _buildProductsCard(data['orderedProducts']),
+                const SizedBox(height: 20),
+                // ✅ CHANGED: Now calls the smart switcher instead of hardcoded Tech eval
+                _buildEvaluationSection(data),
+                const SizedBox(height: 20),
+                _buildMediaGallery(data),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildStickyFooter(String status) {
+  // ✅ UPDATED: Accepts 'liveData' to pass correct info to Timeline
+  Widget _buildStickyFooter(String status, Map<String, dynamic> liveData) {
     List<Widget> buttons = [];
 
     // SCHEDULE BUTTON
-    if (status == 'À Planifier' && RolePermissions.canScheduleInstallation(widget.userRole)) {
+    if (status == 'À Planifier' &&
+        RolePermissions.canScheduleInstallation(widget.userRole)) {
       buttons.add(
         Expanded(
           child: ElevatedButton.icon(
             onPressed: _showSchedulingDialog,
             icon: const Icon(Icons.calendar_today, size: 18),
             label: const Text("PLANIFIER"),
-            style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryBlue,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
           ),
         ),
       );
@@ -859,23 +1055,25 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         Expanded(
           child: OutlinedButton.icon(
             onPressed: () {
-              final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => InstallationTimelinePage(
                     installationId: widget.installationDoc.id,
-                    installationData: data,
+                    installationData: liveData, // ✅ Uses live data
                   ),
                 ),
               );
             },
             icon: Icon(Icons.history_edu, size: 18, color: _primaryBlue),
-            label: Text("JOURNAL", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: _primaryBlue)),
+            label: Text("JOURNAL",
+                style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold, color: _primaryBlue)),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 12),
               side: BorderSide(color: _primaryBlue),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ),
@@ -888,13 +1086,18 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       buttons.add(
         Expanded(
           child: ElevatedButton.icon(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => InstallationReportPage(installationId: widget.installationDoc.id))),
+            onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => InstallationReportPage(
+                        installationId: widget.installationDoc.id))),
             icon: const Icon(Icons.edit_document, size: 18),
             label: const Text("RAPPORT"),
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 12),
               backgroundColor: Colors.orange,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ),
@@ -909,15 +1112,22 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             onPressed: _generateAndDownloadPDF,
             icon: const Icon(Icons.picture_as_pdf, size: 18),
             label: const Text("PDF"),
-            style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryBlue,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
           ),
         ),
       );
       buttons.add(const SizedBox(width: 10));
       buttons.add(
         Container(
-          decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
-          child: IconButton(icon: const Icon(Icons.share, color: Colors.green), onPressed: _shareViaWhatsApp),
+          decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(12)),
+          child: IconButton(
+              icon: const Icon(Icons.share, color: Colors.green),
+              onPressed: _shareViaWhatsApp),
         ),
       );
     }
@@ -925,8 +1135,17 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     if (buttons.isEmpty) return const SizedBox.shrink();
 
     return Container(
-      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewPadding.bottom + 20),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, -5))]),
+      padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(context).viewPadding.bottom + 20),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [
+        BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, -5))
+      ]),
       child: Row(children: buttons),
     );
   }
