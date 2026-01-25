@@ -164,9 +164,10 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
     final bool? confirm = await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text("Clôturer l'intervention ?", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        // ✅ UPDATED TEXT to reflect Draft Mode
+        title: Text("Générer le rapport ?", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
-          "L'IA va analyser tous les logs quotidiens, compiler les photos et générer un rapport de synthèse professionnel.\n\nCette action changera le statut en 'Terminée'.",
+          "L'IA va analyser les logs et préparer le brouillon du rapport.\n\nVous pourrez ensuite relire, faire signer le client et valider la clôture.",
           style: GoogleFonts.poppins(fontSize: 14, height: 1.5),
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -181,8 +182,8 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
               backgroundColor: _primaryBlue,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            icon: const Icon(Icons.check, color: Colors.white, size: 16),
-            label: const Text("Générer le Rapport", style: TextStyle(color: Colors.white)),
+            icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
+            label: const Text("Générer le Brouillon", style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -197,8 +198,8 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
     setState(() => _isGeneratingReport = true);
 
     try {
-      // 1. Trigger the Cloud Function
-      await FirebaseFunctions.instance
+      // 1. Trigger the Cloud Function (Specifically targeting EUROPE-WEST1)
+      await FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('generateInstallationReport')
           .call({'installationId': widget.installationId});
 

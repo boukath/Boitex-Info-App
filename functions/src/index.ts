@@ -49,6 +49,7 @@ export { onSavTicketReturned } from "./sav-return-handlers";
 export { downloadSavPdf } from "./callable-handlers";
 export * from "./callable-handlers";
 export { notifyUsersOnAppVersionUpdate } from "./notification-handlers";
+// ✅ ADDED THIS LINE BELOW:
 export { generateInstallationReport } from "./installation-report-generator";
 
 // ------------------------------------------------------------------

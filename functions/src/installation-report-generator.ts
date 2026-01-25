@@ -30,43 +30,52 @@ async (request) => {
     const installationRef = db.collection("installations").doc(installationId);
 
     try {
-      // 3. Fetch Data
+      // 2. Fetch Installation Data
       const installationSnap = await installationRef.get();
       if (!installationSnap.exists) {
         throw new HttpsError("not-found", "Installation not found");
       }
       const installationData = installationSnap.data();
 
+      // 3. Fetch Daily Logs
       const logsSnap = await installationRef
         .collection("daily_logs")
         .orderBy("timestamp", "asc")
         .get();
 
+      // Handle case with no logs
       if (logsSnap.empty) {
+        // Update notes so the user sees something
         await installationRef.update({
-          status: "Terminée",
-          completionSummary: "Installation clôturée sans journal d'activité.",
-          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+          notes: "Aucun journal d'activité trouvé pour générer un rapport.",
+          mediaUrls: [],
         });
-        return { success: true, summary: "Clôture standard (pas de logs)." };
+        return { success: true, summary: "Pas de logs." };
       }
 
-      // 4. Prepare Context
+      // 4. Prepare Context & Aggregate Media
       let logsText = "";
+      let allMediaUrls: string[] = []; // <--- 🆕 Container for all photos/videos
+
       logsSnap.docs.forEach((doc, index) => {
         const log = doc.data();
         const date = log.timestamp?.toDate().toLocaleDateString("fr-FR") || "Date inconnue";
         const tech = log.technicianName || "Technicien";
         const type = log.type === "blockage" ? "[BLOQUANT]" : "";
 
+        // Build Text for AI
         logsText += `\n--- Log #${index + 1} (${date}) ---\n`;
         logsText += `Auteur: ${tech}\n`;
         logsText += `Type: ${log.type} ${type}\n`;
         logsText += `Note: ${log.description}\n`;
+
+        // 🆕 Collect Media URLs from this specific log
+        if (log.mediaUrls && Array.isArray(log.mediaUrls)) {
+          allMediaUrls = [...allMediaUrls, ...log.mediaUrls];
+        }
       });
 
       const clientName = installationData?.clientName || "Client";
-      // ✅ FIX: Variable is now used in the prompt below
       const projectType = installationData?.serviceType || "Installation";
 
       // 5. Call Groq AI
@@ -95,11 +104,12 @@ async (request) => {
 
       const summary = completion.choices[0]?.message?.content || "Erreur de génération.";
 
-      // 6. Save & Close
+      // 6. Save Draft & Media (DO NOT CLOSE TICKET YET)
+      // ✅ FIX: We now write to 'notes' and 'mediaUrls' so the App sees them immediately.
       await installationRef.update({
-        status: "Terminée",
-        completionSummary: summary,
-        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        notes: summary,           // Was 'completionSummary'
+        mediaUrls: allMediaUrls,  // Was 'finalReportMedia'
+        // status: "Terminée",    <--- REMOVED (App handles this after signature)
       });
 
       return { success: true, summary: summary };
