@@ -15,6 +15,9 @@ import 'package:boitex_info_app/models/channel_model.dart'; // Channel Model
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
+// ✅ NEW IMPORT: For Smart Navigation to Timeline
+import 'package:boitex_info_app/screens/service_technique/installation_timeline_page.dart';
+
 import 'package:boitex_info_app/screens/administration/project_details_page.dart';
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
 import 'package:boitex_info_app/screens/administration/requisition_details_page.dart';
@@ -383,7 +386,23 @@ class _NotificationsPageState extends State<NotificationsPage> {
             final ticket = SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
             pageToNavigate = SavTicketDetailsPage(ticket: ticket);
             break;
-          case 'installations': pageToNavigate = InstallationDetailsPage(installationDoc: doc, userRole: widget.userRole); break;
+
+        // ✅ SMART NAV: Installation Timeline vs Details
+          case 'installations':
+            final data = doc.data() as Map<String, dynamic>;
+            final status = data['status'];
+            // If "En Cours", we assume it's an active job needing the Timeline
+            if (status == 'En Cours') {
+              pageToNavigate = InstallationTimelinePage(
+                installationId: docId,
+                installationData: data,
+              );
+            } else {
+              // Otherwise (Terminée, À Planifier, etc.), go to Details
+              pageToNavigate = InstallationDetailsPage(installationDoc: doc, userRole: widget.userRole);
+            }
+            break;
+
           case 'projects': pageToNavigate = ProjectDetailsPage(projectId: docId, userRole: widget.userRole); break;
           case 'livraisons': pageToNavigate = LivraisonDetailsPage(livraisonId: docId); break;
           case 'requisitions': pageToNavigate = RequisitionDetailsPage(requisitionId: docId, userRole: widget.userRole); break;

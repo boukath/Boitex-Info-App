@@ -26,6 +26,9 @@ import 'package:boitex_info_app/models/channel_model.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
+// ✅ SMART NAVIGATION IMPORT
+import 'package:boitex_info_app/screens/service_technique/installation_timeline_page.dart';
+
 import 'package:boitex_info_app/screens/administration/mission_details_page.dart';
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
 import 'package:boitex_info_app/screens/administration/requisition_details_page.dart';
@@ -298,14 +301,29 @@ class FirebaseApi {
           }
           break;
 
+      // ✅ SMART NAVIGATION LOGIC FOR INSTALLATIONS
         case 'installations':
           final doc = await FirebaseFirestore.instance
               .collection('installations')
               .doc(docId)
               .get();
+
           if (doc.exists) {
-            page = InstallationDetailsPage(
-                installationDoc: doc, userRole: userRole);
+            final docData = doc.data() as Map<String, dynamic>;
+            final status = docData['status'];
+
+            // ⚡ Check if "En Cours" -> Go to Timeline
+            if (status == 'En Cours') {
+              print('📍 Installation is active. Redirecting to Timeline.');
+              page = InstallationTimelinePage(
+                installationId: docId,
+                installationData: docData,
+              );
+            } else {
+              // ⚡ Otherwise -> Go to Standard Details
+              page = InstallationDetailsPage(
+                  installationDoc: doc, userRole: userRole);
+            }
           }
           break;
 
