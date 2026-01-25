@@ -12,6 +12,9 @@ import 'package:boitex_info_app/services/installation_pdf_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+// ✅ NEW: Import Timeline for Multi-day jobs
+import 'package:boitex_info_app/screens/service_technique/installation_timeline_page.dart';
+
 // ✅ Cloud PDF Generation Imports
 import 'dart:convert';
 import 'dart:io';
@@ -849,15 +852,50 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       );
     }
 
-    // REPORT BUTTON
+    // ✅ UPDATED LOGIC: Split Timeline vs Report
     if (status == 'Planifiée' || status == 'En Cours') {
+      // 1. TIMELINE / JOURNAL (Secondary Action)
+      buttons.add(
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () {
+              final data = widget.installationDoc.data() as Map<String, dynamic>? ?? {};
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => InstallationTimelinePage(
+                    installationId: widget.installationDoc.id,
+                    installationData: data,
+                  ),
+                ),
+              );
+            },
+            icon: Icon(Icons.history_edu, size: 18, color: _primaryBlue),
+            label: Text("JOURNAL", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: _primaryBlue)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              side: BorderSide(color: _primaryBlue),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ),
+      );
+
+      // Spacing
+      buttons.add(const SizedBox(width: 8));
+
+      // 2. RAPPORT (Primary Action)
       buttons.add(
         Expanded(
           child: ElevatedButton.icon(
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => InstallationReportPage(installationId: widget.installationDoc.id))),
             icon: const Icon(Icons.edit_document, size: 18),
             label: const Text("RAPPORT"),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              backgroundColor: Colors.orange,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
           ),
         ),
       );
