@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
+// ignore: unused_import
 import 'package:path_provider/path_provider.dart';
 
 // ✅ NETWORK IMPORTS
@@ -17,7 +18,7 @@ import 'package:crypto/crypto.dart';
 
 // 📦 Data Class for Local Media
 class LocalMedia {
-  final File file;
+  final XFile file;
   final bool isVideo;
   final Uint8List? thumbnailBytes;
 
@@ -45,8 +46,8 @@ class _AddLogSheetState extends State<AddLogSheet> {
   String _selectedType = 'work';
   bool _isSubmitting = false;
 
-  // ☁️ YOUR CLOUD FUNCTION URL (Copied from Report Page)
-  final String _getB2UploadUrlCloudFunctionUrl =
+  // ☁️ URL DIRECTE (On utilise celle-ci car on est sûr de la région)
+  final String _b2CloudFunctionUrl =
       'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
 
   final Map<String, dynamic> _logTypes = {
@@ -78,7 +79,10 @@ class _AddLogSheetState extends State<AddLogSheet> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text("Nouveau Log", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -97,7 +101,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
                     selected: isSelected,
                     selectedColor: entry.value['color'],
                     labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
-                    onSelected: (bool selected) {
+                    onSelected: _isSubmitting ? null : (bool selected) {
                       setState(() => _selectedType = entry.key);
                     },
                   ),
@@ -111,6 +115,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
           TextField(
             controller: _noteController,
             maxLines: 3,
+            enabled: !_isSubmitting,
             decoration: InputDecoration(
               hintText: "Décrivez l'action...",
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -163,7 +168,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Icon(Icons.send, color: Colors.white),
               label: Text(
-                _isSubmitting ? "Envoi en cours..." : "ENREGISTRER",
+                _isSubmitting ? "ENREGISTREMENT..." : "ENREGISTRER",
                 style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
@@ -174,42 +179,67 @@ class _AddLogSheetState extends State<AddLogSheet> {
   }
 
   // ------------------------------------------------------------------------
-  // ☁️ B2 UPLOAD LOGIC (COPIED & ADAPTED FROM REPORT PAGE)
+  // ☁️ B2 UPLOAD LOGIC (FIXED: Manual Authenticated HTTP Call)
   // ------------------------------------------------------------------------
 
-  // 1. Get Credentials from Cloud Function
+  // 1. Get Credentials
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint("❌ Erreur: Utilisateur non connecté.");
+        return null;
+      }
+
+      // ✅ 1. Récupérer le Token Auth Firebase
+      final token = await user.getIdToken();
+
+      // ✅ 2. Appel HTTP manuel sécurisé (Contourne les problèmes de région du SDK)
+      // Note: On utilise POST car c'est une fonction 'onCall' (Callable)
+      final response = await http.post(
+        Uri.parse(_b2CloudFunctionUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token', // 🔑 La clé manquante !
+        },
+        // Le format standard pour les fonctions Callable est { "data": ... }
+        body: json.encode({'data': {}}),
+      );
+
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final jsonResponse = json.decode(response.body);
+        // Les fonctions Callable retournent le résultat dans un champ "result"
+        final data = jsonResponse['result'] ?? jsonResponse;
+        return Map<String, dynamic>.from(data);
       } else {
-        print('Failed to get B2 credentials: ${response.body}');
+        debugPrint('❌ Erreur HTTP Cloud Function: ${response.statusCode} - ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Error calling Cloud Function: $e');
+      debugPrint('❌ Exception Cloud Function: $e');
       return null;
     }
   }
 
-  // 2. Upload File to B2
-  Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Credentials, bool isVideo) async {
+  // 2. Upload File (Updated to use XFile and correct MimeType)
+  Future<String?> _uploadFileToB2(XFile file, Map<String, dynamic> b2Credentials) async {
     try {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
 
-      // Generate a clean filename
-      final String extension = isVideo ? 'mp4' : 'jpg';
-      final String fileName = "logs/${DateTime.now().millisecondsSinceEpoch}_${file.path.split('/').last}";
+      // Generate a clean filename with timestamp
+      final String fileName = "logs/${DateTime.now().millisecondsSinceEpoch}_${file.name.split('/').last}";
+
+      // ✅ DETECT REAL MIME TYPE
+      final String mimeType = file.mimeType ?? 'application/octet-stream';
 
       final response = await http.post(
         uploadUri,
         headers: {
           'Authorization': b2Credentials['authorizationToken'],
           'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': isVideo ? 'video/mp4' : 'image/jpeg',
+          'Content-Type': mimeType,
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': fileBytes.length.toString(),
         },
@@ -218,18 +248,17 @@ class _AddLogSheetState extends State<AddLogSheet> {
 
       if (response.statusCode == 200) {
         final responseBody = json.decode(response.body);
-        // Construct the final URL
         return b2Credentials['downloadUrlPrefix'] +
             (responseBody['fileName'] as String)
                 .split('/')
                 .map(Uri.encodeComponent)
                 .join('/');
       } else {
-        print('Failed to upload to B2: ${response.body}');
+        debugPrint('Failed to upload to B2: ${response.body}');
         return null;
       }
     } catch (e) {
-      print('Error uploading file to B2: $e');
+      debugPrint('Error uploading file to B2: $e');
       return null;
     }
   }
@@ -241,85 +270,89 @@ class _AddLogSheetState extends State<AddLogSheet> {
   Future<void> _submitLog() async {
     if (_noteController.text.isEmpty && _attachments.isEmpty) return;
 
+    // 1. Lock UI
     setState(() => _isSubmitting = true);
 
-    final user = FirebaseAuth.instance.currentUser;
-    final batch = FirebaseFirestore.instance.batch();
-
-    final logRef = FirebaseFirestore.instance
-        .collection('installations')
-        .doc(widget.installationId)
-        .collection('daily_logs')
-        .doc();
-
-    // 1. Optimistic Save (Spinner visible in UI)
-    final logData = {
-      'id': logRef.id,
-      'type': _selectedType,
-      'description': _noteController.text,
-      'timestamp': FieldValue.serverTimestamp(),
-      'technicianId': user?.uid ?? 'unknown',
-      'technicianName': user?.displayName ?? 'Technicien',
-      'mediaUrls': [], // Empty initially
-      'mediaStatus': _attachments.isNotEmpty ? 'uploading' : 'ready',
-    };
-
-    batch.set(logRef, logData);
-    batch.update(
-        FirebaseFirestore.instance.collection('installations').doc(widget.installationId),
-        {'lastActivity': FieldValue.serverTimestamp()}
-    );
-
-    await batch.commit();
-
-    // Close the sheet so the user can continue working
-    if (mounted) Navigator.pop(context);
-
-    // 2. Start Background Upload
-    if (_attachments.isNotEmpty) {
-      _uploadMediaInBackground(logRef, _attachments);
-    }
-  }
-
-  Future<void> _uploadMediaInBackground(DocumentReference logRef, List<LocalMedia> mediaFiles) async {
-    print("🚀 Starting Background Upload for ${mediaFiles.length} files...");
-    List<String> uploadedUrls = [];
-
     try {
-      for (var media in mediaFiles) {
-        // A. Get fresh credentials for each file (safer, though caching is possible)
+      final user = FirebaseAuth.instance.currentUser;
+      final batch = FirebaseFirestore.instance.batch();
+      List<String> uploadedUrls = [];
+
+      // 2. Upload Media FIRST
+      if (_attachments.isNotEmpty) {
+        // ✅ Récupération des clés avec la nouvelle méthode HTTP
         final credentials = await _getB2UploadCredentials();
 
         if (credentials != null) {
-          // B. Upload
-          final String? url = await _uploadFileToB2(media.file, credentials, media.isVideo);
-          if (url != null) {
-            uploadedUrls.add(url);
-            print("✅ Uploaded: $url");
+          for (var media in _attachments) {
+            final String? url = await _uploadFileToB2(media.file, credentials);
+            if (url != null) {
+              uploadedUrls.add(url);
+            }
           }
+        } else {
+          // ⚠️ Ici, l'erreur est propagée pour être affichée dans le SnackBar
+          throw Exception("Échec de l'authentification B2 (Clés nulles).");
         }
       }
 
-      // C. Update Firestore
-      await logRef.update({
+      // 3. Prepare Data
+      final logRef = FirebaseFirestore.instance
+          .collection('installations')
+          .doc(widget.installationId)
+          .collection('daily_logs')
+          .doc();
+
+      final logData = {
+        'id': logRef.id,
+        'type': _selectedType,
+        'description': _noteController.text,
+        'timestamp': FieldValue.serverTimestamp(),
+        'technicianId': user?.uid ?? 'unknown',
+        'technicianName': user?.displayName ?? 'Technicien',
         'mediaUrls': uploadedUrls,
-        'mediaStatus': uploadedUrls.length == mediaFiles.length ? 'ready' : 'partial_error',
-      });
-      print("🎉 All uploads complete!");
+        'mediaStatus': _attachments.isNotEmpty && uploadedUrls.isEmpty ? 'error' : 'ready',
+      };
+
+      // 4. Batch Updates
+      batch.set(logRef, logData);
+      batch.update(
+          FirebaseFirestore.instance.collection('installations').doc(widget.installationId),
+          {'lastActivity': FieldValue.serverTimestamp()}
+      );
+
+      await batch.commit();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Log ajouté avec succès !'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context);
+      }
 
     } catch (e) {
-      print("❌ Upload Sequence Failed: $e");
-      await logRef.update({'mediaStatus': 'error'});
+      // ✅ Affiche l'erreur réelle à l'utilisateur pour le débogage
+      debugPrint("Error submitting log: $e");
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString().replaceAll("Exception:", "")}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 
   // ------------------------------------------------------------------------
-  // 📸 UI HELPERS (Unchanged)
+  // 📸 UI HELPERS
   // ------------------------------------------------------------------------
 
   Widget _buildAddButton({required IconData icon, required String label, required Color color, required Color iconColor, required VoidCallback onTap}) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: _isSubmitting ? null : onTap,
       child: Container(
         width: 80,
         decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)),
@@ -346,19 +379,20 @@ class _AddLogSheetState extends State<AddLogSheet> {
             color: Colors.black,
             image: media.isVideo && media.thumbnailBytes != null
                 ? DecorationImage(image: MemoryImage(media.thumbnailBytes!), fit: BoxFit.cover, opacity: 0.7)
-                : DecorationImage(image: FileImage(media.file), fit: BoxFit.cover),
+                : DecorationImage(image: FileImage(File(media.file.path)), fit: BoxFit.cover),
           ),
           child: media.isVideo
               ? const Center(child: Icon(Icons.play_circle_fill, color: Colors.white, size: 30))
               : null,
         ),
-        Positioned(
-          top: 2, right: 10,
-          child: GestureDetector(
-            onTap: () => setState(() => _attachments.remove(media)),
-            child: const CircleAvatar(radius: 10, backgroundColor: Colors.white, child: Icon(Icons.close, size: 14, color: Colors.red)),
-          ),
-        )
+        if (!_isSubmitting)
+          Positioned(
+            top: 2, right: 10,
+            child: GestureDetector(
+              onTap: () => setState(() => _attachments.remove(media)),
+              child: const CircleAvatar(radius: 10, backgroundColor: Colors.white, child: Icon(Icons.close, size: 14, color: Colors.red)),
+            ),
+          )
       ],
     );
   }
@@ -386,7 +420,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
   Future<void> _pickImage(ImageSource source) async {
     final XFile? image = await _picker.pickImage(source: source, imageQuality: 50);
     if (image != null) {
-      setState(() => _attachments.add(LocalMedia(file: File(image.path), isVideo: false)));
+      setState(() => _attachments.add(LocalMedia(file: image, isVideo: false)));
     }
   }
 
@@ -394,7 +428,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
     final List<XFile> images = await _picker.pickMultiImage(imageQuality: 50);
     if (images.isNotEmpty) {
       setState(() {
-        _attachments.addAll(images.map((x) => LocalMedia(file: File(x.path), isVideo: false)));
+        _attachments.addAll(images.map((x) => LocalMedia(file: x, isVideo: false)));
       });
     }
   }
@@ -409,7 +443,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
         quality: 50,
       );
       setState(() {
-        _attachments.add(LocalMedia(file: File(video.path), isVideo: true, thumbnailBytes: thumb));
+        _attachments.add(LocalMedia(file: video, isVideo: true, thumbnailBytes: thumb));
       });
     }
   }

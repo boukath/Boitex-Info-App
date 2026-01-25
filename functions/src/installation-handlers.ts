@@ -147,7 +147,7 @@ export const onInstallationTermine = onDocumentUpdated(
       let mainRecipient = after.clientEmail;
       if (!isValidEmail(mainRecipient)) {
          logger.warn(`⚠️ Invalid or missing client email. Defaulting to internal admin.`);
-         mainRecipient = "commercial@boitexinfo.com";
+         mainRecipient = "commercia@boitexinfo.com";
       } else {
          logger.log(`📧 Sending to client: ${mainRecipient}`);
       }
@@ -164,7 +164,7 @@ export const onInstallationTermine = onDocumentUpdated(
       } else {
         ccList = [
           "athmane-boukerdous@boitexinfo.com",
-          "khaled-mekideche@boitexinfo.com"
+          "khaled-mekidech@boitexinfo.com"
         ];
         logger.info(`📧 Routing to Technical Team: ${ccList.join(", ")}`);
       }

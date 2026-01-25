@@ -14,6 +14,10 @@ import 'package:boitex_info_app/screens/service_technique/widgets/add_log_sheet.
 // 📦 Import the Report Page for navigation
 import 'package:boitex_info_app/screens/service_technique/installation_report_page.dart';
 
+// 📸 Import Media Viewers
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
+import 'package:boitex_info_app/widgets/video_player_page.dart';
+
 class InstallationTimelinePage extends StatefulWidget {
   final String installationId;
   final Map<String, dynamic> installationData;
@@ -194,11 +198,6 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
 
     try {
       // 1. Trigger the Cloud Function
-      // This function on your backend should:
-      // - Fetch all logs for this ID
-      // - Send text to Groq/Llama3 for summarization
-      // - Update the parent document with 'completionSummary'
-      // - Change status to 'Terminée'
       await FirebaseFunctions.instance
           .httpsCallable('generateInstallationReport')
           .call({'installationId': widget.installationId});
@@ -208,8 +207,6 @@ class _InstallationTimelinePageState extends State<InstallationTimelinePage> {
       setState(() => _isGeneratingReport = false);
 
       // 2. Navigate to the Final Report Page
-      // The backend has now updated the document, so the Report Page
-      // will fetch the fresh AI summary.
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -393,6 +390,17 @@ class _DailyLogCard extends StatelessWidget {
   final DailyLog log;
   const _DailyLogCard({required this.log});
 
+  // Helper to detect video extensions
+  bool _isVideo(String url) {
+    final uri = Uri.parse(url);
+    // Remove query params to see the real extension (e.g. .mp4?alt=media)
+    final path = uri.path.toLowerCase();
+    return path.contains('.mp4') ||
+        path.contains('.mov') ||
+        path.contains('.avi') ||
+        path.contains('.mkv');
+  }
+
   @override
   Widget build(BuildContext context) {
     IconData typeIcon;
@@ -444,6 +452,8 @@ class _DailyLogCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(log.description, style: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF2D3436), height: 1.5)),
+
+            // ✅ DISPLAY MEDIA THUMBNAILS WITH CLICK ACTIONS
             if (log.mediaUrls.isNotEmpty) ...[
               const SizedBox(height: 12),
               SizedBox(
@@ -454,19 +464,73 @@ class _DailyLogCard extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (context, index) {
                     final url = log.mediaUrls[index];
+                    final isVideo = _isVideo(url);
+
                     return ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: GestureDetector(
                         onTap: () {
-                          // View full screen image
+                          // 1. If VIDEO: Open Video Player
+                          if (isVideo) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => VideoPlayerPage(videoUrl: url),
+                              ),
+                            );
+                          }
+                          // 2. If IMAGE: Open Gallery
+                          else {
+                            // Filter list to only contain images (so gallery doesn't break on videos)
+                            final onlyImages = log.mediaUrls.where((u) => !_isVideo(u)).toList();
+                            // Find the new index in this filtered list
+                            final newIndex = onlyImages.indexOf(url);
+
+                            if (newIndex != -1) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ImageGalleryPage(
+                                    imageUrls: onlyImages,
+                                    initialIndex: newIndex,
+                                  ),
+                                ),
+                              );
+                            }
+                          }
                         },
-                        child: CachedNetworkImage(
-                          imageUrl: url,
-                          height: 80,
-                          width: 80,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(width: 80, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
-                          errorWidget: (context, url, error) => const Icon(Icons.broken_image),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Thumbnail
+                            CachedNetworkImage(
+                              imageUrl: url,
+                              height: 80,
+                              width: 80,
+                              fit: BoxFit.cover,
+                              // If it's a video, we might not get a thumbnail easily without a cloud function generator.
+                              // Fallback: Show a generic placeholder or the image itself if backend provides thumbs.
+                              placeholder: (context, url) => Container(width: 80, color: Colors.grey.shade100, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                              errorWidget: (context, url, error) => Container(
+                                width: 80,
+                                height: 80,
+                                color: Colors.black12,
+                                child: Icon(isVideo ? Icons.videocam_off : Icons.broken_image, color: Colors.grey),
+                              ),
+                            ),
+
+                            // Video Overlay Icon
+                            if (isVideo)
+                              Container(
+                                width: 30,
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
+                              ),
+                          ],
                         ),
                       ),
                     );
