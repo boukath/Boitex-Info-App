@@ -762,6 +762,65 @@ export const onInstallationStatusUpdate_v2 = onDocumentUpdated("installations/{i
   await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations", actorId);
 });
 
+// ✅ NEW: Installation Log Notification
+// Triggers specifically when a document is added to the "daily_logs" sub-collection
+export const onInstallationLogCreated = onDocumentCreated("installations/{installationId}/daily_logs/{logId}", async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) return;
+  const data = snapshot.data();
+  const params = event.params;
+
+  const technicianId = data.technicianId;
+  // If no description, fallback to generic
+  const description = data.description || "Mise à jour du journal";
+
+  // 1. Fetch Technician Name from Users Collection
+  // We use the ID stored in the log to get the accurate display name from the users collection
+  let technicianName = data.technicianName || "Technicien"; // Fallback to log data if user fetch fails
+  if (technicianId) {
+    try {
+      const userDoc = await admin.firestore().collection("users").doc(technicianId).get();
+      if (userDoc.exists) {
+        technicianName = userDoc.data()?.displayName || technicianName;
+      }
+    } catch (e) {
+      console.error("Error fetching technician name", e);
+    }
+  }
+
+  // 2. Fetch Parent Installation Data
+  // We need the Store Name and Location for the notification Title
+  let storeName = "Magasin";
+  let storeLocation = "";
+
+  try {
+    const installationDoc = await admin.firestore().collection("installations").doc(params.installationId).get();
+    if (installationDoc.exists) {
+      const instData = installationDoc.data();
+      storeName = instData?.storeName || storeName;
+      storeLocation = instData?.storeLocation ? ` ${instData.storeLocation}` : "";
+    }
+  } catch (e) {
+    console.error("Error fetching installation data", e);
+  }
+
+  // 3. Prepare Notification
+  const title = `Update Installation ${storeName}${storeLocation}`;
+  const body = `${technicianName} : ${description}`;
+
+  const notificationData = {
+    title,
+    body,
+    relatedDocId: params.installationId, // Link to the Installation, not the log itself, so app opens details
+    relatedCollection: "installations"
+  };
+
+  // 4. Send Notifications
+  // Exclude the sender (technicianId) from receiving their own notification
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "installations", technicianId);
+  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "installations", technicianId);
+});
+
 // 8. LIVRAISONS
 export const onLivraisonCreated_v2 = onDocumentCreated("livraisons/{livraisonId}", async (event) => {
   const snapshot = event.data;
