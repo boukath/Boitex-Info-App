@@ -37,7 +37,7 @@ class StockService {
   }
 
   // ===========================================================================
-  // 1. CONFIRM DELIVERY (NEW LOGIC: EXIT STOCK AT END)
+  // 1. CONFIRM DELIVERY (UPDATED: READ-MODIFY-WRITE FOR AUDIT ACCURACY)
   // ===========================================================================
 
   // ✅ NEW: Called when status becomes "Livré"
@@ -49,6 +49,10 @@ class StockService {
     String? clientName,
     String? bonLivraisonCode,
   }) async {
+    // ✅ Logic: Get Current Auth ID for the audit link
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final String userId = currentUser?.uid ?? "unknown";
+
     // ✅ Logic: Use passed technician name first, fallback to fetch if null/empty
     String userName;
     if (technicianName != null && technicianName.isNotEmpty) {
@@ -66,8 +70,6 @@ class StockService {
         if (item['productId'] == null) continue;
 
         final String productId = item['productId'];
-        final String productName = item['productName'] ?? 'Produit Inconnu';
-
         // Use the 'deliveredQuantity' (what client accepted) or fallback to 'quantity'
         final int qtyToDeduct = item['deliveredQuantity'] ?? item['quantity'] ?? 0;
 
@@ -75,23 +77,44 @@ class StockService {
 
         final productRef = _db.collection('produits').doc(productId);
 
-        // 1. Deduct from Physical Stock
+        // ✅ STEP 1: READ THE PRODUCT FIRST (Fixes "Reference N/A" & "Quantities 0")
+        final snapshot = await transaction.get(productRef);
+        if (!snapshot.exists) {
+          print("⚠️ Audit Error: Product $productId not found during delivery transaction.");
+          continue;
+        }
+
+        final data = snapshot.data()!;
+
+        // Extract critical audit details
+        final String productReference = data['reference'] ?? 'N/A';
+        final String productName = data['nom'] ?? item['productName'] ?? 'Produit Inconnu';
+        final int currentStock = data['quantiteEnStock'] ?? 0;
+
+        // Calculate new stock
+        final int newStock = currentStock - qtyToDeduct;
+
+        // ✅ STEP 2: UPDATE PHYSICAL STOCK
         transaction.update(productRef, {
-          'quantiteEnStock': FieldValue.increment(-qtyToDeduct),
+          'quantiteEnStock': newStock,
           'lastModifiedBy': userName,
           'lastModifiedAt': FieldValue.serverTimestamp(),
         });
 
-        // 2. Log the Sale Movement
+        // ✅ STEP 3: LOG THE MOVEMENT (With ALL Fields for PDF)
         final movementRef = _db.collection('stock_movements').doc();
         transaction.set(movementRef, {
           'productId': productId,
           'productName': productName,
+          'productRef': productReference, // 👈 Fixes "Ref: N/A" in PDF
           'quantityChange': -qtyToDeduct,
+          'oldQuantity': currentStock,    // 👈 Fixes "Avant: 0" in PDF
+          'newQuantity': newStock,        // 👈 Fixes "Après: 0" in PDF
           'type': 'LIVRAISON_CLIENT',
           'livraisonId': deliveryId,
           'notes': notes,
           'user': userName,
+          'userId': userId,               // 👈 Fixes "Utilisateur: Inconnu" in PDF (Lookup Key)
           'timestamp': FieldValue.serverTimestamp(),
         });
       }

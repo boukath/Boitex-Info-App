@@ -17,6 +17,9 @@ import 'package:boitex_info_app/screens/settings/widgets/profile_header.dart';
 import 'package:boitex_info_app/services/migration_service.dart';
 import 'package:boitex_info_app/services/client_search_migration_service.dart';
 
+// ✅ IMPORT REPAIR TOOL
+import 'package:boitex_info_app/screens/administration/stock_repair_page.dart';
+
 class GlobalSettingsPage extends StatefulWidget {
   final String userRole;
 
@@ -220,7 +223,7 @@ class _GlobalSettingsPageState extends State<GlobalSettingsPage> {
 
                   _buildDivider(),
 
-                  // ✅ 5. AUTO-DISCOVERY (Brands) - The New Button
+                  // 5. AUTO-DISCOVERY (Brands)
                   _buildSettingsTile(
                     context,
                     title: 'Auto-Discovery (Marques)',
@@ -283,6 +286,32 @@ class _GlobalSettingsPageState extends State<GlobalSettingsPage> {
                     },
                   ),
                 ],
+              ),
+
+              const SizedBox(height: 32),
+
+              // ---------------------------------------------------------
+              // 🚨 SECTION MAINTENANCE AVANCÉE (REPAIR TOOL)
+              // ---------------------------------------------------------
+              _buildSectionTitle("MAINTENANCE AVANCÉE & DANGER"),
+
+              _buildSettingsGroup(
+                  children: [
+                    _buildSettingsTile(
+                      context,
+                      title: 'Réparation Historique Stock',
+                      subtitle: 'Recalculer les quantités (Reverse Replay)',
+                      icon: Icons.healing_rounded,
+                      iconColor: Colors.red.shade700, // 🔴 Red for Caution
+                      isFirst: true,
+                      isLast: true,
+                      onTap: () {
+                        HapticFeedback.heavyImpact();
+                        // Navigate to the Repair Tool
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const StockRepairPage()));
+                      },
+                    ),
+                  ]
               ),
             ],
 

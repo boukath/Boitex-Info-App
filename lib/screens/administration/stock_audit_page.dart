@@ -47,6 +47,10 @@ class _StockAuditPageState extends State<StockAuditPage>
   Map<String, String> _userNamesMap = {};
   // ✅ --- END NEW ---
 
+  // ✅ --- NEW: Product Catalog lookup map ---
+  Map<String, String> _productCatalog = {};
+  // ✅ --- END NEW ---
+
   // Animation Controllers for smooth transitions
   late AnimationController _fadeController;
   late AnimationController _scaleController;
@@ -90,6 +94,24 @@ class _StockAuditPageState extends State<StockAuditPage>
     super.dispose();
   }
 
+  /// ✅ NEW: FETCH PRODUCT CATALOG (ID -> Reference)
+  /// This builds the "Cheat Sheet" for the Smart Report
+  Future<Map<String, String>> _fetchProductCatalog() async {
+    // Optimization: Only fetch the 2 fields we need
+    final snapshot = await FirebaseFirestore.instance
+        .collection('produits')
+        .get();
+
+    final Map<String, String> catalog = {};
+    for (var doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['reference'] != null) {
+        catalog[doc.id] = data['reference'].toString();
+      }
+    }
+    return catalog;
+  }
+
   /// Runs the main query against Firestore based on the date range
   Future<void> _runQuery() async {
     if (_isLoading) return;
@@ -107,9 +129,13 @@ class _StockAuditPageState extends State<StockAuditPage>
       _movements = [];
       _filteredMovements = [];
       _userNamesMap = {}; // Clear old names
+      _productCatalog = {}; // Clear old catalog
     });
 
     try {
+      // 1. Fetch Product Catalog in Parallel (Pro Optimization)
+      final catalogFuture = _fetchProductCatalog();
+
       Query<Map<String, dynamic>> query = FirebaseFirestore.instance
           .collection('stock_movements')
           .orderBy('timestamp', descending: true);
@@ -158,9 +184,12 @@ class _StockAuditPageState extends State<StockAuditPage>
       }
       // ✅ --- END: Fetch User Names ---
 
+      final productCatalog = await catalogFuture;
+
       setState(() {
         _movements = movements;
         _userNamesMap = fetchedNames; // Store the map
+        _productCatalog = productCatalog; // Store the catalog
         _applyClientFilters(); // Apply text filters to the new results
       });
 
@@ -262,7 +291,8 @@ class _StockAuditPageState extends State<StockAuditPage>
         _filteredMovements,
         _startDate,
         _endDate,
-        _userNamesMap, // Pass the map
+        _userNamesMap, // Pass the user map
+        _productCatalog, // ✅ Pass the Product Catalog (FIXED MISSING ARG)
       );
 
       final String fileName =
