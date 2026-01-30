@@ -19,9 +19,10 @@ import 'package:boitex_info_app/screens/administration/rappel_page.dart';
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/analytics_dashboard_page.dart';
 import 'package:boitex_info_app/screens/administration/universal_map_page.dart';
-
-// ✅ NEW IMPORT FOR THE PORTAL REQUESTS INBOX
 import 'package:boitex_info_app/screens/administration/portal_requests_list_page.dart';
+
+// ✅ NEW IMPORT: Reporting Hub
+import 'package:boitex_info_app/screens/administration/reporting_hub_page.dart';
 
 import 'dart:math' as math;
 
@@ -588,6 +589,16 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
       ),
+
+      // ✅ NEW: CENTRE D'ÉDITION (REPORTING HUB)
+      _ActionData(
+        "Centre\nd'Édition",
+        Icons.print_rounded,
+        const Color(0xFF546E7A), // BlueGrey for "Official/Admin" feel
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const ReportingHubPage())),
+      ),
+
       _ActionData(
         'Historique',
         Icons.history_rounded,
