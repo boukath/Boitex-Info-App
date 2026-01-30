@@ -131,7 +131,7 @@ async (event) => {
   }
 );
 
-// ✅ 2. SYNC TRIGGER
+// ✅ 2. SMART SYNC TRIGGER
 // Trigger: When an Installation is EDITED (e.g., adding a forgotten product)
 export const syncLivraisonOnInstallationUpdate = onDocumentUpdated(
   {
@@ -146,21 +146,22 @@ export const syncLivraisonOnInstallationUpdate = onDocumentUpdated(
     if (!before || !after) return;
 
     // 1. Check if products actually changed (Save money on unneeded runs)
-    const oldProducts = JSON.stringify(before.orderedProducts);
-    const newProducts = JSON.stringify(after.orderedProducts);
+    const oldProductsRaw = JSON.stringify(before.orderedProducts);
+    const newProductsRaw = JSON.stringify(after.orderedProducts);
 
-    if (oldProducts === newProducts) {
+    if (oldProductsRaw === newProductsRaw) {
       return; // No product changes, ignore.
     }
 
-    logger.log(`🔄 Product list changed for Installation ${installationId}. Attempting sync to Livraison...`);
+    logger.log(`🔄 Product list changed for Installation ${installationId}. Analyzing Sync Logic...`);
 
     const db = admin.firestore();
 
     // 2. Find the linked Livraison
-    // We query by linkedInstallationId to be safe
+    // Get the most recently created delivery linked to this installation
     const deliveryQuery = await db.collection("livraisons")
       .where("linkedInstallationId", "==", installationId)
+      .orderBy("createdAt", "desc")
       .limit(1)
       .get();
 
@@ -171,34 +172,169 @@ export const syncLivraisonOnInstallationUpdate = onDocumentUpdated(
 
     const deliveryDoc = deliveryQuery.docs[0];
     const deliveryData = deliveryDoc.data();
+    const currentStatus = deliveryData.status;
 
-    // 3. SAFETY CHECK: Lock updates if shipping started
-    const lockedStatuses = ["Expédiée", "Livrée", "Terminée", "Annulée"];
-    if (lockedStatuses.includes(deliveryData.status)) {
-      logger.warn(`⛔ Cannot sync products: Livraison ${deliveryData.bonLivraisonCode} is already '${deliveryData.status}'.`);
-      return;
-    }
-
-    // 4. Prepare new list (Filtering out Client Supply items)
+    // 3. Normalize New Products (from Installation)
+    // We apply the same normalization rules as the Create Trigger
     const allNewProducts = after.orderedProducts || [];
-    const productsToSync = allNewProducts
+    const normalizedNewProducts = allNewProducts
       .filter((p: any) => p.source !== 'client_supply')
       .map((p: any) => ({
         ...p,
-        // Ensure fields exist for sync as well
         serialNumbers: p.serialNumbers || [],
         pickedQuantity: p.pickedQuantity || 0,
         isBulk: p.isBulk || false,
         status: "pending"
       }));
 
-    // 5. Update the Delivery Note
-    await deliveryDoc.ref.update({
-      products: productsToSync,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      notes: (deliveryData.notes || "") + "\n[System] Liste produits mise à jour suite modif installation."
-    });
+    // ==================================================================================
+    // 🧠 LOGIC A: OPEN or ON THE ROAD -> EDIT & MERGE (Preserve Picking)
+    // ==================================================================================
+    const openStatuses = ["À Préparer", "En Cours de Livraison"];
 
-    logger.log(`✅ Sync successful: Livraison ${deliveryData.bonLivraisonCode} updated with ${productsToSync.length} items.`);
+    if (openStatuses.includes(currentStatus)) {
+        logger.log(`📝 Livraison is '${currentStatus}'. Performing Smart Merge...`);
+
+        // Get the existing state of the delivery (to save scanned serials)
+        const oldDeliveryProducts = deliveryData.products || [];
+
+        // MERGE LOGIC:
+        // 1. Loop through the NEW list from installation.
+        // 2. If item exists in OLD list, copy its 'pickedQuantity' and 'serialNumbers'.
+        // 3. This ensures that if we add a product, we don't wipe the work the warehouse already did.
+        const mergedProducts = normalizedNewProducts.map((newP: any) => {
+            // Match by Product ID
+            const existingP = oldDeliveryProducts.find((op: any) => op.productId === newP.productId);
+
+            if (existingP) {
+                return {
+                    ...newP, // Update fields like Name, Description, Target Quantity
+                    // ✅ PRESERVE PICKING DATA:
+                    pickedQuantity: existingP.pickedQuantity || 0,
+                    serialNumbers: existingP.serialNumbers || [],
+                    // Preserve item status if it exists, else pending
+                    status: existingP.status || "pending"
+                };
+            }
+            // New item -> Defaults are already set by normalization
+            return newP;
+        });
+
+        // Determine Status Update
+        // Logic: If driver was "En Cours", force back to "À Préparer" so they notice the change.
+        let statusUpdate = {};
+        if (currentStatus === "En Cours de Livraison") {
+            statusUpdate = { status: "À Préparer" };
+            logger.log(`🚚 Status was 'En Cours', reverting to 'À Préparer' for safety.`);
+        }
+
+        // Apply Update
+        await deliveryDoc.ref.update({
+            products: mergedProducts,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            notes: (deliveryData.notes || "") + "\n[System] Liste mise à jour (Smart Sync).",
+            ...statusUpdate
+        });
+
+        return;
+    }
+
+    // ==================================================================================
+    // 🧠 LOGIC B: CLOSED -> COMPARE & CREATE COMPLEMENT (Change Order)
+    // ==================================================================================
+    const closedStatuses = ["Expédiée", "Livrée", "Terminée", "Annulée"];
+
+    if (closedStatuses.includes(currentStatus)) {
+        logger.log(`🔒 Livraison is '${currentStatus}'. Calculating Difference for Complementary Delivery...`);
+
+        const oldDeliveryProducts = deliveryData.products || [];
+        const productsToCreate: any[] = [];
+
+        // Diff Calculation
+        for (const newP of normalizedNewProducts) {
+            const existingP = oldDeliveryProducts.find((op: any) => op.productId === newP.productId);
+
+            if (!existingP) {
+                // Completely new product -> Add full quantity
+                productsToCreate.push(newP);
+            } else {
+                // Existing product -> Check for quantity increase
+                const qtyDiff = (newP.quantity || 0) - (existingP.quantity || 0);
+                if (qtyDiff > 0) {
+                    productsToCreate.push({
+                        ...newP,
+                        quantity: qtyDiff, // Only the extra amount
+                        pickedQuantity: 0,
+                        serialNumbers: []
+                    });
+                }
+            }
+        }
+
+        if (productsToCreate.length === 0) {
+            logger.log(`✅ No quantity increase or new items detected. No Complementary Delivery needed.`);
+            return;
+        }
+
+        logger.log(`🆕 Creating Complementary Delivery for ${productsToCreate.length} items...`);
+
+        // Transaction to generate new BL Code and Create Doc
+        const currentYear = new Date().getFullYear();
+        const counterRef = db.collection("counters").doc(`livraison_counter_${currentYear}`);
+        const livraisonsRef = db.collection("livraisons");
+
+        await db.runTransaction(async (t) => {
+            const counterDoc = await t.get(counterRef);
+            let nextIndex = 1;
+            if (counterDoc.exists) {
+                const data = counterDoc.data();
+                if (data && typeof data.count === 'number') {
+                    nextIndex = data.count + 1;
+                }
+            }
+
+            const standardBlCode = `BL-${nextIndex}/${currentYear}`;
+
+            // Update Counter
+            t.set(counterRef, { count: nextIndex }, { merge: true });
+
+            // Create Doc
+            const newDocRef = livraisonsRef.doc();
+
+            t.set(newDocRef, {
+                // Identity
+                bonLivraisonCode: standardBlCode,
+                linkedInstallationId: installationId,
+                isComplementary: true, // Marker to distinguish
+                originalLivraisonId: deliveryDoc.id,
+                serviceType: deliveryData.serviceType || "Service Technique",
+                accessGroups: deliveryData.accessGroups || ["Service Technique", "Logistique", "Admin"],
+
+                // Client / Dest (Copy from latest installation data to be safe)
+                clientName: after.clientName || deliveryData.clientName,
+                clientId: after.clientId || deliveryData.clientId,
+                contactName: after.contactName || deliveryData.contactName,
+                contactPhone: after.clientPhone || deliveryData.contactPhone,
+
+                storeName: after.storeName || deliveryData.storeName,
+                storeId: after.storeId || deliveryData.storeId,
+                deliveryAddress: after.storeLocation || deliveryData.deliveryAddress,
+
+                // Content
+                products: productsToCreate,
+
+                // Meta
+                status: "À Préparer",
+                notes: `[Complément] Suite à modification de l'installation ${after.installationCode}. Reliquat de BL ${deliveryData.bonLivraisonCode}.`,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdBy: "System (Smart Sync)",
+                createdById: "SYSTEM",
+
+                deliveryMethod: deliveryData.deliveryMethod || "Livraison Interne",
+            });
+        });
+
+        logger.log(`✅ Complementary Delivery Created.`);
+    }
   }
 );
