@@ -14,7 +14,8 @@ class RequisitionApprovalPage extends StatefulWidget {
   const RequisitionApprovalPage({super.key, required this.userRole});
 
   @override
-  State<RequisitionApprovalPage> createState() => _RequisitionApprovalPageState();
+  State<RequisitionApprovalPage> createState() =>
+      _RequisitionApprovalPageState();
 }
 
 class _RequisitionApprovalPageState extends State<RequisitionApprovalPage> {
@@ -56,13 +57,17 @@ class _RequisitionApprovalPageState extends State<RequisitionApprovalPage> {
             .doc(docId)
             .delete();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Demande supprimée avec succès.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Demande supprimée avec succès.')),
+          );
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: ${e.toString()}')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: ${e.toString()}')),
+          );
+        }
       }
     }
   }
@@ -92,11 +97,11 @@ class _RequisitionApprovalPageState extends State<RequisitionApprovalPage> {
     return Chip(
       label: Text(
         status,
-        style: const TextStyle(color: Colors.white, fontSize: 11),
+        style: const TextStyle(color: Colors.white, fontSize: 10),
       ),
       backgroundColor: color,
-      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 0),
-      labelPadding: const EdgeInsets.symmetric(horizontal: 4.0),
+      padding: EdgeInsets.zero,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 8.0),
       visualDensity: VisualDensity.compact,
     );
   }
@@ -115,106 +120,60 @@ class _RequisitionApprovalPageState extends State<RequisitionApprovalPage> {
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return const Center(child: Text('Une erreur est survenue.'));
+            return Center(child: Text('Erreur: ${snapshot.error}'));
           }
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return const Center(
-                child: Text('Aucune demande en attente d\'approbation.'));
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_outline,
+                      size: 64, color: Colors.green),
+                  SizedBox(height: 16),
+                  Text('Tout est à jour !',
+                      style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('Aucune demande en attente.',
+                      style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            );
           }
 
           final requisitionDocs = snapshot.data!.docs;
 
-          return ListView.builder(
+          return ListView.separated(
+            padding: const EdgeInsets.all(12),
             itemCount: requisitionDocs.length,
+            separatorBuilder: (ctx, i) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final reqDoc = requisitionDocs[index];
               final reqData = reqDoc.data() as Map<String, dynamic>;
+
+              // Extract Data safely with fallbacks
               final createdAt = reqData['createdAt'] as Timestamp?;
               final reqCode = reqData['requisitionCode'] ?? 'N/A';
-              final requestedBy = reqData['requestedBy'] ?? 'N/A';
-              final status = reqData['status'] ?? 'N/A';
+              final requestedBy = reqData['requestedBy'] ?? 'Inconnu';
+              final status = reqData['status'] ?? 'Statut Inconnu';
 
-              final bool canModify = RolePermissions.canManageRequisitions(widget.userRole);
+              // ✅ NEW: Extract Title and Supplier
+              final String title = reqData['title'] ?? 'Demande sans titre';
+              final String supplier = reqData['supplierName'] ?? 'Fournisseur inconnu';
+
+              final bool canModify =
+              RolePermissions.canManageRequisitions(widget.userRole);
 
               return Card(
-                margin:
-                const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
+                elevation: 2,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-                child: ListTile(
-                  contentPadding:
-                  const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                  title: Text(reqCode,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Demandé par: $requestedBy'),
-                      if (createdAt != null)
-                        Text(
-                          'Date: ${DateFormat('dd/MM/yyyy').format(createdAt.toDate())}',
-                        ),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _getStatusChip(status),
-
-                      if (canModify)
-                        PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert),
-                          onSelected: (value) {
-                            if (value == 'edit') {
-                              //
-                              // ✅✅✅ THIS IS THE CHANGED LINE ✅✅✅
-                              //
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  // We now go to AddRequisitionPage
-                                  builder: (context) => AddRequisitionPage(
-                                    // And pass the ID to edit
-                                    requisitionId: reqDoc.id,
-                                  ),
-                                ),
-                              );
-                            } else if (value == 'delete') {
-                              _deleteRequisition(reqDoc.id);
-                            }
-                          },
-                          itemBuilder: (BuildContext context) => [
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.edit, color: Colors.blue),
-                                  SizedBox(width: 8),
-                                  Text('Modifier'),
-                                ],
-                              ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.delete, color: Colors.red),
-                                  SizedBox(width: 8),
-                                  Text('Supprimer'),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      if (!canModify)
-                        const SizedBox(width: 40),
-                    ],
-                  ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
                   onTap: () {
-                    // Default tap (for PDG approval) still goes to details
+                    // Navigate to details
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (context) => RequisitionDetailsPage(
@@ -224,6 +183,156 @@ class _RequisitionApprovalPageState extends State<RequisitionApprovalPage> {
                       ),
                     );
                   },
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Row 1: Header (Title + Status)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title, // ✅ Display the human readable title
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            // Menu Actions (Edit/Delete)
+                            if (canModify)
+                              SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: PopupMenuButton<String>(
+                                  padding: EdgeInsets.zero,
+                                  icon: const Icon(Icons.more_horiz, size: 20),
+                                  onSelected: (value) {
+                                    if (value == 'edit') {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              AddRequisitionPage(
+                                                requisitionId: reqDoc.id,
+                                              ),
+                                        ),
+                                      );
+                                    } else if (value == 'delete') {
+                                      _deleteRequisition(reqDoc.id);
+                                    }
+                                  },
+                                  itemBuilder: (BuildContext context) => [
+                                    const PopupMenuItem(
+                                      value: 'edit',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.edit, color: Colors.blue),
+                                          SizedBox(width: 8),
+                                          Text('Modifier'),
+                                        ],
+                                      ),
+                                    ),
+                                    const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.delete, color: Colors.red),
+                                          SizedBox(width: 8),
+                                          Text('Supprimer'),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // Row 2: Supplier info & Code (The Visual Anchor)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.store, size: 14, color: Colors.grey.shade700),
+                              const SizedBox(width: 6),
+                              Text(
+                                supplier,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6),
+                                child: Text("•", style: TextStyle(color: Colors.grey.shade400)),
+                              ),
+                              Text(
+                                reqCode,
+                                style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // Row 3: Footer (User, Date, Chip)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.person_outline, size: 14, color: Colors.grey.shade500),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      requestedBy,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (createdAt != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      DateFormat('dd MMM yyyy, HH:mm').format(createdAt.toDate()),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            _getStatusChip(status),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               );
             },
