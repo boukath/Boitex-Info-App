@@ -1,3 +1,5 @@
+// lib/screens/administration/reporting_hub_page.dart
+
 import 'dart:io';
 import 'dart:convert'; // ✅ Needed for Base64 decoding
 import 'package:flutter/foundation.dart';
@@ -37,6 +39,7 @@ class _ReportingHubPageState extends State<ReportingHubPage> with SingleTickerPr
   // --- STATE FOR STOCK TAB ---
   DateTime? _stockStartDate;
   DateTime? _stockEndDate;
+  String _selectedMovementType = 'ALL'; // Options: 'ALL', 'ENTRY', 'EXIT'
   final StockAuditPdfService _stockAuditService = StockAuditPdfService();
 
   // --- STATE FOR INVENTORY TAB ---
@@ -534,6 +537,42 @@ class _ReportingHubPageState extends State<ReportingHubPage> with SingleTickerPr
     }
   }
 
+  Widget _buildMovementFilterSelector() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      width: double.infinity,
+      child: SegmentedButton<String>(
+        segments: const [
+          ButtonSegment<String>(
+            value: 'ALL',
+            label: Text('Tout'),
+            icon: Icon(Icons.list_alt),
+          ),
+          ButtonSegment<String>(
+            value: 'ENTRY',
+            label: Text('Entrées'),
+            icon: Icon(Icons.arrow_downward, color: Colors.green),
+          ),
+          ButtonSegment<String>(
+            value: 'EXIT',
+            label: Text('Sorties'),
+            icon: Icon(Icons.arrow_upward, color: Colors.red),
+          ),
+        ],
+        selected: {_selectedMovementType},
+        onSelectionChanged: (Set<String> newSelection) {
+          setState(() {
+            _selectedMovementType = newSelection.first;
+          });
+        },
+        style: const ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
+    );
+  }
+
   Future<void> _generateStockAudit() async {
     if (_stockStartDate == null || _stockEndDate == null) return;
     setState(() => _isLoading = true);
@@ -547,8 +586,35 @@ class _ReportingHubPageState extends State<ReportingHubPage> with SingleTickerPr
           .orderBy('timestamp', descending: true)
           .get();
 
-      if (movementsSnapshot.docs.isEmpty) {
-        _showSnack('Aucune donnée trouvée pour cette période.');
+      // ✅ FILTER LOGIC HERE
+      List<QueryDocumentSnapshot> docs = movementsSnapshot.docs;
+      // ✅ DEFINE TITLE BASED ON FILTER
+      String pdfTitle = "Audit Global des Mouvements";
+
+      if (_selectedMovementType == 'ENTRY') {
+        docs = docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          // ✅ FIX: Safe casting to prevent 'double is not int' error
+          final int q = (data['quantityChange'] is int)
+              ? (data['quantityChange'] as int)
+              : ((data['quantityChange'] as num?)?.toInt() ?? 0);
+          return q > 0;
+        }).toList();
+        pdfTitle = "Rapport des Entrées de Stock";
+      } else if (_selectedMovementType == 'EXIT') {
+        docs = docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          // ✅ FIX: Safe casting to prevent 'double is not int' error
+          final int q = (data['quantityChange'] is int)
+              ? (data['quantityChange'] as int)
+              : ((data['quantityChange'] as num?)?.toInt() ?? 0);
+          return q < 0;
+        }).toList();
+        pdfTitle = "Rapport des Sorties de Stock";
+      }
+
+      if (docs.isEmpty) {
+        _showSnack('Aucune donnée trouvée pour cette période et ce filtre.');
         return;
       }
 
@@ -556,9 +622,15 @@ class _ReportingHubPageState extends State<ReportingHubPage> with SingleTickerPr
       final Map<String, String> userNamesMap = {};
 
       final pdfBytes = await _stockAuditService.generateAuditPdf(
-        movementsSnapshot.docs, _stockStartDate, _stockEndDate, userNamesMap, productCatalog,
+          docs,
+          _stockStartDate,
+          _stockEndDate,
+          userNamesMap,
+          productCatalog,
+          pdfTitle // ✅ PASSING THE TITLE (6th Argument)
       );
-      await _previewOrDownloadPdf(pdfBytes, "Audit_Stock_${_stockStartDate?.month}_${_stockStartDate?.year}");
+
+      await _previewOrDownloadPdf(pdfBytes, "Audit_Stock_${_selectedMovementType}_${_stockStartDate?.month}_${_stockStartDate?.year}");
     } catch (e) {
       _showError(e);
     } finally {
@@ -1136,6 +1208,12 @@ class _ReportingHubPageState extends State<ReportingHubPage> with SingleTickerPr
               children: [
                 _buildHeaderIcon("Audit & Mouvements", Icons.history_edu),
                 const SizedBox(height: 15),
+
+                // ✅ NEW SELECTOR
+                _buildMovementFilterSelector(),
+
+                const SizedBox(height: 8),
+
                 ReportDateSelector(
                   startDate: _stockStartDate,
                   endDate: _stockEndDate,

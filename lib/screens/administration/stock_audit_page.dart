@@ -292,7 +292,8 @@ class _StockAuditPageState extends State<StockAuditPage>
         _startDate,
         _endDate,
         _userNamesMap, // Pass the user map
-        _productCatalog, // ✅ Pass the Product Catalog (FIXED MISSING ARG)
+        _productCatalog, // ✅ Pass the Product Catalog
+        "Audit Global des Mouvements", // ✅ ADDED: Missing Title Argument
       );
 
       final String fileName =
@@ -501,7 +502,6 @@ class _StockAuditPageState extends State<StockAuditPage>
   }
 
   Widget _buildFilterSection(bool isWideScreen) {
-    // ... (This function remains unchanged, the logic for canExport/canFilter already works)
     final DateFormat formatter = DateFormat('dd/MM/yyyy');
 
     final bool isExporting = _isExportingPdf || _isExportingCsv;
@@ -858,7 +858,8 @@ class _StockAuditPageState extends State<StockAuditPage>
                       Expanded(
                         child: Text(
                           // Use the map to find the name, fallback to 'Inconnu'
-                          _userNamesMap[data['userId']] ?? 'Utilisateur inconnu',
+                          _userNamesMap[data['userId']] ??
+                              'Utilisateur inconnu',
                           style: TextStyle(
                             color: Colors.grey.shade600,
                             fontSize: 14,
