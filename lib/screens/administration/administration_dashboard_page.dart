@@ -304,7 +304,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
   Widget _buildWebUrgentTasksColumn(bool canSeeMgmt) {
     final cards = <Widget>[
       const _ReplacementRequestsCard(),
-      if (canSeeMgmt) _RequisitionPipelineCard(userRole: widget.userRole),
+      // ✅ Removed _RequisitionPipelineCard as requested for Web
       if (canSeeMgmt) const _PendingBillingCard(),
       if (canSeeMgmt) const _PendingReplacementsCard(),
       if (canSeeMgmt) const _LivraisonsCard(),
@@ -520,14 +520,27 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
 
   List<Widget> _buildQuickActions(BuildContext context) {
     final items = <_ActionData>[
-      // ✅ 1. PORTAL REQUESTS (INBOX) - FIRST ITEM
+      // ✅ 1. ACHATS (NEW ITEM - TOP PRIORITY)
+      _ActionData(
+        'Achats', // Bureau des Achats
+        Icons.shopping_bag_rounded,
+        const Color(0xFF8E24AA), // Purple for Procurement
+            () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => PurchasingHubPage(userRole: widget.userRole))), // Ensure you pass userRole if needed
+        // 🔴 BADGE: Counts Pending Requisitions
+        badgeStream: FirebaseFirestore.instance
+            .collection('requisitions')
+            .where('status', isEqualTo: "En attente d'approbation")
+            .snapshots(),
+      ),
+
+      // ✅ 2. PORTAL REQUESTS
       _ActionData(
         'Demandes\nWeb',
         Icons.public_rounded,
-        const Color(0xFFFF5722), // Deep Orange for Attention
+        const Color(0xFFFF5722),
             () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => const PortalRequestsListPage())),
-        // 🔴 BADGE LISTENER
         badgeStream: FirebaseFirestore.instance
             .collection('interventions')
             .where('interventionCode', isEqualTo: 'PENDING')
@@ -590,11 +603,11 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
             MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
       ),
 
-      // ✅ NEW: CENTRE D'ÉDITION (REPORTING HUB)
+      // CENTRE D'ÉDITION
       _ActionData(
         "Centre\nd'Édition",
         Icons.print_rounded,
-        const Color(0xFF546E7A), // BlueGrey for "Official/Admin" feel
+        const Color(0xFF546E7A),
             () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => const ReportingHubPage())),
       ),
@@ -671,7 +684,7 @@ class _AdministrationDashboardPageState extends State<AdministrationDashboardPag
   Widget _buildUrgentTasksSection(bool canSeeMgmt) {
     final cards = <Widget>[
       const _ReplacementRequestsCard(),
-      if (canSeeMgmt) _RequisitionPipelineCard(userRole: widget.userRole),
+      // ✅ Removed _RequisitionPipelineCard as requested for Mobile
       if (canSeeMgmt) const _PendingBillingCard(),
       if (canSeeMgmt) const _PendingReplacementsCard(),
       if (canSeeMgmt) const _LivraisonsCard(),
@@ -885,6 +898,8 @@ class _ReplacementRequestsCard extends StatelessWidget {
   }
 }
 
+// NOTE: _RequisitionPipelineCard is kept in code but NOT used in build()
+// This preserves the widget if you ever want to revert, but cleans the UI now.
 class _RequisitionPipelineCard extends StatelessWidget {
   final String userRole;
   const _RequisitionPipelineCard({required this.userRole});
