@@ -183,7 +183,7 @@ class _MaintenanceEntryDialogState extends State<MaintenanceEntryDialog> {
 
       if (_selectedItems.contains(MaintenanceItems.oilChange)) {
         vehicleUpdates['lastOilChangeMileage'] = mileage;
-        vehicleUpdates['nextOilChangeMileage'] = mileage + 10000;
+        vehicleUpdates['nextOilChangeMileage'] = mileage + 9000;
       }
 
       batch.set(logRef, newLog.toMap());

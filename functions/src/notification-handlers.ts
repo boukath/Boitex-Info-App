@@ -83,8 +83,8 @@ const getUsersForRoles = async (roles: string[]): Promise<UserData[]> => {
     // Note: 'in' queries support max 10 values
     // Safety check for Firestore 'in' limit
     if (roles.length > 10) {
-        console.warn("⚠️ Warning: Roles list > 10, slicing to first 10 for query safety.");
-        roles = roles.slice(0, 10);
+      console.warn("⚠️ Warning: Roles list > 10, slicing to first 10 for query safety.");
+      roles = roles.slice(0, 10);
     }
 
     const usersSnapshot = await admin.firestore()
@@ -136,7 +136,7 @@ const createNotificationsForRoles = async (
   users = users.filter((u) => {
     // 1. Exclude Sender
     if (excludeUserId && u.uid === excludeUserId) {
-        return false;
+      return false;
     }
     // 2. Check Settings
     if (category && u.notificationSettings && u.notificationSettings[category] === false) {
@@ -1581,5 +1581,110 @@ export const weeklyMileageReminder = onSchedule({
 
   } catch (dbError) {
     console.error("❌ Error saving mileage persistence:", dbError);
+  }
+});
+
+// ------------------------------------------------------------------
+// 17. 🛢️ OIL CHANGE MONITOR (FLEET) - 3 TIMES DAILY
+// ------------------------------------------------------------------
+// Runs at 08:00, 13:00, and 18:00 (Algeria Time) to warn about upcoming oil changes.
+
+export const checkOilChangeDeadlines = onSchedule({
+  schedule: "0 8,13,18 * * *", // Runs at 8am, 1pm, 6pm
+  timeZone: "Africa/Algiers",
+}, async (event) => {
+  console.log("🛢️ Starting Oil Change Check...");
+  const db = admin.firestore();
+
+  // 1. Determine "Time of Day" to apply filtering logic
+  // We need to know if it's the morning run to send the "Warning" alerts (2000km)
+  const now = new Date();
+  const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const algeriaDate = new Date(utcMs + (3600000 * 1)); // UTC+1
+  const hour = algeriaDate.getHours();
+
+  const isMorningRun = hour < 12; // e.g. 08:00 run
+
+  try {
+    // 2. Fetch Active Vehicles
+    const vehiclesSnapshot = await db.collection('vehicles')
+      .where('status', '==', 'Actif') // Only check active cars
+      .get();
+
+    if (vehiclesSnapshot.empty) {
+      console.log("✅ No active vehicles found.");
+      return;
+    }
+
+    // 3. Loop & Check Logic
+    const notificationsToSend: Array<{
+      vehicleName: string,
+      remainingKm: number,
+      severity: 'critical' | 'warning',
+      assignedTo?: string
+    }> = [];
+
+    vehiclesSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const current = data.currentMileage || 0;
+      const next = data.nextOilChangeMileage || 0;
+      const remaining = next - current;
+
+      if (remaining <= 1000) {
+        // 🔴 CRITICAL: < 1000km
+        // Send on ALL 3 RUNS (Morning, Noon, Evening)
+        notificationsToSend.push({
+          vehicleName: `${data.brand} ${data.model} (${data.licensePlate})`,
+          remainingKm: remaining,
+          severity: 'critical',
+          assignedTo: data.assignedDriverId // Assuming you might have this field, otherwise falls back to managers
+        });
+      } else if (remaining > 1000 && remaining <= 2000) {
+        // 🟠 WARNING: 1000km - 2000km
+        // Send ONLY on Morning Run
+        if (isMorningRun) {
+          notificationsToSend.push({
+            vehicleName: `${data.brand} ${data.model} (${data.licensePlate})`,
+            remainingKm: remaining,
+            severity: 'warning',
+            assignedTo: data.assignedDriverId
+          });
+        }
+      }
+    });
+
+    if (notificationsToSend.length === 0) {
+      console.log("✅ No vehicles require oil change alerts.");
+      return;
+    }
+
+    // 4. Send Notifications
+    // We group sending to Managers + Techs (Fleet Team)
+    // If a specific driver is assigned, we could target them too, but here we broadcast to the fleet team.
+
+    const targetRoles = [...ROLES_MANAGERS, ...ROLES_TECH_ST];
+
+    for (const notif of notificationsToSend) {
+      const emoji = notif.severity === 'critical' ? '🚨' : '⚠️';
+      const title = `${emoji} Vidange Requise : ${notif.vehicleName}`;
+      const body = `Il reste seulement ${notif.remainingKm} km avant la prochaine vidange !`;
+
+      console.log(`Sending ${notif.severity} alert for ${notif.vehicleName}`);
+
+      // Send to Fleet Team
+      await createNotificationsForRoles(
+        targetRoles,
+        {
+          title: title,
+          body: body,
+          relatedCollection: "vehicles",
+          relatedDocId: "fleet_list" // Open fleet list
+        },
+        "reminder", // Category
+      );
+    }
+
+  } catch (error) {
+    logger.error("❌ Error checking oil changes:", error);
   }
 });

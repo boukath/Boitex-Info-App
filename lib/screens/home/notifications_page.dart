@@ -218,11 +218,32 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
     // ⏰ MILEAGE REMINDER (Added Logic)
     if (type == 'reminder') {
+      // 🚗 Check if it's specifically an OIL CHANGE ALERT
+      if (lowerBody.contains("vidange") || lowerBody.contains("oil change")) {
+        // Critical Alert (Red)
+        if (lowerBody.contains("🚨") || lowerBody.contains("critique") || lowerBody.contains("1000")) {
+          return _StatusAttributes(
+            color: const Color(0xFFD50000), // Intense Red
+            bgColor: const Color(0xFFFFEBEE), // Light Red
+            label: "VIDANGE URGENTE",
+            badgeIcon: Icons.water_drop_rounded, // Oil Drop
+          );
+        }
+        // Warning Alert (Orange)
+        return _StatusAttributes(
+          color: const Color(0xFFFF6D00), // Orange
+          bgColor: const Color(0xFFFFF3E0), // Light Orange
+          label: "VIDANGE BIENTÔT",
+          badgeIcon: Icons.water_drop_outlined,
+        );
+      }
+
+      // Default Mileage Reminder
       return _StatusAttributes(
         color: const Color(0xFFFFD600), // Strong Yellow
         bgColor: const Color(0xFFFFF9C4), // Light Yellow
-        label: "RAPPEL",
-        badgeIcon: Icons.timer_rounded,
+        label: "RAPPEL KILOMÉTRAGE",
+        badgeIcon: Icons.speed_rounded,
       );
     }
 
@@ -303,7 +324,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
 
     final status = _getStatusAttributes(body, type);
-    final IconData mainIcon = _getIconForCollection(collection);
+    // 🛢️ Override Icon for Oil Change
+    IconData mainIcon = _getIconForCollection(collection);
+    if (type == 'reminder' && (body.toLowerCase().contains('vidange') || body.toLowerCase().contains('oil'))) {
+      mainIcon = Icons.oil_barrel_outlined;
+    }
 
     return Stack(
       children: [
@@ -410,9 +435,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
 
     // ----------------------------------------------------------------------
-    // 🚗 0.5 MILEAGE REMINDER LOGIC (Fleet Redirection)
+    // 🚗 0.5 MILEAGE/OIL REMINDER LOGIC (Fleet Redirection)
     // ----------------------------------------------------------------------
     if (type == 'reminder' && collection == 'vehicles') {
+      // Logic: If docId is "fleet_list" (from the Oil Change Alert), go to Fleet List.
+      // If it's a specific car ID, we could go to details, but Fleet List is safer default.
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const FleetListPage()),
@@ -621,7 +648,18 @@ class _NotificationsPageState extends State<NotificationsPage> {
     if (group.collection == 'portal_requests') categoryName = "DEMANDE CLIENT";
     if (group.collection == 'vehicles') categoryName = "GESTION PARC";
     if (group.type == 'morning_briefing') categoryName = "QUOTIDIEN"; // ☀️ Special Header
-    if (group.type == 'reminder') categoryName = "RAPPEL HEBDOMADAIRE"; // ⏰ Special Header
+    if (group.type == 'reminder') categoryName = "MAINTENANCE FLOTTE"; // ⏰ Special Header
+
+    // Custom Button Logic
+    String buttonText = "VOIR";
+    IconData buttonIcon = Icons.arrow_forward_rounded;
+    Color buttonColor = _primaryBlue;
+
+    if (group.type == 'reminder') {
+      buttonText = "CONTRÔLER";
+      buttonIcon = Icons.car_repair_rounded;
+      buttonColor = Colors.amber.shade900;
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -765,27 +803,27 @@ class _NotificationsPageState extends State<NotificationsPage> {
                       ),
                     ),
                     const Spacer(),
-                    // 🚗 Special Action Button for Mileage Reminder
+                    // 🚗 Special Action Button for Mileage/Oil Reminder
                     if (group.type == 'reminder')
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.1),
+                          color: buttonColor.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.amber),
+                          border: Border.all(color: buttonColor),
                         ),
                         child: Row(
                           children: [
                             Text(
-                              "METTRE À JOUR",
+                              buttonText,
                               style: GoogleFonts.poppins(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
-                                color: Colors.amber.shade900,
+                                color: buttonColor,
                               ),
                             ),
                             const SizedBox(width: 4),
-                            Icon(Icons.edit_road, size: 14, color: Colors.amber.shade900),
+                            Icon(buttonIcon, size: 14, color: buttonColor),
                           ],
                         ),
                       )
