@@ -105,8 +105,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
-      // For standard docs, key is relatedDocId. For Briefings, we group by type + date (approx) or just ID.
-      // Since Briefings have unique IDs in Firestore but no relatedDocId, we use doc.id.
+      // For standard docs, key is relatedDocId. For Briefings/Reminders, we group by ID directly to avoid stacking wrong items.
+      // If relatedDocId is missing (like in some system notifs), use doc.id.
       final String key = data['relatedDocId'] ?? doc.id;
 
       if (!groups.containsKey(key)) {
@@ -168,7 +168,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("Notifications supprimées"),
+              content: const Text("Notifications supprimées"),
               behavior: SnackBarBehavior.floating,
               backgroundColor: _textDark,
               duration: const Duration(seconds: 2),
@@ -213,6 +213,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
         bgColor: Colors.amber.shade50,
         label: "BRIEFING",
         badgeIcon: Icons.wb_sunny_rounded,
+      );
+    }
+
+    // ⏰ MILEAGE REMINDER (Added Logic)
+    if (type == 'reminder') {
+      return _StatusAttributes(
+        color: const Color(0xFFFFD600), // Strong Yellow
+        bgColor: const Color(0xFFFFF9C4), // Light Yellow
+        label: "RAPPEL",
+        badgeIcon: Icons.timer_rounded,
       );
     }
 
@@ -283,7 +293,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
               child: Container(
                 padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(color: Colors.deepOrange, shape: BoxShape.circle),
+                decoration: const BoxDecoration(color: Colors.deepOrange, shape: BoxShape.circle),
                 child: const Icon(Icons.priority_high_rounded, color: Colors.white, size: 10),
               ),
             ),
@@ -395,6 +405,17 @@ class _NotificationsPageState extends State<NotificationsPage> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const MorningBriefingSummaryPage()),
+      );
+      return;
+    }
+
+    // ----------------------------------------------------------------------
+    // 🚗 0.5 MILEAGE REMINDER LOGIC (Fleet Redirection)
+    // ----------------------------------------------------------------------
+    if (type == 'reminder' && collection == 'vehicles') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const FleetListPage()),
       );
       return;
     }
@@ -600,6 +621,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     if (group.collection == 'portal_requests') categoryName = "DEMANDE CLIENT";
     if (group.collection == 'vehicles') categoryName = "GESTION PARC";
     if (group.type == 'morning_briefing') categoryName = "QUOTIDIEN"; // ☀️ Special Header
+    if (group.type == 'reminder') categoryName = "RAPPEL HEBDOMADAIRE"; // ⏰ Special Header
 
     return Container(
       decoration: BoxDecoration(
@@ -634,7 +656,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                       child: Text(
                         categoryName,
                         style: GoogleFonts.poppins(
-                          color: Colors.white,
+                          color: status.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white, // Smart Text Color
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 1.5,
@@ -653,7 +675,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         child: Text(
                           "NON LU",
                           style: GoogleFonts.poppins(
-                            color: Colors.white,
+                            color: status.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
                             fontSize: 9,
                             fontWeight: FontWeight.bold,
                           ),
@@ -743,17 +765,43 @@ class _NotificationsPageState extends State<NotificationsPage> {
                       ),
                     ),
                     const Spacer(),
-                    Text(
-                      "VOIR",
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: _primaryBlue,
-                        letterSpacing: 0.5,
+                    // 🚗 Special Action Button for Mileage Reminder
+                    if (group.type == 'reminder')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.amber),
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              "METTRE À JOUR",
+                              style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.amber.shade900,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(Icons.edit_road, size: 14, color: Colors.amber.shade900),
+                          ],
+                        ),
+                      )
+                    else ...[
+                      Text(
+                        "VOIR",
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _primaryBlue,
+                          letterSpacing: 0.5,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(Icons.arrow_forward_rounded, size: 16, color: _primaryBlue),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_forward_rounded, size: 16, color: _primaryBlue),
+                    ],
                   ],
                 ),
               ),

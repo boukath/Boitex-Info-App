@@ -1507,7 +1507,9 @@ export const weeklyMileageReminder = onSchedule({
   timeZone: "Africa/Algiers",
 }, async (event) => {
   console.log("🚗 Starting Weekly Mileage Reminder...");
+  const db = admin.firestore();
 
+  // 1. Send PUSH (Topic) - Fast
   try {
     const message: admin.messaging.Message = {
       topic: "FLEET_REMINDERS", // ⚠️ Ensure users subscribe to this topic!
@@ -1518,7 +1520,8 @@ export const weeklyMileageReminder = onSchedule({
       data: {
         click_action: "FLUTTER_NOTIFICATION_CLICK",
         screen: "/fleet", // Custom data to guide the app to the Fleet List
-        relatedCollection: "vehicles"
+        relatedCollection: "vehicles",
+        type: "reminder"
       },
       android: {
         priority: "high",
@@ -1529,8 +1532,54 @@ export const weeklyMileageReminder = onSchedule({
     };
 
     await admin.messaging().send(message);
-    console.log("✅ Weekly mileage reminder sent to FLEET_REMINDERS topic.");
+    console.log("✅ Weekly mileage Push sent to FLEET_REMINDERS.");
   } catch (error) {
     logger.error("❌ Error sending weekly mileage reminder:", error);
+  }
+
+  // 2. Save to FIRESTORE (Persistence)
+  // This ensures it appears in the NotificationsPage as a card
+  try {
+    // Target Roles: Managers, Techs, Sales (People likely to have cars)
+    const targetRoles = [
+      ...ROLES_MANAGERS,
+      ...ROLES_TECH_ST,
+      ...ROLES_TECH_IT,
+      ...ROLES_COMMERCIAL
+    ];
+
+    // Deduplicate roles just in case
+    const uniqueRoles = [...new Set(targetRoles)];
+
+    const batch = db.batch();
+    let batchCount = 0;
+
+    // Loop through roles to find users and save notification
+    for (const role of uniqueRoles) {
+      const usersSnapshot = await db.collection('users').where('role', '==', role).get();
+
+      usersSnapshot.docs.forEach(doc => {
+        const notifRef = db.collection('user_notifications').doc();
+        batch.set(notifRef, {
+          userId: doc.id,
+          title: "Relevé Kilométrique 🚗",
+          body: "C'est Dimanche ! Merci de mettre à jour le kilométrage.",
+          type: "reminder", // Special type for styling (e.g. Yellow card)
+          isRead: false,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          relatedCollection: "vehicles",
+          actionUrl: "/fleet"
+        });
+        batchCount++;
+      });
+    }
+
+    if (batchCount > 0) {
+      await batch.commit();
+      console.log(`💾 Saved Persistent Mileage Reminder to DB for ${batchCount} users.`);
+    }
+
+  } catch (dbError) {
+    console.error("❌ Error saving mileage persistence:", dbError);
   }
 });
