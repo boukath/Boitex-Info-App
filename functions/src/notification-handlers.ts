@@ -1334,13 +1334,17 @@ export const sendMorningBriefing = onSchedule({
       if (bodyLines.length === 0) return;
 
       const messageBody = bodyLines.join("\n");
+      const title = `📊 Briefing Matinal - ${currentDayName}`;
       // IMPORTANT: Ensure topic name matches what the app subscribes to!
       const topicName = `user_role_${role.replace(/\s+/g, '_')}`; // e.g., user_role_Admin
 
+      // -----------------------------------------------------
+      // 🚀 A. SEND PUSH (VIA TOPIC)
+      // -----------------------------------------------------
       await admin.messaging().send({
         topic: topicName,
         notification: {
-          title: `📊 Briefing Matinal - ${currentDayName}`,
+          title: title,
           body: messageBody,
         },
         data: {
@@ -1349,7 +1353,39 @@ export const sendMorningBriefing = onSchedule({
         }
       });
 
-      console.log(`✅ Sent briefing to ${role} (Topic: ${topicName})`);
+      console.log(`✅ Sent Push Briefing to ${role} (Topic: ${topicName})`);
+
+      // -----------------------------------------------------
+      // 💾 B. SAVE TO FIRESTORE (PERSISTENCE)
+      // -----------------------------------------------------
+      try {
+        const usersSnapshot = await db.collection('users')
+          .where('role', '==', role)
+          .get();
+
+        if (!usersSnapshot.empty) {
+          const batch = db.batch();
+
+          usersSnapshot.docs.forEach(userDoc => {
+            const notifRef = db.collection('user_notifications').doc();
+            batch.set(notifRef, {
+              userId: userDoc.id,
+              title: title,
+              body: messageBody,
+              type: "morning_briefing", // 🔑 CRITICAL for Smart Nav
+              isRead: false,
+              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+              // Optional: Store stats directly
+              stats: counts
+            });
+          });
+
+          await batch.commit();
+          console.log(`💾 Saved Briefing to DB for ${usersSnapshot.size} users in role ${role}`);
+        }
+      } catch (dbError) {
+        console.error(`❌ Failed to save briefing to DB for role ${role}:`, dbError);
+      }
     });
 
     await Promise.all(sendPromises);

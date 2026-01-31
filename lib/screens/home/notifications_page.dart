@@ -32,10 +32,14 @@ import 'package:boitex_info_app/screens/administration/portal_request_details_pa
 // ✅ NEW IMPORT: For Fleet Navigation
 import 'package:boitex_info_app/screens/fleet/fleet_list_page.dart';
 
+// ✅ NEW IMPORT: For Morning Briefing
+import 'package:boitex_info_app/screens/dashboard/morning_briefing_summary_page.dart';
+
 // ✅ HELPER CLASS FOR GROUPING
 class NotificationGroup {
   final String docId;
   final String collection;
+  final String type; // ✅ Added type to distinguish special notifs
   final List<DocumentSnapshot> events;
   final DateTime latestTimestamp;
   final bool hasUnread;
@@ -43,6 +47,7 @@ class NotificationGroup {
   NotificationGroup({
     required this.docId,
     required this.collection,
+    this.type = '', // Default empty
     required this.events,
     required this.latestTimestamp,
     required this.hasUnread,
@@ -100,6 +105,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
+      // For standard docs, key is relatedDocId. For Briefings, we group by type + date (approx) or just ID.
+      // Since Briefings have unique IDs in Firestore but no relatedDocId, we use doc.id.
       final String key = data['relatedDocId'] ?? doc.id;
 
       if (!groups.containsKey(key)) {
@@ -122,6 +129,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       groupList.add(NotificationGroup(
         docId: key,
         collection: latestDoc['relatedCollection'] ?? 'unknown',
+        type: latestDoc['type'] ?? '', // Capture Type
         events: events,
         latestTimestamp: (latestDoc['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
         hasUnread: hasUnread,
@@ -195,8 +203,18 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   /// ✅ CENTRALIZED STATUS LOGIC
-  _StatusAttributes _getStatusAttributes(String body) {
+  _StatusAttributes _getStatusAttributes(String body, String type) {
     final lowerBody = body.toLowerCase();
+
+    // ☀️ MORNING BRIEFING
+    if (type == 'morning_briefing') {
+      return _StatusAttributes(
+        color: Colors.amber.shade800,
+        bgColor: Colors.amber.shade50,
+        label: "BRIEFING",
+        badgeIcon: Icons.wb_sunny_rounded,
+      );
+    }
 
     if (lowerBody.contains("terminé") || lowerBody.contains("clôturé") || lowerBody.contains("livré") || lowerBody.contains("validé")) {
       return _StatusAttributes(
@@ -242,8 +260,39 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   /// ✅ DYNAMIC STORYTELLER ICON
-  Widget _buildDynamicStoryIcon(String collection, String body) {
-    final status = _getStatusAttributes(body);
+  Widget _buildDynamicStoryIcon(String collection, String body, String type) {
+    // ☀️ Special Case for Briefing
+    if (type == 'morning_briefing') {
+      return Stack(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.amber.shade200, width: 1.5),
+            ),
+            child: Icon(Icons.wb_sunny_rounded, color: Colors.amber.shade800, size: 28),
+          ),
+          Positioned(
+            bottom: -2,
+            right: -2,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(color: Colors.deepOrange, shape: BoxShape.circle),
+                child: const Icon(Icons.priority_high_rounded, color: Colors.white, size: 10),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final status = _getStatusAttributes(body, type);
     final IconData mainIcon = _getIconForCollection(collection);
 
     return Stack(
@@ -330,12 +379,24 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   // ✅ NAVIGATION LOGIC (UPDATED WITH SMART REDIRECT)
-  Future<void> _navigateToDetails(String? collection, String? docId, List<DocumentSnapshot> groupEvents) async {
+  Future<void> _navigateToDetails(String? collection, String? docId, String type, List<DocumentSnapshot> groupEvents) async {
+    // 1. Mark as Read immediately
     for (var doc in groupEvents) {
       final data = doc.data() as Map<String, dynamic>;
       if (data['isRead'] == false) {
         FirebaseFirestore.instance.collection('user_notifications').doc(doc.id).update({'isRead': true});
       }
+    }
+
+    // ----------------------------------------------------------------------
+    // ☀️ 0. MORNING BRIEFING LOGIC (Highest Priority)
+    // ----------------------------------------------------------------------
+    if (type == 'morning_briefing') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MorningBriefingSummaryPage()),
+      );
+      return;
     }
 
     if (collection == null || docId == null) return;
@@ -531,13 +592,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final String rawBody = latestData['body'] ?? '';
     final String cleanTitle = _cleanTitle(rawTitle);
     final int count = group.events.length;
-    final status = _getStatusAttributes(rawBody); // Get status info
+    final status = _getStatusAttributes(rawBody, group.type); // Get status info
 
     // Determine category name from collection
     String categoryName = group.collection.toUpperCase();
     if (group.collection == 'sav_tickets') categoryName = "SERVICE APRÈS-VENTE";
     if (group.collection == 'portal_requests') categoryName = "DEMANDE CLIENT";
     if (group.collection == 'vehicles') categoryName = "GESTION PARC";
+    if (group.type == 'morning_briefing') categoryName = "QUOTIDIEN"; // ☀️ Special Header
 
     return Container(
       decoration: BoxDecoration(
@@ -554,7 +616,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: InkWell(
-          onTap: () => _navigateToDetails(group.collection, group.docId, group.events),
+          onTap: () => _navigateToDetails(group.collection, group.docId, group.type, group.events),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -589,7 +651,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          "NON LU", // ⚡ UPDATED: Changed from "NOUVEAU" to "NON LU"
+                          "NON LU",
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontSize: 9,
@@ -608,7 +670,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Dynamic Icon (Matches Status Color)
-                    _buildDynamicStoryIcon(group.collection, rawBody),
+                    _buildDynamicStoryIcon(group.collection, rawBody, group.type),
 
                     const SizedBox(width: 16),
 

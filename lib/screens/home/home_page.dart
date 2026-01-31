@@ -17,6 +17,8 @@ import 'package:boitex_info_app/screens/home/notifications_page.dart';
 import 'package:boitex_info_app/screens/settings/global_settings_page.dart';
 // ✅ IMPORT THE FLEET GARAGE
 import 'package:boitex_info_app/screens/fleet/fleet_list_page.dart';
+// ✅ IMPORT MORNING BRIEFING SUMMARY
+import 'package:boitex_info_app/screens/dashboard/morning_briefing_summary_page.dart';
 
 class HomePage extends StatefulWidget {
   final String userRole;
@@ -246,10 +248,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
-  // 🚗 THE NEW GARAGE ICON WIDGET
+  // 🚗 THE GARAGE ICON WIDGET
   Widget _buildGarageIcon(BuildContext context) {
     // ✅ VISIBLE FOR EVERYONE (Restriction Removed)
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.2),
@@ -271,6 +272,36 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             context,
             MaterialPageRoute(
               builder: (context) => const FleetListPage(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ☀️ THE NEW MORNING BRIEFING ICON
+  Widget _buildBriefingIcon(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1.5,
+        ),
+      ),
+      child: IconButton(
+        icon: Icon(
+          Icons.wb_sunny_rounded, // Sun Icon indicates "Morning/Day Start"
+          color: Colors.white,
+          size: kIsWeb ? 20 : 18,
+        ),
+        tooltip: 'Briefing Matinal',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MorningBriefingSummaryPage(),
             ),
           );
         },
@@ -406,6 +437,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ],
               ),
             ),
+            const SizedBox(width: 16),
+
+            // ✅ BRIEFING ICON (WEB) - Placed before Garage
+            _buildBriefingIcon(context),
             const SizedBox(width: 16),
 
             // ✅ CAR ICON (WEB)
@@ -771,6 +806,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly, // ✅ Clean Layout
                         children: [
+                          // ✅ BRIEFING ICON (MOBILE) - First item for "Start of Day"
+                          _buildBriefingIcon(context),
+
                           // ✅ CAR ICON (MOBILE)
                           _buildGarageIcon(context),
 
