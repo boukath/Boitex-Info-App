@@ -10,6 +10,7 @@ import { HttpsError } from "firebase-functions/v2/https";
 // ✅ --- NEW ---
 // Import our new PDF generator function
 import { generateInterventionPdf } from "./pdf-generator";
+import { getEmailSettings } from "./email-utils"; // ✅ NEW IMPORT
 // ✅ --- END NEW ---
 
 // --- 1. Define the secrets we just set ---
@@ -20,17 +21,6 @@ const smtpPassword = defineSecret("SMTP_PASSWORD");
 
 // --- CONFIGURATION CONSTANTS (ADDED FOR SERVICE IT) ---
 const SERVICE_IT = "Service IT";
-
-const CC_LIST_TECH = [
-"athmane-boukerdous@boitexinfo.com",
-"commercial@boitexinfo.com",
-"khaled-mekideche@boitexinfo.com"
-];
-
-const CC_LIST_IT = [
-"commercial@boitexinfo.com",
-"karim-lehamine@boitexinfo.com"
-];
 
 /**
 * Validates if a string is a plausible email address.
@@ -231,14 +221,22 @@ export const onInterventionTermine = onDocumentUpdated(
 
     // --- 7.5. DETERMINE IDENTITY (IT vs TECHNIQUE) ---
     let fromDisplayName = "Boitex Info Service Technique";
-    let ccList = CC_LIST_TECH;
     let pdfSubjectPrefix = "Rapport Intervention";
+
+    // ✅ NEW: Fetch Dynamic Email Settings
+    const emailSettings = await getEmailSettings();
+    let ccList: string[] = [];
 
     if (serviceType === SERVICE_IT) {
       fromDisplayName = "Boitex Info Service IT";
-      ccList = CC_LIST_IT;
+      ccList = emailSettings.intervention_cc_it; // Use dynamic IT list
       pdfSubjectPrefix = "Rapport Intervention IT";
+    } else {
+      ccList = emailSettings.intervention_cc_tech; // Use dynamic Tech list
     }
+
+    // Filter out the manager's own email so they don't get it twice (optional)
+    ccList = ccList.filter(email => email !== managerEmail);
 
     // --- 8. Define Email Content ---
     const subject = `${pdfSubjectPrefix}: ${interventionCode} - ${afterData?.clientName || "Client"}`;

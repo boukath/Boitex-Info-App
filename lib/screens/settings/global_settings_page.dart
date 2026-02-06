@@ -10,6 +10,9 @@ import 'package:boitex_info_app/screens/settings/user_role_manager_page.dart';
 import 'package:boitex_info_app/screens/settings/morning_briefing_page.dart';
 import 'package:boitex_info_app/services/update_service.dart';
 
+// ✅ IMPORT THE NEW EMAIL SETTINGS PAGE
+import 'package:boitex_info_app/screens/settings/email_settings_page.dart';
+
 // ✅ IMPORT THE NEW PROFILE HEADER
 import 'package:boitex_info_app/screens/settings/widgets/profile_header.dart';
 
@@ -133,6 +136,21 @@ class _GlobalSettingsPageState extends State<GlobalSettingsPage> {
                     onTap: () {
                       HapticFeedback.lightImpact();
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const UserRoleManagerPage()));
+                    },
+                  ),
+
+                  _buildDivider(),
+
+                  // ✅ NEW: Email CC Manager
+                  _buildSettingsTile(
+                    context,
+                    title: 'Destinataires Emails (CC)',
+                    subtitle: 'Gérer les copies cachées (Tech, IT, SAV)',
+                    icon: Icons.alternate_email,
+                    iconColor: Colors.teal,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const EmailSettingsPage()));
                     },
                   ),
 

@@ -4,7 +4,9 @@ import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as nodemailer from "nodemailer";
 import { defineSecret } from "firebase-functions/params";
-import { generateSavReturnPdf } from "./sav-return-pdf-generator"; // ✅ Import from the NEW file
+import { generateSavReturnPdf } from "./sav-return-pdf-generator";
+// ✅ Import the dynamic email settings helper
+import { getEmailSettings } from "./email-utils";
 
 // Reuse Secrets
 const smtpHost = defineSecret("SMTP_HOST");
@@ -13,16 +15,16 @@ const smtpUser = defineSecret("SMTP_USER");
 const smtpPassword = defineSecret("SMTP_PASSWORD");
 
 /**
- * TRIGGER: Fires ONLY when status changes to "Retourné".
- */
+* TRIGGER: Fires ONLY when status changes to "Retourné".
+*/
 export const onSavTicketReturned = onDocumentUpdated(
-  {
-    document: "sav_tickets/{ticketId}",
-    secrets: [smtpHost, smtpPort, smtpUser, smtpPassword],
-    region: "europe-west1",
-    retry: false,
-  },
-  async (event) => {
+{
+document: "sav_tickets/{ticketId}",
+secrets: [smtpHost, smtpPort, smtpUser, smtpPassword],
+region: "europe-west1",
+retry: false,
+},
+async (event) => {
     if (!event.data) return;
     const before = event.data.before.data();
     const after = event.data.after.data();
@@ -54,22 +56,33 @@ export const onSavTicketReturned = onDocumentUpdated(
       const recipient = after.storeManagerEmail || "commercial@boitexinfo.com";
       const returnDate = new Date().toLocaleDateString("fr-FR");
 
+      // ✅ NEW: Fetch Dynamic SAV Settings
+      const emailSettings = await getEmailSettings();
+
+      // ✅ SMART ROUTING
+      const serviceType = after.serviceType || "Service Technique";
+      let ccList: string[] = [];
+      let fromDisplayName = "Boitex Info SAV";
+
+      if (serviceType.toString().toUpperCase().includes("IT")) {
+        ccList = emailSettings.sav_cc_it;
+        fromDisplayName = "Boitex Info SAV IT";
+      } else {
+        ccList = emailSettings.sav_cc_tech;
+      }
+
       const mailOptions = {
-        from: `"Boitex Info SAV" <${smtpUser.value()}>`,
+        from: `"${fromDisplayName}" <${smtpUser.value()}>`,
         to: recipient,
-        cc: [
-          "khaled-mekideche@boitexinfo.com",
-          "commercial@boitexinfo.com",
-          "athmane-boukerdous@boitexinfo.com"
-            ],
+        cc: ccList, // ✅ Dynamic List
         subject: `[BON DE RESTITUTION] Retour SAV - ${after.productName} (${savCode})`,
         html: `
           <div style="font-family: Arial, sans-serif; color: #333;">
             <h2 style="color: #0D47A1;">Restitution de Matériel SAV</h2>
             <p>Bonjour ${after.storeManagerName || "Client"},</p>
-            
+
             <p>Nous vous confirmons la restitution de votre matériel ce jour (${returnDate}).</p>
-            
+
             <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
               <strong>Détails de l'intervention :</strong><br/>
               Produit : ${after.productName}<br/>
@@ -79,7 +92,7 @@ export const onSavTicketReturned = onDocumentUpdated(
             </div>
 
             <p>Veuillez trouver ci-joint le <strong>Bon de Restitution</strong> officiel.</p>
-            
+
             <hr style="border: 0; border-top: 1px solid #eee;" />
             <p style="font-size: 12px; color: #666;">
               Boitex Info SARL
@@ -97,7 +110,7 @@ export const onSavTicketReturned = onDocumentUpdated(
 
       // 3. Send
       await transporter.sendMail(mailOptions);
-      logger.info(`✅ Return email sent to ${recipient} for ${savCode}`);
+      logger.info(`✅ Return email sent to ${recipient} (CC: ${ccList.length}) for ${savCode}`);
 
     } catch (error) {
       logger.error(`❌ Error processing Return PDF for ${savCode}:`, error);

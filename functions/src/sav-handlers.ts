@@ -4,7 +4,9 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as nodemailer from "nodemailer";
 import { defineSecret } from "firebase-functions/params";
-import { generateSavDechargePdf } from "./sav-pdf-generator"; // ✅ Import the new generator
+import { generateSavDechargePdf } from "./sav-pdf-generator";
+// ✅ Import the dynamic email settings helper
+import { getEmailSettings } from "./email-utils";
 
 // --- 1. Define Secrets (Reusing existing SMTP config) ---
 const smtpHost = defineSecret("SMTP_HOST");
@@ -21,8 +23,6 @@ export const onSavTicketCreated = onDocumentCreated(
 document: "sav_tickets/{ticketId}",
 secrets: [smtpHost, smtpPort, smtpUser, smtpPassword],
 region: "europe-west1",
-// Retry ensures if the email fails due to network, it tries again.
-// Set to false if you want to avoid risk of double emails.
 retry: false,
 },
 async (event) => {
@@ -39,9 +39,7 @@ async (event) => {
     // ✅ CHECK TICKET TYPE
     const isRemoval = data.ticketType === 'removal';
 
-    // ✅ Safety Check:
-    // - If it's a standard SAV, we expect "Nouveau".
-    // - If it's a Removal, the App sets it to "Terminé" immediately, so we MUST allow "Terminé" if type is removal.
+    // ✅ Safety Check
     if (data.status !== "Nouveau" && !isRemoval) {
         logger.info(`Skipping ticket ${savCode} because status is not Nouveau (and not a Removal).`);
         return;
@@ -71,24 +69,22 @@ async (event) => {
         : "commercial@boitexinfo.com";
 
       // --- 4. Determine Internal Team (CC) based on Service Type ---
-      // Defaults to Service Technique if undefined
+      // ✅ NEW: Fetch Dynamic SAV Settings
+      const emailSettings = await getEmailSettings();
+
+      // ✅ SMART ROUTING
       const serviceType = data.serviceType || "Service Technique";
       let ccList: string[] = [];
+      let fromDisplayName = "Boitex SAV";
 
       if (serviceType.toString().toUpperCase().includes("IT")) {
-        // 💻 Service IT List
-        ccList = [
-          "karim-lehamine@boitexinfo.com",
-          "commercial@boitexinfo.com"
-        ];
+        // 💻 IT Team
+        ccList = emailSettings.sav_cc_it;
+        fromDisplayName = "Boitex SAV IT";
         logger.info(`📧 Routing to IT Team: ${ccList.join(", ")}`);
       } else {
-        // 🔧 Service Technique List (Default)
-        ccList = [
-          "khaled-mekideche@boitexinfo.com",
-          "commercial@boitexinfo.com",
-          "athmane-boukerdous@boitexinfo.com"
-        ];
+        // 🔧 Technical Team (Default)
+        ccList = emailSettings.sav_cc_tech;
         logger.info(`📧 Routing to Technical Team: ${ccList.join(", ")}`);
       }
 
@@ -115,14 +111,12 @@ async (event) => {
       if (data.multiProducts && data.multiProducts.length > 0) {
         // 🅰️ BATCH MODE: HTML Table
         itemsHtml += `<table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 13px; margin-top: 10px; margin-bottom: 20px;">`;
-        // Header
         itemsHtml += `<thead style="background-color: #f2f2f2;"><tr>`;
         itemsHtml += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Produit</th>`;
         itemsHtml += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">N° Série</th>`;
         itemsHtml += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">${problemLabel}</th>`;
         itemsHtml += `</tr></thead>`;
-        // Body
-        itemsHtml += `<tbody>`;
+        itemsHtml += `</tbody>`;
         data.multiProducts.forEach((item: any) => {
           itemsHtml += `<tr>`;
           itemsHtml += `<td style="border: 1px solid #ddd; padding: 8px;">${item.productName || "N/A"}</td>`;
@@ -131,8 +125,6 @@ async (event) => {
           itemsHtml += `</tr>`;
         });
         itemsHtml += `</tbody></table>`;
-
-        // Add Technicians info below table for Batch
         itemsHtml += `<p style="margin-top: 0;"><strong>Technicien(s) :</strong> ${techString}</p>`;
 
       } else {
@@ -147,7 +139,7 @@ async (event) => {
 
       // --- 6. Construct Email ---
       const mailOptions = {
-        from: `"Boitex SAV" <${smtpUser.value()}>`,
+        from: `"${fromDisplayName}" <${smtpUser.value()}>`,
         to: recipient,
         cc: ccList,
         subject: emailSubject,
@@ -184,7 +176,6 @@ async (event) => {
 
     } catch (error) {
       logger.error(`❌ Error processing SAV Document for ${savCode}:`, error);
-      // If you set retry: true, throwing here would trigger a retry
     }
   }
 );

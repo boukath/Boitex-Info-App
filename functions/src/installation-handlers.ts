@@ -9,6 +9,8 @@ import {onCall, HttpsError} from "firebase-functions/v2/https";
 
 // ✅ Import the specific PDF generator for Installations
 import { generateInstallationPdf } from "./installation-pdf-generator";
+// ✅ Import the dynamic email settings helper
+import { getEmailSettings } from "./email-utils";
 
 // ✅ Define Secrets
 const smtpHost = defineSecret("SMTP_HOST");
@@ -152,20 +154,22 @@ export const onInstallationTermine = onDocumentUpdated(
          logger.log(`📧 Sending to client: ${mainRecipient}`);
       }
 
-      // Smart Routing
+      // ✅ NEW: Fetch Dynamic Installation Settings
+      const emailSettings = await getEmailSettings();
+
+      // ✅ SMART ROUTING: Determine IT vs Tech
       const serviceType = after.serviceType || "Service Technique";
       let ccList: string[] = [];
+      let fromDisplayName = "Boitex Installation"; // Default sender name
 
       if (serviceType.toString().toUpperCase().includes("IT")) {
-        ccList = [
-          "karim-lehamine@boitexinfo.com"
-        ];
+        // 💻 Use IT List
+        ccList = emailSettings.installation_cc_it;
+        fromDisplayName = "Boitex Installation IT";
         logger.info(`📧 Routing to IT Team: ${ccList.join(", ")}`);
       } else {
-        ccList = [
-          "athmane-boukerdous@boitexinfo.com",
-          "khaled-mekideche@boitexinfo.com"
-        ];
+        // 🔧 Use Tech List (Default)
+        ccList = emailSettings.installation_cc_tech;
         logger.info(`📧 Routing to Technical Team: ${ccList.join(", ")}`);
       }
 
@@ -193,7 +197,7 @@ export const onInstallationTermine = onDocumentUpdated(
       });
 
       const mailOptions = {
-        from: `"Boitex Installation" <${smtpUser.value()}>`,
+        from: `"${fromDisplayName}" <${smtpUser.value()}>`,
         to: mainRecipient,
         cc: ccList,
         subject: `[RAPPORT INSTALLATION] Confirmation de Fin de Travaux - ${after.clientName} (${after.installationCode})`,
