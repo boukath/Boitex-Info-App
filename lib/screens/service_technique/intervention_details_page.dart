@@ -3,8 +3,9 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui; // ✅ Fix TextDirection conflict
 import 'package:flutter/material.dart';
-// ✅ ADDED: Required for kIsWeb check
+// ✅ REQUIRED for kIsWeb check
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -79,6 +80,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   List<AppUser> _allTechnicians = [];
   List<AppUser> _selectedTechnicians = [];
   bool _isLoading = false;
+
+  // ✅ NEW: Edit Mode Toggle
+  bool _isEditing = false;
+
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _mediaFilesToUpload = [];
   List<String> _existingMediaUrls = [];
@@ -130,8 +135,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     return optionsSet.toList();
   }
 
-  // Read-only when closed or invoiced
-  bool get isReadOnly {
+  // ✅ UPDATED: Strictly Read-Only (Archived)
+  bool get isArchived {
     final status =
         (widget.interventionDoc.data() ?? {})['status'] as String? ?? 'Nouveau';
     return ['Clôturé', 'Facturé'].contains(status);
@@ -155,6 +160,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
 
+    // ✅ Initialize Edit Mode
+    // If it's 'Nouveau', we assume user wants to edit immediately.
+    // If 'En cours' or 'Terminé', we show the nice "Read More" view by default.
+    _isEditing = ['Nouveau', 'Nouvelle Demande'].contains(_currentStatus);
+
     // ✅ Load Schedule
     if (data['scheduledAt'] != null) {
       _scheduledAt = (data['scheduledAt'] as Timestamp).toDate();
@@ -163,11 +173,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     // ✅ DATA MIGRATION: Handle old single-product vs new multi-product-quantity
     if (data['systems'] != null) {
       _selectedSystems = List<Map<String, dynamic>>.from(data['systems']);
-      // Ensure quantity and serialNumbers list exists for migrated data
       for (var system in _selectedSystems) {
         if (system['quantity'] == null) system['quantity'] = 1;
         if (system['serialNumbers'] == null) {
-          // Migrate old single serial to list
           String? oldSn = system['serialNumber'];
           int qty = system['quantity'] ?? 1;
           List<String> snList = List.filled(qty, '');
@@ -201,16 +209,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       if (mounted) setState(() {});
     });
 
-    // Check history for auto-suggestion if list is empty
     if (_selectedSystems.isEmpty) {
       _checkForPreviousSystem();
     }
 
-    // ✅ NEW: Fetch Store GPS & Contact Info
     _fetchStoreData();
   }
 
-  // ✅ NEW: Fetch Store Data (GPS + Contact Info)
   Future<void> _fetchStoreData() async {
     final data = widget.interventionDoc.data();
     if (data == null) return;
@@ -232,15 +237,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           final storeData = storeDoc.data();
           if (storeData != null && mounted) {
             setState(() {
-              // 1. Set GPS
               if (storeData['latitude'] != null &&
                   storeData['longitude'] != null) {
                 _storeLat = (storeData['latitude'] as num).toDouble();
                 _storeLng = (storeData['longitude'] as num).toDouble();
               }
-
-              // 2. Auto-fill Contact Info if empty
-              // Check for 'contactName' (new standard) or 'managerName' (legacy)
               if (_managerNameController.text.isEmpty) {
                 _managerNameController.text = storeData['contactName'] ??
                     storeData['managerName'] ??
@@ -267,12 +268,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Launch Maps Logic
   Future<void> _launchMaps() async {
     if (_storeLat == null || _storeLng == null) return;
-
     final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$_storeLat,$_storeLng");
-
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
@@ -284,12 +282,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Rescheduling Logic
   Future<void> _editSchedule() async {
     final now = DateTime.now();
     final initialDate = _scheduledAt ?? now;
-    final initialTime =
-    _scheduledAt != null ? TimeOfDay.fromDateTime(_scheduledAt!) : const TimeOfDay(hour: 9, minute: 0);
+    final initialTime = _scheduledAt != null
+        ? TimeOfDay.fromDateTime(_scheduledAt!)
+        : const TimeOfDay(hour: 9, minute: 0);
 
     final pickedDate = await showDatePicker(
       context: context,
@@ -319,9 +317,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() => _isLoading = true);
 
     try {
-      String flashNote = "📅 Rendez-vous reprogrammé au ${DateFormat('dd/MM HH:mm').format(newSchedule)}";
+      String flashNote =
+          "📅 Rendez-vous reprogrammé au ${DateFormat('dd/MM HH:mm').format(newSchedule)}";
       if (_scheduledAt != null) {
-        flashNote += " (était: ${DateFormat('dd/MM HH:mm').format(_scheduledAt!)})";
+        flashNote +=
+        " (était: ${DateFormat('dd/MM HH:mm').format(_scheduledAt!)})";
       }
 
       await widget.interventionDoc.reference.update({
@@ -337,7 +337,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Planning mis à jour avec succès!'), backgroundColor: Colors.green),
+          const SnackBar(
+              content: Text('Planning mis à jour avec succès!'),
+              backgroundColor: Colors.green),
         );
       }
     } catch (e) {
@@ -350,11 +352,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ UPGRADED: History Logic for Multiple Systems
   Future<void> _checkForPreviousSystem() async {
     final data = widget.interventionDoc.data();
     if (data == null) return;
-
     final String? storeId = data['storeId'];
     if (storeId == null) return;
 
@@ -368,7 +368,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       for (var doc in query.docs) {
         if (doc.id == widget.interventionDoc.id) continue;
-
         final prevData = doc.data();
         List<Map<String, dynamic>> foundSystems = [];
 
@@ -410,10 +409,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           newMap['serialNumbers'] = [''];
           return newMap;
         }).toList();
-
         _suggestedSystemsFromHistory = null;
       });
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('Systèmes ajoutés. Veuillez vérifier les quantités.'),
@@ -475,7 +472,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
     if (result == null) return;
 
-    // ✅ FIXED: Support both DocumentSnapshot (old) and Map (new from GlobalProductSearchPage)
     String? id;
     String name = 'Produit sans nom';
     String reference = 'Ref: N/A';
@@ -485,7 +481,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     int qty = 1;
 
     if (result is DocumentSnapshot) {
-      // Logic A: Received a snapshot (standard)
       final data = result.data() as Map<String, dynamic>;
       id = result.id;
       name = data['nom'] ?? name;
@@ -494,21 +489,19 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       category = data['categorie'] ?? data['category'];
       final images = (data['imageUrls'] as List?)?.cast<String>() ?? [];
       if (images.isNotEmpty) image = images.first;
-
       qty = await _requestQuantity();
-
     } else if (result is Map<String, dynamic>) {
-      // Logic B: Received a Map from the new Search Page
-      // Keys expected: productId, productName, quantity, partNumber, marque
       id = result['productId'] ?? result['id'];
       name = result['productName'] ?? result['nom'] ?? name;
       reference = result['partNumber'] ?? result['reference'] ?? reference;
       marque = result['marque'];
-      category = result['categorie'] ?? result['category']; // might be null in map
-      image = result['image'] ?? result['imageUrl']; // might be null in map
+      category = result['categorie'] ?? result['category'];
+      image = result['image'] ?? result['imageUrl'];
 
       if (result.containsKey('quantity')) {
-        qty = result['quantity'] is int ? result['quantity'] : (int.tryParse(result['quantity'].toString()) ?? 1);
+        qty = result['quantity'] is int
+            ? result['quantity']
+            : (int.tryParse(result['quantity'].toString()) ?? 1);
       } else {
         qty = await _requestQuantity();
       }
@@ -610,7 +603,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   Future<void> _pickFromStoreInventory() async {
     final data = widget.interventionDoc.data();
     if (data == null) return;
-
     final String? clientId = data['clientId'];
     final String? storeId = data['storeId'];
 
@@ -694,7 +686,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                             itemBuilder: (context, index) {
                               final asset =
                               assets[index].data() as Map<String, dynamic>;
-
                               final String name =
                                   asset['name'] ?? asset['nom'] ?? 'Inconnu';
                               final String serial = asset['serialNumber'] ??
@@ -783,7 +774,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             serials.add(serial);
           }
         }
-
         _selectedSystems[existingIndex]['quantity'] = newQty;
         _selectedSystems[existingIndex]['serialNumbers'] = serials;
       } else {
@@ -1112,7 +1102,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // Upload XFile (Media)
   Future<String?> _uploadFileToB2(
       XFile file, Map<String, dynamic> b2Creds) async {
     try {
@@ -1149,7 +1138,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // Upload Raw Bytes (Signatures)
   Future<String?> _uploadBytesToB2(
       Uint8List data, String fileName, Map<String, dynamic> b2Creds) async {
     try {
@@ -1184,7 +1172,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ✅ NEW: Smart Inventory Sync Logic
   Future<void> _updateStoreInventory(String clientId, String storeId) async {
     final storeRef = FirebaseFirestore.instance
         .collection('clients')
@@ -1194,7 +1181,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         .collection('materiel_installe');
 
     for (var system in _selectedSystems) {
-      // 1. Prepare data
       final String reference = system['reference'] ?? 'N/A';
       final String name = system['name'] ?? 'Produit Inconnu';
       final String? image = system['image'];
@@ -1204,42 +1190,34 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       final List<String> newSerials =
       List<String>.from(system['serialNumbers'] ?? []);
 
-      // 2. Check if product exists in this store (by Reference)
       final query = await storeRef
           .where('reference', isEqualTo: reference)
           .limit(1)
           .get();
 
       if (query.docs.isNotEmpty) {
-        // 🔄 UPDATE Existing Product
         final doc = query.docs.first;
         final existingData = doc.data();
-
-        // Calculate new totals
         int currentQty = existingData['quantity'] ?? 1;
         List<String> currentSerials =
         List<String>.from(existingData['serialNumbers'] ?? []);
 
-        // Merge serials (avoid duplicates)
         for (var sn in newSerials) {
           if (sn.isNotEmpty && !currentSerials.contains(sn)) {
             currentSerials.add(sn);
           }
         }
 
-        // Update with merged data
         await doc.reference.update({
           'quantity': currentQty + quantityToAdd,
           'serialNumbers': currentSerials,
           'lastInterventionDate': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-          // Update metadata if missing
           if (existingData['marque'] == null) 'marque': marque,
           if (existingData['category'] == null) 'category': category,
           if (existingData['imageUrl'] == null) 'imageUrl': image,
         });
       } else {
-        // 🆕 CREATE New Product in Store Inventory
         await storeRef.add({
           'name': name,
           'reference': reference,
@@ -1250,7 +1228,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'serialNumbers': newSerials,
           'installedAt': FieldValue.serverTimestamp(),
           'lastInterventionDate': FieldValue.serverTimestamp(),
-          'status': 'Opérationnel', // Default status
+          'status': 'Opérationnel',
           'addedByInterventionId': widget.interventionDoc.id,
         });
       }
@@ -1258,12 +1236,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // Save Report (UPDATED FOR MULTIPLE SYSTEMS & CONTACT INFO)
+  // Save Report
   // ----------------------------------------------------------------------
   Future<void> _saveReport() async {
     if (_isLoading) return;
 
-    // Smart Validation: Enforce products for "Terminé"
     if (_currentStatus == 'Terminé') {
       if (_selectedSystems.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1281,13 +1258,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() => _isLoading = true);
 
     try {
-      // 1) Get B2 Credentials
       final creds = await _getB2UploadCredentials();
       if (creds == null) {
         throw Exception('Impossible de récupérer les accès B2.');
       }
 
-      // 2) Upload Signature
       String? newSignatureUrl = _signatureImageUrl;
       if (_signatureController.isNotEmpty) {
         final png = await _signatureController.toPngBytes();
@@ -1303,7 +1278,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // 3) Upload Media
       final List<String> uploaded = List<String>.from(_existingMediaUrls);
       for (final file in _mediaFilesToUpload) {
         final url = await _uploadFileToB2(file, creds);
@@ -1314,7 +1288,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
-      // 4) Persist Data
       final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
         'managerPhone': _managerPhoneController.text.trim(),
@@ -1323,8 +1296,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'workDone': _workDoneController.text.trim(),
         'signatureUrl': newSignatureUrl,
         'status': _currentStatus,
-
-        // ✅ SAVE SYSTEMS LIST WITH QUANTITY & SERIALS
         'systems': _selectedSystems,
         'systemId':
         _selectedSystems.isNotEmpty ? _selectedSystems.first['id'] : null,
@@ -1336,7 +1307,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'systemImage': _selectedSystems.isNotEmpty
             ? _selectedSystems.first['image']
             : null,
-
         'assignedTechnicians':
         _selectedTechnicians.map((t) => t.displayName).toList(),
         'assignedTechniciansIds':
@@ -1352,30 +1322,25 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       await widget.interventionDoc.reference.update(reportData);
 
-      // ✅ 5) UPDATE STORE CONTACT INFO (AUTO-SAVE)
       final String? clientId =
       (widget.interventionDoc.data() ?? {})['clientId'];
       final String? storeId = (widget.interventionDoc.data() ?? {})['storeId'];
 
       if (clientId != null && storeId != null) {
-        // Save using both new standard keys and legacy keys for maximum compatibility
         await FirebaseFirestore.instance
             .collection('clients')
             .doc(clientId)
             .collection('stores')
             .doc(storeId)
             .set({
-          // Standard keys
           'contactName': _managerNameController.text.trim(),
           'contactPhone': _managerPhoneController.text.trim(),
           'contactEmail': _managerEmailController.text.trim(),
-          // Legacy keys (redundant but safe)
           'managerName': _managerNameController.text.trim(),
           'managerPhone': _managerPhoneController.text.trim(),
           'managerEmail': _managerEmailController.text.trim(),
         }, SetOptions(merge: true));
 
-        // ⭐ NEW: SYNC INVENTORY ⭐
         if (_currentStatus == 'Terminé') {
           await _updateStoreInventory(clientId, storeId);
         }
@@ -1399,7 +1364,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // Download Logic
+  // Download & PDF Logic
   // ----------------------------------------------------------------------
   Future<void> _downloadMedia(String? url) async {
     if (url == null || url.isEmpty) return;
@@ -1445,9 +1410,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  // ----------------------------------------------------------------------
-  // PDF Logic
-  // ----------------------------------------------------------------------
   Future<Uint8List?> _fetchPdfFromBackend() async {
     if (_isLoading) return null;
     setState(() => _isLoading = true);
@@ -1504,7 +1466,6 @@ L'équipe BOITEX INFO'''
     final data = widget.interventionDoc.data() ?? {};
     final baseFileName = 'Rapport-${data['interventionCode'] ?? 'N-A'}';
 
-    // ✅ WEB LOGIC
     if (kIsWeb) {
       try {
         await FileSaver.instance.saveFile(
@@ -1529,10 +1490,8 @@ L'équipe BOITEX INFO'''
       return;
     }
 
-    // 📱 MOBILE LOGIC
     final fileName = '$baseFileName.pdf';
     final content = _generateShareContent();
-
     final tempDir = await getTemporaryDirectory();
     final file = File('${tempDir.path}/$fileName');
     await file.writeAsBytes(pdfBytes);
@@ -1551,7 +1510,6 @@ L'équipe BOITEX INFO'''
     final data = widget.interventionDoc.data() ?? {};
     final title = data['interventionCode'] ?? 'Aperçu';
 
-    // ✅ WEB PREVIEW FIX
     if (kIsWeb) {
       await Printing.layoutPdf(
         onLayout: (_) => pdfBytes,
@@ -1591,11 +1549,9 @@ L'équipe BOITEX INFO'''
     final createdAtTimestamp = data['createdAt'] as Timestamp?;
     final createdAt = createdAtTimestamp?.toDate() ?? DateTime.now();
 
-    // 🟢 Step 6: Get Billing Data
     final String billingStatus = data['billingStatus'] ?? 'INCONNU';
     final String billingReason = data['billingReason'] ?? 'Non spécifié';
 
-    // 🎨 Determine Colors for Billing Banner
     Color billingColor;
     IconData billingIcon;
 
@@ -1613,6 +1569,9 @@ L'équipe BOITEX INFO'''
       billingIcon = Icons.help_outline;
     }
 
+    // ✅ Logic to disable editing controls
+    bool disableInputs = !_isEditing || _isLoading || isArchived;
+
     return Theme(
       data: _interventionTheme(context),
       child: Scaffold(
@@ -1622,6 +1581,20 @@ L'équipe BOITEX INFO'''
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
+            // ✅ TOGGLE: Edit / Save Mode
+            if (!isArchived)
+              IconButton(
+                icon: Icon(_isEditing ? Icons.check : Icons.edit),
+                tooltip: _isEditing ? 'Sauvegarder' : 'Modifier',
+                onPressed: () {
+                  if (_isEditing) {
+                    _saveReport(); // Save on check
+                  }
+                  setState(() {
+                    _isEditing = !_isEditing; // Toggle mode
+                  });
+                },
+              ),
             IconButton(
               icon: const Icon(Icons.picture_as_pdf),
               tooltip: 'Aperçu PDF',
@@ -1668,7 +1641,6 @@ L'équipe BOITEX INFO'''
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 🛑🛑 NEW: BILLING STATUS BANNER 🛑🛑
                   if (billingStatus != 'INCONNU')
                     Container(
                       width: double.infinity,
@@ -1716,7 +1688,6 @@ L'équipe BOITEX INFO'''
                       ),
                     ),
 
-                  // 📅 ✅ NEW: Scheduled Appointment Card
                   Container(
                     width: double.infinity,
                     margin: const EdgeInsets.only(bottom: 16),
@@ -1731,7 +1702,8 @@ L'équipe BOITEX INFO'''
                         CircleAvatar(
                           backgroundColor: Colors.blue.shade100,
                           radius: 20,
-                          child: Icon(Icons.calendar_month, color: Colors.blue.shade800),
+                          child: Icon(Icons.calendar_month,
+                              color: Colors.blue.shade800),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -1740,20 +1712,25 @@ L'équipe BOITEX INFO'''
                             children: [
                               Text(
                                 "Rendez-vous planifié",
-                                style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                    color: Colors.blue.shade900,
+                                    fontWeight: FontWeight.bold),
                               ),
                               Text(
                                 _scheduledAt != null
-                                    ? DateFormat('EEEE d MMMM à HH:mm', 'fr_FR').format(_scheduledAt!)
+                                    ? DateFormat('EEEE d MMMM à HH:mm', 'fr_FR')
+                                    .format(_scheduledAt!)
                                     : "Aucune date définie",
-                                style: TextStyle(color: Colors.blue.shade700, fontSize: 13),
+                                style: TextStyle(
+                                    color: Colors.blue.shade700, fontSize: 13),
                               ),
                             ],
                           ),
                         ),
-                        if (!isReadOnly)
+                        if (!isArchived)
                           IconButton(
-                            icon: const Icon(Icons.edit_calendar, color: Color(0xFF667EEA)),
+                            icon: const Icon(Icons.edit_calendar,
+                                color: Color(0xFF667EEA)),
                             onPressed: _editSchedule,
                             tooltip: "Modifier le planning",
                           ),
@@ -1761,7 +1738,6 @@ L'équipe BOITEX INFO'''
                     ),
                   ),
 
-                  // Suggestion Banner (if found)
                   if (_suggestedSystemsFromHistory != null &&
                       _selectedSystems.isEmpty)
                     Container(
@@ -1809,7 +1785,7 @@ L'équipe BOITEX INFO'''
 
                   _buildSummaryCard(data, createdAt),
                   const SizedBox(height: 24),
-                  _buildReportForm(context),
+                  _buildReportForm(context, disableInputs),
                 ],
               ),
             ),
@@ -1828,7 +1804,6 @@ L'équipe BOITEX INFO'''
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ ROW WITH TITLE AND GPS BUTTON
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1849,7 +1824,6 @@ L'équipe BOITEX INFO'''
                     ],
                   ),
                 ),
-                // GPS Button Logic
                 if (_storeLat != null && _storeLng != null)
                   IconButton(
                     icon: const Icon(Icons.directions,
@@ -1883,16 +1857,17 @@ L'équipe BOITEX INFO'''
             const SizedBox(height: 4),
             Text(data['interventionType'] ?? 'Non spécifié'),
 
-            // 🟢 NEW: Contract / Warranty Info Section
             if (data['equipmentName'] != null) ...[
               const SizedBox(height: 12),
               const Divider(),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.settings_input_component, size: 16, color: Colors.grey),
+                  const Icon(Icons.settings_input_component,
+                      size: 16, color: Colors.grey),
                   const SizedBox(width: 8),
-                  Text("Équipement: ${data['equipmentName']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text("Équipement: ${data['equipmentName']}",
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
                 ],
               ),
             ],
@@ -1936,8 +1911,10 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  // ✅ UPGRADED: System Section with Quantity & Serials
   Widget _buildSystemSection() {
+    // Determine if we can edit systems
+    bool canEditSystems = _isEditing && !isArchived;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1951,7 +1928,7 @@ L'équipe BOITEX INFO'''
                   fontWeight: FontWeight.bold,
                   color: Colors.black87),
             ),
-            if (!isReadOnly)
+            if (canEditSystems)
               Container(
                 decoration: BoxDecoration(
                   color: const Color(0xFF667EEA).withOpacity(0.1),
@@ -1970,7 +1947,6 @@ L'équipe BOITEX INFO'''
         ),
         const SizedBox(height: 12),
 
-        // LIST OF SYSTEMS
         if (_selectedSystems.isEmpty)
           Container(
             width: double.infinity,
@@ -2032,7 +2008,6 @@ L'équipe BOITEX INFO'''
                             fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                     ),
-                    // ✅ Quantity Chip
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
@@ -2060,9 +2035,8 @@ L'équipe BOITEX INFO'''
                       TextStyle(color: Colors.grey.shade600, fontSize: 12),
                     ),
                     const SizedBox(height: 4),
-                    // ✅ UPGRADED: Serial Number Manager
                     InkWell(
-                      onTap: isReadOnly
+                      onTap: !canEditSystems
                           ? null
                           : () => _manageSerialNumbers(index),
                       child: Container(
@@ -2080,7 +2054,6 @@ L'équipe BOITEX INFO'''
                                 size: 14, color: Colors.blue.shade700),
                             const SizedBox(width: 6),
                             Text(
-                              // Smart label
                               qty > 1
                                   ? "S/N: $scannedCount/$qty scannés"
                                   : (scannedCount > 0
@@ -2098,7 +2071,7 @@ L'équipe BOITEX INFO'''
                     ),
                   ],
                 ),
-                trailing: isReadOnly
+                trailing: !canEditSystems
                     ? null
                     : IconButton(
                   icon:
@@ -2111,11 +2084,9 @@ L'équipe BOITEX INFO'''
 
         const SizedBox(height: 8),
 
-        // ADD BUTTONS
-        if (!isReadOnly)
+        if (canEditSystems)
           Row(
             children: [
-              // ✅ NEW: STORE INVENTORY BUTTON
               Expanded(
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.store),
@@ -2130,7 +2101,6 @@ L'équipe BOITEX INFO'''
                 ),
               ),
               const SizedBox(width: 8),
-              // Search Button
               Expanded(
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.search_rounded),
@@ -2145,7 +2115,6 @@ L'équipe BOITEX INFO'''
                 ),
               ),
               const SizedBox(width: 8),
-              // Scan Button
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
                   padding:
@@ -2164,7 +2133,7 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  Widget _buildReportForm(BuildContext context) {
+  Widget _buildReportForm(BuildContext context, bool disableInputs) {
     return Form(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2178,14 +2147,14 @@ L'équipe BOITEX INFO'''
           const SizedBox(height: 16),
           TextFormField(
             controller: _managerNameController,
-            readOnly: isReadOnly,
+            readOnly: disableInputs,
             decoration:
             const InputDecoration(labelText: 'Nom du contact sur site'),
           ),
           const SizedBox(height: 16),
           TextFormField(
             controller: _managerPhoneController,
-            readOnly: isReadOnly,
+            readOnly: disableInputs,
             keyboardType: TextInputType.phone,
             decoration:
             const InputDecoration(labelText: 'Téléphone du contact'),
@@ -2193,7 +2162,7 @@ L'équipe BOITEX INFO'''
           const SizedBox(height: 16),
           TextFormField(
             controller: _managerEmailController,
-            readOnly: isReadOnly,
+            readOnly: disableInputs,
             keyboardType: TextInputType.emailAddress,
             decoration: const InputDecoration(
               labelText: 'Email du contact',
@@ -2209,14 +2178,14 @@ L'équipe BOITEX INFO'''
             selectedColor: const Color(0xFF667EEA),
             buttonText: const Text('Techniciens Assignés'),
             onConfirm: (results) {
-              if (!isReadOnly) {
+              if (!disableInputs) {
                 setState(() => _selectedTechnicians = results);
               }
             },
             initialValue: _selectedTechnicians,
             chipDisplay: MultiSelectChipDisplay(
               onTap: (value) {
-                if (!isReadOnly) {
+                if (!disableInputs) {
                   setState(() => _selectedTechnicians.remove(value));
                 }
               },
@@ -2229,16 +2198,40 @@ L'équipe BOITEX INFO'''
             dialogWidth: MediaQuery.of(context).size.width * 0.9,
           ),
           const SizedBox(height: 16),
-          TextFormField(
+
+          // 🚀 DIAGNOSTIC SECTION: Switchable between ExpandableText and TextFormField
+          disableInputs
+              ? Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Diagnostique / Panne Signalée',
+                  style: TextStyle(
+                      fontSize: 12, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 8),
+                _ExpandableText(
+                    text: _diagnosticController.text.isNotEmpty
+                        ? _diagnosticController.text
+                        : "Non spécifié"),
+              ],
+            ),
+          )
+              : TextFormField(
             controller: _diagnosticController,
-            readOnly: isReadOnly,
             maxLines: 4,
             decoration: InputDecoration(
               labelText: 'Diagnostique / Panne Signalée',
               alignLabelWithHint: true,
-              suffixIcon: isReadOnly
-                  ? null
-                  : Padding(
+              suffixIcon: Padding(
                 padding: const EdgeInsets.all(4.0),
                 child: _isGeneratingDiagnostic
                     ? const Padding(
@@ -2259,17 +2252,42 @@ L'équipe BOITEX INFO'''
               ),
             ),
           ),
+
           const SizedBox(height: 16),
-          TextFormField(
+
+          // 🚀 TRAVAUX EFFECTUES SECTION: Switchable between ExpandableText and TextFormField
+          disableInputs
+              ? Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Travaux Effectués',
+                  style: TextStyle(
+                      fontSize: 12, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 8),
+                _ExpandableText(
+                    text: _workDoneController.text.isNotEmpty
+                        ? _workDoneController.text
+                        : "Non spécifié"),
+              ],
+            ),
+          )
+              : TextFormField(
             controller: _workDoneController,
-            readOnly: isReadOnly,
             maxLines: 4,
             decoration: InputDecoration(
               labelText: 'Travaux Effectués',
               alignLabelWithHint: true,
-              suffixIcon: isReadOnly
-                  ? null
-                  : Padding(
+              suffixIcon: Padding(
                 padding: const EdgeInsets.all(4.0),
                 child: _isGeneratingWorkDone
                     ? const Padding(
@@ -2290,8 +2308,9 @@ L'équipe BOITEX INFO'''
               ),
             ),
           ),
+
           const SizedBox(height: 24),
-          _buildMediaSection(),
+          _buildMediaSection(disableInputs),
           const SizedBox(height: 24),
           const Text('Signature du Client',
               style: TextStyle(fontWeight: FontWeight.bold)),
@@ -2308,7 +2327,7 @@ L'équipe BOITEX INFO'''
                   child:
                   Image.network(_signatureImageUrl!, fit: BoxFit.contain)),
             )
-          else if (!isReadOnly)
+          else if (!disableInputs)
             ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: Signature(
@@ -2317,7 +2336,7 @@ L'équipe BOITEX INFO'''
                 backgroundColor: const Color(0xFFF1F5F9),
               ),
             ),
-          if (!isReadOnly)
+          if (!disableInputs)
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
@@ -2335,12 +2354,12 @@ L'équipe BOITEX INFO'''
                 .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                 .toList(),
             onChanged:
-            isReadOnly ? null : (v) => setState(() => _currentStatus = v!),
+            disableInputs ? null : (v) => setState(() => _currentStatus = v!),
             decoration:
             const InputDecoration(labelText: "Statut de l'intervention"),
           ),
           const SizedBox(height: 24),
-          if (!isReadOnly)
+          if (!disableInputs)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -2356,7 +2375,7 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  Widget _buildMediaSection() {
+  Widget _buildMediaSection(bool disableInputs) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2371,7 +2390,7 @@ L'équipe BOITEX INFO'''
           spacing: 8,
           runSpacing: 8,
           children: _existingMediaUrls
-              .map((url) => _buildMediaThumbnail(url: url))
+              .map((url) => _buildMediaThumbnail(url: url, canRemove: !disableInputs))
               .toList(),
         ),
         // Pending
@@ -2379,11 +2398,11 @@ L'équipe BOITEX INFO'''
           spacing: 8,
           runSpacing: 8,
           children: _mediaFilesToUpload
-              .map((file) => _buildMediaThumbnail(file: file))
+              .map((file) => _buildMediaThumbnail(file: file, canRemove: !disableInputs))
               .toList(),
         ),
         const SizedBox(height: 16),
-        if (!isReadOnly)
+        if (!disableInputs)
           Center(
             child: ElevatedButton.icon(
               icon: const Icon(Icons.add_a_photo),
@@ -2400,7 +2419,7 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  Widget _buildMediaThumbnail({String? url, XFile? file}) {
+  Widget _buildMediaThumbnail({String? url, XFile? file, required bool canRemove}) {
     final bool isVideo = (url != null && _isVideoPath(url)) ||
         (file != null && _isVideoPath(file.path));
     final bool isPdf = (url != null && url.toLowerCase().endsWith('.pdf')) ||
@@ -2408,7 +2427,6 @@ L'équipe BOITEX INFO'''
 
     Widget content;
     if (file != null) {
-      // Local
       if (isVideo) {
         content = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
@@ -2421,20 +2439,13 @@ L'équipe BOITEX INFO'''
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-
             if (snapshot.hasData && snapshot.data != null) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  snapshot.data!,
-                  width: 100,
-                  height: 100,
-                  fit: BoxFit.cover,
-                ),
+                child: Image.memory(snapshot.data!, width: 100, height: 100, fit: BoxFit.cover),
               );
             }
-            return const Center(
-                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+            return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
@@ -2447,16 +2458,13 @@ L'équipe BOITEX INFO'''
             width: 100,
             height: 100,
             fit: BoxFit.cover,
-            errorBuilder: (c, e, s) => const Icon(Icons.insert_drive_file,
-                size: 40, color: Colors.blue),
+            errorBuilder: (c, e, s) => const Icon(Icons.insert_drive_file, size: 40, color: Colors.blue),
           ),
         );
       }
     } else if (url != null && url.isNotEmpty) {
-      // Existing
       if (isPdf) {
-        content = const Center(
-            child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
+        content = const Center(child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
       } else if (isVideo) {
         content = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
@@ -2469,20 +2477,13 @@ L'équipe BOITEX INFO'''
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-
             if (snapshot.hasData && snapshot.data != null) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  snapshot.data!,
-                  width: 100,
-                  height: 100,
-                  fit: BoxFit.cover,
-                ),
+                child: Image.memory(snapshot.data!, width: 100, height: 100, fit: BoxFit.cover),
               );
             }
-            return const Center(
-                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+            return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
@@ -2498,8 +2499,7 @@ L'équipe BOITEX INFO'''
               loadingBuilder: (c, child, prog) => prog == null
                   ? child
                   : const Center(child: CircularProgressIndicator()),
-              errorBuilder: (c, e, s) =>
-              const Icon(Icons.broken_image, color: Colors.grey),
+              errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.grey),
             ),
           ),
         );
@@ -2512,34 +2512,23 @@ L'équipe BOITEX INFO'''
       onTap: () async {
         if (url == null || url.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'Veuillez d\'abord enregistrer pour voir ce fichier.')),
+            const SnackBar(content: Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
           );
           return;
         }
-
         if (isPdf) {
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
         } else if (isVideo) {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)),
-          );
+          Navigator.of(context).push(MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)));
         } else {
           final images = _existingMediaUrls
-              .where((u) =>
-          !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
+              .where((u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
               .toList();
           if (images.isEmpty) return;
           final initial = images.indexOf(url);
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => ImageGalleryPage(
-                imageUrls: images,
-                initialIndex: initial != -1 ? initial : 0,
-              ),
-            ),
-          );
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ImageGalleryPage(imageUrls: images, initialIndex: initial != -1 ? initial : 0),
+          ));
         }
       },
       onLongPress: (file != null) ? null : () => _downloadMedia(url),
@@ -2556,33 +2545,115 @@ L'équipe BOITEX INFO'''
           children: [
             Positioned.fill(child: content),
             if (isVideo && !isPdf)
-              const Center(
-                child: Icon(Icons.play_circle_fill,
-                    color: Colors.white, size: 30),
-              ),
-            if (!isReadOnly && file != null)
+              const Center(child: Icon(Icons.play_circle_fill, color: Colors.white, size: 30)),
+            if (canRemove && file != null)
               Positioned(
                 top: -10,
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () =>
-                      setState(() => _mediaFilesToUpload.remove(file)),
+                  onPressed: () => setState(() => _mediaFilesToUpload.remove(file)),
                 ),
               ),
-            if (!isReadOnly && url != null)
+            if (canRemove && url != null)
               Positioned(
                 top: -10,
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () =>
-                      setState(() => _existingMediaUrls.remove(url)),
+                  onPressed: () => setState(() => _existingMediaUrls.remove(url)),
                 ),
               ),
           ],
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// 🚀 WIDGET: EXPANDABLE TEXT ("READ MORE")
+// =============================================================================
+class _ExpandableText extends StatefulWidget {
+  final String text;
+  final int maxLines;
+
+  const _ExpandableText({
+    // ignore: unused_element
+    super.key,
+    required this.text,
+    this.maxLines = 4, // Default to 4 lines
+  });
+
+  @override
+  State<_ExpandableText> createState() => _ExpandableTextState();
+}
+
+class _ExpandableTextState extends State<_ExpandableText> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final span = TextSpan(
+          text: widget.text,
+          style: const TextStyle(fontSize: 16, color: Colors.black87),
+        );
+
+        final tp = TextPainter(
+          text: span,
+          textDirection: ui.TextDirection.ltr,
+          maxLines: widget.maxLines,
+        );
+
+        tp.layout(maxWidth: constraints.maxWidth);
+
+        if (!tp.didExceedMaxLines) {
+          return Text(
+            widget.text,
+            style: const TextStyle(fontSize: 16, color: Colors.black87),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AnimatedCrossFade(
+              firstChild: Text(
+                widget.text,
+                maxLines: widget.maxLines,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 16, color: Colors.black87),
+              ),
+              secondChild: Text(
+                widget.text,
+                style: const TextStyle(fontSize: 16, color: Colors.black87),
+              ),
+              crossFadeState: _isExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 300),
+            ),
+            const SizedBox(height: 4),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _isExpanded = !_isExpanded;
+                });
+              },
+              child: Text(
+                _isExpanded ? "Voir moins" : "Voir plus...",
+                style: const TextStyle(
+                  color: Color(0xFF667EEA),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
