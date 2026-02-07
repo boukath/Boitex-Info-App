@@ -72,6 +72,9 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   // ✅ 1. ADDED: Loading status text
   String _loadingStatus = '';
 
+  // ✅ ADDED: Variable to store the existing status to prevent reset
+  String _currentStatus = 'À Préparer';
+
   bool get _isEditMode => widget.livraisonId != null;
 
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -120,6 +123,10 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       }
 
       final data = doc.data() as Map<String, dynamic>;
+
+      // ✅ LOAD STATUS: Preserve the current status (e.g. "En route")
+      _currentStatus = data['status'] ?? 'À Préparer';
+
       _selectedServiceType = data['serviceType'];
       _deliveryMethod = data['deliveryMethod'] ?? 'Livraison Interne';
 
@@ -729,6 +736,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         accessGroups = [_selectedServiceType!];
       }
 
+      // ✅ LOGIC: Determine Status
+      // If we are editing, we KEEP the current status (e.g., 'En route', 'En Cours de Livraison').
+      // Unless it was 'Terminée', in which case maybe we want to reopen it, but for now let's prioritize NOT resetting it.
+      String statusToSave = _isEditMode ? _currentStatus : 'À Préparer';
+
       // --- 2. Prepare Base Data ---
       final deliveryData = <String, dynamic>{
         'clientId': _selectedClient!.id,
@@ -744,8 +756,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
         'contactPhone': '',
         'products': _selectedProducts.map((p) => p.toJson()).toList(),
 
-        // Default status
-        'status': 'À Préparer',
+        // ✅ FIXED: Uses calculated status instead of hardcoded 'À Préparer'
+        'status': statusToSave,
 
         'deliveryMethod': _deliveryMethod,
 

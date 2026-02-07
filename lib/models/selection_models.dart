@@ -45,6 +45,10 @@ class ProductSelection {
   int quantity;
   List<String> serialNumbers;
 
+  // ✅ ADDED: Fields to preserve logistics progress
+  int pickedQuantity;
+  String status; // e.g., 'pending', 'picked'
+
   ProductSelection({
     required this.productId,
     required this.productName,
@@ -52,6 +56,8 @@ class ProductSelection {
     required this.marque,
     required this.quantity,
     List<String>? serialNumbers,
+    this.pickedQuantity = 0, // Default to 0
+    this.status = 'pending', // Default to pending
   }) : serialNumbers = serialNumbers ?? [];
 
   // Creates a deep copy of the object
@@ -63,6 +69,8 @@ class ProductSelection {
       marque: marque,
       quantity: quantity,
       serialNumbers: List<String>.from(serialNumbers),
+      pickedQuantity: pickedQuantity, // ✅ Copy this
+      status: status, // ✅ Copy this
     );
   }
 
@@ -75,6 +83,9 @@ class ProductSelection {
       'marque': marque,
       'quantity': quantity,
       'serialNumbers': serialNumbers,
+      // ✅ Save these back so we don't wipe progress
+      'pickedQuantity': pickedQuantity,
+      'status': status,
     };
   }
 
@@ -88,6 +99,9 @@ class ProductSelection {
       quantity: json['quantity'] ?? 0,
       // Ensure serialNumbers is always a List<String>
       serialNumbers: List<String>.from(json['serialNumbers'] ?? []),
+      // ✅ Load existing progress (default to 0 if missing)
+      pickedQuantity: json['pickedQuantity'] ?? 0,
+      status: json['status'] ?? 'pending',
     );
   }
 }

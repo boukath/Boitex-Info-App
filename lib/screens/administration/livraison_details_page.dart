@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // ✅ Added for kIsWeb
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/services/activity_logger.dart';
-import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
+import 'package:boitex_info_app/screens/widgets/scanner_page.dart'; // Ensure this path is correct
 import 'package:boitex_info_app/services/zebra_service.dart';
 import 'package:signature/signature.dart';
 import 'dart:typed_data';
@@ -35,6 +35,9 @@ import 'package:google_fonts/google_fonts.dart';
 
 // ✅ STOCK SERVICE (Added for future logic)
 import 'package:boitex_info_app/services/stock_service.dart';
+
+// ✅ EDIT PAGE IMPORT
+import 'package:boitex_info_app/screens/administration/add_livraison_page.dart';
 
 class LivraisonDetailsPage extends StatefulWidget {
   final String livraisonId;
@@ -87,10 +90,29 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   bool _isLoadingGps = false;
   bool _isGeneratingPdf = false;
 
-  bool get _isPickingMode => _status == 'À Préparer';
+  // ✅ LOGIC: Determine if we are in "Picking Mode"
+  // It is picking mode if:
+  // 1. Status is "À Préparer"
+  // 2. OR Status is "En Cours..." BUT we have new items (Gap Detection)
+  bool get _isPickingMode {
+    if (_status == 'À Préparer') return true;
+
+    // Gap Detection: Are there any items where picked < quantity?
+    bool hasGap = _pickingItems.any((item) {
+      int qty = item['quantity'] ?? 0;
+      bool isBulk = item['isBulk'] == true;
+      int picked = isBulk
+          ? (item['pickedQuantity'] as int? ?? 0)
+          : (item['serialNumbers'] as List? ?? []).length;
+      return picked < qty;
+    });
+
+    return hasGap && (_status == 'En Cours de Livraison' || _status == 'En route');
+  }
 
   final Color _primaryBlue = const Color(0xFF2962FF);
   final Color _accentGreen = const Color(0xFF00E676);
+  final Color _warningOrange = const Color(0xFFFFAB00); // Added for Gap Alert
   final Color _bgLight = const Color(0xFFF4F6F9);
 
   // ✅ Helper to check if all items are picked (Preparation Phase)
@@ -120,17 +142,22 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     super.initState();
     _loadLivraisonDetails();
 
-    _zebraSubscription = ZebraService().onScan.listen((code) {
-      if (_isPickingMode && _selectedPickingIndex != null) {
-        _processInputScan(_selectedPickingIndex!, code);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("Sélectionnez un produit pour scanner"),
-              duration: Duration(milliseconds: 1000)),
-        );
-      }
-    });
+    // Use try-catch for Zebra Service in case it's not initialized or on Web
+    try {
+      _zebraSubscription = ZebraService().onScan.listen((code) {
+        if (_isPickingMode && _selectedPickingIndex != null) {
+          _processInputScan(_selectedPickingIndex!, code);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text("Sélectionnez un produit pour scanner"),
+                duration: Duration(milliseconds: 1000)),
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint("Zebra Scanner not available: $e");
+    }
   }
 
   @override
@@ -183,7 +210,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         }
         final rawProducts = data['products'] as List? ?? [];
         final deliveryMedia = data['deliveryMedia'] as List? ?? [];
-        final bool isCompleted = _status == 'Livré';
+        final bool isCompleted = _status == 'Livré' || _status == 'Terminée' || _status == 'Livraison Partielle'; // Broaden completion check
         _recipientNameController.text = data['recipientName'] ?? '';
         _recipientPhoneController.text = data['recipientPhone'] ?? '';
         _recipientEmailController.text = data['recipientEmail'] ?? ''; // ✅ Load Email
@@ -192,23 +219,29 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         List<Map<String, dynamic>> serializedList = [];
         Map<String, Map<String, dynamic>> bulkMap = {};
 
-        if (_status == 'À Préparer') {
-          pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) {
-            final map = Map<String, dynamic>.from(p);
+        // Always build picking list to check for gaps
+        pickingList = List<Map<String, dynamic>>.from(rawProducts.map((p) {
+          final map = Map<String, dynamic>.from(p);
 
-            // 🛠️ FIX 1: Map 'reference' (DB) to 'partNumber' (App)
-            if (map['reference'] != null) {
-              map['partNumber'] = map['reference'];
-            }
+          // 🛠️ FIX 1: Map 'reference' (DB) to 'partNumber' (App)
+          if (map['reference'] != null) {
+            map['partNumber'] = map['reference'];
+          }
 
-            if (!map.containsKey('isBulk')) {
-              map['isBulk'] = true;
-            }
-            return map;
-          }));
-          if (pickingList.isNotEmpty) _selectedPickingIndex = 0;
-        } else {
-          // ✅ DELIVERY PHASE LOGIC
+          if (!map.containsKey('isBulk')) {
+            map['isBulk'] = true; // Default to bulk if unknown
+          }
+          // Ensure pickedQuantity exists
+          if (!map.containsKey('pickedQuantity')) {
+            map['pickedQuantity'] = 0;
+          }
+          return map;
+        }));
+
+        if (pickingList.isNotEmpty) _selectedPickingIndex = 0;
+
+        // If NOT in preparation stage (meaning we are shipping/delivering), build the delivery views
+        if (_status != 'À Préparer') {
           for (final product in rawProducts) {
             int quantity = product['quantity'] is int ? product['quantity'] : int.tryParse(product['quantity'].toString()) ?? 0;
             // ✅ Retrieve Picked Quantity
@@ -226,10 +259,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
             final String? productId = product['productId'];
             final List serials = product['serialNumbers'] as List? ?? [];
-            final List serialsFound = product['serialNumbersFound'] as List? ?? [];
+            final List serialsFound = product['serialNumbersFound'] as List? ?? []; // Some old logic might use this
 
             // Determine if it's bulk or serialized logic
-            bool isBulkItem = (quantity > 50) || (quantity > 5 && serials.isEmpty && serialsFound.isEmpty) || product['isBulk'] == true;
+            bool isBulkItem = (quantity > 50) || (quantity > 5 && serials.isEmpty) || product['isBulk'] == true;
 
             if (pickedQuantity == 0 && serials.isNotEmpty) {
               pickedQuantity = serials.length;
@@ -241,7 +274,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
               // ✅ FIX 1: UPDATE BULK ITEM LOGIC
               // Check if completed OR partial to show delivered quantity instead of ordered quantity
               if (!_itemSplits.containsKey(key)) {
-                bool isPartialOrComplete = isCompleted || _status == 'Livraison Partielle';
+                bool isPartialOrComplete = isCompleted;
                 _itemSplits[key] = {
                   'accepted': isPartialOrComplete ? deliveredQuantity : quantity,
                   'rejected': isPartialOrComplete ? (quantity - deliveredQuantity) : 0,
@@ -252,7 +285,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
               if (bulkMap.containsKey(key)) {
                 bulkMap[key]!['quantity'] = (bulkMap[key]!['quantity'] as int) + quantity;
-                bulkMap[key]!['pickedQuantity'] = (bulkMap[key]!['pickedQuantity'] as int) + pickedQuantity;
                 // Accumulate delivered quantity for bulk logic
               } else {
                 bulkMap[key] = {
@@ -270,10 +302,11 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             } else {
               // Serialized: Create an entry for each picked item
               int itemsToAdd = serials.isNotEmpty ? serials.length : quantity;
+              // If picking wasn't done properly but we moved to delivery, show placeholders
               if (serials.isEmpty && pickedQuantity > 0) itemsToAdd = pickedQuantity;
 
               for (int i = 0; i < itemsToAdd; i++) {
-                final serialNumber = (i < serialsFound.length) ? serialsFound[i] : (i < serials.length ? serials[i] : null);
+                final serialNumber = (i < serials.length) ? serials[i] : null;
 
                 // ✅ FIX 2: UPDATE SERIALIZED ITEM LOGIC
                 // Check if specific serial was delivered in partial status
@@ -286,14 +319,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                   'productName': productName,
                   'partNumber': partNumber,
                   'serialNumber': serialNumber,
-                  'originalSerialNumber': (i < serials.length) ? serials[i] : null,
+                  'originalSerialNumber': serialNumber, // Keep ref
                   'delivered': wasDelivered,
                   'type': 'serialized',
                   'isBulk': false, // ✅ FIXED: Explicitly set isBulk to false for display logic
                   'productId': productId,
                   'quantity': 1,
                   'pickedQuantity': 1,
-                  'parentProductIndex': rawProducts.indexOf(product), // Track parent to update later
+                  // 'parentProductIndex': rawProducts.indexOf(product), // Track parent to update later (not needed if we rebuild whole list)
                 });
               }
             }
@@ -305,7 +338,10 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           _existingMedia = deliveryMedia; _isLoading = false;
         });
       } else { setState(() => _isLoading = false); }
-    } catch (e) { setState(() => _isLoading = false); }
+    } catch (e) {
+      debugPrint("Error loading livraison: $e");
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _generateAndOpenPdf() async {
@@ -318,6 +354,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       final clientDoc = await FirebaseFirestore.instance.collection('clients').doc(clientId).get();
       final clientData = clientDoc.data() ?? {};
       List<ProductSelection> pdfProducts = [];
+
+      // If picking or Gap Detection active, print Picking List
       if (_status == 'À Préparer') {
         pdfProducts = _pickingItems.map((item) => ProductSelection.fromJson(item)).toList();
       } else {
@@ -331,7 +369,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
           // ✅ PDF FIX 1: Include items if they are checked OR if we are in transit status
           // This prevents empty PDF when status is 'En Cours de Livraison' but boxes aren't ticked yet.
-          bool shouldInclude = item['delivered'] == true || _status == 'En Cours de Livraison';
+          bool shouldInclude = item['delivered'] == true || _status == 'En Cours de Livraison' || _status == 'En route';
 
           if (shouldInclude) {
             groupedMap[key]!['quantity'] = (groupedMap[key]!['quantity'] as int) + 1;
@@ -351,7 +389,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
           if (_itemSplits.containsKey(mapKey)) {
             quantityToPrint = _itemSplits[mapKey]!['accepted'];
-          } else if (item['delivered'] != true && _status != 'En Cours de Livraison') {
+          } else if (item['delivered'] != true && (_status != 'En Cours de Livraison' && _status != 'En route')) {
             // Only set to 0 if we are NOT in transit.
             // If we are in transit, we print the full truck load.
             quantityToPrint = 0;
@@ -703,10 +741,20 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   Future<void> _finalizeFullDeliveryWithSplits() async {
     setState(() => _isCompleting = true);
 
-    // Determine status: If any item was rejected, it's technically "Partiel" or "Livré avec réserves"
-    // For simplicity, we can check if _itemSplits has any rejections
-    bool hasRejections = _itemSplits.values.any((v) => (v['rejected'] ?? 0) > 0);
-    String finalStatus = hasRejections ? "Livraison Partielle" : "Livré";
+    // ✅ FIXED LOGIC FOR STATUS:
+    // If rejection is "Refus Client" or "Erreur Commande", the order is considered closed (Livré).
+    // If rejection is "Produit Manquant" or "Produit Endommagé", it means we must deliver later (Livraison Partielle).
+    bool requiresBackorder = _itemSplits.values.any((v) {
+      int rejected = v['rejected'] ?? 0;
+      String reason = v['reason'] ?? '';
+
+      if (rejected <= 0) return false;
+
+      // Reasons that imply the delivery is NOT finished for these items:
+      return reason == "Produit Manquant" || reason == "Produit Endommagé";
+    });
+
+    String finalStatus = requiresBackorder ? "Livraison Partielle" : "Livré";
 
     try {
       String? sigUrl = await _uploadSignature();
@@ -810,7 +858,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
         'products': updatedProducts,
       };
 
-      if (hasRejections) {
+      if (requiresBackorder) {
         updateData['lastPartialDeliveryAt'] = FieldValue.serverTimestamp();
       }
 
@@ -838,8 +886,8 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(hasRejections ? "Livraison partielle enregistrée avec succès." : "Livraison terminée avec succès."),
-          backgroundColor: hasRejections ? Colors.orange : Colors.green,
+          content: Text(requiresBackorder ? "Livraison partielle enregistrée." : "Livraison terminée avec succès."),
+          backgroundColor: requiresBackorder ? Colors.orange : Colors.green,
         ));
         Navigator.pop(context);
       }
@@ -1018,6 +1066,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   Widget _buildStatusTimeline() {
     int currentStep = 0;
     if (_status == 'En Cours de Livraison') currentStep = 1;
+    if (_status == 'En route') currentStep = 1;
     if (_status == 'Livraison Partielle') currentStep = 1;
     if (_status == 'Livré') currentStep = 2;
 
@@ -1253,7 +1302,9 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     bool isDone = false;
     int pickedCount = 0;
     if (isPicking) {
-      pickedCount = (item['isBulk'] == true) ? (item['pickedQuantity'] as int? ?? 0) : (item['serialNumbers'] as List?)?.length ?? 0;
+      pickedCount = (item['isBulk'] == true)
+          ? (item['pickedQuantity'] as int? ?? 0)
+          : (item['serialNumbers'] as List?)?.length ?? 0;
       isDone = pickedCount >= qty;
     } else {
       isDone = item['delivered'] == true;
@@ -1516,6 +1567,18 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
     );
   }
 
+  void _navigateToEdit() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddLivraisonPage(
+          livraisonId: widget.livraisonId,
+          serviceType: _livraisonDoc?.get('serviceType'),
+        ),
+      ),
+    ).then((_) => _loadLivraisonDetails()); // Reload on return
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1543,6 +1606,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
           style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
+          // ✅ EDIT BUTTON: Only show if not fully completed (or if you want to allow edits late)
+          if (!_isLivraisonCompleted)
+            IconButton(
+              icon: Icon(Icons.edit, color: Colors.grey.shade700),
+              onPressed: _navigateToEdit,
+            ),
           if (_isGeneratingPdf)
             Padding(padding: const EdgeInsets.all(12.0), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: _primaryBlue, strokeWidth: 2)))
           else
@@ -1567,9 +1636,21 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                _isPickingMode ? "LISTE DE PRÉPARATION" : "LISTE DE LIVRAISON",
-                style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: Colors.grey.shade600),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _isPickingMode ? "SCAN & PRÉPARATION" : "LISTE DE LIVRAISON",
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 1.2, color: Colors.grey.shade600),
+                  ),
+                  // Gap Indicator
+                  if (_isPickingMode && _status != 'À Préparer')
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)),
+                      child: Text("Ajouts Détectés", style: TextStyle(color: Colors.orange.shade800, fontSize: 10, fontWeight: FontWeight.bold)),
+                    )
+                ],
               ),
             ),
             const SizedBox(height: 12),
@@ -1621,7 +1702,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                             validator: (v) => (v == null || v.isEmpty) ? 'Requis' : null,
                           ),
                           const SizedBox(height: 16),
-                          // ✅ Updated Phone Field (Now Optional)
                           TextFormField(
                             controller: _recipientPhoneController,
                             decoration: InputDecoration(
@@ -1633,7 +1713,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                             keyboardType: TextInputType.phone,
                           ),
                           const SizedBox(height: 16),
-                          // ✅ New Email Field (Optional)
                           TextFormField(
                             controller: _recipientEmailController,
                             decoration: InputDecoration(
@@ -1645,7 +1724,6 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                             keyboardType: TextInputType.emailAddress,
                             validator: (val) {
                               if (val != null && val.isNotEmpty) {
-                                // Basic email regex validation
                                 final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
                                 if (!emailRegex.hasMatch(val)) {
                                   return 'Email invalide';
@@ -1683,6 +1761,23 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   }
 
   Widget _buildStickyFooter() {
+    // Determine button text based on state
+    String buttonText = "VALIDER PRÉPARATION";
+    Color buttonColor = _primaryBlue;
+
+    if (_isPickingMode) {
+      if (_status == 'En Cours de Livraison' || _status == 'En route') {
+        buttonText = "SAUVEGARDER SCAN (AJOUTS)";
+        buttonColor = _warningOrange;
+      } else {
+        buttonText = "VALIDER PRÉPARATION";
+        buttonColor = _primaryBlue;
+      }
+    } else {
+      buttonText = "CONFIRMER LIVRAISON";
+      buttonColor = _primaryBlue;
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1707,13 +1802,13 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             // ✅ Removed blocking logic to allow partial submission
             onPressed: (_isPickingMode && !_allPicked) ? null : (_isPickingMode ? _validatePreparation : _completeLivraison),
             style: ElevatedButton.styleFrom(
-              backgroundColor: _isPickingMode ? Colors.orange.shade800 : _primaryBlue,
+              backgroundColor: _isPickingMode ? (buttonColor == _warningOrange ? Colors.orange.shade800 : Colors.blue.shade800) : _primaryBlue,
               elevation: 8,
               shadowColor: (_isPickingMode ? Colors.orange : _primaryBlue).withOpacity(0.5),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
             child: Text(
-              _isPickingMode ? "VALIDER PRÉPARATION" : "CONFIRMER LIVRAISON",
+              buttonText,
               style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1),
             ),
           ),
