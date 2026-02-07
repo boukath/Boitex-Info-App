@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart'; // ✅ Added for the Premium Font look
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // ✅ Added for Logo Caching
 import 'package:boitex_info_app/screens/service_technique/add_intervention_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_history_clients_page.dart';
@@ -279,6 +280,10 @@ class _InterventionListPageState extends State<InterventionListPage> {
               final DateTime? createdAt = (data['createdAt'] as Timestamp?)?.toDate();
               final String timeAgoDate = createdAt != null ? timeago.format(createdAt, locale: 'fr') : 'N/A';
 
+              // ✅ NEW: Extract IDs for the Logo Fetcher
+              final String? clientId = data['clientId'];
+              final String? storeId = data['storeId'];
+
               // ✅ NEW: Extract Scheduled Date
               final DateTime? scheduledAt = (data['scheduledAt'] as Timestamp?)?.toDate();
 
@@ -392,27 +397,58 @@ class _InterventionListPageState extends State<InterventionListPage> {
                                         ],
                                       ),
 
-                                      const SizedBox(height: 8),
+                                      const SizedBox(height: 12), // Spacing increased slightly for layout
 
-                                      // --- TITLES ---
-                                      Text(
-                                        storeName,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.black87,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        "$clientName • $interventionCode", // Combined for cleaner look
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade500,
-                                          fontWeight: FontWeight.w500,
-                                        ),
+                                      // --- TITLES WITH LOGO (✅ UPDATED) ---
+                                      Row(
+                                        children: [
+                                          // 1. The Smart Logo Fetcher
+                                          StoreLogoFetcher(
+                                            clientId: clientId,
+                                            storeId: storeId,
+                                            fallback: Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: themeBg, // Matches the intervention type color
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Icon(Icons.store_mall_directory_rounded, size: 20, color: themeColor),
+                                            ),
+                                          ),
+
+                                          const SizedBox(width: 12), // Space between logo and text
+
+                                          // 2. The Store Name & Details
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  storeName,
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Colors.black87,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  "$clientName • $interventionCode",
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 12,
+                                                    color: Colors.grey.shade500,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ),
 
                                       const SizedBox(height: 16),
@@ -529,6 +565,88 @@ class _InterventionListPageState extends State<InterventionListPage> {
         backgroundColor: const Color(0xFF667EEA),
       )
           : null,
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// ✅ NEW: SMART LOGO FETCHER WIDGET
+// -----------------------------------------------------------------------------
+class StoreLogoFetcher extends StatelessWidget {
+  final String? clientId;
+  final String? storeId;
+  final Widget fallback;
+
+  const StoreLogoFetcher({
+    super.key,
+    required this.clientId,
+    required this.storeId,
+    required this.fallback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 1. Safety Check: If we don't have IDs, show the default icon immediately
+    if (clientId == null || storeId == null || clientId!.isEmpty || storeId!.isEmpty) {
+      return fallback;
+    }
+
+    // 2. Fetch the Store Document
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('clients')
+          .doc(clientId)
+          .collection('stores')
+          .doc(storeId)
+          .get(),
+      builder: (context, snapshot) {
+        // 3. Extract Logo URL if available
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          final String? logoUrl = data?['logoUrl'];
+
+          if (logoUrl != null && logoUrl.isNotEmpty) {
+            // 4. Display the Logo (Cached for performance)
+            return CachedNetworkImage(
+              imageUrl: logoUrl,
+              imageBuilder: (context, imageProvider) => Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.grey.shade200),
+                  image: DecorationImage(
+                    image: imageProvider,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              placeholder: (context, url) => _buildPlaceholder(),
+              errorWidget: (context, url, error) => fallback,
+            );
+          }
+        }
+        // 5. Default/Loading State
+        return fallback;
+      },
+    );
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        shape: BoxShape.circle,
+      ),
+      child: const Center(
+        child: SizedBox(
+          width: 15,
+          height: 15,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
     );
   }
 }
