@@ -2,14 +2,15 @@
 importScripts("https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js");
 
+// ✅ UPDATED CONFIGURATION (boitexinfo-63060)
 const firebaseConfig = {
-  apiKey: "AIzaSyDY6a2Rcd5vb1sFsCtvrrZI7sH8kbfQMYU",
-  authDomain: "boitexinfo-817cf.firebaseapp.com",
-  projectId: "boitexinfo-817cf",
-  storageBucket: "boitexinfo-817cf.firebasestorage.app",
-  messagingSenderId: "259382800959",
-  appId: "1:259382800959:web:9d8d8de948fc568a237e8a",
-  measurementId: "G-VJ7EFMERXC"
+  apiKey: "AIzaSyApz5fasLqpYhVvbahaHOST6gAOx1ghicE",
+  authDomain: "boitexinfo-63060.firebaseapp.com",
+  projectId: "boitexinfo-63060",
+  storageBucket: "boitexinfo-63060.firebasestorage.app",
+  messagingSenderId: "177944311253",
+  appId: "1:177944311253:web:07e69da9b69227561a795c",
+  measurementId: "G-XYGDSSB5TL"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -20,9 +21,11 @@ const messaging = firebase.messaging();
 // It is the standard Service Worker "push" event, which is more reliable than onBackgroundMessage for system notifications.
 self.addEventListener('push', function(event) {
   console.log('[Service Worker] Push Received.');
-  console.log(`[Service Worker] Push had this data: "${event.data.text()}"`);
+  if (event.data) {
+    console.log(`[Service Worker] Push had this data: "${event.data.text()}"`);
+  }
 
-  let payload = event.data.json();
+  let payload = event.data ? event.data.json() : {};
 
   // Customize notification
   const title = payload.notification?.title || 'Boitex Info Notification';

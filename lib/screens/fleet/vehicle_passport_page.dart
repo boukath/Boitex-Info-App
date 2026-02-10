@@ -135,7 +135,7 @@ class _VehiclePassportPageState extends State<VehiclePassportPage> with TickerPr
   }
 
   Future<Map<String, dynamic>> _getB2UploadConfig() async {
-    final uri = Uri.parse('https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl');
+    final uri = Uri.parse('https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl');
     final response = await http.get(uri);
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;

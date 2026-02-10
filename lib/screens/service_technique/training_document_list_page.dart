@@ -55,7 +55,7 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
 
   final String b2PublicUrl = 'https://f003.backblazeb2.com/file/BoitexInfo';
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {

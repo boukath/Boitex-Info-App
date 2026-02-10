@@ -108,7 +108,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
   // Backblaze B2 helper function endpoint
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   // File size limit (50MB in bytes)
   static const int _maxFileSizeInBytes = 50 * 1024 * 1024;

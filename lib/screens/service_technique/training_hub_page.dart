@@ -31,7 +31,7 @@ class _TrainingHubPageState extends State<TrainingHubPage> {
 
   // ✅ B2 Configuration (Cloud Function URL)
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {

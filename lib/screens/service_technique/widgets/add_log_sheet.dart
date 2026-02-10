@@ -48,7 +48,7 @@ class _AddLogSheetState extends State<AddLogSheet> {
 
   // ☁️ URL DIRECTE (On utilise celle-ci car on est sûr de la région)
   final String _b2CloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   final Map<String, dynamic> _logTypes = {
     'work': {'label': 'Travail', 'icon': Icons.build, 'color': Colors.blue},

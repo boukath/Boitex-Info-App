@@ -65,7 +65,7 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
 
   // ☁️ Cloud Function for B2 Auth
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {

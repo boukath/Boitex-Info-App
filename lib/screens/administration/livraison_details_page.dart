@@ -79,7 +79,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
   List<dynamic> _existingMedia = [];
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   final _recipientNameController = TextEditingController();
   final _recipientPhoneController = TextEditingController();

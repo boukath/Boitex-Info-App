@@ -23,20 +23,11 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return macos;
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -50,20 +41,49 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDY6a2Rcd5vb1sFsCtvrrZI7sH8kbfQMYU',
-    appId: '1:259382800959:web:9d8d8de948fc568a237e8a',
-    messagingSenderId: '259382800959',
-    projectId: 'boitexinfo-817cf',
-    authDomain: 'boitexinfo-817cf.firebaseapp.com',
-    storageBucket: 'boitexinfo-817cf.firebasestorage.app',
-    measurementId: 'G-VJ7EFMERXC',
+    apiKey: 'AIzaSyApz5fasLqpYhVvbahaHOST6gAOx1ghicE',
+    appId: '1:177944311253:web:07e69da9b69227561a795c',
+    messagingSenderId: '177944311253',
+    projectId: 'boitexinfo-63060',
+    authDomain: 'boitexinfo-63060.firebaseapp.com',
+    storageBucket: 'boitexinfo-63060.firebasestorage.app',
+    measurementId: 'G-XYGDSSB5TL',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyA6FiI8sjrrKDZifxb8ijsFbdlkr2MDYDA',
-    appId: '1:259382800959:android:81dfb8361e381e9c237e8a',
-    messagingSenderId: '259382800959',
-    projectId: 'boitexinfo-817cf',
-    storageBucket: 'boitexinfo-817cf.firebasestorage.app',
+    apiKey: 'AIzaSyB81yd8FVTSQTzRTTyhyKTk7W4neNIAd8M',
+    appId: '1:177944311253:android:53bd83859690fd771a795c',
+    messagingSenderId: '177944311253',
+    projectId: 'boitexinfo-63060',
+    storageBucket: 'boitexinfo-63060.firebasestorage.app',
   );
+
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyAJoWM4sljA7eG1YqNZJK8AwKnqbh-PiM8',
+    appId: '1:177944311253:ios:03714e43d6620a2c1a795c',
+    messagingSenderId: '177944311253',
+    projectId: 'boitexinfo-63060',
+    storageBucket: 'boitexinfo-63060.firebasestorage.app',
+    iosBundleId: 'com.boitexinfo.boitexInfoApp',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyAJoWM4sljA7eG1YqNZJK8AwKnqbh-PiM8',
+    appId: '1:177944311253:ios:03714e43d6620a2c1a795c',
+    messagingSenderId: '177944311253',
+    projectId: 'boitexinfo-63060',
+    storageBucket: 'boitexinfo-63060.firebasestorage.app',
+    iosBundleId: 'com.boitexinfo.boitexInfoApp',
+  );
+
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyApz5fasLqpYhVvbahaHOST6gAOx1ghicE',
+    appId: '1:177944311253:web:010c2cb0d122f29b1a795c',
+    messagingSenderId: '177944311253',
+    projectId: 'boitexinfo-63060',
+    authDomain: 'boitexinfo-63060.firebaseapp.com',
+    storageBucket: 'boitexinfo-63060.firebasestorage.app',
+    measurementId: 'G-RZPF8YCS8T',
+  );
+
 }

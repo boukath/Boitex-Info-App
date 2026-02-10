@@ -42,7 +42,7 @@ class _ReportBreakagePageState extends State<ReportBreakagePage> {
 
   // ✅ B2 CONFIG (Copied from your add_sav_ticket_page.dart)
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {

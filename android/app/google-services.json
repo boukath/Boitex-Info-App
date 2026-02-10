@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "259382800959",
-    "project_id": "boitexinfo-817cf",
-    "storage_bucket": "boitexinfo-817cf.firebasestorage.app"
+    "project_number": "177944311253",
+    "project_id": "boitexinfo-63060",
+    "storage_bucket": "boitexinfo-63060.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:259382800959:android:81dfb8361e381e9c237e8a",
+        "mobilesdk_app_id": "1:177944311253:android:53bd83859690fd771a795c",
         "android_client_info": {
           "package_name": "com.boitexinfo.app"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyA6FiI8sjrrKDZifxb8ijsFbdlkr2MDYDA"
+          "current_key": "AIzaSyB81yd8FVTSQTzRTTyhyKTk7W4neNIAd8M"
         }
       ],
       "services": {

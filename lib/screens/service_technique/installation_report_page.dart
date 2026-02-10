@@ -62,7 +62,7 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
   );
 
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   static const int _maxFileSizeInBytes = 50 * 1024 * 1024;
 

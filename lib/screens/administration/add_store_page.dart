@@ -59,7 +59,7 @@ class _AddStorePageState extends State<AddStorePage> {
 
   // ✅ B2 CONFIG
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   // Contract State
   bool _hasContract = false;

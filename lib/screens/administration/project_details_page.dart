@@ -51,7 +51,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
   // B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   // ✅ --- START: B2 HELPER FUNCTIONS ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {

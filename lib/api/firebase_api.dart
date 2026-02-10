@@ -505,7 +505,7 @@ class FirebaseApi {
       for (int i = 0; i < 3; i++) {
         try {
           token = await _firebaseMessaging.getToken(
-              vapidKey: "BHexKZZ060QNgZVUSRoBXyIcTP-jyxDUo1-M6o0mPbeYFFaQo9OIyRfw15hGBNtHSo9jbQldoiauFjE1FlI5iXo"
+              vapidKey: "BDgVgW9tKuOZ_Hw6T8ehtM8pJoGXgoth8O6L7XxEw92VewGxq_9x_R0J6zwcy8LsXgs43Iejz0NG9h9tCtsxQ24"
           );
           if (token != null) break; // Success! Exit loop.
         } catch (e) {
@@ -596,7 +596,7 @@ class FirebaseApi {
     if (kIsWeb) {
       token = await _firebaseMessaging.getToken(
         vapidKey:
-        "BHexKZZ060QNgZVUSRoBXyIcTP-jyxDUo1-M6o0mPbeYFFaQo9OIyRfw15hGBNtHSo9jbQldoiauFjE1FlI5iXo",
+        "BDgVgW9tKuOZ_Hw6T8ehtM8pJoGXgoth8O6L7XxEw92VewGxq_9x_R0J6zwcy8LsXgs43Iejz0NG9h9tCtsxQ24",
       );
     } else {
       token = await _firebaseMessaging.getToken();

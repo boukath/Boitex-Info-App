@@ -316,7 +316,7 @@ class _AddDefectDialogState extends State<_AddDefectDialog> {
     if (_image == null) return null;
     setState(() => _isUploading = true);
     try {
-      final uri = Uri.parse('https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl');
+      final uri = Uri.parse('https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl');
       final configResponse = await http.get(uri);
       if (configResponse.statusCode != 200) throw Exception('Auth Error');
       final config = jsonDecode(configResponse.body);

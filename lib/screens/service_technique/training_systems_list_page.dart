@@ -37,7 +37,7 @@ class _TrainingSystemsListPageState extends State<TrainingSystemsListPage> {
   bool _isUploading = false;
   String? _tempUploadedImageUrl;
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {

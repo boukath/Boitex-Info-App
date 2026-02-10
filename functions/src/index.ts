@@ -14,7 +14,10 @@ import { onRequest, onCall, HttpsError } from "firebase-functions/v2/https";
 // ------------------------------------------------------------------
 
 admin.initializeApp();
-setGlobalOptions({ region: "europe-west1" });
+setGlobalOptions({
+  region: "europe-west1",
+  cpu: "gcf_gen1" // ✅ FIX: Forces shared CPU (approx 0.16 vCPU) to avoid quota limits
+});
 
 const backblazeKeyId = defineSecret("BACKBLAZE_KEY_ID");
 const backblazeAppKey = defineSecret("BACKBLAZE_APP_KEY");

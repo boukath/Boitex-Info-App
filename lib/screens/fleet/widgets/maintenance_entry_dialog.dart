@@ -93,7 +93,7 @@ class _MaintenanceEntryDialogState extends State<MaintenanceEntryDialog> {
     setState(() => _isUploading = true);
 
     try {
-      final uri = Uri.parse('https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl');
+      final uri = Uri.parse('https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl');
       final configResponse = await http.get(uri);
 
       if (configResponse.statusCode != 200) throw Exception('Backend Auth Error');

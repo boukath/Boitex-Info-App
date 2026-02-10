@@ -30,7 +30,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
 
   // ✅ ADDED: B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   // ✅ NEW: Local variables for specific question photos
   File? networkExistMedia;

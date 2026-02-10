@@ -72,3 +72,5 @@ migrate_working_dir/
 # Node.js dependencies (for the automation script)
 node_modules/
 npm-debug.log
+
+functions/serviceAccountKey.json

@@ -23,7 +23,7 @@ class _ProfileHeaderState extends State<ProfileHeader> {
 
   // B2 Configuration (Same as your other files)
   final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-817cf.cloudfunctions.net/getB2UploadUrl';
+      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   Future<void> _handlePhotoChange() async {
     try {
