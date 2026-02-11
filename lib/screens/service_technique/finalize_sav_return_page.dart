@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart'; // Still needed for signature
+// REMOVED: import 'package:firebase_storage/firebase_storage.dart'; ❌
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/services/activity_logger.dart';
 import 'package:file_picker/file_picker.dart';
@@ -28,7 +28,6 @@ class FinalizeSavReturnPage extends StatefulWidget {
 class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   final _formKey = GlobalKey<FormState>();
   final _clientNameController = TextEditingController();
-  // ✅ ADDED Phone and Email controllers
   final _clientPhoneController = TextEditingController();
   final _clientEmailController = TextEditingController();
   final _signatureController = SignatureController(
@@ -48,7 +47,6 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   @override
   void dispose() {
     _clientNameController.dispose();
-    // ✅ ADDED controllers to dispose
     _clientPhoneController.dispose();
     _clientEmailController.dispose();
     _signatureController.dispose();
@@ -90,25 +88,8 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
         p.endsWith('.mkv');
   }
 
-  // --- Firebase Storage Upload Helper (ONLY for Signature) ---
-  Future<String?> _uploadSignatureToFirebase(Uint8List fileData, String storagePath) async {
-    try {
-      final ref = FirebaseStorage.instance.ref().child(storagePath);
-      final uploadTask = ref.putData(fileData);
-      final snapshot = await uploadTask.whenComplete(() {});
-      return await snapshot.ref.getDownloadURL();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur upload signature: ${e.toString()}')),
-        );
-      }
-      return null;
-    }
-  }
-  // --- END Firebase Upload Helper ---
-
   // --- B2 HELPER FUNCTIONS ---
+
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response =
@@ -121,6 +102,35 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
       }
     } catch (e) {
       debugPrint('Error calling Cloud Function for B2 credentials: $e');
+      return null;
+    }
+  }
+
+  // ✅ New helper: Upload Bytes (Signature)
+  Future<String?> _uploadBytesToB2(Uint8List bytes, String fileName, Map<String, dynamic> b2Creds) async {
+    try {
+      final sha1Hash = sha1.convert(bytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl']);
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'],
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': 'image/png', // Signature is PNG
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': bytes.length.toString(),
+        },
+        body: bytes,
+      );
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body);
+        final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix']) + encodedPath;
+      }
+      return null;
+    } catch (e) {
+      print('B2 Bytes Upload Error: $e');
       return null;
     }
   }
@@ -176,7 +186,6 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   }
   // --- END B2 HELPER FUNCTIONS ---
 
-  // ✅ MODIFIED to save phone and email
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
     if (_signatureController.isEmpty) {
@@ -204,48 +213,51 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
       final signatureBytes = await _signatureController.toPngBytes();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-      // 1. Upload Signature (Firebase Storage)
-      final signatureFirebasePath = 'sav_returns/signatures/${widget.ticket.savCode}-$timestamp.png';
-      final signatureUrl = await _uploadSignatureToFirebase(
-        signatureBytes!,
-        signatureFirebasePath,
-      );
-
-      // 2. Upload Media (Backblaze B2)
-      final fileExtension = path.extension(_proofMediaFile!.path);
-      final mediaFolder = _isVideo ? 'videos' : 'photos';
-      final b2FileName =
-          'sav_returns/$mediaFolder/${widget.ticket.savCode}-$timestamp$fileExtension';
-
+      // ✅ 1. Get B2 Credentials FIRST
       final b2Credentials = await _getB2UploadCredentials();
       if (b2Credentials == null) {
-        throw Exception('Impossible de récupérer les accès B2 pour le média de preuve.');
+        throw Exception('Impossible de récupérer les accès B2.');
       }
+
+      // ✅ 2. Upload Signature (B2)
+      final signatureFileName = 'sav_returns/signatures/${widget.ticket.savCode}-$timestamp.png';
+      final signatureUrl = await _uploadBytesToB2(
+          signatureBytes!,
+          signatureFileName,
+          b2Credentials
+      );
+
+      // ✅ 3. Upload Media (B2)
+      final fileExtension = path.extension(_proofMediaFile!.path);
+      final mediaFolder = _isVideo ? 'videos' : 'photos';
+      final mediaFileName =
+          'sav_returns/$mediaFolder/${widget.ticket.savCode}-$timestamp$fileExtension';
 
       final mediaUrl = await _uploadFileToB2(
         _proofMediaFile!,
         b2Credentials,
-        b2FileName,
+        mediaFileName,
       );
 
       if (signatureUrl == null || mediaUrl == null) {
         throw Exception('Échec de l\'upload d\'un ou plusieurs fichiers de preuve.');
       }
 
-      // 3. Update Firestore (ADDED phone and email)
+      // 4. Update Firestore
       await FirebaseFirestore.instance
           .collection('sav_tickets')
           .doc(widget.ticket.id)
           .update({
         'status': 'Retourné',
         'returnClientName': _clientNameController.text.trim(),
-        'returnClientPhone': _clientPhoneController.text.trim(), // ✅ ADDED
-        'returnClientEmail': _clientEmailController.text.trim(), // ✅ ADDED
+        'returnClientPhone': _clientPhoneController.text.trim(),
+        'returnClientEmail': _clientEmailController.text.trim(),
         'returnSignatureUrl': signatureUrl,
         'returnPhotoUrl': mediaUrl,
+        'closedAt': FieldValue.serverTimestamp(), // Optional: Mark when it was returned/closed
       });
 
-      // 4. Log Activity
+      // 5. Log Activity
       await ActivityLogger.logActivity(
         message:
         "Le ticket SAV ${widget.ticket.savCode} a été finalisé et retourné au client.",
@@ -253,7 +265,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
         category: 'SAV',
       );
 
-      // 5. Success Feedback & Navigation
+      // 6. Success Feedback & Navigation
       if (!mounted) return;
       scaffoldMessenger.showSnackBar(
         const SnackBar(
@@ -304,16 +316,15 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
               TextFormField(
                 controller: _clientNameController,
                 decoration: const InputDecoration(
-                  labelText: 'Gérant de magasin / Nom du Client', // Updated Label
+                  labelText: 'Gérant de magasin / Nom du Client',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 validator: (value) =>
                 value == null || value.isEmpty ? 'Veuillez entrer un nom.' : null,
               ),
-              const SizedBox(height: 16), // Spacing after name
+              const SizedBox(height: 16),
 
-              // ✅ ADDED Phone Number Field
               TextFormField(
                 controller: _clientPhoneController,
                 decoration: const InputDecoration(
@@ -322,12 +333,9 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
                   prefixIcon: Icon(Icons.phone_outlined),
                 ),
                 keyboardType: TextInputType.phone,
-                // Optional: Add validation if needed
-                // validator: (value) { ... }
               ),
-              const SizedBox(height: 16), // Spacing after phone
+              const SizedBox(height: 16),
 
-              // ✅ ADDED Email Field
               TextFormField(
                 controller: _clientEmailController,
                 decoration: const InputDecoration(
@@ -336,12 +344,9 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
                   prefixIcon: Icon(Icons.email_outlined),
                 ),
                 keyboardType: TextInputType.emailAddress,
-                // Optional: Add validation if needed
-                // validator: (value) { ... }
               ),
-              // ✅ End Added Fields
 
-              const SizedBox(height: 24), // Keep spacing before media proof
+              const SizedBox(height: 24),
               const Text('Photo / Vidéo de preuve',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
