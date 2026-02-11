@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+// REMOVED: import 'package:firebase_storage/firebase_storage.dart'; // ❌ No longer needed
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
@@ -151,8 +151,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     setState(() {
       _isLoadingStores = true;
       _stores = [];
-      // Note: We deliberately do NOT clear _selectedStore here to avoid UI flickering during restore,
-      // but we will validate it after fetch.
     });
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -176,7 +174,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         setState(() {
           _stores = stores;
           _isLoadingStores = false;
-          // If the currently selected store is not in the new list, clear it
           if (_selectedStore != null && !stores.any((s) => s.id == _selectedStore!.id)) {
             _selectedStore = null;
           }
@@ -484,7 +481,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // --- SAVE LOGIC ---
+  // --- SAVE LOGIC (B2) ---
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
@@ -498,6 +495,36 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
+  // ✅ New helper: Upload Bytes (Signature)
+  Future<String?> _uploadBytesToB2(Uint8List bytes, String fileName, Map<String, dynamic> b2Creds) async {
+    try {
+      final sha1Hash = sha1.convert(bytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl']);
+
+      final resp = await http.post(
+        uploadUri,
+        headers: {
+          'Authorization': b2Creds['authorizationToken'],
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
+          'Content-Type': 'image/png', // Signature is PNG
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': bytes.length.toString(),
+        },
+        body: bytes,
+      );
+      if (resp.statusCode == 200) {
+        final body = json.decode(resp.body);
+        final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix']) + encodedPath;
+      }
+      return null;
+    } catch (e) {
+      print('B2 Bytes Upload Error: $e');
+      return null;
+    }
+  }
+
+  // Helper: Upload File (Media)
   Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds) async {
     try {
       final fileBytes = await file.readAsBytes();
@@ -559,17 +586,23 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         return current + 1;
       });
 
+      // ✅ 1. Get Credentials EARLY (Before uploads)
+      final b2Credentials = await _getB2UploadCredentials();
+
+      // ✅ 2. Upload Signature to B2 (No Firebase Storage!)
       String sigUrl = '';
-      if (_signatureController.isNotEmpty) {
+      if (_signatureController.isNotEmpty && b2Credentials != null) {
         final sigData = await _signatureController.toPngBytes();
         if (sigData != null) {
-          final sigRef = FirebaseStorage.instance.ref('sav_signatures/BATCH-${startCount}_$year.png');
-          await sigRef.putData(sigData);
-          sigUrl = await sigRef.getDownloadURL();
+          // Create a unique name for the signature
+          final fileName = 'sav_signatures/BATCH-${startCount}_$year.png';
+          final uploadedUrl = await _uploadBytesToB2(sigData, fileName, b2Credentials);
+          if (uploadedUrl != null) {
+            sigUrl = uploadedUrl;
+          }
         }
       }
 
-      final b2Credentials = await _getB2UploadCredentials();
       List<String> mediaUrls = [];
       String? attachedFileUrl;
 
@@ -689,7 +722,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
 
   Future<void> _restoreDraft(SavDraft draft) async {
-    // 1. Set Initial Data (Sync)
     setState(() {
       _currentDraftId = draft.id;
       if (draft.clientId != null) {
@@ -701,25 +733,20 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       _creationMode = draft.creationMode;
     });
 
-    // 2. Fetch Stores (Async) if client is present
     if (draft.clientId != null) {
       await _fetchStoresForClient(draft.clientId!);
     }
 
-    // 3. Set Store (Sync, after fetch)
     if (draft.storeId != null && mounted) {
       setState(() {
-        // Try to find the store object from the fetched list to get accurate details
         try {
           _selectedStore = _stores.firstWhere((s) => s.id == draft.storeId);
         } catch (e) {
-          // Fallback if store not found in list
           _selectedStore = SelectableItem(id: draft.storeId!, name: 'Magasin (ID: ${draft.storeId})');
         }
       });
     }
 
-    // 4. Restore Items and other fields
     if (mounted) {
       setState(() {
         if (draft.technicianIds.isNotEmpty) {
