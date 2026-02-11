@@ -838,13 +838,18 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
       // ✅ EXECUTE STOCK DEDUCTION (The New "Exit Point")
       if (acceptedItemsForStock.isNotEmpty) {
-        await StockService().confirmDeliveryStockOut(
-            deliveryId: widget.livraisonId,
-            products: acceptedItemsForStock,
-            technicianName: technicianName,
-            clientName: clientName,
-            bonLivraisonCode: bonLivraisonCode
-        );
+        // ⚠️ CRITICAL FIX: Loop individually to avoid "Transactions require all reads before all writes" error
+        // The StockService logic reads/writes sequentially inside a transaction loop, which is forbidden.
+        // We bypass this by making individual calls until StockService is refactored.
+        for (var item in acceptedItemsForStock) {
+          await StockService().confirmDeliveryStockOut(
+              deliveryId: widget.livraisonId,
+              products: [item], // Pass single item list
+              technicianName: technicianName,
+              clientName: clientName,
+              bonLivraisonCode: bonLivraisonCode
+          );
+        }
       }
 
       // Prepare Update Data

@@ -1,11 +1,11 @@
 // lib/screens/service_technique/intervention_details_page.dart
 
+import 'dart:async'; // ✅ Added for Stream/Completer
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:ui' as ui; // ✅ Fix TextDirection conflict
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-// ✅ REQUIRED for kIsWeb check
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -161,8 +161,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _currentStatus = data['status'] ?? 'Nouveau';
 
     // ✅ Initialize Edit Mode
-    // If it's 'Nouveau', we assume user wants to edit immediately.
-    // If 'En cours' or 'Terminé', we show the nice "Read More" view by default.
     _isEditing = ['Nouveau', 'Nouvelle Demande'].contains(_currentStatus);
 
     // ✅ Load Schedule
@@ -1102,72 +1100,136 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
-  Future<String?> _uploadFileToB2(
-      XFile file, Map<String, dynamic> b2Creds) async {
+  // ✅ PREMIUM: Generic Upload with Progress Reporting
+  Future<String?> _uploadStreamWithProgress({
+    required Uri uploadUri,
+    required Map<String, String> headers,
+    required Stream<List<int>> stream,
+    required int totalLength,
+    required Function(double) onProgress,
+  }) async {
     try {
-      final fileBytes = await file.readAsBytes();
-      final sha1Hash = sha1.convert(fileBytes).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final fileName = file.name.split('/').last;
-      final resp = await http.post(
-        uploadUri,
-        headers: {
-          'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': file.mimeType ?? 'b2/x-auto',
-          'X-Bz-Content-Sha1': sha1Hash,
-          'Content-Length': fileBytes.length.toString(),
+      final request = http.StreamedRequest('POST', uploadUri);
+      request.headers.addAll(headers);
+      request.contentLength = totalLength;
+
+      int bytesSent = 0;
+      final completer = Completer<void>();
+
+      stream.listen(
+            (chunk) {
+          request.sink.add(chunk);
+          bytesSent += chunk.length;
+          onProgress(bytesSent / totalLength);
         },
-        body: fileBytes,
+        onDone: () {
+          request.sink.close();
+          completer.complete();
+        },
+        onError: (e) {
+          request.sink.addError(e);
+          completer.completeError(e);
+        },
+        cancelOnError: true,
       );
 
-      if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String)
-            .split('/')
-            .map(Uri.encodeComponent)
-            .join('/');
-        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      await completer.future;
+
+      final response = await request.send();
+      final respStr = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final responseBody = json.decode(respStr);
+        return responseBody['fileName'];
       } else {
-        debugPrint('Failed to upload to B2: ${resp.body}');
+        print('B2 Upload Failed: ${response.statusCode} - $respStr');
         return null;
       }
     } catch (e) {
-      debugPrint('Error uploading file to B2: $e');
+      print('Error streaming to B2: $e');
       return null;
     }
   }
 
-  Future<String?> _uploadBytesToB2(
-      Uint8List data, String fileName, Map<String, dynamic> b2Creds) async {
+  // Wrapper for File Upload (Media)
+  Future<String?> _uploadFileToB2WithProgress(
+      XFile file,
+      Map<String, dynamic> b2Credentials,
+      Function(double) onProgress,
+      ) async {
     try {
-      final sha1Hash = sha1.convert(data).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final resp = await http.post(
-        uploadUri,
-        headers: {
-          'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': 'image/png', // Signatures are PNG
-          'X-Bz-Content-Sha1': sha1Hash,
-          'Content-Length': data.length.toString(),
-        },
-        body: data,
+      final int length = await file.length();
+      final bytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(bytes).toString();
+
+      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+      final String fileName = file.name.split('/').last;
+
+      // ✅ FIX: Explicit cast
+      final headers = <String, String>{
+        'Authorization': b2Credentials['authorizationToken'] as String,
+        'X-Bz-File-Name': Uri.encodeComponent(fileName),
+        'Content-Type': file.mimeType ?? 'b2/x-auto',
+        'X-Bz-Content-Sha1': sha1Hash,
+        'Content-Length': length.toString(),
+      };
+
+      final stream = Stream.value(bytes);
+
+      final uploadedFileName = await _uploadStreamWithProgress(
+        uploadUri: uploadUri,
+        headers: headers,
+        stream: stream,
+        totalLength: length,
+        onProgress: onProgress,
       );
 
-      if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String)
-            .split('/')
-            .map(Uri.encodeComponent)
-            .join('/');
-        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
-      } else {
-        debugPrint('Failed to upload bytes to B2: ${resp.body}');
-        return null;
+      if (uploadedFileName != null) {
+        return b2Credentials['downloadUrlPrefix'] +
+            uploadedFileName.split('/').map(Uri.encodeComponent).join('/');
       }
+      return null;
     } catch (e) {
-      debugPrint('Error uploading bytes to B2: $e');
+      return null;
+    }
+  }
+
+  // Wrapper for Bytes Upload (Signature)
+  Future<String?> _uploadBytesToB2WithProgress(
+      Uint8List bytes,
+      String fileName,
+      Map<String, dynamic> b2Credentials,
+      Function(double) onProgress,
+      ) async {
+    try {
+      final sha1Hash = sha1.convert(bytes).toString();
+      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+
+      // ✅ FIX: Explicit cast
+      final headers = <String, String>{
+        'Authorization': b2Credentials['authorizationToken'] as String,
+        'X-Bz-File-Name': Uri.encodeComponent(fileName),
+        'Content-Type': 'image/png',
+        'X-Bz-Content-Sha1': sha1Hash,
+        'Content-Length': bytes.length.toString(),
+      };
+
+      final stream = Stream.value(bytes);
+
+      final uploadedFileName = await _uploadStreamWithProgress(
+        uploadUri: uploadUri,
+        headers: headers,
+        stream: stream,
+        totalLength: bytes.length,
+        onProgress: onProgress,
+      );
+
+      if (uploadedFileName != null) {
+        return b2Credentials['downloadUrlPrefix'] +
+            uploadedFileName.split('/').map(Uri.encodeComponent).join('/');
+      }
+      return null;
+    } catch (e) {
       return null;
     }
   }
@@ -1257,19 +1319,96 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
     setState(() => _isLoading = true);
 
-    try {
-      final creds = await _getB2UploadCredentials();
-      if (creds == null) {
-        throw Exception('Impossible de récupérer les accès B2.');
-      }
+    // ✅ PREMIUM: Setup Progress Dialog Controller
+    final ValueNotifier<double> progressNotifier = ValueNotifier(0.0);
+    final ValueNotifier<String> statusNotifier =
+    ValueNotifier("Préparation...");
 
+    // Show Non-Dismissible Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            contentPadding: const EdgeInsets.all(24),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 10),
+                const CircularProgressIndicator(strokeWidth: 2),
+                const SizedBox(height: 20),
+                ValueListenableBuilder<String>(
+                  valueListenable: statusNotifier,
+                  builder: (context, status, child) {
+                    return Text(
+                      status,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                ValueListenableBuilder<double>(
+                  valueListenable: progressNotifier,
+                  builder: (context, value, child) {
+                    return Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: value,
+                            minHeight: 8,
+                            backgroundColor: Colors.grey.shade200,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFF667EEA)),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "${(value * 100).toInt()}%",
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 12),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    try {
+      // 1. Signature
       String? newSignatureUrl = _signatureImageUrl;
       if (_signatureController.isNotEmpty) {
+        statusNotifier.value = "Envoi de la signature...";
+        progressNotifier.value = 0.0;
+
+        final creds = await _getB2UploadCredentials();
+        if (creds == null) {
+          throw Exception('Impossible de récupérer les accès B2.');
+        }
+
         final png = await _signatureController.toPngBytes();
         if (png != null) {
           final String fileName =
               'signatures/interventions/${widget.interventionDoc.id}_${DateTime.now().millisecondsSinceEpoch}.png';
-          final url = await _uploadBytesToB2(png, fileName, creds);
+          final url = await _uploadBytesToB2WithProgress(
+            png,
+            fileName,
+            creds,
+                (progress) {
+              progressNotifier.value = progress;
+            },
+          );
           if (url != null) {
             newSignatureUrl = url;
           } else {
@@ -1278,15 +1417,36 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
+      // 2. Media Files
       final List<String> uploaded = List<String>.from(_existingMediaUrls);
+      int currentFile = 0;
+      int totalFiles = _mediaFilesToUpload.length;
+
       for (final file in _mediaFilesToUpload) {
-        final url = await _uploadFileToB2(file, creds);
+        currentFile++;
+        statusNotifier.value = "Envoi fichier $currentFile / $totalFiles...";
+        progressNotifier.value = 0.0;
+
+        final creds = await _getB2UploadCredentials();
+        if (creds == null) continue;
+
+        final url = await _uploadFileToB2WithProgress(
+          file,
+          creds,
+              (progress) {
+            progressNotifier.value = progress;
+          },
+        );
+
         if (url != null) {
           uploaded.add(url);
         } else {
           debugPrint('Skipping file due to upload failure: ${file.name}');
         }
       }
+
+      statusNotifier.value = "Finalisation...";
+      progressNotifier.value = 1.0;
 
       final Map<String, dynamic> reportData = {
         'managerName': _managerNameController.text.trim(),
@@ -1346,12 +1506,18 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
+      // Close Progress Dialog
+      if (mounted) Navigator.of(context).pop();
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Rapport enregistré avec succès!')),
       );
       Navigator.of(context).pop();
     } catch (e) {
+      // Close Dialog on Error
+      if (mounted && _isLoading) Navigator.of(context).pop();
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur lors de l\'enregistrement: $e')),
@@ -2390,7 +2556,8 @@ L'équipe BOITEX INFO'''
           spacing: 8,
           runSpacing: 8,
           children: _existingMediaUrls
-              .map((url) => _buildMediaThumbnail(url: url, canRemove: !disableInputs))
+              .map((url) =>
+              _buildMediaThumbnail(url: url, canRemove: !disableInputs))
               .toList(),
         ),
         // Pending
@@ -2398,7 +2565,8 @@ L'équipe BOITEX INFO'''
           spacing: 8,
           runSpacing: 8,
           children: _mediaFilesToUpload
-              .map((file) => _buildMediaThumbnail(file: file, canRemove: !disableInputs))
+              .map((file) =>
+              _buildMediaThumbnail(file: file, canRemove: !disableInputs))
               .toList(),
         ),
         const SizedBox(height: 16),
@@ -2419,7 +2587,8 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  Widget _buildMediaThumbnail({String? url, XFile? file, required bool canRemove}) {
+  Widget _buildMediaThumbnail(
+      {String? url, XFile? file, required bool canRemove}) {
     final bool isVideo = (url != null && _isVideoPath(url)) ||
         (file != null && _isVideoPath(file.path));
     final bool isPdf = (url != null && url.toLowerCase().endsWith('.pdf')) ||
@@ -2442,10 +2611,12 @@ L'équipe BOITEX INFO'''
             if (snapshot.hasData && snapshot.data != null) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.memory(snapshot.data!, width: 100, height: 100, fit: BoxFit.cover),
+                child: Image.memory(snapshot.data!,
+                    width: 100, height: 100, fit: BoxFit.cover),
               );
             }
-            return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
@@ -2458,13 +2629,15 @@ L'équipe BOITEX INFO'''
             width: 100,
             height: 100,
             fit: BoxFit.cover,
-            errorBuilder: (c, e, s) => const Icon(Icons.insert_drive_file, size: 40, color: Colors.blue),
+            errorBuilder: (c, e, s) => const Icon(Icons.insert_drive_file,
+                size: 40, color: Colors.blue),
           ),
         );
       }
     } else if (url != null && url.isNotEmpty) {
       if (isPdf) {
-        content = const Center(child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
+        content = const Center(
+            child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
       } else if (isVideo) {
         content = FutureBuilder<Uint8List?>(
           future: VideoThumbnail.thumbnailData(
@@ -2480,10 +2653,12 @@ L'équipe BOITEX INFO'''
             if (snapshot.hasData && snapshot.data != null) {
               return ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.memory(snapshot.data!, width: 100, height: 100, fit: BoxFit.cover),
+                child: Image.memory(snapshot.data!,
+                    width: 100, height: 100, fit: BoxFit.cover),
               );
             }
-            return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+            return const Center(
+                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
@@ -2499,7 +2674,8 @@ L'équipe BOITEX INFO'''
               loadingBuilder: (c, child, prog) => prog == null
                   ? child
                   : const Center(child: CircularProgressIndicator()),
-              errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.grey),
+              errorBuilder: (c, e, s) =>
+              const Icon(Icons.broken_image, color: Colors.grey),
             ),
           ),
         );
@@ -2512,22 +2688,27 @@ L'équipe BOITEX INFO'''
       onTap: () async {
         if (url == null || url.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Veuillez d\'abord enregistrer pour voir ce fichier.')),
+            const SnackBar(
+                content: Text(
+                    'Veuillez d\'abord enregistrer pour voir ce fichier.')),
           );
           return;
         }
         if (isPdf) {
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
         } else if (isVideo) {
-          Navigator.of(context).push(MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)));
+          Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => VideoPlayerPage(videoUrl: url)));
         } else {
           final images = _existingMediaUrls
-              .where((u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
+              .where(
+                  (u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
               .toList();
           if (images.isEmpty) return;
           final initial = images.indexOf(url);
           Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => ImageGalleryPage(imageUrls: images, initialIndex: initial != -1 ? initial : 0),
+            builder: (_) => ImageGalleryPage(
+                imageUrls: images, initialIndex: initial != -1 ? initial : 0),
           ));
         }
       },
@@ -2545,14 +2726,17 @@ L'équipe BOITEX INFO'''
           children: [
             Positioned.fill(child: content),
             if (isVideo && !isPdf)
-              const Center(child: Icon(Icons.play_circle_fill, color: Colors.white, size: 30)),
+              const Center(
+                  child: Icon(Icons.play_circle_fill,
+                      color: Colors.white, size: 30)),
             if (canRemove && file != null)
               Positioned(
                 top: -10,
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () => setState(() => _mediaFilesToUpload.remove(file)),
+                  onPressed: () =>
+                      setState(() => _mediaFilesToUpload.remove(file)),
                 ),
               ),
             if (canRemove && url != null)
@@ -2561,7 +2745,8 @@ L'équipe BOITEX INFO'''
                 right: -10,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () => setState(() => _existingMediaUrls.remove(url)),
+                  onPressed: () =>
+                      setState(() => _existingMediaUrls.remove(url)),
                 ),
               ),
           ],
