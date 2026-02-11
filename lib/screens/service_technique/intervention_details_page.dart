@@ -1,6 +1,6 @@
 // lib/screens/service_technique/intervention_details_page.dart
 
-import 'dart:async'; // ✅ Added for Stream/Completer
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -38,6 +38,9 @@ import 'package:boitex_info_app/screens/administration/global_product_search_pag
 // ✅ Product Scanner Page
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 
+// ✅ IMPORT THE DRAFT SERVICE (Make sure the path matches where you created it)
+import 'package:boitex_info_app/services/intervention_draft_service.dart';
+
 // ----------------------------------------------------------------------
 // Data model
 // ----------------------------------------------------------------------
@@ -73,6 +76,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   late final TextEditingController _diagnosticController;
   late final TextEditingController _workDoneController;
   late final SignatureController _signatureController;
+
+  // ✅ DRAFT SERVICE & DEBOUNCER
+  final InterventionDraftService _draftService = InterventionDraftService();
+  late Debouncer _debouncer;
+  bool _isRestoringDraft = false;
 
   // State
   String? _signatureImageUrl;
@@ -145,6 +153,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   @override
   void initState() {
     super.initState();
+
+    // ✅ Initialize Debouncer (Wait 1 second after typing to save)
+    _debouncer = Debouncer(milliseconds: 1000);
+
     final data = widget.interventionDoc.data() ?? {};
     _managerNameController =
         TextEditingController(text: data['managerName'] ?? '');
@@ -156,7 +168,16 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
 
+    // ✅ Add listeners for Auto-Save
+    _managerNameController.addListener(_onDataChanged);
+    _managerPhoneController.addListener(_onDataChanged);
+    _managerEmailController.addListener(_onDataChanged);
+    _diagnosticController.addListener(_onDataChanged);
+    _workDoneController.addListener(_onDataChanged);
+
     _signatureController = SignatureController();
+    _signatureController.addListener(_onDataChanged); // Signature changes too
+
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
 
@@ -212,7 +233,134 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
 
     _fetchStoreData();
+
+    // ✅ CHECK FOR DRAFT AFTER INIT
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndRestoreDraft();
+    });
   }
+
+  // ----------------------------------------------------------------------
+  // 💾 DRAFT LOGIC START
+  // ----------------------------------------------------------------------
+
+  /// Called whenever a field changes. Triggers debouncer.
+  void _onDataChanged() {
+    if (!mounted || _isRestoringDraft) return;
+    _debouncer.run(() {
+      _triggerAutoSave();
+    });
+  }
+
+  /// Gathers all data and saves to local file
+  Future<void> _triggerAutoSave() async {
+    if (!mounted) return;
+
+    // Don't save if status is final
+    if (isArchived) return;
+
+    final draftData = {
+      'managerName': _managerNameController.text,
+      'managerPhone': _managerPhoneController.text,
+      'managerEmail': _managerEmailController.text,
+      'diagnostic': _diagnosticController.text,
+      'workDone': _workDoneController.text,
+      'status': _currentStatus,
+      'systems': _selectedSystems,
+      // We can't save the actual signature bytes efficiently in JSON repeatedly,
+      // but we could save stroke points if needed. For now, text fields are priority.
+    };
+
+    await _draftService.saveDraft(
+      interventionId: widget.interventionDoc.id,
+      formData: draftData,
+    );
+  }
+
+  /// Checks if a draft exists and asks user to restore
+  Future<void> _checkAndRestoreDraft() async {
+    final hasDraft = await _draftService.hasDraft(widget.interventionDoc.id);
+    if (!hasDraft) return;
+
+    if (!mounted) return;
+
+    // Show Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.save_as, color: Colors.orange),
+              SizedBox(width: 10),
+              Text("Brouillon trouvé"),
+            ],
+          ),
+          content: const Text(
+            "Un brouillon non sauvegardé existe sur cet appareil.\nVoulez-vous reprendre là où vous en étiez ?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                // Discard draft
+                _draftService.clearDraft(widget.interventionDoc.id);
+                Navigator.pop(context);
+              },
+              child: const Text("Non, effacer"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context); // Close dialog
+                await _restoreDraftData();
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF667EEA)),
+              child: const Text("Oui, reprendre"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _restoreDraftData() async {
+    setState(() => _isRestoringDraft = true); // Block auto-save trigger loop
+
+    final draft = await _draftService.getDraft(widget.interventionDoc.id);
+    if (draft != null) {
+      if (mounted) {
+        setState(() {
+          _managerNameController.text = draft['managerName'] ?? '';
+          _managerPhoneController.text = draft['managerPhone'] ?? '';
+          _managerEmailController.text = draft['managerEmail'] ?? '';
+          _diagnosticController.text = draft['diagnostic'] ?? '';
+          _workDoneController.text = draft['workDone'] ?? '';
+
+          if (draft['status'] != null) {
+            _currentStatus = draft['status'];
+          }
+
+          if (draft['systems'] != null) {
+            _selectedSystems = List<Map<String, dynamic>>.from(draft['systems']);
+          }
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Brouillon restauré avec succès'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+
+    setState(() => _isRestoringDraft = false);
+  }
+
+  // ----------------------------------------------------------------------
+  // 💾 DRAFT LOGIC END
+  // ----------------------------------------------------------------------
 
   Future<void> _fetchStoreData() async {
     final data = widget.interventionDoc.data();
@@ -240,6 +388,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 _storeLat = (storeData['latitude'] as num).toDouble();
                 _storeLng = (storeData['longitude'] as num).toDouble();
               }
+              // Only auto-fill if empty to not overwrite draft or existing data
               if (_managerNameController.text.isEmpty) {
                 _managerNameController.text = storeData['contactName'] ??
                     storeData['managerName'] ??
@@ -409,6 +558,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }).toList();
         _suggestedSystemsFromHistory = null;
       });
+      _onDataChanged(); // Trigger save
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('Systèmes ajoutés. Veuillez vérifier les quantités.'),
@@ -517,6 +667,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'serialNumbers': List<String>.filled(qty, ''),
       });
     });
+    _onDataChanged(); // Trigger save
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -574,6 +725,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'serialNumbers': List<String>.filled(qty, ''),
         });
       });
+      _onDataChanged(); // Trigger save
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -596,6 +748,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() {
       _selectedSystems.removeAt(index);
     });
+    _onDataChanged(); // Trigger save
   }
 
   Future<void> _pickFromStoreInventory() async {
@@ -787,6 +940,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         });
       }
     });
+    _onDataChanged(); // Trigger save
   }
 
   Future<void> _manageSerialNumbers(int index) async {
@@ -886,6 +1040,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                   setState(() {
                     _selectedSystems[index]['serialNumbers'] = currentSerials;
                   });
+                  _onDataChanged(); // Trigger save
                   Navigator.pop(ctx);
                 },
                 style: ElevatedButton.styleFrom(
@@ -1001,6 +1156,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       });
 
       controller.text = result.data;
+      _onDataChanged(); // Save generated text
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1506,6 +1662,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
 
+      // ✅ CLEAR DRAFT ON SUCCESSFUL SAVE
+      await _draftService.clearDraft(widget.interventionDoc.id);
+
       // Close Progress Dialog
       if (mounted) Navigator.of(context).pop();
 
@@ -1697,6 +1856,7 @@ L'équipe BOITEX INFO'''
 
   @override
   void dispose() {
+    _debouncer.dispose(); // ✅ Dispose Debouncer
     _managerNameController.dispose();
     _managerPhoneController.dispose();
     _managerEmailController.dispose();
@@ -2519,8 +2679,12 @@ L'équipe BOITEX INFO'''
             items: statusOptions
                 .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                 .toList(),
-            onChanged:
-            disableInputs ? null : (v) => setState(() => _currentStatus = v!),
+            onChanged: disableInputs
+                ? null
+                : (v) {
+              setState(() => _currentStatus = v!);
+              _onDataChanged(); // Trigger Save on status change
+            },
             decoration:
             const InputDecoration(labelText: "Statut de l'intervention"),
           ),
