@@ -1,3 +1,5 @@
+// lib/screens/administration/product_details_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boitex_info_app/screens/administration/add_product_page.dart';
@@ -23,9 +25,6 @@ class ProductDetailsPage extends StatefulWidget {
 class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
-  // ❌ REMOVED: No longer needed for top PageView
-  // int _currentImageIndex = 0;
-  // final PageController _pageController = PageController();
   bool _isOpeningPdf = false;
 
   @override
@@ -45,13 +44,11 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
   @override
   void dispose() {
     _animationController.dispose();
-    // ❌ REMOVED: No longer needed for top PageView
-    // _pageController.dispose();
     super.dispose();
   }
 
-  // --- PDF Opening Logic (Keep existing) ---
-  Future<void> _openPdfViewer(String pdfUrl, String title) async { /* ... Keep existing ... */
+  // --- PDF Opening Logic ---
+  Future<void> _openPdfViewer(String pdfUrl, String title) async {
     if (_isOpeningPdf) return;
     setState(() => _isOpeningPdf = true);
     ScaffoldMessengerState? scaffoldMessenger;
@@ -90,7 +87,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     }
   }
 
-  Future<void> _openUrl(String? urlString) async { /* ... Keep existing ... */
+  Future<void> _openUrl(String? urlString) async {
     if (urlString == null) return;
     final Uri url = Uri.parse(urlString);
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -106,73 +103,100 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.productDoc.data() as Map<String, dynamic>;
-    final imageUrls = (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
-    final tags = (data['tags'] as List<dynamic>?)?.cast<String>() ?? [];
-    final manualFiles = (data['manualFiles'] as List<dynamic>?)
-        ?.cast<Map<String, dynamic>>()
-        .map((map) => {
-      'fileName': map['fileName']?.toString() ?? 'Document.pdf',
-      'fileUrl': map['fileUrl']?.toString() ?? '',
-    }).where((map) => map['fileUrl']!.isNotEmpty)
-        .toList() ?? [];
+    // ⚡ STREAM BUILDER to get real-time updates (stock changes, edits)
+    return StreamBuilder<DocumentSnapshot>(
+        stream: widget.productDoc.reference.snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
 
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration( // Keep background
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.blue.shade50,
-              Colors.purple.shade50,
-              Colors.pink.shade50,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildAppBar(context, data),
-              Expanded(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: ListView(
-                    padding: const EdgeInsets.all(20),
-                    children: [
-                      // ❌ REMOVED: Large image gallery from top
-                      // if (imageUrls.isNotEmpty) _buildImageGallery(imageUrls),
-                      // if (imageUrls.isNotEmpty) const SizedBox(height: 20),
+          final doc = snapshot.data!;
+          // Handle case where document might have been deleted
+          if (!doc.exists) {
+            return const Scaffold(body: Center(child: Text("Produit introuvable (supprimé ?)")));
+          }
 
-                      _buildProductHeader(data),
-                      const SizedBox(height: 20),
-                      _buildInfoCards(data),
-                      const SizedBox(height: 20),
-                      if (data['description']?.toString().isNotEmpty ?? false) _buildDescriptionCard(data),
-                      if (data['description']?.toString().isNotEmpty ?? false) const SizedBox(height: 20),
+          final data = doc.data() as Map<String, dynamic>;
 
-                      // ✅ ADDED: Photos Card (placed above Manuals card)
-                      if (imageUrls.isNotEmpty) _buildPhotosCard(imageUrls),
-                      if (imageUrls.isNotEmpty) const SizedBox(height: 20),
+          // ✅ EXTRACT THE SOFTWARE FLAG
+          final bool isSoftware = data['isSoftware'] ?? false;
 
-                      if (manualFiles.isNotEmpty) _buildManualsCard(manualFiles),
-                      if (manualFiles.isNotEmpty) const SizedBox(height: 20),
+          final imageUrls = (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
+          final tags = (data['tags'] as List<dynamic>?)?.cast<String>() ?? [];
+          final manualFiles = (data['manualFiles'] as List<dynamic>?)
+              ?.cast<Map<String, dynamic>>()
+              .map((map) => {
+            'fileName': map['fileName']?.toString() ?? 'Document.pdf',
+            'fileUrl': map['fileUrl']?.toString() ?? '',
+          }).where((map) => map['fileUrl']!.isNotEmpty)
+              .toList() ?? [];
 
-                      if (tags.isNotEmpty) _buildTagsCard(tags),
-                      if (tags.isNotEmpty) const SizedBox(height: 20),
-                    ],
-                  ),
+          return Scaffold(
+            body: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.blue.shade50,
+                    Colors.purple.shade50,
+                    Colors.pink.shade50,
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    _buildAppBar(context, doc, data), // Pass doc reference for editing
+                    Expanded(
+                      child: FadeTransition(
+                        opacity: _fadeAnimation,
+                        child: ListView(
+                          padding: const EdgeInsets.all(20),
+                          children: [
+                            _buildProductHeader(data, isSoftware), // ✅ Pass isSoftware
+                            const SizedBox(height: 20),
+                            _buildInfoCards(data, isSoftware), // ✅ Pass isSoftware
+                            const SizedBox(height: 20),
+
+                            if (data['description']?.toString().isNotEmpty ?? false) ...[
+                              _buildDescriptionCard(data),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // ✅ Photos Card
+                            if (imageUrls.isNotEmpty) ...[
+                              _buildPhotosCard(imageUrls),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // ✅ Manuals Card
+                            if (manualFiles.isNotEmpty) ...[
+                              _buildManualsCard(manualFiles),
+                              const SizedBox(height: 20),
+                            ],
+
+                            // ✅ Tags Card
+                            if (tags.isNotEmpty) ...[
+                              _buildTagsCard(tags),
+                              const SizedBox(height: 20),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
     );
   }
 
-  // --- Keep build methods: _buildAppBar, _buildProductHeader, _buildInfoCards, _buildInfoCard, _buildDescriptionCard, _buildManualsCard, _buildTagsCard, _getTagColor ---
-  Widget _buildAppBar(BuildContext context, Map<String, dynamic> data) { /* ... Keep existing ... */
+  // Widget _buildAppBar
+  Widget _buildAppBar(BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -237,7 +261,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => AddProductPage(productDoc: widget.productDoc),
+                    builder: (context) => AddProductPage(productDoc: doc),
                   ),
                 );
               },
@@ -259,10 +283,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     );
   }
 
-  // ❌ REMOVED: Large PageView gallery builder
-  // Widget _buildImageGallery(List<String> imageUrls) { ... }
-
-  Widget _buildProductHeader(Map<String, dynamic> data) { /* ... Keep existing ... */
+  // ✅ UPDATED HEADER with Software Badge
+  Widget _buildProductHeader(Map<String, dynamic> data, bool isSoftware) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -294,7 +316,11 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.inventory_2_rounded, color: Colors.white, size: 24),
+                child: Icon(
+                    isSoftware ? Icons.download_rounded : Icons.inventory_2_rounded,
+                    color: Colors.white,
+                    size: 24
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -336,7 +362,28 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                             ],
                           ),
                         ),
-                        if (data['mainCategory'] != null) ...[
+
+                        // ✅ Show Software Badge
+                        if (isSoftware) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Colors.purple, Colors.deepPurple],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'Logiciel / Licence',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ] else if (data['mainCategory'] != null) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -367,7 +414,9 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-  Widget _buildInfoCards(Map<String, dynamic> data) { /* ... Keep existing ... */
+
+  // ✅ UPDATED INFO CARDS (Hide Origin if Software)
+  Widget _buildInfoCards(Map<String, dynamic> data, bool isSoftware) {
     return Column(
       children: [
         Row(
@@ -395,19 +444,52 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
             ),
           ],
         ),
+
+        // ✅ NEW: Pricing Row
         const SizedBox(height: 12),
-        _buildInfoCard(
-          icon: Icons.public_rounded,
-          label: 'Origine',
-          value: data['origine'] ?? 'N/A',
-          gradient: const LinearGradient(
-            colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: _buildInfoCard(
+                icon: Icons.price_change_rounded,
+                label: "Prix d'achat",
+                value: data['prixAchat'] != null ? '${data['prixAchat']} DZD' : 'N/A',
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)], // Amber
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildInfoCard(
+                icon: Icons.monetization_on_rounded,
+                label: 'Prix de vente',
+                value: data['prixVente'] != null ? '${data['prixVente']} DZD' : 'N/A',
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF10B981), Color(0xFF34D399)], // Green
+                ),
+              ),
+            ),
+          ],
         ),
+
+        // ✅ Hide Origin if Software
+        if (!isSoftware) ...[
+          const SizedBox(height: 12),
+          _buildInfoCard(
+            icon: Icons.public_rounded,
+            label: 'Origine',
+            value: data['origine'] ?? 'N/A',
+            gradient: const LinearGradient(
+              colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
+            ),
+          ),
+        ],
       ],
     );
   }
-  Widget _buildInfoCard({ /* ... Keep existing ... */
+
+  Widget _buildInfoCard({
     required IconData icon,
     required String label,
     required String value,
@@ -464,7 +546,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-  Widget _buildDescriptionCard(Map<String, dynamic> data) { /* ... Keep existing ... */
+
+  Widget _buildDescriptionCard(Map<String, dynamic> data) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -523,7 +606,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     );
   }
 
-  // ✅ --- START: NEW PHOTOS CARD WIDGET ---
+  // ✅ --- PHOTOS CARD WIDGET ---
   Widget _buildPhotosCard(List<String> imageUrls) {
     return Container(
       padding: const EdgeInsets.all(24),
@@ -551,7 +634,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient( // Use a different gradient for photos
+                  gradient: const LinearGradient(
                     colors: [Color(0xFF4FACFE), Color(0xFF00F2FE)],
                   ),
                   borderRadius: BorderRadius.circular(12),
@@ -571,13 +654,13 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
           ),
           const SizedBox(height: 16),
           if (imageUrls.isEmpty)
-            Text( // Should not happen due to outer check, but good practice
+            Text(
               'Aucune photo disponible.',
               style: TextStyle(color: Colors.grey.shade600),
             )
           else
             SizedBox(
-              height: 100, // Define height for horizontal list
+              height: 100,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: imageUrls.length,
@@ -598,16 +681,14 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-  // ✅ --- END: NEW PHOTOS CARD WIDGET ---
 
-  // ✅ --- START: NEW IMAGE THUMBNAIL WIDGET ---
+  // ✅ --- IMAGE THUMBNAIL WIDGET ---
   Widget _buildImageThumbnail({
     required BuildContext context,
     required String imageUrl,
     required List<String> allImageUrls,
     required int index,
   }) {
-    // Use the URL as the tag, matching the original gallery implementation
     final String heroTag = imageUrl;
 
     return GestureDetector(
@@ -660,9 +741,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-  // ✅ --- END: NEW IMAGE THUMBNAIL WIDGET ---
 
-  Widget _buildManualsCard(List<Map<String, String>> manualFiles) { /* ... Keep existing ... */
+  Widget _buildManualsCard(List<Map<String, String>> manualFiles) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -690,7 +770,7 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFF97316), Color(0xFFEA580C)], // Orange gradient
+                    colors: [Color(0xFFF97316), Color(0xFFEA580C)], // Orange gradient for manuals
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -715,8 +795,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
             )
           else
             ListView.separated(
-              shrinkWrap: true, // Important inside ListView
-              physics: const NeverScrollableScrollPhysics(), // Important inside ListView
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
               itemCount: manualFiles.length,
               itemBuilder: (context, index) {
                 final fileData = manualFiles[index];
@@ -742,7 +822,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-  Widget _buildTagsCard(List<String> tags) { /* ... Keep existing ... */
+
+  Widget _buildTagsCard(List<String> tags) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -828,7 +909,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-  List<Color> _getTagColor(int index) { /* ... Keep existing ... */
+
+  List<Color> _getTagColor(int index) {
     final colors = [
       [const Color(0xFF667EEA), const Color(0xFF764BA2)],
       [const Color(0xFFF093FB), const Color(0xFFF5576C)],
@@ -840,7 +922,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     return colors[index % colors.length];
   }
 
-  // Keep existing _showFullScreenImageGallery and _showDeleteDialog ---
   void _showFullScreenImageGallery(BuildContext context, List<String> imageUrls, int initialIndex) {
     Navigator.of(context).push(
       PageRouteBuilder(
@@ -848,7 +929,6 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
         pageBuilder: (context, animation, secondaryAnimation) => ImageGalleryPage(
           imageUrls: imageUrls,
           initialIndex: initialIndex,
-          // ❌ REMOVED: heroTagPrefix parameter
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
@@ -856,7 +936,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       ),
     );
   }
-  void _showDeleteDialog(BuildContext context) { /* ... Keep existing ... */
+
+  void _showDeleteDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) {

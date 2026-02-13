@@ -1,20 +1,19 @@
 // lib/screens/service_technique/sav_list_page.dart
 
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/screens/service_technique/add_sav_ticket_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
-import 'package:intl/intl.dart';
-import 'package:boitex_info_app/utils/user_roles.dart'; // Import for role check
-import 'package:firebase_auth/firebase_auth.dart'; // Import for current user
-// ✅ ADDED: Import for SAV History Page
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_history_page.dart';
 
-// ✅ MODIFIED: Converted to StatefulWidget to fetch user role
 class SavListPage extends StatefulWidget {
   final String serviceType;
-
   const SavListPage({super.key, required this.serviceType});
 
   @override
@@ -30,295 +29,464 @@ class _SavListPageState extends State<SavListPage> {
     _fetchCurrentUserRole();
   }
 
-  // Define the roles considered managers for the delete permission.
-  final List<String> _managerRoles = const [
-    UserRoles.admin,
-    UserRoles.pdg,
-    UserRoles.responsableAdministratif,
-    UserRoles.responsableCommercial,
-    UserRoles.responsableTechnique,
-    UserRoles.responsableIT,
-    UserRoles.chefDeProjet,
-  ];
-
-  // Function to fetch the current user's role
   Future<void> _fetchCurrentUserRole() async {
-    final role = await UserRoles.getCurrentUserRole();
-    if (mounted) {
-      setState(() {
-        _currentUserRole = role;
-      });
-    }
-  }
-
-  // Helper to check if the current user is a manager (can delete)
-  bool get _isManager {
-    if (_currentUserRole == null) return false;
-    return _managerRoles.contains(_currentUserRole!);
-  }
-
-  // ⭐️ FIXED (Error 4): Function must return Future<bool?> for 'confirmDismiss'
-  Future<bool?> _deleteTicket(String docId, String savCode) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirmation de Suppression'),
-          content: Text(
-              'Êtes-vous sûr de vouloir supprimer le ticket SAV $savCode ? Cette action est irréversible.'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('ANNULER'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('SUPPRIMER'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed == true) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
       try {
-        await FirebaseFirestore.instance
-            .collection('sav_tickets')
-            .doc(docId)
-            .delete();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Ticket SAV $savCode supprimé.')),
-          );
+        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (doc.exists && mounted) {
+          setState(() {
+            _currentUserRole = doc.data()?['role'];
+          });
         }
-        return true; // Return true to dismiss the list tile
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur lors de la suppression: $e')),
-          );
-        }
-        return false; // Return false to keep the list tile (deletion failed)
+        debugPrint('Error fetching role: $e');
       }
     }
-    return false; // Return false if not confirmed
   }
 
-  Widget _getStatusChip(String status) {
-    Color color;
-    String label = status;
+  bool get _isManager {
+    return _currentUserRole == 'Admin' ||
+        _currentUserRole == 'PDG' ||
+        _currentUserRole == 'Responsable Technique' ||
+        _currentUserRole == 'Responsable Administratif';
+  }
 
+  // ✅ Extract color logic so we can use it for the badge AND the card accents
+  (Color bgColor, Color textColor) _getStatusColors(String status) {
     switch (status) {
       case 'Nouveau':
-        color = Colors.blue;
-        break;
+        return (const Color(0xFFE0F2FE), const Color(0xFF0369A1)); // Light Blue
       case 'En Diagnostic':
       case 'En Réparation':
-        color = Colors.orange;
-        break;
+        return (const Color(0xFFFEF3C7), const Color(0xFFB45309)); // Amber
       case 'Terminé':
-        color = Colors.green;
-        break;
+      case 'Approuvé - Prêt pour retour':
+        return (const Color(0xFFDCFCE7), const Color(0xFF15803D)); // Emerald
       case 'Irréparable - Remplacement Demandé':
-        color = Colors.red;
-        label = 'Remplacement Demandé';
-        break;
-      case 'Irréparable - Remplacement Approuvé':
-        color = Colors.teal;
-        label = 'Remplacement Approuvé';
-        break;
-      case 'En attente de pièce':
-        color = Colors.purple;
-        break;
+        return (const Color(0xFFFEE2E2), const Color(0xFFB91C1C)); // Red
       case 'Retourné':
-        color = Colors.grey;
-        break;
+      case 'Dépose':
+        return (const Color(0xFFF3F4F6), const Color(0xFF374151)); // Gray
       default:
-        color = Colors.grey;
+        return (const Color(0xFFF3F4F6), const Color(0xFF374151));
     }
+  }
 
-    return Chip(
-      label: Text(
-        label,
-        style: const TextStyle(color: Colors.white, fontSize: 10),
+  Widget _buildPremiumStatusBadge(String status) {
+    final colors = _getStatusColors(status);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: colors.$1,
+        borderRadius: BorderRadius.circular(20),
       ),
-      backgroundColor: color,
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      child: Text(
+        status.toUpperCase(),
+        style: GoogleFonts.inter(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+          color: colors.$2,
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_currentUserRole == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Tickets SAV')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    // Get the status filter to exclude 'Retourné' tickets
-    // ✅ MODIFIED: Added 'Dépose' to the excluded list
-    final List<String> excludedStatuses = ['Retourné', 'Dépose'];
-
     return Scaffold(
-      appBar: AppBar(
-        title: Text('SAV - ${widget.serviceType}'),
-        backgroundColor: Colors.orange,
-        // ✅ ADDED: History Action Button
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history_rounded),
-            tooltip: "Historique SAV",
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => SavTicketHistoryPage(
-                    serviceType: widget.serviceType,
+      backgroundColor: const Color(0xFFF9FAFB),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 120.0,
+            pinned: true,
+            elevation: 0,
+            backgroundColor: Colors.white.withOpacity(0.85),
+            iconTheme: const IconThemeData(color: Colors.black87),
+            flexibleSpace: ClipRRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: FlexibleSpaceBar(
+                  titlePadding: const EdgeInsets.only(left: 20, bottom: 16, right: 20),
+                  title: Text(
+                    '   SAV',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFF111827),
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  background: Container(color: Colors.transparent),
+                ),
+              ),
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Historique',
+                icon: const Icon(Icons.history_rounded, color: Color(0xFF4B5563)),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => SavTicketHistoryPage(serviceType: widget.serviceType)),
+                  );
+                },
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('sav_tickets')
+            // ✅ CRITICAL FIX: We now filter by IT vs Technique!
+                .where('serviceType', isEqualTo: widget.serviceType)
+                .where('status', whereIn: [
+              'Nouveau',
+              'En Diagnostic',
+              'En Réparation',
+              'Terminé',
+              'Approuvé - Prêt pour retour',
+              'Irréparable - Remplacement Demandé',
+              // 'Dépose' is removed to keep it in History only
+            ])
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SliverFillRemaining(
+                  child: Center(
+                    child: CircularProgressIndicator(color: Color(0xFF111827), strokeWidth: 3),
+                  ),
+                );
+              }
+
+              if (snapshot.hasError) {
+                return SliverFillRemaining(
+                  child: Center(
+                    child: Text(
+                      'Une erreur est survenue ou un index est manquant.',
+                      style: GoogleFonts.inter(color: Colors.red.shade400),
+                    ),
+                  ),
+                );
+              }
+
+              final tickets = snapshot.data?.docs ?? [];
+
+              if (tickets.isEmpty) {
+                return SliverFillRemaining(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inbox_rounded, size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          "Aucun ticket SAV actif.",
+                          style: GoogleFonts.inter(
+                            color: Colors.grey.shade500,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return SliverPadding(
+                padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 100),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                      final doc = tickets[index];
+                      final ticket = SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
+                      return _buildPremiumTicketCard(context, ticket);
+                    },
+                    childCount: tickets.length,
                   ),
                 ),
               );
             },
           ),
-          const SizedBox(width: 8),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('sav_tickets')
-            .where('serviceType', isEqualTo: widget.serviceType)
-            .where('status', whereNotIn: excludedStatuses)
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Erreur: ${snapshot.error}'));
-          }
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('Aucun ticket SAV en cours.'));
-          }
 
-          final tickets = snapshot.data!.docs.map((doc) {
-            return SavTicket.fromFirestore(
-                doc as DocumentSnapshot<Map<String, dynamic>>);
-          }).toList();
-
-          return ListView(
-            children: tickets.map((ticket) {
-              // We define the logic to open details here to reuse it
-              void openDetails() {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => SavTicketDetailsPage(ticket: ticket),
-                  ),
-                );
-              }
-
-              return Card(
-                elevation: 3,
-                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: InkWell(
-                  onTap: openDetails,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.build_circle_outlined,
-                            color: Colors.orange, size: 30),
-                        const SizedBox(width: 12),
-                        // Expanded Column for Text Info
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(ticket.savCode,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16)),
-                                  _getStatusChip(ticket.status),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                ticket.clientName,
-                                style: TextStyle(color: Colors.grey.shade700),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                'Produit: ${ticket.productName}',
-                                style: TextStyle(
-                                    color: Colors.grey.shade600, fontSize: 12),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        // ✅ NEW: Popup Menu for Options
-                        PopupMenuButton<String>(
-                          onSelected: (value) {
-                            if (value == 'edit') {
-                              openDetails();
-                            } else if (value == 'delete') {
-                              _deleteTicket(ticket.id!, ticket.savCode);
-                            }
-                          },
-                          itemBuilder: (BuildContext context) {
-                            return [
-                              const PopupMenuItem(
-                                value: 'edit',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.edit, color: Colors.blue),
-                                    SizedBox(width: 8),
-                                    Text('Ouvrir / Traiter'),
-                                  ],
-                                ),
-                              ),
-                              // Only show delete option if user is a manager
-                              if (_isManager)
-                                const PopupMenuItem(
-                                  value: 'delete',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.delete_outline,
-                                          color: Colors.red),
-                                      SizedBox(width: 8),
-                                      Text('Supprimer'),
-                                    ],
-                                  ),
-                                ),
-                            ];
-                          },
-                          icon: const Icon(Icons.more_vert, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
+        elevation: 4,
+        highlightElevation: 12,
+        backgroundColor: const Color(0xFF111827),
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.add_rounded, size: 22),
+        label: Text(
+          'Nouveau Ticket',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w600, letterSpacing: -0.2),
+        ),
         onPressed: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-                builder: (context) =>
-                    AddSavTicketPage(serviceType: widget.serviceType)),
+              builder: (context) => AddSavTicketPage(serviceType: widget.serviceType),
+            ),
           );
         },
-        tooltip: 'Nouveau Ticket SAV',
-        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  Widget _buildPremiumTicketCard(BuildContext context, SavTicket ticket) {
+    // Fetch the colors based on the current status
+    final colors = _getStatusColors(ticket.status);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFF3F4F6), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            // ✅ TOUCH OF COLOR: The shadow subtly glows with the status color
+            color: colors.$2.withOpacity(0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          highlightColor: colors.$1.withOpacity(0.3),
+          splashColor: colors.$1.withOpacity(0.5),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => SavTicketDetailsPage(ticket: ticket)),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        // ✅ TOUCH OF COLOR: Icon matches the status badge
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: colors.$1,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(Icons.confirmation_number_rounded, size: 16, color: colors.$2),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          ticket.savCode,
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF111827),
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                    _buildPremiumStatusBadge(ticket.status),
+                  ],
+                ),
+
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Divider(height: 1, color: Color(0xFFF3F4F6)),
+                ),
+
+                Text(
+                  ticket.productName,
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF111827),
+                    letterSpacing: -0.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 10),
+
+                // Client Row
+                Row(
+                  children: [
+                    const Icon(Icons.person_outline_rounded, size: 14, color: Color(0xFF6B7280)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        ticket.clientName,
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: const Color(0xFF6B7280),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+
+                // ✅ Store Name Row (only shown if it exists)
+                if (ticket.storeName != null && ticket.storeName!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.storefront_rounded, size: 14, color: Color(0xFF6B7280)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          ticket.storeName!,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF6B7280),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
+                const SizedBox(height: 12),
+
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFF3F4F6)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF9CA3AF)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          ticket.problemDescription.isNotEmpty ? ticket.problemDescription : 'Aucune description fournie.',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: const Color(0xFF4B5563),
+                            height: 1.4,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF9CA3AF)),
+                        const SizedBox(width: 6),
+                        Text(
+                          DateFormat('dd MMM yyyy, HH:mm', 'fr_FR').format(ticket.createdAt),
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    Row(
+                      children: [
+                        if (_isManager)
+                          GestureDetector(
+                            onTap: () {
+                              if (ticket.id != null) {
+                                _confirmDelete(context, ticket.id!);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red.shade700),
+                            ),
+                          ),
+                        if (_isManager) const SizedBox(width: 12),
+
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: colors.$1, // Touch of color!
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.arrow_forward_rounded, size: 14, color: colors.$2),
+                        ),
+                      ],
+                    )
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context, String ticketId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Confirmer la suppression', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        content: Text('Voulez-vous vraiment supprimer ce ticket ? Cette action est irréversible.', style: GoogleFonts.inter(height: 1.4)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        actions: [
+          TextButton(
+            child: Text('Annuler', style: GoogleFonts.inter(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              FirebaseFirestore.instance.collection('sav_tickets').doc(ticketId).delete();
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Ticket supprimé'), backgroundColor: Colors.red),
+              );
+            },
+            child: Text('Supprimer', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }

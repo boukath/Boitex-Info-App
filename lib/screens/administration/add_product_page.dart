@@ -28,7 +28,7 @@ class AddProductPage extends StatefulWidget {
 
 class _AddProductPageState extends State<AddProductPage> with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  // ... (Keep existing controllers) ...
+
   final _nomController = TextEditingController();
   final _marqueController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -36,7 +36,19 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   final _origineController = TextEditingController();
   final _tagsController = TextEditingController();
 
+  // ✅ NEW: Price Controllers
+  final _prixAchatController = TextEditingController();
+  final _prixVenteController = TextEditingController();
+
   bool _isLoading = false;
+
+  // ✅ ADDED: State variable for Software/Physical toggle
+  bool _isSoftware = false;
+  // ✅ ADDED: State variable for Consumable toggle
+  bool _isConsumable = false;
+  // ✅ ADDED: State variable for No Serial Number toggle
+  bool _noSerialNumber = false;
+
   String? _mainCategory;
   String? _selectedSubcategory;
 
@@ -63,6 +75,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     {'name': 'Antivol', 'icon': Icons.shield_rounded, 'color': const Color(0xFF6366F1)},
     {'name': 'TPV', 'icon': Icons.point_of_sale_rounded, 'color': const Color(0xFFEC4899)},
     {'name': 'Compteur Client', 'icon': Icons.people_rounded, 'color': const Color(0xFF10B981)},
+    {'name': 'IT', 'icon': Icons.computer_rounded, 'color': const Color(0xFF3B82F6)}, // Added IT category explicitly
   ];
 
   bool get _isEditing => widget.productDoc != null;
@@ -70,7 +83,6 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    // ... (Keep existing initState logic for animations and editing) ...
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -93,10 +105,21 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       _selectedSubcategory = data['categorie'];
       _targetService = data['targetService']; // Load existing service target
 
+      // ✅ ADDED: Load isSoftware flag
+      _isSoftware = data['isSoftware'] ?? false;
+      // ✅ ADDED: Load isConsumable flag
+      _isConsumable = data['isConsumable'] ?? false;
+      // ✅ ADDED: Load noSerialNumber flag
+      _noSerialNumber = data['noSerialNumber'] ?? false;
+
       _marqueController.text = data['marque'] ?? '';
       _descriptionController.text = data['description'] ?? '';
       _referenceController.text = data['reference'] ?? '';
       _origineController.text = data['origine'] ?? '';
+
+      // ✅ NEW: Load Prices
+      _prixAchatController.text = data['prixAchat']?.toString() ?? '';
+      _prixVenteController.text = data['prixVente']?.toString() ?? '';
 
       final tagsList = data['tags'] as List<dynamic>?;
       if (tagsList != null) {
@@ -121,7 +144,6 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
 
   @override
   void dispose() {
-    // ... (Keep existing dispose logic) ...
     _animationController.dispose();
     _nomController.dispose();
     _marqueController.dispose();
@@ -129,6 +151,9 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     _referenceController.dispose();
     _origineController.dispose();
     _tagsController.dispose();
+    // ✅ NEW: Dispose Price Controllers
+    _prixAchatController.dispose();
+    _prixVenteController.dispose();
     super.dispose();
   }
 
@@ -199,7 +224,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     }
   }
 
-  void _showImagePickerOptions() { /* ... Keep existing ... */
+  void _showImagePickerOptions() {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -265,7 +290,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  Widget _buildImagePickerOption({ /* ... Keep existing ... */
+  Widget _buildImagePickerOption({
     required IconData icon,
     required String title,
     required Gradient gradient,
@@ -599,8 +624,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // ✅ MODIFIED: _saveProduct to use new upload functions
-  // ✅ MODIFIED: _saveProduct with User Signature Fix
+  // ✅ MODIFIED: _saveProduct to include isSoftware flag and price fields
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -618,12 +642,6 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       _showErrorSnackBar('Veuillez sélectionner une catégorie');
       return;
     }
-
-    // ⚡ MODIFIED: Image upload is now optional. Validation block commented out.
-    // if (_existingImageUrls.isEmpty && _selectedImages.isEmpty) {
-    //   _showErrorSnackBar('Veuillez ajouter au moins une image du produit');
-    //   return;
-    // }
 
     setState(() => _isLoading = true);
 
@@ -661,28 +679,39 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       final allImageUrls = [..._existingImageUrls, ...newImageUrls];
       final allPdfData = [..._existingPdfData, ...newPdfData];
 
-      // ✅ GET CURRENT USER IDENTITY (Fix for "Système" user)
+      // ✅ GET CURRENT USER IDENTITY
       final currentUser = FirebaseAuth.instance.currentUser;
       final currentUserName = currentUser?.displayName ?? 'Inconnu';
+
+      // ✅ NEW: Parse Prices
+      // Replace commas with dots to handle French format inputs
+      double? prixAchat = double.tryParse(_prixAchatController.text.replaceAll(',', '.'));
+      double? prixVente = double.tryParse(_prixVenteController.text.replaceAll(',', '.'));
 
       // Prepare product data for Firestore
       final productData = {
         'nom': _nomController.text.trim(),
         'mainCategory': _mainCategory,
         'categorie': _selectedSubcategory,
-
-        // ✅ NEW FIELD: Target Service
         'targetService': _targetService,
+
+        // ✅ SAVE ALL FLAGS
+        'isSoftware': _isSoftware,
+        'isConsumable': _isConsumable,
+        'noSerialNumber': _noSerialNumber, // ✅ NEW FLAG
 
         'marque': _marqueController.text.trim(),
         'description': _descriptionController.text.trim(),
         'reference': _referenceController.text.trim(),
         'origine': _origineController.text.trim(),
+
+        // ✅ NEW: Save Prices
+        'prixAchat': prixAchat,
+        'prixVente': prixVente,
+
         'tags': tagsList,
         'imageUrls': allImageUrls,
         'manualFiles': allPdfData,
-
-        // 👇 THIS IS THE FIX: Explicitly sign the update
         'lastModifiedBy': currentUserName,
       };
 
@@ -692,7 +721,9 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         _showSuccessSnackBar('Produit mis à jour avec succès');
       } else {
         productData['createdAt'] = FieldValue.serverTimestamp();
-        productData['quantiteEnStock'] = 0; // Set initial stock ONLY for new products
+        // If software, stock handling might be different (e.g., unlimited or license based)
+        // For now, we initialize it to 0 like physical products.
+        productData['quantiteEnStock'] = 0;
         await FirebaseFirestore.instance.collection('produits').doc(productId).set(productData);
         _showSuccessSnackBar('Produit ajouté avec succès');
       }
@@ -737,17 +768,21 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                     child: ListView(
                       padding: const EdgeInsets.all(20),
                       children: [
-                        _buildTargetServiceSection(), // ✅ NEW: Service Selection
+                        _buildTargetServiceSection(),
+                        const SizedBox(height: 20),
+
+                        // ✅ NEW: Type Section (Software / Consumable / NoSerial)
+                        _buildProductTypeSection(),
+
                         const SizedBox(height: 20),
                         _buildMainCategorySection(),
                         const SizedBox(height: 20),
                         _buildSubcategorySection(),
                         const SizedBox(height: 20),
-                        _buildPhotosSection(), // Existing Photos section
+                        _buildPhotosSection(),
                         const SizedBox(height: 20),
-                        _buildManualsSection(), // ✅ ADDED: New Manuals section
+                        _buildManualsSection(),
                         const SizedBox(height: 20),
-                        // ... (Keep existing TextFields) ...
                         _buildTextField(
                           controller: _nomController,
                           label: 'Nom du produit',
@@ -774,20 +809,62 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                           gradient: const LinearGradient(
                             colors: [Color(0xFF4FACFE), Color(0xFF00F2FE)],
                           ),
-                          suffixIcon: IconButton(
+                          // Hide scanner if Software OR Consumable (consumables often have barcodes, but user implies loose stock)
+                          // You can change `|| _isConsumable` to just `_isSoftware` if you want to scan barcodes for consumables
+                          suffixIcon: _isSoftware
+                              ? null
+                              : IconButton(
                             icon: const Icon(Icons.qr_code_scanner_rounded),
                             onPressed: _scanBarcode,
                           ),
                         ),
                         const SizedBox(height: 16),
-                        _buildTextField(
-                          controller: _origineController,
-                          label: 'Produit origine',
-                          icon: Icons.public_rounded,
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
+
+                        // ✅ NEW: Price Fields (Side by Side)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildTextField(
+                                controller: _prixAchatController,
+                                label: "Prix d'achat",
+                                icon: Icons.price_change_rounded,
+                                gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)]), // Amber
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                suffixText: 'DZD',
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildTextField(
+                                controller: _prixVenteController,
+                                label: "Prix de vente",
+                                icon: Icons.monetization_on_rounded,
+                                gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF34D399)]), // Green
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                suffixText: 'DZD',
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        // ✅ MODIFIED: Wrap Origin field in Visibility
+                        Visibility(
+                          visible: !_isSoftware,
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 16),
+                              _buildTextField(
+                                controller: _origineController,
+                                label: 'Produit origine',
+                                icon: Icons.public_rounded,
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+
                         const SizedBox(height: 16),
                         _buildTextField(
                           controller: _descriptionController,
@@ -823,7 +900,87 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // --- Keep existing build methods for AppBar, LoadingState, Category Sections, TextField, SaveButton ---
+  // ✅ NEW: Consolidated Product Type Section
+  Widget _buildProductTypeSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // 1. Software Switch
+          SwitchListTile(
+            value: _isSoftware,
+            onChanged: (bool value) {
+              setState(() {
+                _isSoftware = value;
+                if (_isSoftware) {
+                  _isConsumable = false;
+                  _noSerialNumber = true; // Software usually implies no physical serial scan on box
+                }
+              });
+            },
+            title: const Text('Produit Logiciel / Licence', style: TextStyle(fontWeight: FontWeight.bold)),
+            secondary: Icon(
+              _isSoftware ? Icons.download_rounded : Icons.inventory_2_outlined,
+              color: _isSoftware ? Colors.purple : Colors.grey,
+            ),
+            activeColor: Colors.purple,
+          ),
+
+          if (!_isSoftware) ...[
+            const Divider(height: 1),
+            // 2. Consumable Switch
+            SwitchListTile(
+              value: _isConsumable,
+              onChanged: (bool value) {
+                setState(() {
+                  _isConsumable = value;
+                  if (_isConsumable) {
+                    _noSerialNumber = true; // Consumables typically don't have individual serials
+                  }
+                });
+              },
+              title: const Text('Consommable', style: TextStyle(fontWeight: FontWeight.bold)),
+              secondary: Icon(
+                _isConsumable ? Icons.grid_3x3 : Icons.category_outlined,
+                color: _isConsumable ? Colors.orange : Colors.grey,
+              ),
+              activeColor: Colors.orange,
+            ),
+            const Divider(height: 1),
+
+            // 3. ✅ NEW: No Serial Number Switch
+            SwitchListTile(
+              value: _noSerialNumber,
+              onChanged: (bool value) {
+                setState(() {
+                  _noSerialNumber = value;
+                });
+              },
+              title: const Text('Pas de Numéro de Série', style: TextStyle(fontWeight: FontWeight.bold)),
+              secondary: Icon(
+                _noSerialNumber ? Icons.numbers_rounded : Icons.qr_code_2,
+                color: _noSerialNumber ? Colors.blueGrey : Colors.grey,
+              ),
+              activeColor: Colors.blueGrey,
+            ),
+          ]
+        ],
+      ),
+    );
+  }
+
+  // ... (Keep existing methods: _buildAppBar, _buildLoadingState, _buildTargetServiceSection, etc.) ...
+
   Widget _buildAppBar() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -926,7 +1083,6 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // ✅ NEW WIDGET: Target Service Selection
   Widget _buildTargetServiceSection() {
     return Container(
       decoration: BoxDecoration(
@@ -1112,6 +1268,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
+
   Widget _buildSubcategorySection() {
     if (_mainCategory == null) {
       return Container(
@@ -1290,6 +1447,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       },
     );
   }
+
+  // ✅ UPDATED: _buildTextField to accept keyboardType and suffixText
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -1298,6 +1457,9 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     String? hint,
     int? maxLines,
     Widget? suffixIcon,
+    // ✅ NEW PARAMS
+    TextInputType? keyboardType,
+    String? suffixText,
     String? Function(String?)? validator,
   }) {
     return Container(
@@ -1321,6 +1483,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         controller: controller,
         maxLines: maxLines ?? 1,
         validator: validator,
+        keyboardType: keyboardType, // ✅ Apply keyboard type
         style: const TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w500,
@@ -1329,6 +1492,8 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
+          suffixText: suffixText, // ✅ Apply suffix text
+          suffixStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
           labelStyle: TextStyle(
             color: Colors.grey.shade600,
             fontWeight: FontWeight.w600,
@@ -1372,6 +1537,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       ),
     );
   }
+
   Widget _buildSaveButton() {
     return Container(
       decoration: BoxDecoration(
@@ -1589,7 +1755,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   // ✅ MODIFIED: Updated thumbnail to handle XFile correctly on Web
   Widget _buildImageThumbnail({
     String? imageUrl,
-    XFile? imageFile, // Changed from File to XFile
+    XFile? imageFile,
     required VoidCallback onRemove,
   }) {
     return Stack(
@@ -1661,7 +1827,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
     );
   }
 
-  // ✅ --- NEW WIDGETS FOR MANUALS SECTION ---
+  // ✅ --- MANUALS SECTION ---
   Widget _buildManualsSection() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1857,5 +2023,4 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
     );
   }
-// ✅ --- END: NEW WIDGETS FOR MANUALS SECTION ---
 }

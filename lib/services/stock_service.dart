@@ -37,7 +37,7 @@ class StockService {
   }
 
   // ===========================================================================
-  // 1. CONFIRM DELIVERY (UPDATED: READ-MODIFY-WRITE FOR AUDIT ACCURACY)
+  // 1. CONFIRM DELIVERY (UPDATED: LOGIC FOR SOFTWARE)
   // ===========================================================================
 
   // ✅ NEW: Called when status becomes "Livré"
@@ -91,30 +91,38 @@ class StockService {
         final String productName = data['nom'] ?? item['productName'] ?? 'Produit Inconnu';
         final int currentStock = data['quantiteEnStock'] ?? 0;
 
-        // Calculate new stock
+        // ✅ CHECK IF SOFTWARE
+        final bool isSoftware = data['isSoftware'] ?? false;
+
+        // Calculate new stock (only applies if physical)
         final int newStock = currentStock - qtyToDeduct;
 
-        // ✅ STEP 2: UPDATE PHYSICAL STOCK
-        transaction.update(productRef, {
-          'quantiteEnStock': newStock,
-          'lastModifiedBy': userName,
-          'lastModifiedAt': FieldValue.serverTimestamp(),
-        });
+        // ✅ STEP 2: UPDATE PHYSICAL STOCK (SKIP IF SOFTWARE)
+        if (!isSoftware) {
+          transaction.update(productRef, {
+            'quantiteEnStock': newStock,
+            'lastModifiedBy': userName,
+            'lastModifiedAt': FieldValue.serverTimestamp(),
+          });
+        }
 
         // ✅ STEP 3: LOG THE MOVEMENT (With ALL Fields for PDF)
         final movementRef = _db.collection('stock_movements').doc();
         transaction.set(movementRef, {
           'productId': productId,
           'productName': productName,
-          'productRef': productReference, // 👈 Fixes "Ref: N/A" in PDF
-          'quantityChange': -qtyToDeduct,
-          'oldQuantity': currentStock,    // 👈 Fixes "Avant: 0" in PDF
-          'newQuantity': newStock,        // 👈 Fixes "Après: 0" in PDF
+          'productRef': productReference,
+
+          // ⚡ IF SOFTWARE: Quantity change is 0 (no physical deduction)
+          'quantityChange': isSoftware ? 0 : -qtyToDeduct,
+          'oldQuantity': currentStock,
+          'newQuantity': isSoftware ? currentStock : newStock,
+
           'type': 'LIVRAISON_CLIENT',
           'livraisonId': deliveryId,
-          'notes': notes,
+          'notes': isSoftware ? "$notes (Logiciel/Licence)" : notes,
           'user': userName,
-          'userId': userId,               // 👈 Fixes "Utilisateur: Inconnu" in PDF (Lookup Key)
+          'userId': userId,
           'timestamp': FieldValue.serverTimestamp(),
         });
       }

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// REMOVED: import 'package:firebase_storage/firebase_storage.dart'; ❌
+import 'package:google_fonts/google_fonts.dart'; // ✅ 2026 Typography
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/services/activity_logger.dart';
 import 'package:file_picker/file_picker.dart';
@@ -14,7 +14,6 @@ import 'package:path/path.dart' as path;
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
-
 
 class FinalizeSavReturnPage extends StatefulWidget {
   final SavTicket ticket;
@@ -30,9 +29,11 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   final _clientNameController = TextEditingController();
   final _clientPhoneController = TextEditingController();
   final _clientEmailController = TextEditingController();
+
+  // Signature setup
   final _signatureController = SignatureController(
-    penStrokeWidth: 2,
-    penColor: Colors.black,
+    penStrokeWidth: 3, // Slightly thicker for a premium feel
+    penColor: const Color(0xFF111827), // Pitch Black
     exportBackgroundColor: Colors.white,
   );
 
@@ -43,7 +44,6 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
-
   @override
   void dispose() {
     _clientNameController.dispose();
@@ -53,10 +53,12 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
     super.dispose();
   }
 
+  // ===========================================================================
+  // LOGIC (Unchanged)
+  // ===========================================================================
+
   Future<void> _pickMedia() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.media,
-    );
+    final result = await FilePicker.platform.pickFiles(type: FileType.media);
 
     if (result != null && result.files.single.path != null) {
       final pickedFile = File(result.files.single.path!);
@@ -64,15 +66,11 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
       if (pickedFile.lengthSync() > maxFileSize) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Le fichier dépasse la limite de 50 Mo.'),
-              backgroundColor: Colors.red,
-            ),
+            const SnackBar(content: Text('Le fichier dépasse la limite de 50 Mo.'), backgroundColor: Colors.red),
           );
         }
         return;
       }
-
       setState(() {
         _proofMediaFile = pickedFile;
         _isVideo = _isVideoPath(_proofMediaFile!.path);
@@ -82,18 +80,12 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
 
   bool _isVideoPath(String filePath) {
     final p = filePath.toLowerCase();
-    return p.endsWith('.mp4') ||
-        p.endsWith('.mov') ||
-        p.endsWith('.avi') ||
-        p.endsWith('.mkv');
+    return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
   }
-
-  // --- B2 HELPER FUNCTIONS ---
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
-      final response =
-      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
       if (response.statusCode == 200) {
         return json.decode(response.body) as Map<String, dynamic>;
       } else {
@@ -106,7 +98,6 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
     }
   }
 
-  // ✅ New helper: Upload Bytes (Signature)
   Future<String?> _uploadBytesToB2(Uint8List bytes, String fileName, Map<String, dynamic> b2Creds) async {
     try {
       final sha1Hash = sha1.convert(bytes).toString();
@@ -117,7 +108,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
         headers: {
           'Authorization': b2Creds['authorizationToken'],
           'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': 'image/png', // Signature is PNG
+          'Content-Type': 'image/png',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': bytes.length.toString(),
         },
@@ -135,8 +126,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
     }
   }
 
-  Future<String?> _uploadFileToB2(
-      File file, Map<String, dynamic> b2Creds, String desiredFileName) async {
+  Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds, String desiredFileName) async {
     try {
       final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
@@ -144,19 +134,12 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
 
       String? mimeType;
       final lcFileName = desiredFileName.toLowerCase();
-      if (lcFileName.endsWith('.jpg') || lcFileName.endsWith('.jpeg')) {
-        mimeType = 'image/jpeg';
-      } else if (lcFileName.endsWith('.png')) {
-        mimeType = 'image/png';
-      } else if (lcFileName.endsWith('.mp4')) {
-        mimeType = 'video/mp4';
-      } else if (lcFileName.endsWith('.mov')) {
-        mimeType = 'video/quicktime';
-      } else if (lcFileName.endsWith('.avi')) {
-        mimeType = 'video/x-msvideo';
-      } else if (lcFileName.endsWith('.mkv')) {
-        mimeType = 'video/x-matroska';
-      }
+      if (lcFileName.endsWith('.jpg') || lcFileName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+      else if (lcFileName.endsWith('.png')) mimeType = 'image/png';
+      else if (lcFileName.endsWith('.mp4')) mimeType = 'video/mp4';
+      else if (lcFileName.endsWith('.mov')) mimeType = 'video/quicktime';
+      else if (lcFileName.endsWith('.avi')) mimeType = 'video/x-msvideo';
+      else if (lcFileName.endsWith('.mkv')) mimeType = 'video/x-matroska';
 
       final resp = await http.post(
         uploadUri,
@@ -184,24 +167,15 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
       return null;
     }
   }
-  // --- END B2 HELPER FUNCTIONS ---
 
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
     if (_signatureController.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('La signature du client est requise.'),
-            backgroundColor: Colors.red),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La signature du client est requise.'), backgroundColor: Colors.red));
       return;
     }
     if (_proofMediaFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Une photo ou vidéo de preuve est requise.'),
-            backgroundColor: Colors.red),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Une photo ou vidéo de preuve est requise.'), backgroundColor: Colors.red));
       return;
     }
 
@@ -213,221 +187,269 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
       final signatureBytes = await _signatureController.toPngBytes();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-      // ✅ 1. Get B2 Credentials FIRST
       final b2Credentials = await _getB2UploadCredentials();
-      if (b2Credentials == null) {
-        throw Exception('Impossible de récupérer les accès B2.');
-      }
+      if (b2Credentials == null) throw Exception('Impossible de récupérer les accès B2.');
 
-      // ✅ 2. Upload Signature (B2)
       final signatureFileName = 'sav_returns/signatures/${widget.ticket.savCode}-$timestamp.png';
-      final signatureUrl = await _uploadBytesToB2(
-          signatureBytes!,
-          signatureFileName,
-          b2Credentials
-      );
+      final signatureUrl = await _uploadBytesToB2(signatureBytes!, signatureFileName, b2Credentials);
 
-      // ✅ 3. Upload Media (B2)
       final fileExtension = path.extension(_proofMediaFile!.path);
       final mediaFolder = _isVideo ? 'videos' : 'photos';
-      final mediaFileName =
-          'sav_returns/$mediaFolder/${widget.ticket.savCode}-$timestamp$fileExtension';
+      final mediaFileName = 'sav_returns/$mediaFolder/${widget.ticket.savCode}-$timestamp$fileExtension';
+      final mediaUrl = await _uploadFileToB2(_proofMediaFile!, b2Credentials, mediaFileName);
 
-      final mediaUrl = await _uploadFileToB2(
-        _proofMediaFile!,
-        b2Credentials,
-        mediaFileName,
-      );
+      if (signatureUrl == null || mediaUrl == null) throw Exception('Échec de l\'upload d\'un ou plusieurs fichiers.');
 
-      if (signatureUrl == null || mediaUrl == null) {
-        throw Exception('Échec de l\'upload d\'un ou plusieurs fichiers de preuve.');
-      }
-
-      // 4. Update Firestore
-      await FirebaseFirestore.instance
-          .collection('sav_tickets')
-          .doc(widget.ticket.id)
-          .update({
+      await FirebaseFirestore.instance.collection('sav_tickets').doc(widget.ticket.id).update({
         'status': 'Retourné',
         'returnClientName': _clientNameController.text.trim(),
         'returnClientPhone': _clientPhoneController.text.trim(),
         'returnClientEmail': _clientEmailController.text.trim(),
         'returnSignatureUrl': signatureUrl,
         'returnPhotoUrl': mediaUrl,
-        'closedAt': FieldValue.serverTimestamp(), // Optional: Mark when it was returned/closed
+        'closedAt': FieldValue.serverTimestamp(),
       });
 
-      // 5. Log Activity
       await ActivityLogger.logActivity(
-        message:
-        "Le ticket SAV ${widget.ticket.savCode} a été finalisé et retourné au client.",
+        message: "Le ticket SAV ${widget.ticket.savCode} a été finalisé et retourné au client.",
         interventionId: widget.ticket.id,
         category: 'SAV',
       );
 
-      // 6. Success Feedback & Navigation
       if (!mounted) return;
-      scaffoldMessenger.showSnackBar(
-        const SnackBar(
-            content: Text('Retour du ticket SAV finalisé avec succès.'),
-            backgroundColor: Colors.green),
-      );
+      scaffoldMessenger.showSnackBar(const SnackBar(content: Text('Retour finalisé avec succès.'), backgroundColor: Colors.green));
       navigator.pop();
       navigator.pop();
 
     } catch (e) {
       if (!mounted) return;
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-            content: Text('Erreur: ${e.toString()}'),
-            backgroundColor: Colors.red),
-      );
+      scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red));
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
+  // ===========================================================================
+  // 💎 2026 UI ARCHITECTURE
+  // ===========================================================================
+
+  InputDecoration _premiumInputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: GoogleFonts.inter(color: const Color(0xFF6B7280), fontSize: 14),
+      prefixIcon: Icon(icon, color: const Color(0xFF9CA3AF), size: 20),
+      filled: true,
+      fillColor: Colors.white,
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFE5E7EB), width: 1.5),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFF10B981), width: 2), // Emerald Green Focus
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB), // Clean off-white background
       appBar: AppBar(
-        title: Text('Finaliser Retour: ${widget.ticket.savCode}'),
-        backgroundColor: Colors.green,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Color(0xFF111827)),
+        title: Text(
+          'Restitution Client',
+          style: GoogleFonts.inter(
+            color: const Color(0xFF111827),
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
+          ),
+        ),
       ),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildProductVerificationCard(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
               Text(
-                'Confirmation de Réception Client',
-                style: Theme.of(context).textTheme.headlineSmall,
-                textAlign: TextAlign.center,
+                'Informations du Client',
+                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF374151)),
               ),
               const SizedBox(height: 16),
+
               TextFormField(
                 controller: _clientNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Gérant de magasin / Nom du Client',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person_outline),
-                ),
-                validator: (value) =>
-                value == null || value.isEmpty ? 'Veuillez entrer un nom.' : null,
+                // ✅ FIXED: Changed 500 to FontWeight.w500
+                style: GoogleFonts.inter(fontWeight: FontWeight.w500, color: const Color(0xFF111827)),
+                decoration: _premiumInputDecoration('Nom et Prénom / Gérant', Icons.person_outline_rounded),
+                validator: (value) => value == null || value.isEmpty ? 'Veuillez entrer un nom.' : null,
               ),
               const SizedBox(height: 16),
 
               TextFormField(
                 controller: _clientPhoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Numéro de téléphone',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone_outlined),
-                ),
                 keyboardType: TextInputType.phone,
+                // ✅ FIXED: Changed 500 to FontWeight.w500
+                style: GoogleFonts.inter(fontWeight: FontWeight.w500, color: const Color(0xFF111827)),
+                decoration: _premiumInputDecoration('Numéro de téléphone', Icons.phone_outlined),
               ),
               const SizedBox(height: 16),
 
               TextFormField(
                 controller: _clientEmailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email (Optionnel)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email_outlined),
-                ),
                 keyboardType: TextInputType.emailAddress,
+                // ✅ FIXED: Changed 500 to FontWeight.w500
+                style: GoogleFonts.inter(fontWeight: FontWeight.w500, color: const Color(0xFF111827)),
+                decoration: _premiumInputDecoration('Email (Optionnel)', Icons.email_outlined),
               ),
 
-              const SizedBox(height: 24),
-              const Text('Photo / Vidéo de preuve',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _pickMedia,
-                icon: const Icon(Icons.perm_media_outlined),
-                label: Text(_proofMediaFile == null
-                    ? 'Prendre / Uploader Photo ou Vidéo'
-                    : 'Changer le fichier'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
+              const SizedBox(height: 32),
+
+              // --- MEDIA SECTION ---
+              Text(
+                'Preuve Visuelle',
+                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF374151)),
               ),
-              if (_proofMediaFile != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16.0),
-                  child: Container(
-                    height: 150,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: _isVideo
-                        ? FutureBuilder<Uint8List?>(
-                      future: VideoThumbnail.thumbnailData(
-                        video: _proofMediaFile!.path, imageFormat: ImageFormat.JPEG, maxWidth: 300, quality: 50,
+              const SizedBox(height: 16),
+
+              GestureDetector(
+                onTap: _pickMedia,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5, style: BorderStyle.solid),
+                  ),
+                  child: _proofMediaFile == null
+                      ? Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: const BoxDecoration(color: Color(0xFFF3F4F6), shape: BoxShape.circle),
+                        child: const Icon(Icons.add_a_photo_rounded, color: Color(0xFF6B7280), size: 28),
                       ),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        if (snapshot.hasData && snapshot.data != null) {
-                          return Image.memory(snapshot.data!, fit: BoxFit.contain);
-                        }
-                        return const Center(child: Icon(Icons.error_outline, color: Colors.red));
-                      },
-                    )
-                        : Image.file(_proofMediaFile!, fit: BoxFit.contain),
+                      const SizedBox(height: 12),
+                      Text('Ajouter une photo ou vidéo', style: GoogleFonts.inter(color: const Color(0xFF4B5563), fontWeight: FontWeight.w600)),
+                    ],
+                  )
+                      : Column(
+                    children: [
+                      Container(
+                        height: 120,
+                        width: 120,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: _isVideo
+                              ? FutureBuilder<Uint8List?>(
+                            future: VideoThumbnail.thumbnailData(video: _proofMediaFile!.path, imageFormat: ImageFormat.JPEG, maxWidth: 300, quality: 50),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
+                              if (snapshot.hasData && snapshot.data != null) return Stack(fit: StackFit.expand, children: [Image.memory(snapshot.data!, fit: BoxFit.cover), Container(color: Colors.black26), const Center(child: Icon(Icons.play_circle_fill, size: 40, color: Colors.white))]);
+                              return const Center(child: Icon(Icons.error_outline, color: Colors.red));
+                            },
+                          )
+                              : Image.file(_proofMediaFile!, fit: BoxFit.cover),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text('Changer le média', style: GoogleFonts.inter(color: const Color(0xFF10B981), fontWeight: FontWeight.bold)),
+                    ],
                   ),
                 ),
-              const SizedBox(height: 24),
+              ),
+
+              const SizedBox(height: 32),
+
+              // --- SIGNATURE SECTION ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Signature du client',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  TextButton(
-                    onPressed: () => _signatureController.clear(),
-                    child: const Text('Effacer'),
+                  Text('Signature du Client', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF374151))),
+                  GestureDetector(
+                    onTap: () => _signatureController.clear(),
+                    child: Text('Effacer', style: GoogleFonts.inter(color: Colors.red.shade400, fontWeight: FontWeight.bold, fontSize: 13)),
                   ),
                 ],
               ),
+              const SizedBox(height: 12),
+
               Container(
-                height: 150,
+                height: 160,
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade400),
-                  borderRadius: BorderRadius.circular(4),
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: const Color(0xFF111827).withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(20),
                   child: Signature(
                     controller: _signatureController,
-                    backgroundColor: Colors.grey[200]!,
+                    backgroundColor: Colors.white,
                   ),
                 ),
               ),
-              const SizedBox(height: 32),
-              _isSaving
-                  ? const Center(child: CircularProgressIndicator())
-                  : ElevatedButton.icon(
-                onPressed: _submitForm,
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('Finaliser et Clôturer le Ticket'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16.0),
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+
+              const SizedBox(height: 40),
+
+              // --- BIG PREMIUM SUBMIT BUTTON ---
+              Container(
+                decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(color: const Color(0xFF10B981).withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 8)),
+                    ]
+                ),
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _submitForm,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981), // Emerald Green
+                    disabledBackgroundColor: const Color(0xFF10B981).withOpacity(0.5),
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                      : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Clôturer le Ticket',
+                        style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+              const SizedBox(height: 40), // Bottom padding
             ],
           ),
         ),
@@ -435,42 +457,71 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
     );
   }
 
+  // 💎 2026 UI: The Product Verification Card
   Widget _buildProductVerificationCard() {
-    return Card(
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: Colors.grey.shade300)
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFF3F4F6), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF111827).withOpacity(0.03),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Article à Retourner',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            _buildInfoRow('Produit:', widget.ticket.productName),
-            _buildInfoRow('N° Série:', widget.ticket.serialNumber),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.0),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('$label ', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
-          Expanded(child: Text(value)),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.devices_other_rounded, color: Color(0xFF10B981), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Matériel à Restituer',
+                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF111827), letterSpacing: -0.3),
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(height: 1, color: Color(0xFFF3F4F6)),
+          ),
+          _buildInfoRow(Icons.qr_code_rounded, 'Ticket', widget.ticket.savCode),
+          const SizedBox(height: 12),
+          _buildInfoRow(Icons.inventory_2_outlined, 'Produit', widget.ticket.productName),
+          const SizedBox(height: 12),
+          _buildInfoRow(Icons.tag_rounded, 'Série', widget.ticket.serialNumber),
         ],
       ),
     );
   }
 
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF9CA3AF)),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 70,
+          child: Text(label, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: const Color(0xFF6B7280))),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF111827)),
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
+    );
+  }
 }
