@@ -24,7 +24,7 @@ class SelectableItem {
     return SelectableItem(
       id: doc.id,
       name: data['nom'] ?? 'Nom inconnu',
-      partNumber: data['reference'] ?? 'Référence inconnue',  // ✅ FIXED: Changed from 'partNumber' to 'reference'
+      partNumber: data['reference'] ?? 'Référence inconnue',
       data: data, // Store the full document data if needed elsewhere
     );
   }
@@ -38,6 +38,7 @@ class SelectableItem {
 
 /// Model for a product that has been selected for a delivery or project.
 class ProductSelection {
+  // ⚠️ BACKWARD COMPATIBILITY: Kept as non-nullable String to prevent crashes in PDF/Project services
   final String productId;
   final String productName;
   final String partNumber;
@@ -49,16 +50,24 @@ class ProductSelection {
   int pickedQuantity;
   String status; // e.g., 'pending', 'picked'
 
+  // ✅ ADDED: Flags for logic control (Consumables/Software = No Serial Scan)
+  final bool isConsumable;
+  final bool isSoftware;
+
   ProductSelection({
-    required this.productId,
+    String? productId, // Optional in constructor
     required this.productName,
-    required this.partNumber,
-    required this.marque,
+    String? partNumber, // Optional in constructor
+    this.marque = 'N/A',
     required this.quantity,
     List<String>? serialNumbers,
     this.pickedQuantity = 0, // Default to 0
     this.status = 'pending', // Default to pending
-  }) : serialNumbers = serialNumbers ?? [];
+    this.isConsumable = false,
+    this.isSoftware = false,
+  })  : productId = productId ?? '', // Default to empty string if null
+        partNumber = partNumber ?? 'N/A', // Default to N/A if null
+        serialNumbers = serialNumbers ?? [];
 
   // Creates a deep copy of the object
   ProductSelection copy() {
@@ -69,8 +78,11 @@ class ProductSelection {
       marque: marque,
       quantity: quantity,
       serialNumbers: List<String>.from(serialNumbers),
-      pickedQuantity: pickedQuantity, // ✅ Copy this
-      status: status, // ✅ Copy this
+      pickedQuantity: pickedQuantity,
+      status: status,
+      // ✅ Copy new flags
+      isConsumable: isConsumable,
+      isSoftware: isSoftware,
     );
   }
 
@@ -83,25 +95,36 @@ class ProductSelection {
       'marque': marque,
       'quantity': quantity,
       'serialNumbers': serialNumbers,
-      // ✅ Save these back so we don't wipe progress
+      // ✅ Save progress
       'pickedQuantity': pickedQuantity,
       'status': status,
+      // ✅ Save flags
+      'isConsumable': isConsumable,
+      'isSoftware': isSoftware,
+      // ✅ HELPER: If it is consumable or software, force isBulk to true for the details page
+      'isBulk': isConsumable || isSoftware,
     };
   }
 
   // ✅ Factory to create an instance from a Firestore map
   factory ProductSelection.fromJson(Map<String, dynamic> json) {
     return ProductSelection(
+      // Handle potential nulls safely to keep String type
       productId: json['productId'] ?? '',
       productName: json['productName'] ?? 'N/A',
-      partNumber: json['partNumber'] ?? 'N/A',
+      partNumber: json['partNumber'] ?? json['reference'] ?? 'N/A',
       marque: json['marque'] ?? 'N/A',
-      quantity: json['quantity'] ?? 0,
+      quantity: json['quantity'] is int
+          ? json['quantity']
+          : int.tryParse(json['quantity'].toString()) ?? 1,
       // Ensure serialNumbers is always a List<String>
       serialNumbers: List<String>.from(json['serialNumbers'] ?? []),
-      // ✅ Load existing progress (default to 0 if missing)
+      // ✅ Load existing progress
       pickedQuantity: json['pickedQuantity'] ?? 0,
       status: json['status'] ?? 'pending',
+      // ✅ Load flags
+      isConsumable: json['isConsumable'] == true,
+      isSoftware: json['isSoftware'] == true,
     );
   }
 }

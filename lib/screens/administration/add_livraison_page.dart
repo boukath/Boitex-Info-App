@@ -502,10 +502,13 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
               _selectedProducts.add(ProductSelection(
                 productId: result['productId'],
                 productName: result['productName'],
-                quantity: result['quantity'],
-                partNumber: result['partNumber'],
+                quantity: result['quantity'] ?? 1,
+                partNumber: result['partNumber'] ?? result['reference'],
                 marque: result['marque'] ?? 'N/A',
                 serialNumbers: [],
+                // ✅ CAPTURE THE FLAGS FROM DB
+                isConsumable: result['isConsumable'] == true,
+                isSoftware: result['isSoftware'] == true,
               ));
             });
           },
@@ -892,7 +895,11 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                       _buildDropdownField(
                         label: 'Choisir le Service',
                         value: _selectedServiceType,
-                        items: ['Service Technique', 'Service IT', 'Les Deux'],
+                        items: [
+                          'Service Technique',
+                          'Service IT',
+                          'Les Deux'
+                        ],
                         onChanged: (value) {
                           setState(() {
                             _selectedServiceType = value;
@@ -990,7 +997,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                         controller: _codAmountController,
                         label: 'Montant à Encaisser (DZD)',
                         icon: Icons.monetization_on,
-                        keyboardType: const TextInputType.numberWithOptions(
+                        keyboardType:
+                        const TextInputType.numberWithOptions(
                             decimal: true),
                       ),
                     ],
@@ -1034,7 +1042,8 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                     if (_selectedClient != null) ...[
                       const SizedBox(height: 16),
                       _buildSearchableDropdown(
-                        label: 'Magasin / Destination (Optionnel)', // ✅ UI hint
+                        label:
+                        'Magasin / Destination (Optionnel)', // ✅ UI hint
                         value: _selectedStore,
                         icon: Icons.store,
                         onClear: () {

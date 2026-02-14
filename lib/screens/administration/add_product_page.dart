@@ -724,6 +724,10 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         // If software, stock handling might be different (e.g., unlimited or license based)
         // For now, we initialize it to 0 like physical products.
         productData['quantiteEnStock'] = 0;
+
+        // 🆕 STEP 1: INITIALIZE WATERMARK
+        productData['last_printed_serial_index'] = 0;
+
         await FirebaseFirestore.instance.collection('produits').doc(productId).set(productData);
         _showSuccessSnackBar('Produit ajouté avec succès');
       }
@@ -1783,7 +1787,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                 if (progress == null) return child;
                 return Container(
                   color: Colors.grey.shade200,
-                  child: const Center(child: CircularProgressIndicator()),
+                  child: const Center(child: CircularProgressIndicator()), // ✅ Fixed (replaced ; with ,)
                 );
               },
               errorBuilder: (context, error, stackTrace) {

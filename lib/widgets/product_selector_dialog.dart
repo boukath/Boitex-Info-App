@@ -146,6 +146,9 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
           marque: _selectedProduct!.data?['marque'] ?? 'N/A',
           quantity: quantity,
           serialNumbers: [], // Empty for request mode or initial add
+          // ✅ CRITICAL FIX: Extract flags from the selected item's data
+          isConsumable: _selectedProduct!.data?['isConsumable'] == true,
+          isSoftware: _selectedProduct!.data?['isSoftware'] == true,
         ));
       }
     });

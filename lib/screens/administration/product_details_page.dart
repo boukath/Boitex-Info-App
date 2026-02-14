@@ -13,6 +13,11 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart'; // For fallback file opening
 
+// ✅ ADDED: Imports for Printing & PDF Generation
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+
 class ProductDetailsPage extends StatefulWidget {
   final DocumentSnapshot productDoc;
 
@@ -22,7 +27,8 @@ class ProductDetailsPage extends StatefulWidget {
   State<ProductDetailsPage> createState() => _ProductDetailsPageState();
 }
 
-class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTickerProviderStateMixin {
+class _ProductDetailsPageState extends State<ProductDetailsPage>
+    with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   bool _isOpeningPdf = false;
@@ -70,7 +76,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
           );
         }
       } else {
-        throw Exception('Impossible de télécharger le PDF (${response.statusCode})');
+        throw Exception(
+            'Impossible de télécharger le PDF (${response.statusCode})');
       }
     } catch (e) {
       debugPrint('Error opening PDF viewer: $e');
@@ -100,6 +107,239 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     }
   }
 
+  // --- 🖨️ SERIAL NUMBER LOGIC & PRINTING START ---
+
+  /// ✅ ROBUST STOCK GETTER
+  /// Handles int, double, String, and multiple field names.
+  int _getStock(Map<String, dynamic> data) {
+    int val1 = 0;
+    int val2 = 0;
+
+    // Check 'quantite'
+    var q1 = data['quantite'];
+    if (q1 is num) {
+      val1 = q1.toInt();
+    } else if (q1 is String) {
+      val1 = int.tryParse(q1) ?? 0;
+    }
+
+    // Check 'quantiteEnStock' (This was the issue in your example)
+    var q2 = data['quantiteEnStock'];
+    if (q2 is num) {
+      val2 = q2.toInt();
+    } else if (q2 is String) {
+      val2 = int.tryParse(q2) ?? 0;
+    }
+
+    // Return the larger value
+    return (val1 > val2) ? val1 : val2;
+  }
+
+  /// Helper to decide if we show the FAB
+  bool _shouldShowPrintButton(Map<String, dynamic> data) {
+
+    // 1. STRICT CHECK: Only show if "noSerialNumber" is TRUE
+    // "If true, it means this product does not have a serial number so we need to generate"
+    if (data['noSerialNumber'] != true) {
+      return false;
+    }
+
+    // 2. Don't show if it's software
+    if (data['isSoftware'] == true) return false;
+
+    // 3. Must have stock to print labels for
+    final int stock = _getStock(data);
+    if (stock <= 0) return false;
+
+    // 4. Show it!
+    return true;
+  }
+
+  /// This is the "Watermark" Logic
+  Future<void> _handlePrintLogic(Map<String, dynamic> data) async {
+    final int currentStock = _getStock(data);
+    final int lastPrinted = data['last_printed_serial_index'] ?? 0;
+    final String reference = data['reference'] ?? 'NO-REF';
+    final String productName = data['nom'] ?? 'Produit';
+
+    // Calculate the "Delta"
+    final int newItemsCount = currentStock - lastPrinted;
+
+    if (newItemsCount > 0) {
+      // SCENARIO A: NEW STOCK DETECTED
+      _showNewStockDialog(
+          currentStock, lastPrinted, newItemsCount, reference, productName);
+    } else {
+      // SCENARIO B: UP TO DATE (OFFER REPRINT)
+      _showReprintDialog(currentStock, reference, productName);
+    }
+  }
+
+  /// Scenario A: Dialog for New Stock
+  void _showNewStockDialog(int currentStock, int lastPrinted, int count,
+      String ref, String name) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("🖨️ Nouveaux articles détectés"),
+        content: Text(
+            "Il y a $count nouveaux articles en stock (Total: $currentStock).\n"
+                "Dernier imprimé: #$lastPrinted.\n\n"
+                "Voulez-vous imprimer les étiquettes pour les numéros ${lastPrinted + 1} à $currentStock ?"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Annuler")),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.print),
+            label: const Text("Imprimer"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Start printing from (lastPrinted + 1)
+              _generateAndPrintPdf(
+                startIndex: lastPrinted + 1,
+                count: count,
+                reference: ref,
+                productName: name,
+                isNewStock: true, // IMPORTANT: This triggers the database update
+                newWatermark: currentStock, // The new watermark level
+              );
+            },
+          )
+        ],
+      ),
+    );
+  }
+
+  /// Scenario B: Dialog for Reprinting
+  void _showReprintDialog(int currentStock, String ref, String name) {
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text("🔄 Réimpression d'étiquettes"),
+        children: [
+          SimpleDialogOption(
+            padding: const EdgeInsets.all(20),
+            child: const Text("Réimprimer le dernier lot (5 derniers)"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              int start = (currentStock - 4) > 0 ? (currentStock - 4) : 1;
+              _generateAndPrintPdf(
+                startIndex: start,
+                count: (currentStock - start) + 1,
+                reference: ref,
+                productName: name,
+                isNewStock: false, // Don't update DB
+              );
+            },
+          ),
+          SimpleDialogOption(
+            padding: const EdgeInsets.all(20),
+            child: const Text("Réimprimer TOUT le stock"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _generateAndPrintPdf(
+                startIndex: 1,
+                count: currentStock,
+                reference: ref,
+                productName: name,
+                isNewStock: false, // Don't update DB
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 📄 GENERATE PDF & PRINT
+  Future<void> _generateAndPrintPdf({
+    required int startIndex,
+    required int count,
+    required String reference,
+    required String productName,
+    bool isNewStock = false,
+    int? newWatermark,
+  }) async {
+    final pdf = pw.Document();
+
+    // Loop to create serial numbers
+    // Here we define a page format suitable for label printers (e.g., 80mm roll)
+    // Adjust PdfPageFormat.roll80 to your specific printer paper size if needed.
+
+    for (int i = 0; i < count; i++) {
+      final int serialNumber = startIndex + i;
+      // Format: REF-0001
+      final String fullSerial =
+          "$reference-${serialNumber.toString().padLeft(4, '0')}";
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.roll80, // 80mm Receipt/Label roll width
+          build: (pw.Context context) {
+            return pw.Center(
+              child: pw.Column(
+                mainAxisSize: pw.MainAxisSize.min, // ✅ Corrected Syntax
+                children: [
+                  pw.Text(
+                    productName,
+                    style: pw.TextStyle(
+                        fontSize: 10, fontWeight: pw.FontWeight.bold),
+                    maxLines: 1,
+                    overflow: pw.TextOverflow.clip,
+                  ),
+                  pw.SizedBox(height: 5),
+                  // Barcode
+                  pw.BarcodeWidget(
+                    barcode: pw.Barcode.qrCode(), // Or code128()
+                    data: fullSerial,
+                    width: 60,
+                    height: 60,
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    fullSerial,
+                    style: const pw.TextStyle(fontSize: 8),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    // Trigger Print Preview
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'Etiquettes_$reference',
+    );
+
+    // ✅ CRITICAL: ONLY UPDATE DATABASE IF IT WAS "NEW STOCK"
+    // We assume if the user saw the preview, they likely printed.
+    if (isNewStock && newWatermark != null) {
+      _updateWatermark(newWatermark);
+    }
+  }
+
+  /// 💾 UPDATE FIRESTORE WATERMARK
+  Future<void> _updateWatermark(int newLevel) async {
+    try {
+      await widget.productDoc.reference.update({
+        'last_printed_serial_index': newLevel,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text("✅ Index de série mis à jour"),
+              backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error updating watermark: $e");
+    }
+  }
+  // --- 🖨️ SERIAL NUMBER LOGIC END ---
 
   @override
   Widget build(BuildContext context) {
@@ -108,13 +348,15 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
         stream: widget.productDoc.reference.snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+            return const Scaffold(
+                body: Center(child: CircularProgressIndicator()));
           }
 
           final doc = snapshot.data!;
           // Handle case where document might have been deleted
           if (!doc.exists) {
-            return const Scaffold(body: Center(child: Text("Produit introuvable (supprimé ?)")));
+            return const Scaffold(
+                body: Center(child: Text("Produit introuvable (supprimé ?)")));
           }
 
           final data = doc.data() as Map<String, dynamic>;
@@ -122,17 +364,36 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
           // ✅ EXTRACT THE SOFTWARE FLAG
           final bool isSoftware = data['isSoftware'] ?? false;
 
-          final imageUrls = (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
+          final imageUrls =
+              (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
           final tags = (data['tags'] as List<dynamic>?)?.cast<String>() ?? [];
           final manualFiles = (data['manualFiles'] as List<dynamic>?)
               ?.cast<Map<String, dynamic>>()
               .map((map) => {
-            'fileName': map['fileName']?.toString() ?? 'Document.pdf',
+            'fileName':
+            map['fileName']?.toString() ?? 'Document.pdf',
             'fileUrl': map['fileUrl']?.toString() ?? '',
-          }).where((map) => map['fileUrl']!.isNotEmpty)
-              .toList() ?? [];
+          })
+              .where((map) => map['fileUrl']!.isNotEmpty)
+              .toList() ??
+              [];
 
           return Scaffold(
+            // ✅ ADDED FAB: Checks strict logic now
+            floatingActionButton: _shouldShowPrintButton(data)
+                ? FloatingActionButton.extended(
+              onPressed: () => _handlePrintLogic(data),
+              backgroundColor: const Color(0xFF6366F1),
+              icon: const Icon(Icons.qr_code_2, color: Colors.white),
+              label: Text(
+                (_getStock(data) > (data['last_printed_serial_index'] ?? 0))
+                    ? "Imprimer Nouveaux"
+                    : "Réimprimer",
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            )
+                : null,
             body: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -148,19 +409,23 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               child: SafeArea(
                 child: Column(
                   children: [
-                    _buildAppBar(context, doc, data), // Pass doc reference for editing
+                    _buildAppBar(
+                        context, doc, data), // Pass doc reference for editing
                     Expanded(
                       child: FadeTransition(
                         opacity: _fadeAnimation,
                         child: ListView(
                           padding: const EdgeInsets.all(20),
                           children: [
-                            _buildProductHeader(data, isSoftware), // ✅ Pass isSoftware
+                            _buildProductHeader(
+                                data, isSoftware), // ✅ Pass isSoftware
                             const SizedBox(height: 20),
-                            _buildInfoCards(data, isSoftware), // ✅ Pass isSoftware
+                            _buildInfoCards(
+                                data, isSoftware), // ✅ Pass isSoftware
                             const SizedBox(height: 20),
 
-                            if (data['description']?.toString().isNotEmpty ?? false) ...[
+                            if (data['description']?.toString().isNotEmpty ??
+                                false) ...[
                               _buildDescriptionCard(data),
                               const SizedBox(height: 20),
                             ],
@@ -191,12 +456,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               ),
             ),
           );
-        }
-    );
+        });
   }
 
   // Widget _buildAppBar
-  Widget _buildAppBar(BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data) {
+  Widget _buildAppBar(
+      BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -219,7 +484,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -317,10 +583,11 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                    isSoftware ? Icons.download_rounded : Icons.inventory_2_rounded,
+                    isSoftware
+                        ? Icons.download_rounded
+                        : Icons.inventory_2_rounded,
                     color: Colors.white,
-                    size: 24
-                ),
+                    size: 24),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -339,7 +606,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
                               colors: [Color(0xFFF093FB), Color(0xFFF5576C)],
@@ -349,7 +617,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.category_rounded, color: Colors.white, size: 14),
+                              const Icon(Icons.category_rounded,
+                                  color: Colors.white, size: 14),
                               const SizedBox(width: 6),
                               Text(
                                 data['categorie'] ?? 'N/A',
@@ -367,7 +636,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                         if (isSoftware) ...[
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Colors.purple, Colors.deepPurple],
@@ -386,7 +656,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                         ] else if (data['mainCategory'] != null) ...[
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF4FACFE), Color(0xFF00F2FE)],
@@ -453,7 +724,9 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               child: _buildInfoCard(
                 icon: Icons.price_change_rounded,
                 label: "Prix d'achat",
-                value: data['prixAchat'] != null ? '${data['prixAchat']} DZD' : 'N/A',
+                value: data['prixAchat'] != null
+                    ? '${data['prixAchat']} DZD'
+                    : 'N/A',
                 gradient: const LinearGradient(
                   colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)], // Amber
                 ),
@@ -464,7 +737,9 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               child: _buildInfoCard(
                 icon: Icons.monetization_on_rounded,
                 label: 'Prix de vente',
-                value: data['prixVente'] != null ? '${data['prixVente']} DZD' : 'N/A',
+                value: data['prixVente'] != null
+                    ? '${data['prixVente']} DZD'
+                    : 'N/A',
                 gradient: const LinearGradient(
                   colors: [Color(0xFF10B981), Color(0xFF34D399)], // Green
                 ),
@@ -579,7 +854,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.description_rounded, color: Colors.white, size: 24),
+                child: const Icon(Icons.description_rounded,
+                    color: Colors.white, size: 24),
               ),
               const SizedBox(width: 16),
               const Text(
@@ -639,7 +915,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.photo_library_rounded, color: Colors.white, size: 24),
+                child: const Icon(Icons.photo_library_rounded,
+                    color: Colors.white, size: 24),
               ),
               const SizedBox(width: 16),
               const Text(
@@ -720,10 +997,12 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   color: Colors.grey.shade100,
                   child: Center(
                     child: CircularProgressIndicator(
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF667EEA)),
+                      valueColor:
+                      const AlwaysStoppedAnimation<Color>(Color(0xFF667EEA)),
                       strokeWidth: 2,
                       value: progress.expectedTotalBytes != null
-                          ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                          ? progress.cumulativeBytesLoaded /
+                          progress.expectedTotalBytes!
                           : null,
                     ),
                   ),
@@ -732,7 +1011,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               errorBuilder: (context, error, stackTrace) {
                 return Container(
                   color: Colors.grey.shade200,
-                  child: Icon(Icons.broken_image_outlined, color: Colors.grey.shade400, size: 40),
+                  child: Icon(Icons.broken_image_outlined,
+                      color: Colors.grey.shade400, size: 40),
                 );
               },
             ),
@@ -770,11 +1050,15 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFF97316), Color(0xFFEA580C)], // Orange gradient for manuals
+                    colors: [
+                      Color(0xFFF97316),
+                      Color(0xFFEA580C)
+                    ], // Orange gradient for manuals
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.white, size: 24),
+                child: const Icon(Icons.picture_as_pdf_rounded,
+                    color: Colors.white, size: 24),
               ),
               const SizedBox(width: 16),
               const Text(
@@ -801,18 +1085,24 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
               itemBuilder: (context, index) {
                 final fileData = manualFiles[index];
                 return ListTile(
-                  leading: const Icon(Icons.picture_as_pdf_outlined, color: Color(0xFFB91C1C)),
+                  leading: const Icon(Icons.picture_as_pdf_outlined,
+                      color: Color(0xFFB91C1C)),
                   title: Text(
                     fileData['fileName']!,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF1F2937)
-                    ),
+                        fontWeight: FontWeight.w500, color: Color(0xFF1F2937)),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: _isOpeningPdf ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.chevron_right_rounded, color: Colors.grey),
-                  onTap: () => _openPdfViewer(fileData['fileUrl']!, fileData['fileName']!),
+                  trailing: _isOpeningPdf
+                      ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.chevron_right_rounded,
+                      color: Colors.grey),
+                  onTap: () => _openPdfViewer(
+                      fileData['fileUrl']!, fileData['fileName']!),
                   contentPadding: EdgeInsets.zero,
                 );
               },
@@ -855,7 +1145,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.local_offer_rounded, color: Colors.white, size: 24),
+                child: const Icon(Icons.local_offer_rounded,
+                    color: Colors.white, size: 24),
               ),
               const SizedBox(width: 16),
               const Text(
@@ -875,7 +1166,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
             children: tags.map((tag) {
               final colors = _getTagColor(tags.indexOf(tag));
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: colors),
                   borderRadius: BorderRadius.circular(20),
@@ -890,7 +1182,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.label_rounded, color: Colors.white, size: 16),
+                    const Icon(Icons.label_rounded,
+                        color: Colors.white, size: 16),
                     const SizedBox(width: 6),
                     Text(
                       tag,
@@ -922,14 +1215,16 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
     return colors[index % colors.length];
   }
 
-  void _showFullScreenImageGallery(BuildContext context, List<String> imageUrls, int initialIndex) {
+  void _showFullScreenImageGallery(
+      BuildContext context, List<String> imageUrls, int initialIndex) {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
-        pageBuilder: (context, animation, secondaryAnimation) => ImageGalleryPage(
-          imageUrls: imageUrls,
-          initialIndex: initialIndex,
-        ),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            ImageGalleryPage(
+              imageUrls: imageUrls,
+              initialIndex: initialIndex,
+            ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
         },
@@ -942,7 +1237,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(
             children: [
               Container(
@@ -953,7 +1249,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                   ),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.warning_rounded, color: Colors.white, size: 24),
+                child: const Icon(Icons.warning_rounded,
+                    color: Colors.white, size: 24),
               ),
               const SizedBox(width: 12),
               const Text('Confirmer'),
@@ -991,14 +1288,16 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                         SnackBar(
                           content: Row(
                             children: const [
-                              Icon(Icons.check_circle_rounded, color: Colors.white),
+                              Icon(Icons.check_circle_rounded,
+                                  color: Colors.white),
                               SizedBox(width: 12),
                               Text('Produit supprimé avec succès'),
                             ],
                           ),
                           backgroundColor: const Color(0xFF10B981),
                           behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                       );
                     }
@@ -1016,7 +1315,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                           ),
                           backgroundColor: const Color(0xFFEF4444),
                           behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                       );
                     }
@@ -1024,7 +1324,8 @@ class _ProductDetailsPageState extends State<ProductDetailsPage> with SingleTick
                 },
                 child: const Text(
                   'Supprimer',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold),
                 ),
               ),
             ),

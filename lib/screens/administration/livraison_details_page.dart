@@ -228,9 +228,14 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             map['partNumber'] = map['reference'];
           }
 
-          if (!map.containsKey('isBulk')) {
+          // ✅ FORCE BULK FOR CONSUMABLES & SOFTWARE (Picking View)
+          // This ensures that even if 'isBulk' was false in DB, we correct it here.
+          if (map['isConsumable'] == true || map['isSoftware'] == true) {
+            map['isBulk'] = true;
+          } else if (!map.containsKey('isBulk')) {
             map['isBulk'] = true; // Default to bulk if unknown
           }
+
           // Ensure pickedQuantity exists
           if (!map.containsKey('pickedQuantity')) {
             map['pickedQuantity'] = 0;
@@ -259,10 +264,15 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
 
             final String? productId = product['productId'];
             final List serials = product['serialNumbers'] as List? ?? [];
-            final List serialsFound = product['serialNumbersFound'] as List? ?? []; // Some old logic might use this
+            // final List serialsFound = product['serialNumbersFound'] as List? ?? []; // Some old logic might use this
 
             // Determine if it's bulk or serialized logic
-            bool isBulkItem = (quantity > 50) || (quantity > 5 && serials.isEmpty) || product['isBulk'] == true;
+            // ✅ UPDATED LOGIC: Force isBulkItem = true for Consumables & Software (Delivery View)
+            bool isBulkItem = (quantity > 50) ||
+                (quantity > 5 && serials.isEmpty) ||
+                product['isBulk'] == true ||
+                product['isConsumable'] == true ||
+                product['isSoftware'] == true;
 
             if (pickedQuantity == 0 && serials.isNotEmpty) {
               pickedQuantity = serials.length;

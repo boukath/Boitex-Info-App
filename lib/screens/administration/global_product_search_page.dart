@@ -22,7 +22,8 @@ class GlobalProductSearchPage extends StatefulWidget {
   State<GlobalProductSearchPage> createState() => _GlobalProductSearchPageState();
 }
 
-class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with SingleTickerProviderStateMixin {
+class _GlobalProductSearchPageState extends State<GlobalProductSearchPage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _isSearching = false;
@@ -52,7 +53,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
   }
 
   // ✅ NEW: Logic to handle "Stay Open" vs "Close"
-  void _confirmSelection(BuildContext dialogContext, TextEditingController qtyCtrl, Map<String, dynamic> data, String productId) {
+  void _confirmSelection(BuildContext dialogContext, TextEditingController qtyCtrl,
+      Map<String, dynamic> data, String productId) {
     final int qty = int.tryParse(qtyCtrl.text) ?? 1;
 
     final selectedProduct = {
@@ -61,6 +63,9 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
       'quantity': qty,
       'partNumber': data['reference'] ?? '',
       'marque': data['marque'] ?? 'N/A',
+      // ✅ CRITICAL FIX: Extract these flags so they are saved to the delivery!
+      'isConsumable': data['isConsumable'] == true,
+      'isSoftware': data['isSoftware'] == true,
     };
 
     // 1. Close the small quantity dialog first
@@ -76,7 +81,7 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
         SnackBar(
           content: Text("${data['nom']} ajouté ($qty)"),
           backgroundColor: Colors.green,
-          duration: const Duration(milliseconds: 800), // Short duration so it doesn't block view
+          duration: const Duration(milliseconds: 800),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -87,7 +92,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
   }
 
   // ✅ NEW: Dialog to ask for quantity before selecting
-  void _showQuantityDialog(BuildContext context, Map<String, dynamic> data, String productId) {
+  void _showQuantityDialog(
+      BuildContext context, Map<String, dynamic> data, String productId) {
     final quantityController = TextEditingController(text: '1');
 
     showDialog(
@@ -103,7 +109,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
             border: OutlineInputBorder(),
           ),
           // Allow pressing "Enter" on keyboard to submit
-          onSubmitted: (_) => _confirmSelection(ctx, quantityController, data, productId),
+          onSubmitted: (_) =>
+              _confirmSelection(ctx, quantityController, data, productId),
         ),
         actions: [
           TextButton(
@@ -111,7 +118,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
             child: const Text("Annuler"),
           ),
           ElevatedButton(
-            onPressed: () => _confirmSelection(ctx, quantityController, data, productId),
+            onPressed: () =>
+                _confirmSelection(ctx, quantityController, data, productId),
             child: const Text("Ajouter"),
           )
         ],
@@ -136,11 +144,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
     try {
       final queryLower = query.toLowerCase();
 
-      // Fetch all products
-      // Note: For production with many items, consider Algolia or a specific Firestore search index
-      final snapshot = await FirebaseFirestore.instance
-          .collection('produits')
-          .get();
+      final snapshot =
+      await FirebaseFirestore.instance.collection('produits').get();
 
       // Filter products locally for comprehensive search
       final results = snapshot.docs.where((doc) {
@@ -152,8 +157,10 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
         final reference = (data['reference'] ?? '').toString().toLowerCase();
         final origine = (data['origine'] ?? '').toString().toLowerCase();
         final categorie = (data['categorie'] ?? '').toString().toLowerCase();
-        final mainCategory = (data['mainCategory'] ?? '').toString().toLowerCase();
-        final description = (data['description'] ?? '').toString().toLowerCase();
+        final mainCategory =
+        (data['mainCategory'] ?? '').toString().toLowerCase();
+        final description =
+        (data['description'] ?? '').toString().toLowerCase();
 
         // Search in tags array
         final tags = (data['tags'] as List<dynamic>?)?.cast<String>() ?? [];
@@ -190,7 +197,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
             ),
             backgroundColor: const Color(0xFFEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
@@ -257,7 +265,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -338,7 +347,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                 ),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.search_rounded, color: Colors.white, size: 20),
+              child: const Icon(Icons.search_rounded,
+                  color: Colors.white, size: 20),
             ),
             suffixIcon: _searchController.text.isNotEmpty
                 ? IconButton(
@@ -348,7 +358,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                   color: Colors.grey.shade200,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF1F2937)),
+                child: const Icon(Icons.close_rounded,
+                    size: 18, color: Color(0xFF1F2937)),
               ),
               onPressed: () {
                 setState(() {
@@ -363,7 +374,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
               borderRadius: BorderRadius.circular(20),
               borderSide: BorderSide.none,
             ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
           ),
         ),
       ),
@@ -438,7 +450,9 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
             const SizedBox(height: 24),
             Text(
               // ✅ NEW: Context aware text
-              widget.isSelectionMode ? 'Sélectionnez un système' : 'Rechercher un produit',
+              widget.isSelectionMode
+                  ? 'Sélectionnez un système'
+                  : 'Rechercher un produit',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -529,7 +543,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
             ),
             child: Row(
               children: [
-                const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 20),
+                const Icon(Icons.check_circle_rounded,
+                    color: Color(0xFF10B981), size: 20),
                 const SizedBox(width: 12),
                 Text(
                   '${_searchResults.length} produit${_searchResults.length > 1 ? 's' : ''} trouvé${_searchResults.length > 1 ? 's' : ''}',
@@ -572,8 +587,10 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
     );
   }
 
-  Widget _buildProductCard(DocumentSnapshot productDoc, Map<String, dynamic> data) {
-    final imageUrls = (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
+  Widget _buildProductCard(
+      DocumentSnapshot productDoc, Map<String, dynamic> data) {
+    final imageUrls =
+        (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
     final mainCategory = data['mainCategory'] as String?;
 
     Color categoryColor = const Color(0xFF667EEA);
@@ -622,7 +639,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => ProductDetailsPage(productDoc: productDoc),
+                  builder: (context) =>
+                      ProductDetailsPage(productDoc: productDoc),
                 ),
               );
             }
@@ -638,7 +656,10 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                   decoration: BoxDecoration(
                     gradient: imageUrls.isEmpty
                         ? LinearGradient(
-                      colors: [categoryColor, categoryColor.withOpacity(0.7)],
+                      colors: [
+                        categoryColor,
+                        categoryColor.withOpacity(0.7)
+                      ],
                     )
                         : null,
                     borderRadius: BorderRadius.circular(16),
@@ -661,10 +682,14 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                         return Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [categoryColor, categoryColor.withOpacity(0.7)],
+                              colors: [
+                                categoryColor,
+                                categoryColor.withOpacity(0.7)
+                              ],
                             ),
                           ),
-                          child: Icon(categoryIcon, color: Colors.white, size: 40),
+                          child: Icon(categoryIcon,
+                              color: Colors.white, size: 40),
                         );
                       },
                     ),
@@ -691,7 +716,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                       if (data['marque'] != null)
                         Row(
                           children: [
-                            Icon(Icons.business_rounded, size: 14, color: Colors.grey.shade600),
+                            Icon(Icons.business_rounded,
+                                size: 14, color: Colors.grey.shade600),
                             const SizedBox(width: 6),
                             // ✅ Fix for "Right overflow" in Row
                             Expanded(
@@ -710,7 +736,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                       if (data['reference'] != null)
                         Row(
                           children: [
-                            Icon(Icons.qr_code_rounded, size: 14, color: Colors.grey.shade600),
+                            Icon(Icons.qr_code_rounded,
+                                size: 14, color: Colors.grey.shade600),
                             const SizedBox(width: 6),
                             // ✅ Fix for "Right overflow" in Row
                             Expanded(
@@ -733,7 +760,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
                                 color: categoryColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
@@ -741,7 +769,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(categoryIcon, size: 12, color: categoryColor),
+                                  Icon(categoryIcon,
+                                      size: 12, color: categoryColor),
                                   const SizedBox(width: 6),
                                   Text(
                                     mainCategory ?? 'N/A',
@@ -757,7 +786,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                             if (data['origine'] != null) ...[
                               const SizedBox(width: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: Colors.grey.shade100,
                                   borderRadius: BorderRadius.circular(8),
@@ -791,9 +821,13 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage> with 
                   ),
                   child: Icon(
                     // Show "Plus" icon if selecting, "Arrow" if viewing details
-                    widget.isSelectionMode ? Icons.add_circle_outline_rounded : Icons.arrow_forward_ios_rounded,
+                    widget.isSelectionMode
+                        ? Icons.add_circle_outline_rounded
+                        : Icons.arrow_forward_ios_rounded,
                     size: 18,
-                    color: widget.isSelectionMode ? const Color(0xFF10B981) : categoryColor,
+                    color: widget.isSelectionMode
+                        ? const Color(0xFF10B981)
+                        : categoryColor,
                   ),
                 ),
               ],
