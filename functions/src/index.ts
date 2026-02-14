@@ -54,7 +54,7 @@ export * from "./callable-handlers";
 export { notifyUsersOnAppVersionUpdate } from "./notification-handlers";
 // ✅ ADDED THIS LINE BELOW:
 export { generateInstallationReport } from "./installation-report-generator";
-
+export { recalculateTechnicianStats } from './analytics-updater';
 // ------------------------------------------------------------------
 // 3. AI / LLM FEATURES (GROQ)
 // ------------------------------------------------------------------

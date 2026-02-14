@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart'; // 👈 Needed for the button
 import 'package:boitex_info_app/models/analytics_stats.dart';
 import 'package:boitex_info_app/services/analytics_service.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -62,8 +63,44 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
-        // ✅ ADDED: Action Button to Open PDF Dialog
         actions: [
+          // 🔴 TEMPORARY RECALCULATE BUTTON
+          // Use this once to fix the scoreboard, then remove it if you want.
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.redAccent),
+            tooltip: "Recalculer les Scores (Admin)",
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              messenger.showSnackBar(
+                const SnackBar(content: Text("⏳ Recalcul en cours... Cela peut prendre du temps.")),
+              );
+
+              try {
+                // Call the Cloud Function (Force region europe-west1)
+                final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
+                    .httpsCallable('recalculateTechnicianStats')
+                    .call();
+
+                messenger.hideCurrentSnackBar();
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text("✅ Succès: ${result.data['message']}"),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                messenger.hideCurrentSnackBar();
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text("❌ Erreur: $e"),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+          ),
+
+          // ✅ PDF Report Button
           IconButton(
             icon: const Icon(Icons.picture_as_pdf_rounded, color: Colors.black87),
             tooltip: "Générer Rapport PDF",
