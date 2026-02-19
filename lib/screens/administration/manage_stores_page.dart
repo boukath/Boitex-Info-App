@@ -150,6 +150,38 @@ class ManageStoresPage extends StatelessWidget {
     }
   }
 
+  /// 🧠 PRO FEATURE: Intelligent Manager Name Extraction
+  /// Looks into flat fields (legacy/interventions) and the new contacts list structure.
+  String? _getManagerName(Map<String, dynamic> data) {
+    // 1. Try flat fields first (Intervention Data often saves here)
+    if (data['managerName'] != null && data['managerName'].toString().isNotEmpty) {
+      return data['managerName'];
+    }
+    if (data['contactName'] != null && data['contactName'].toString().isNotEmpty) {
+      return data['contactName'];
+    }
+
+    // 2. Try parsing contacts list (AddStorePage saves here)
+    if (data['storeContacts'] is List) {
+      final contacts = data['storeContacts'] as List;
+      for (var c in contacts) {
+        if (c is Map) {
+          final label = c['label']?.toString() ?? '';
+          // We look for "Manager (John)" or just "Manager"
+          if (label.toLowerCase().contains('manager')) {
+            // Try to extract name inside parentheses: "Manager (John Doe)" -> "John Doe"
+            final RegExp regex = RegExp(r'Manager\s*\((.+)\)', caseSensitive: false);
+            final match = regex.firstMatch(label);
+            if (match != null) {
+              return match.group(1);
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -189,6 +221,9 @@ class ManageStoresPage extends StatelessWidget {
               var storeDoc = stores[index];
               var storeData = storeDoc.data() as Map<String, dynamic>;
               String storeName = storeData['name'] ?? 'Nom Inconnu';
+
+              // ✅ Call our smart extractor
+              String? managerName = _getManagerName(storeData);
 
               // Formatting the location for the UI display
               dynamic loc = storeData['location'];
@@ -331,6 +366,29 @@ class ManageStoresPage extends StatelessWidget {
                                     ),
                                   ],
                                 ),
+
+                                // ✅ NEW: Manager Info Row (Only if found)
+                                if (managerName != null) ...[
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.person_outline, size: 14, color: Colors.blueGrey),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          "Manager: $managerName",
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                              color: Colors.blueGrey
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+
                                 if (hasActiveContract) ...[
                                   const SizedBox(height: 8),
                                   Row(

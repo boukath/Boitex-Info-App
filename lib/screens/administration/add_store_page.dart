@@ -104,6 +104,10 @@ class _AddStorePageState extends State<AddStorePage> {
           .map((entry) => ContactInfo.fromMap(entry.value as Map<String, dynamic>, entry.key.toString()))
           .toList();
 
+      // ✅ NEW: Merge Flat Manager Fields into Contacts List
+      // This ensures data from Interventions (managerName/Phone/Email) is visible
+      _mergeLegacyManagerData();
+
       if (widget.initialData!['maintenance_contract'] != null) {
         try {
           final contractMap = widget.initialData!['maintenance_contract'];
@@ -127,6 +131,49 @@ class _AddStorePageState extends State<AddStorePage> {
       _contractStartDate = DateTime.now();
       _contractEndDate = DateTime.now().add(const Duration(days: 365));
     }
+  }
+
+  /// ✅ NEW HELPER: Reads flat fields (managerName, etc.) and adds them
+  /// to the contact list if they are missing.
+  void _mergeLegacyManagerData() {
+    final data = widget.initialData!;
+
+    // 1. Try to find flat data (support both 'manager' and 'contact' prefixes)
+    final String? flatPhone = data['managerPhone'] ?? data['contactPhone'];
+    final String? flatEmail = data['managerEmail'] ?? data['contactEmail'];
+    // We don't have a specific field for Manager Name in the UI,
+    // usually it's just the label 'Manager' in the list.
+
+    // 2. Check if a "Manager" contact already exists in the list to avoid duplicates
+    //    We check specifically for the values to avoid adding the same phone twice
+    bool phoneExists = _storeContacts.any((c) =>
+    c.value.replaceAll(' ', '') == flatPhone?.replaceAll(' ', '')
+    );
+    bool emailExists = _storeContacts.any((c) =>
+    c.value.toLowerCase() == flatEmail?.toLowerCase()
+    );
+
+    setState(() {
+      // 3. Add Phone if found and not duplicate
+      if (flatPhone != null && flatPhone.isNotEmpty && !phoneExists) {
+        _storeContacts.add(ContactInfo(
+          type: 'Téléphone',
+          label: 'Manager (${data['managerName'] ?? 'Contact'})', // Include name in label
+          value: flatPhone,
+          id: 'legacy_manager_phone', // Temporary ID
+        ));
+      }
+
+      // 4. Add Email if found and not duplicate
+      if (flatEmail != null && flatEmail.isNotEmpty && !emailExists) {
+        _storeContacts.add(ContactInfo(
+          type: 'E-mail',
+          label: 'Manager (${data['managerName'] ?? 'Contact'})',
+          value: flatEmail,
+          id: 'legacy_manager_email',
+        ));
+      }
+    });
   }
 
   @override

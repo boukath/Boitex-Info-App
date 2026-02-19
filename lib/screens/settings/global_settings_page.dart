@@ -19,9 +19,11 @@ import 'package:boitex_info_app/screens/settings/widgets/profile_header.dart';
 // IMPORT MIGRATION SERVICES
 import 'package:boitex_info_app/services/migration_service.dart';
 import 'package:boitex_info_app/services/client_search_migration_service.dart';
+import 'package:boitex_info_app/services/contact_sync_service.dart'; // ✅ NEW IMPORT
+
 // IMPORT DATABASE TRANSFER SERVICES
 import 'package:boitex_info_app/services/database_transfer_service.dart';
-import 'package:boitex_info_app/services/sub_collection_transfer_service.dart'; // ✅ ADDED
+import 'package:boitex_info_app/services/sub_collection_transfer_service.dart';
 
 // IMPORT REPAIR TOOL
 import 'package:boitex_info_app/screens/administration/stock_repair_page.dart';
@@ -250,7 +252,7 @@ class _GlobalSettingsPageState extends State<GlobalSettingsPage> {
                     subtitle: 'Scanner et lier les marques aux clients',
                     icon: Icons.auto_fix_high, // Magic wand icon
                     iconColor: Colors.teal, // Distinct color
-                    isLast: true, // This is the last item
+                    isLast: false, // 🔄 CHANGED: Not last anymore
                     onTap: () async {
                       HapticFeedback.heavyImpact();
 
@@ -302,6 +304,60 @@ class _GlobalSettingsPageState extends State<GlobalSettingsPage> {
                             SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
                           );
                         }
+                      }
+                    },
+                  ),
+
+                  _buildDivider(),
+
+                  // ✅ 7. SYNC CONTACTS (NEW BUTTON)
+                  _buildSettingsTile(
+                    context,
+                    title: 'Sync Contacts Magasins',
+                    subtitle: 'Récupérer managers depuis interventions',
+                    icon: Icons.import_contacts_rounded,
+                    iconColor: Colors.purple,
+                    isLast: true, // ✅ This is now the last item
+                    onTap: () async {
+                      HapticFeedback.heavyImpact();
+
+                      bool confirm = await showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("Synchroniser les Contacts ?"),
+                            content: const Text(
+                              "Cette action va scanner toutes les anciennes interventions pour extraire les noms/emails/téléphones des managers et les ajouter aux fiches Magasins.\n\n"
+                                  "Utile si la liste des contacts magasins est vide.",
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler")),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Démarrer")),
+                            ],
+                          )
+                      ) ?? false;
+
+                      if (!confirm) return;
+
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Synchronisation en cours... Patientez...")),
+                        );
+                      }
+
+                      // Run Service
+                      String result = await ContactSyncService().runContactSync();
+
+                      if (context.mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("Résultat"),
+                            content: Text(result),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK"))
+                            ],
+                          ),
+                        );
                       }
                     },
                   ),

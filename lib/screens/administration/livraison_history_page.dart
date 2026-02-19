@@ -206,7 +206,7 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
               fontWeight: FontWeight.bold,
             ),
             backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: Colors.transparent)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.transparent)),
             elevation: isSelected ? 4 : 0,
           );
         },
@@ -214,22 +214,20 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
     );
   }
 
-  // 🎨 WIDGET: Modern History Card
+  // 🎨 WIDGET: Modern History Card (Redesigned)
   Widget _buildHistoryCard(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+
+    // Fetch Data
     final bonNumber = data['bonLivraisonCode'] ?? 'N/A';
     final clientName = data['clientName'] ?? 'Client inconnu';
+    final storeName = data['storeName']?.toString().trim() ?? '';
+    final location = data['deliveryAddress'] ?? 'Adresse non spécifiée';
     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
     final completedAt = (data['completedAt'] as Timestamp?)?.toDate();
 
     // ✅ DETECT PARTIAL DELIVERY
-    // Check our new 'hasReturns' flag OR calculate manually if older data
     bool isPartial = data['hasReturns'] == true;
-
-    // Fallback manual check for older records
-    if (!isPartial && data['products'] != null) {
-      // (Optional simple check if needed, but 'hasReturns' is safest from new logic)
-    }
 
     final displayDate = completedAt ?? createdAt;
     final formattedDate = displayDate != null
@@ -246,10 +244,11 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
           color: _cardWhite,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.grey.shade100),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.04),
@@ -260,79 +259,143 @@ class _LivraisonHistoryPageState extends State<LivraisonHistoryPage> {
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Icon Box - UPDATED for Partial State
-              Container(
-                height: 48,
-                width: 48,
-                decoration: BoxDecoration(
-                  color: isPartial ? Colors.orange.shade50 : Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                    isPartial ? Icons.warning_amber_rounded : Icons.check_circle,
-                    color: isPartial ? Colors.orange : Colors.green,
-                    size: 24
-                ),
-              ),
-              const SizedBox(width: 16),
+              // --- TOP SECTION: Icon, Client, Store, Location ---
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Status Icon Box
+                  Container(
+                    height: 50,
+                    width: 50,
+                    decoration: BoxDecoration(
+                      color: isPartial ? Colors.orange.shade50 : Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                        isPartial ? Icons.warning_amber_rounded : Icons.check_circle,
+                        color: isPartial ? Colors.orange : Colors.green,
+                        size: 26
+                    ),
+                  ),
+                  const SizedBox(width: 16),
 
-              // Info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                  // Titles & Location
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          bonNumber,
+                          clientName,
                           style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w700,
                             fontSize: 16,
                             color: _textDark,
                           ),
                         ),
-                        if (isPartial) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                                color: Colors.orange.shade100,
-                                borderRadius: BorderRadius.circular(4)
+                        if (storeName.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            storeName,
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: _primaryBlue,
                             ),
-                            child: Text(
-                              "PARTIEL",
-                              style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade900),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.location_on, size: 14, color: Colors.grey.shade400),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                location,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
                             ),
-                          )
-                        ]
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      clientName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade400),
-                        const SizedBox(width: 4),
-                        Text(
-                          formattedDate,
-                          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade400),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+
+                  // Navigation Arrow
+                  Icon(Icons.chevron_right, color: Colors.grey.shade300),
+                ],
               ),
 
-              // Arrow
-              Icon(Icons.chevron_right, color: Colors.grey.shade300),
+              // --- DIVIDER ---
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
+              ),
+
+              // --- BOTTOM SECTION: BL Code & Date ---
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Code Badge
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _bgLight,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          bonNumber,
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: _textDark,
+                          ),
+                        ),
+                      ),
+                      if (isPartial) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                              color: Colors.orange.shade100,
+                              borderRadius: BorderRadius.circular(8)
+                          ),
+                          child: Text(
+                            "PARTIEL",
+                            style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade900),
+                          ),
+                        )
+                      ]
+                    ],
+                  ),
+
+                  // Date
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade400),
+                      const SizedBox(width: 6),
+                      Text(
+                        formattedDate,
+                        style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w500
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ],
           ),
         ),

@@ -1168,6 +1168,12 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
                     Text("DESTINATAIRE", style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     Text(data['clientName'] ?? 'Client Inconnu', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+
+                    // ✅ ADDED: Conditionally display store name
+                    if (data['storeName'] != null && data['storeName'].toString().trim().isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(data['storeName'], style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: _primaryBlue)),
+                    ],
                   ],
                 ),
                 Container(

@@ -36,6 +36,9 @@ class LivraisonPdfService {
     final String dateStr = DateFormat('dd MMM yyyy').format(date).toUpperCase();
 
     final String clientName = (livraisonData['clientName'] ?? '').toUpperCase();
+    // ✅ ADDED: Extract the store name safely
+    final String storeName = (livraisonData['storeName'] ?? '').toUpperCase();
+
     final String clientAddr = livraisonData['deliveryAddress'] ?? '';
     final String clientPhone = livraisonData['contactPhone'] ?? '';
     final String recipient = livraisonData['recipientName'] ?? '';
@@ -56,9 +59,6 @@ class LivraisonPdfService {
     // 4. Build Multi-Page Document
     pdf.addPage(
       pw.MultiPage(
-        // ❌ REMOVED CONFLICTING PROPERTIES (pageFormat & margin)
-        // These are now handled exclusively inside pageTheme below.
-
         // 🎨 THEME: Draws the persistent Sidebar & handles margins
         pageTheme: pw.PageTheme(
           pageFormat: PdfPageFormat.a4,
@@ -191,6 +191,13 @@ class LivraisonPdfService {
                               pw.Text("DESTINATAIRE", style: pw.TextStyle(color: _textGrey, fontSize: 9, fontWeight: pw.FontWeight.bold)),
                               pw.SizedBox(height: 4),
                               pw.Text(clientName, style: pw.TextStyle(color: _textDark, fontSize: 12, fontWeight: pw.FontWeight.bold)),
+
+                              // ✅ ADDED: Conditionally display store name on Page 1
+                              if (storeName.isNotEmpty) ...[
+                                pw.SizedBox(height: 2),
+                                pw.Text(storeName, style: pw.TextStyle(color: _brandPrimary, fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                              ],
+
                               if (clientAddr.isNotEmpty) ...[
                                 pw.SizedBox(height: 2),
                                 pw.Text(clientAddr, style: pw.TextStyle(color: _textDark, fontSize: 10)),
@@ -223,7 +230,11 @@ class LivraisonPdfService {
                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                       children: [
                         pw.Text("$bonCode - (Suite)", style: pw.TextStyle(color: _textGrey, fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                        pw.Text(clientName, style: pw.TextStyle(color: _textGrey, fontSize: 10)),
+                        // ✅ MODIFIED: Display Client Name + Store Name on Page 2+
+                        pw.Text(
+                            storeName.isNotEmpty ? "$clientName - $storeName" : clientName,
+                            style: pw.TextStyle(color: _textGrey, fontSize: 10)
+                        ),
                       ]
                   ),
                   pw.Divider(color: _divider),
@@ -404,7 +415,6 @@ class LivraisonPdfService {
         2: const pw.FlexColumnWidth(1), // Cde
         3: const pw.FlexColumnWidth(1), // Liv
       },
-      // headerRows: 1, // ❌ REMOVED: Not supported in standard pw.Table in your version
       children: [
         // Header
         pw.TableRow(
