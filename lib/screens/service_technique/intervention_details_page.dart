@@ -1071,6 +1071,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     String? marque;
     String? category;
     String? image;
+    List<String> imageUrls = []; // ✅ ADDED
     int qty = 1;
 
     if (result is DocumentSnapshot) {
@@ -1081,7 +1082,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       marque = data['marque'];
       category = data['categorie'] ?? data['category'];
       final images = (data['imageUrls'] as List?)?.cast<String>() ?? [];
-      if (images.isNotEmpty) image = images.first;
+      if (images.isNotEmpty) {
+        image = images.first;
+        imageUrls = images; // ✅ ADDED
+      }
       qty = await _requestQuantity();
     } else if (result is Map<String, dynamic>) {
       id = result['productId'] ?? result['id'];
@@ -1090,6 +1094,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       marque = result['marque'];
       category = result['categorie'] ?? result['category'];
       image = result['image'] ?? result['imageUrl'];
+
+      // ✅ ADDED: Capture the array
+      final imagesList = (result['imageUrls'] as List?)?.cast<String>() ?? [];
+      if (imagesList.isNotEmpty) {
+        imageUrls = imagesList;
+      } else if (image != null) {
+        imageUrls = [image!];
+      }
 
       if (result.containsKey('quantity')) {
         qty = result['quantity'] is int
@@ -1108,6 +1120,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'marque': marque,
         'category': category,
         'image': image,
+        'imageUrls': imageUrls, // ✅ ADDED
         'quantity': qty,
         'serialNumbers': List<String>.filled(qty, ''),
       });
@@ -1166,6 +1179,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'marque': data['marque'],
           'category': data['categorie'],
           'image': images.isNotEmpty ? images.first : null,
+          'imageUrls': images, // ✅ ADDED
           'quantity': qty,
           'serialNumbers': List<String>.filled(qty, ''),
         });
@@ -1351,6 +1365,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       final String marque = asset['marque'] ?? 'Non spécifiée';
       final String category = asset['categorie'] ?? 'N/A';
 
+      // Capture all possible image lists or fields
+      final List<String> imageUrls = asset['imageUrls'] != null ? List<String>.from(asset['imageUrls']) : [];
+      if (imageUrls.isEmpty && asset['imageUrl'] != null) imageUrls.add(asset['imageUrl']);
+      if (imageUrls.isEmpty && asset['image'] != null) imageUrls.add(asset['image']);
+
       int existingIndex = _selectedSystems.indexWhere(
               (s) => s['name'] == name && s['reference'] == reference);
 
@@ -1380,6 +1399,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'marque': marque,
           'category': category,
           'image': asset['imageUrl'] ?? asset['image'],
+          'imageUrls': imageUrls, // ✅ ADDED
           'quantity': 1,
           'serialNumbers': [serial],
         });
@@ -2709,7 +2729,8 @@ L'équipe BOITEX INFO'''
                                       ],
                                     ),
                                     const SizedBox(height: 8),
-                                    Text(entry['workDone'] ?? ''),
+                                    // ✅ USE THE EXPANDABLE TEXT WIDGET INSTEAD
+                                    _ExpandableText(text: entry['workDone'] ?? ''),
 
                                     // Media thumbnails
                                     if (entryMedia.isNotEmpty) ...[
@@ -2985,6 +3006,7 @@ L'équipe BOITEX INFO'''
               ),
               child: ListTile(
                 contentPadding: const EdgeInsets.all(8),
+                // 🚀 NEW: Dynamic Image Fetcher
                 leading: Container(
                   width: 50,
                   height: 50,
@@ -2992,12 +3014,10 @@ L'équipe BOITEX INFO'''
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: system['image'] != null
-                      ? ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.network(system['image'], fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.inventory_2, color: Colors.grey)),
-                  )
-                      : const Icon(Icons.inventory_2, color: Color(0xFF667EEA)),
+                  child: SystemImageGalleryThumbnail(
+                    system: system,
+                    fallback: const Icon(Icons.inventory_2, color: Color(0xFF667EEA)),
+                  ),
                 ),
                 title: Row(
                   children: [
@@ -3534,6 +3554,111 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
               ),
             )
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// 🚀 NEW: DYNAMIC PRODUCT IMAGE FETCHER WIDGET
+// =============================================================================
+class SystemImageGalleryThumbnail extends StatelessWidget {
+  final Map<String, dynamic> system;
+  final Widget fallback;
+
+  const SystemImageGalleryThumbnail({
+    super.key,
+    required this.system,
+    required this.fallback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 1. Check if we already have imageUrls in the local state (from a recent scan)
+    List<String> localImageUrls = [];
+    if (system['imageUrls'] != null && (system['imageUrls'] as List).isNotEmpty) {
+      localImageUrls = List<String>.from(system['imageUrls']);
+    } else if (system['image'] != null && system['image'].toString().isNotEmpty) {
+      localImageUrls = [system['image']];
+    }
+
+    // If we have local images, display them immediately!
+    if (localImageUrls.isNotEmpty) {
+      return _buildThumbnail(context, localImageUrls);
+    }
+
+    // 2. Otherwise, fetch from Firestore 'produits' collection for older documents
+    final String? productId = system['id'];
+    final String? productRef = system['reference'];
+
+    // If we have no id and no reference, we can't query, so show fallback
+    if ((productId == null || productId.isEmpty) && (productRef == null || productRef.isEmpty)) {
+      return fallback;
+    }
+
+    Future<List<String>> fetchImageUrls() async {
+      try {
+        // Try searching by ID first
+        if (productId != null && productId.isNotEmpty) {
+          final doc = await FirebaseFirestore.instance.collection('produits').doc(productId).get();
+          if (doc.exists) {
+            final data = doc.data();
+            if (data != null && data['imageUrls'] != null) {
+              return List<String>.from(data['imageUrls']);
+            }
+          }
+        }
+        // If ID failed or missing, try searching by Reference (SKU)
+        if (productRef != null && productRef.isNotEmpty) {
+          final query = await FirebaseFirestore.instance.collection('produits').where('reference', isEqualTo: productRef).limit(1).get();
+          if (query.docs.isNotEmpty) {
+            final data = query.docs.first.data();
+            if (data['imageUrls'] != null) {
+              return List<String>.from(data['imageUrls']);
+            }
+          }
+        }
+      } catch (_) {}
+      return []; // Return empty if failed
+    }
+
+    return FutureBuilder<List<String>>(
+        future: fetchImageUrls(),
+        builder: (context, snapshot) {
+          // While fetching, show a tiny spinner
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)));
+          }
+          // If we found images in the database!
+          if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+            return _buildThumbnail(context, snapshot.data!);
+          }
+          // If we found nothing
+          return fallback;
+        }
+    );
+  }
+
+  // The actual clickable thumbnail UI
+  Widget _buildThumbnail(BuildContext context, List<String> imageUrls) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ImageGalleryPage(
+              imageUrls: imageUrls,
+              initialIndex: 0,
+            ),
+          ),
+        );
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.network(
+          imageUrls.first,
+          fit: BoxFit.cover,
+          errorBuilder: (c, e, s) => fallback,
         ),
       ),
     );
