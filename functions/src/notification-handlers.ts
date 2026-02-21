@@ -457,6 +457,73 @@ export const onInterventionStatusUpdate_v2 = onDocumentUpdated("interventions/{i
   }
 });
 
+// ✅ FIXED: Intervention Journal Entry Notification (Multi-Visites)
+// Triggers when a document is added to the "journal_entries" sub-collection
+export const onInterventionJournalEntryCreated = onDocumentCreated("interventions/{interventionId}/journal_entries/{entryId}", async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) return;
+  const data = snapshot.data();
+  const params = event.params;
+
+  const technicianId = data.technicianId;
+  let technicianName = data.technicianName || "Technicien";
+
+  // 🚀 NEW: Fetch the actual name from the 'users' collection!
+  if (technicianId && technicianId !== 'unknown') {
+    try {
+      const userDoc = await admin.firestore().collection("users").doc(technicianId).get();
+      if (userDoc.exists) {
+        // Grab displayName, or fallback to name, or fallback to what we already have
+        technicianName = userDoc.data()?.displayName || userDoc.data()?.name || technicianName;
+      }
+    } catch (e) {
+      console.error("[JOURNAL NOTIF] ❌ Error fetching technician name:", e);
+    }
+  }
+
+  console.log(`[JOURNAL NOTIF] 🚀 Triggered for intervention: ${params.interventionId}`);
+  console.log(`[JOURNAL NOTIF] 👤 Author: ${technicianName} (${technicianId})`);
+
+  // Get the work done text, truncate it if it's too long for a push notification
+  const rawWorkDone = data.workDone || "Nouvelle note dans le journal";
+  const bodyText = rawWorkDone.length > 100 ? `${rawWorkDone.substring(0, 97)}...` : rawWorkDone;
+
+  // 1. Fetch Parent Intervention Data
+  let storeName = "Magasin";
+  let storeLocation = "";
+
+  try {
+    const interventionDoc = await admin.firestore().collection("interventions").doc(params.interventionId).get();
+    if (interventionDoc.exists) {
+      const intData = interventionDoc.data();
+      storeName = intData?.storeName || storeName;
+      storeLocation = intData?.storeLocation ? ` ${intData.storeLocation}` : "";
+    }
+  } catch (e) {
+    console.error("[JOURNAL NOTIF] ❌ Error fetching parent intervention data", e);
+  }
+
+  // 2. Prepare Notification
+  const title = `Journal Intervention : ${storeName}${storeLocation}`;
+  const body = `${technicianName} : ${bodyText}`;
+
+  const notificationData = {
+    title,
+    body,
+    relatedDocId: params.interventionId, // 🚨 Link to the Parent Intervention
+    relatedCollection: "interventions"
+  };
+
+  console.log(`[JOURNAL NOTIF] 📢 Preparing to notify Managers & Technicians ST...`);
+
+  // 3. Send Notifications
+  // ⚡ TEMPORARY FOR TESTING: We removed technicianId so you receive your own notifications!
+  await createNotificationsForRoles(ROLES_MANAGERS, notificationData, "interventions");
+  await createNotificationsForRoles(ROLES_TECH_ST, notificationData, "interventions");
+
+  console.log(`[JOURNAL NOTIF] ✅ Process complete.`);
+});
+
 // 2. SAV TICKETS
 export const onSavTicketCreated_v2 = onDocumentCreated("sav_tickets/{ticketId}", async (event) => {
   const snapshot = event.data;

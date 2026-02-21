@@ -733,20 +733,35 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       progressNotifier.value = 1.0;
 
       final user = FirebaseAuth.instance.currentUser;
+      // 🚀 NEW: Look up the real name from the pre-loaded users list!
+      String authorName = user?.displayName ?? 'Technicien';
+      if (user != null) {
+        try {
+          final foundUser = _allTechnicians.firstWhere((t) => t.uid == user.uid);
+          authorName = foundUser.displayName;
+        } catch (_) {} // Fallback to 'Technicien' if not found
+      }
+
+      // 🚀 1. Initialize a Batch Write
+      final batch = FirebaseFirestore.instance.batch();
 
       if (entryId == null) {
-        // Create NEW entry
-        await widget.interventionDoc.reference.collection('journal_entries').add({
+        // Create NEW entry reference
+        final newEntryRef = widget.interventionDoc.reference.collection('journal_entries').doc();
+
+        batch.set(newEntryRef, {
           'date': Timestamp.now(),
           'technicianId': user?.uid ?? 'unknown',
-          'technicianName': user?.displayName ?? 'Technicien',
+          'technicianName': authorName,
           'workDone': workDone,
           'hours': hours,
           'mediaUrls': finalUrls,
         });
       } else {
-        // Update EXISTING entry
-        await widget.interventionDoc.reference.collection('journal_entries').doc(entryId).update({
+        // Update EXISTING entry reference
+        final entryRef = widget.interventionDoc.reference.collection('journal_entries').doc(entryId);
+
+        batch.update(entryRef, {
           'workDone': workDone,
           'hours': hours,
           'mediaUrls': finalUrls,
@@ -754,11 +769,29 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         });
       }
 
+      // 🚀 2. Automatically update the Parent Document
+      batch.update(widget.interventionDoc.reference, {
+        'status': 'En cours', // Automatically set it to "In Progress"
+        'updatedAt': FieldValue.serverTimestamp(), // "Ping" the dashboard
+      });
+
+      // 🚀 3. Commit the batch
+      await batch.commit();
+
       if (mounted) {
+        // 🚀 4. Update the local UI state so the bottom section reflects the new status instantly
+        setState(() {
+          _currentStatus = 'En cours';
+        });
+
         Navigator.of(context).pop(); // Close Progress Dialog
         Navigator.of(sheetContext).pop(); // Close Bottom Sheet
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(entryId == null ? 'Visite enregistrée !' : 'Visite mise à jour !'), backgroundColor: Colors.green),
+          SnackBar(
+              content: Text(entryId == null ? 'Visite enregistrée !' : 'Visite mise à jour !'),
+              backgroundColor: Colors.green
+          ),
         );
       }
     } catch (e) {
