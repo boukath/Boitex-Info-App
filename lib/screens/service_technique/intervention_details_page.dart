@@ -524,7 +524,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🚀 ESCALATION LOGIC
+  // 🚀 ESCALATION LOGIC (UPDATED TO PREVENT DATA LOSS)
   // ----------------------------------------------------------------------
   Future<void> _escalateToExtended(BuildContext context) async {
     bool? confirm = await showDialog<bool>(
@@ -556,11 +556,47 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     if (confirm == true) {
       setState(() => _isLoading = true);
       try {
-        await widget.interventionDoc.reference.update({'isExtended': true});
+        final user = FirebaseAuth.instance.currentUser;
+
+        // 1. Run a batch write to escalate AND migrate existing data
+        final batch = FirebaseFirestore.instance.batch();
+
+        // Update main doc
+        batch.update(widget.interventionDoc.reference, {'isExtended': true});
+
+        // 2. Did they already write something? If so, convert it to the first entry!
+        final currentWorkDone = _workDoneController.text.trim();
+        final currentDiagnostic = _diagnosticController.text.trim();
+
+        if (currentWorkDone.isNotEmpty || currentDiagnostic.isNotEmpty || _existingMediaUrls.isNotEmpty) {
+          final newEntryRef = widget.interventionDoc.reference.collection('journal_entries').doc();
+
+          String combinedNotes = "";
+          if (currentDiagnostic.isNotEmpty) combinedNotes += "Diagnostic initial: $currentDiagnostic\n";
+          if (currentWorkDone.isNotEmpty) combinedNotes += "Travaux: $currentWorkDone";
+
+          batch.set(newEntryRef, {
+            'date': Timestamp.now(),
+            'technicianId': user?.uid ?? 'unknown',
+            'technicianName': user?.displayName ?? 'Technicien',
+            'workDone': combinedNotes.trim(),
+            'hours': 0.0,
+            'mediaUrls': List<String>.from(_existingMediaUrls), // Move existing media to this first entry
+          });
+
+          // Clear the main doc's media array so they aren't duplicated in the main view
+          batch.update(widget.interventionDoc.reference, {'mediaUrls': []});
+        }
+
+        await batch.commit();
+
         setState(() {
           _isExtended = true;
           _isLoading = false;
+          // Clear local lists so they don't show up in the new general finalization block
+          _existingMediaUrls.clear();
         });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -581,7 +617,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 🚀 ADD JOURNAL ENTRY (WITH MEDIA)
+  // 🚀 ADD OR EDIT JOURNAL ENTRY (WITH MEDIA)
   // ----------------------------------------------------------------------
   void _showAddJournalEntrySheet(BuildContext context) {
     showModalBottomSheet(
@@ -589,8 +625,25 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _AddJournalEntrySheet(
-        onSave: (String workDone, double hours, List<XFile> files) async {
+        onSave: (String workDone, double hours, List<String> keptMedia, List<XFile> files) async {
           await _uploadAndSaveJournalEntry(ctx, workDone, hours, files);
+        },
+      ),
+    );
+  }
+
+  void _showEditJournalEntrySheet(BuildContext context, String entryId, Map<String, dynamic> entryData) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AddJournalEntrySheet(
+        isEditing: true,
+        initialWorkDone: entryData['workDone'] ?? '',
+        initialHours: (entryData['hours'] as num?)?.toDouble(),
+        initialMediaUrls: List<String>.from(entryData['mediaUrls'] ?? []),
+        onSave: (String workDone, double hours, List<String> keptMedia, List<XFile> files) async {
+          await _uploadAndUpdateJournalEntry(ctx, entryId, workDone, hours, keptMedia, files);
         },
       ),
     );
@@ -598,11 +651,21 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
   Future<void> _uploadAndSaveJournalEntry(
       BuildContext sheetContext, String workDone, double hours, List<XFile> files) async {
+    await _processJournalMediaAndSave(sheetContext, null, workDone, hours, [], files);
+  }
+
+  Future<void> _uploadAndUpdateJournalEntry(
+      BuildContext sheetContext, String entryId, String workDone, double hours, List<String> keptMediaUrls, List<XFile> files) async {
+    await _processJournalMediaAndSave(sheetContext, entryId, workDone, hours, keptMediaUrls, files);
+  }
+
+  // Unified function for both Creating and Updating
+  Future<void> _processJournalMediaAndSave(
+      BuildContext sheetContext, String? entryId, String workDone, double hours, List<String> keptMediaUrls, List<XFile> files) async {
 
     final ValueNotifier<double> progressNotifier = ValueNotifier(0.0);
     final ValueNotifier<String> statusNotifier = ValueNotifier("Préparation...");
 
-    // Show Progress Dialog over the Bottom Sheet
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -646,9 +709,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
 
     try {
-      List<String> uploadedUrls = [];
+      List<String> finalUrls = List.from(keptMediaUrls);
 
-      // Upload media if present
+      // Upload new media if present
       if (files.isNotEmpty) {
         final creds = await _getB2UploadCredentials();
         if (creds == null) throw Exception("Impossible de récupérer les accès B2.");
@@ -662,7 +725,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           final url = await _uploadFileToB2WithProgress(
               file, creds, (progress) => progressNotifier.value = progress);
 
-          if (url != null) uploadedUrls.add(url);
+          if (url != null) finalUrls.add(url);
         }
       }
 
@@ -671,21 +734,31 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
       final user = FirebaseAuth.instance.currentUser;
 
-      // Save entry to sub-collection
-      await widget.interventionDoc.reference.collection('journal_entries').add({
-        'date': Timestamp.now(),
-        'technicianId': user?.uid ?? 'unknown',
-        'technicianName': user?.displayName ?? 'Technicien',
-        'workDone': workDone,
-        'hours': hours,
-        'mediaUrls': uploadedUrls, // ✅ Saved here!
-      });
+      if (entryId == null) {
+        // Create NEW entry
+        await widget.interventionDoc.reference.collection('journal_entries').add({
+          'date': Timestamp.now(),
+          'technicianId': user?.uid ?? 'unknown',
+          'technicianName': user?.displayName ?? 'Technicien',
+          'workDone': workDone,
+          'hours': hours,
+          'mediaUrls': finalUrls,
+        });
+      } else {
+        // Update EXISTING entry
+        await widget.interventionDoc.reference.collection('journal_entries').doc(entryId).update({
+          'workDone': workDone,
+          'hours': hours,
+          'mediaUrls': finalUrls,
+          'lastEditedAt': Timestamp.now(),
+        });
+      }
 
       if (mounted) {
         Navigator.of(context).pop(); // Close Progress Dialog
         Navigator.of(sheetContext).pop(); // Close Bottom Sheet
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Visite enregistrée avec succès!'), backgroundColor: Colors.green),
+          SnackBar(content: Text(entryId == null ? 'Visite enregistrée !' : 'Visite mise à jour !'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
@@ -2511,107 +2584,132 @@ L'équipe BOITEX INFO'''
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: entries.length,
                   itemBuilder: (context, index) {
-                    final entry = entries[index].data() as Map<String, dynamic>;
+                    final entryDoc = entries[index];
+                    final entryId = entryDoc.id;
+                    final entry = entryDoc.data() as Map<String, dynamic>;
                     final date = (entry['date'] as Timestamp?)?.toDate() ?? DateTime.now();
                     final bool isLast = index == entries.length - 1;
 
                     // ✅ Fetch the specific media for this entry
                     final List<String> entryMedia = List<String>.from(entry['mediaUrls'] ?? []);
 
-                    return IntrinsicHeight(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Column(
-                            children: [
-                              Container(
-                                width: 16,
-                                height: 16,
-                                margin: const EdgeInsets.only(top: 4),
-                                decoration: BoxDecoration(
-                                    color: const Color(0xFF667EEA),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 3),
-                                    boxShadow: [
-                                      BoxShadow(color: const Color(0xFF667EEA).withOpacity(0.4), blurRadius: 4)
-                                    ]
-                                ),
-                              ),
-                              if (!isLast)
-                                Expanded(child: Container(width: 2, color: Colors.grey.shade300)),
-                            ],
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
+                    return Stack(
+                      children: [
+                        // The vertical line connecting the dots
+                        if (!isLast)
+                          Positioned(
+                            top: 20,
+                            bottom: 0,
+                            left: 7,
                             child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              padding: const EdgeInsets.all(16),
+                              width: 2,
+                              color: Colors.grey.shade300,
+                            ),
+                          ),
+
+                        // The Dot and Content Card
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 16,
+                              height: 16,
+                              margin: const EdgeInsets.only(top: 4),
                               decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.grey.shade200),
+                                  color: const Color(0xFF667EEA),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 3),
                                   boxShadow: [
-                                    BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 4))
+                                    BoxShadow(color: const Color(0xFF667EEA).withOpacity(0.4), blurRadius: 4)
                                   ]
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        DateFormat('EEEE d MMM yyyy', 'fr_FR').format(date),
-                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF667EEA)),
-                                      ),
-                                      if (entry['hours'] != null && entry['hours'] > 0)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                              color: Colors.orange.shade50,
-                                              borderRadius: BorderRadius.circular(8)
-                                          ),
-                                          child: Text(
-                                            "${entry['hours']}h",
-                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
-                                          ),
-                                        )
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(entry['workDone'] ?? ''),
+                            ),
+                            const SizedBox(width: 12),
 
-                                  // ✅ Display Media thumbnails specifically for this entry
-                                  if (entryMedia.isNotEmpty) ...[
+                            Expanded(
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 16),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.grey.shade200),
+                                    boxShadow: [
+                                      BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 4))
+                                    ]
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // 🚀 NEW: Added the Edit IconButton
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              DateFormat('EEEE d MMM yyyy', 'fr_FR').format(date),
+                                              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF667EEA)),
+                                            ),
+                                            if (!disableInputs)
+                                              IconButton(
+                                                padding: const EdgeInsets.only(left: 8),
+                                                constraints: const BoxConstraints(),
+                                                icon: const Icon(Icons.edit, size: 18, color: Colors.blueGrey),
+                                                tooltip: "Modifier l'entrée",
+                                                onPressed: () => _showEditJournalEntrySheet(context, entryId, entry),
+                                              ),
+                                          ],
+                                        ),
+                                        if (entry['hours'] != null && entry['hours'] > 0)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                                color: Colors.orange.shade50,
+                                                borderRadius: BorderRadius.circular(8)
+                                            ),
+                                            child: Text(
+                                              "${entry['hours']}h",
+                                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
+                                            ),
+                                          )
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(entry['workDone'] ?? ''),
+
+                                    // Media thumbnails
+                                    if (entryMedia.isNotEmpty) ...[
+                                      const SizedBox(height: 12),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: entryMedia.map((url) => _buildMediaThumbnail(
+                                            url: url,
+                                            canRemove: false,
+                                            galleryContextUrls: entryMedia
+                                        )).toList(),
+                                      )
+                                    ],
+
                                     const SizedBox(height: 12),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      children: entryMedia.map((url) => _buildMediaThumbnail(
-                                          url: url,
-                                          canRemove: false, // Since they are already saved
-                                          galleryContextUrls: entryMedia // Open only this entry's images in gallery
-                                      )).toList(),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.person, size: 14, color: Colors.grey),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          entry['technicianName'] ?? 'Technicien Inconnu',
+                                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                        ),
+                                      ],
                                     )
                                   ],
-
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.person, size: 14, color: Colors.grey),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        entry['technicianName'] ?? 'Technicien Inconnu',
-                                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                      ),
-                                    ],
-                                  )
-                                ],
+                                ),
                               ),
-                            ),
-                          )
-                        ],
-                      ),
+                            )
+                          ],
+                        ),
+                      ],
                     );
                   }
               );
@@ -3171,12 +3269,23 @@ class _ExpandableTextState extends State<_ExpandableText> {
 }
 
 // =============================================================================
-// 🚀 WIDGET: ADD JOURNAL ENTRY BOTTOM SHEET (STEP 3)
+// 🚀 WIDGET: ADD/EDIT JOURNAL ENTRY BOTTOM SHEET (STEP 3)
 // =============================================================================
 class _AddJournalEntrySheet extends StatefulWidget {
-  final Future<void> Function(String workDone, double hours, List<XFile> files) onSave;
+  final bool isEditing;
+  final String? initialWorkDone;
+  final double? initialHours;
+  final List<String>? initialMediaUrls;
+  final Future<void> Function(String workDone, double hours, List<String> keptMediaUrls, List<XFile> newFiles) onSave;
 
-  const _AddJournalEntrySheet({required this.onSave});
+  const _AddJournalEntrySheet({
+    super.key,
+    this.isEditing = false,
+    this.initialWorkDone,
+    this.initialHours,
+    this.initialMediaUrls,
+    required this.onSave
+  });
 
   @override
   State<_AddJournalEntrySheet> createState() => _AddJournalEntrySheetState();
@@ -3184,14 +3293,25 @@ class _AddJournalEntrySheet extends StatefulWidget {
 
 class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
   final _formKey = GlobalKey<FormState>();
-  final _workDoneController = TextEditingController();
-  final _hoursController = TextEditingController();
+  late final TextEditingController _workDoneController;
+  late final TextEditingController _hoursController;
 
-  // ✅ Image Picker State
+  // Media States
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _selectedFiles = [];
+  late List<String> _keptMediaUrls;
 
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _workDoneController = TextEditingController(text: widget.initialWorkDone ?? '');
+    _hoursController = TextEditingController(
+        text: widget.initialHours != null && widget.initialHours! > 0 ? widget.initialHours.toString() : ''
+    );
+    _keptMediaUrls = widget.initialMediaUrls != null ? List<String>.from(widget.initialMediaUrls!) : [];
+  }
 
   Future<void> _pickMedia() async {
     final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
@@ -3211,6 +3331,7 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
       await widget.onSave(
           _workDoneController.text.trim(),
           double.tryParse(_hoursController.text.trim().replaceAll(',', '.')) ?? 0.0,
+          _keptMediaUrls,
           _selectedFiles
       );
     } finally {
@@ -3242,21 +3363,21 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.edit_document, color: Color(0xFF667EEA)),
-                SizedBox(width: 8),
-                Text("Nouvelle Visite", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Icon(widget.isEditing ? Icons.edit : Icons.edit_document, color: const Color(0xFF667EEA)),
+                const SizedBox(width: 8),
+                Text(widget.isEditing ? "Modifier la Visite" : "Nouvelle Visite", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               ],
             ),
             const SizedBox(height: 8),
-            const Text("Consignez les travaux effectués aujourd'hui.", style: TextStyle(color: Colors.grey)),
+            Text(widget.isEditing ? "Mettez à jour les informations de cette visite." : "Consignez les travaux effectués.", style: const TextStyle(color: Colors.grey)),
             const SizedBox(height: 24),
             TextFormField(
               controller: _workDoneController,
               maxLines: 4,
               decoration: InputDecoration(
-                labelText: "Travaux effectués aujourd'hui *",
+                labelText: "Travaux effectués *",
                 alignLabelWithHint: true,
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
@@ -3279,45 +3400,82 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
             ),
             const SizedBox(height: 16),
 
-            // ✅ NEW: MEDIA PICKER INSIDE SHEET
             const Text('Fichiers & Médias de la visite', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            if (_selectedFiles.isNotEmpty)
+
+            // Render Kept + New Files together
+            if (_keptMediaUrls.isNotEmpty || _selectedFiles.isNotEmpty)
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: _selectedFiles.map((f) {
-                  final isVid = _isVideoPath(f.path);
-                  return Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey.shade300)
-                    ),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: isVid
-                                ? Container(color: Colors.black12, child: const Center(child: Icon(Icons.videocam, color: Colors.black54)))
-                                : Image.file(File(f.path), fit: BoxFit.cover),
+                children: [
+                  // 1. Kept Existing Files (From Network)
+                  ..._keptMediaUrls.map((url) {
+                    final isVid = _isVideoPath(url);
+                    return Container(
+                      width: 70,
+                      height: 70,
+                      decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300)
+                      ),
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: isVid
+                                  ? Container(color: Colors.black12, child: const Center(child: Icon(Icons.videocam, color: Colors.black54)))
+                                  : Image.network(url, fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.image, color: Colors.grey)),
+                            ),
                           ),
-                        ),
-                        Positioned(
-                          top: -10,
-                          right: -10,
-                          child: IconButton(
-                            icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20),
-                            onPressed: () => setState(() => _selectedFiles.remove(f)),
+                          Positioned(
+                            top: -10,
+                            right: -10,
+                            child: IconButton(
+                              icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20),
+                              onPressed: () => setState(() => _keptMediaUrls.remove(url)),
+                            ),
+                          )
+                        ],
+                      ),
+                    );
+                  }),
+                  // 2. New Selected Files (From Local File System)
+                  ..._selectedFiles.map((f) {
+                    final isVid = _isVideoPath(f.path);
+                    return Container(
+                      width: 70,
+                      height: 70,
+                      decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300)
+                      ),
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: isVid
+                                  ? Container(color: Colors.black12, child: const Center(child: Icon(Icons.videocam, color: Colors.black54)))
+                                  : Image.file(File(f.path), fit: BoxFit.cover),
+                            ),
                           ),
-                        )
-                      ],
-                    ),
-                  );
-                }).toList(),
+                          Positioned(
+                            top: -10,
+                            right: -10,
+                            child: IconButton(
+                              icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20),
+                              onPressed: () => setState(() => _selectedFiles.remove(f)),
+                            ),
+                          )
+                        ],
+                      ),
+                    );
+                  })
+                ],
               ),
+
             const SizedBox(height: 8),
             Center(
               child: TextButton.icon(
@@ -3339,7 +3497,7 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
                 ),
                 child: _isLoading
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text("Enregistrer la visite", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                    : Text(widget.isEditing ? "Mettre à jour la visite" : "Enregistrer la visite", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
               ),
             )
           ],
