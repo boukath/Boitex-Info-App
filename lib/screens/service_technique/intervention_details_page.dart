@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:signature/signature.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
@@ -38,7 +39,7 @@ import 'package:boitex_info_app/screens/administration/global_product_search_pag
 // ✅ Product Scanner Page
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 
-// ✅ IMPORT THE DRAFT SERVICE (Make sure the path matches where you created it)
+// ✅ IMPORT THE DRAFT SERVICE
 import 'package:boitex_info_app/services/intervention_draft_service.dart';
 
 // ----------------------------------------------------------------------
@@ -91,6 +92,9 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
   // ✅ NEW: Edit Mode Toggle
   bool _isEditing = false;
+
+  // 🚀 NEW: Extended / Multi-Visit State
+  bool _isExtended = false;
 
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _mediaFilesToUpload = [];
@@ -154,10 +158,12 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   void initState() {
     super.initState();
 
-    // ✅ Initialize Debouncer (Wait 1 second after typing to save)
     _debouncer = Debouncer(milliseconds: 1000);
 
     final data = widget.interventionDoc.data() ?? {};
+
+    _isExtended = data['isExtended'] ?? false;
+
     _managerNameController =
         TextEditingController(text: data['managerName'] ?? '');
     _managerPhoneController =
@@ -168,7 +174,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         TextEditingController(text: data['diagnostic'] ?? '');
     _workDoneController = TextEditingController(text: data['workDone'] ?? '');
 
-    // ✅ Add listeners for Auto-Save
     _managerNameController.addListener(_onDataChanged);
     _managerPhoneController.addListener(_onDataChanged);
     _managerEmailController.addListener(_onDataChanged);
@@ -176,20 +181,18 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     _workDoneController.addListener(_onDataChanged);
 
     _signatureController = SignatureController();
-    _signatureController.addListener(_onDataChanged); // Signature changes too
+    _signatureController.addListener(_onDataChanged);
 
     _signatureImageUrl = data['signatureUrl'] as String?;
     _currentStatus = data['status'] ?? 'Nouveau';
 
-    // ✅ Initialize Edit Mode
     _isEditing = ['Nouveau', 'Nouvelle Demande'].contains(_currentStatus);
 
-    // ✅ Load Schedule
     if (data['scheduledAt'] != null) {
       _scheduledAt = (data['scheduledAt'] as Timestamp).toDate();
     }
 
-    // ✅ DATA MIGRATION: Handle old single-product vs new multi-product-quantity
+    // DATA MIGRATION
     if (data['systems'] != null) {
       _selectedSystems = List<Map<String, dynamic>>.from(data['systems']);
       for (var system in _selectedSystems) {
@@ -203,7 +206,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }
       }
     } else if (data['systemId'] != null) {
-      // Backward compatibility
       _selectedSystems.add({
         'id': data['systemId'],
         'name': data['systemName'],
@@ -234,17 +236,14 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
     _fetchStoreData();
 
-    // ✅ CHECK FOR DRAFT AFTER INIT
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndRestoreDraft();
     });
   }
 
   // ----------------------------------------------------------------------
-  // 💾 DRAFT LOGIC START
+  // 💾 DRAFT LOGIC
   // ----------------------------------------------------------------------
-
-  /// Called whenever a field changes. Triggers debouncer.
   void _onDataChanged() {
     if (!mounted || _isRestoringDraft) return;
     _debouncer.run(() {
@@ -252,11 +251,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     });
   }
 
-  /// Gathers all data and saves to local file
   Future<void> _triggerAutoSave() async {
     if (!mounted) return;
-
-    // Don't save if status is final
     if (isArchived) return;
 
     final draftData = {
@@ -267,8 +263,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       'workDone': _workDoneController.text,
       'status': _currentStatus,
       'systems': _selectedSystems,
-      // We can't save the actual signature bytes efficiently in JSON repeatedly,
-      // but we could save stroke points if needed. For now, text fields are priority.
     };
 
     await _draftService.saveDraft(
@@ -277,14 +271,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     );
   }
 
-  /// Checks if a draft exists and asks user to restore
   Future<void> _checkAndRestoreDraft() async {
     final hasDraft = await _draftService.hasDraft(widget.interventionDoc.id);
     if (!hasDraft) return;
-
     if (!mounted) return;
 
-    // Show Dialog
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -303,7 +294,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           actions: [
             TextButton(
               onPressed: () {
-                // Discard draft
                 _draftService.clearDraft(widget.interventionDoc.id);
                 Navigator.pop(context);
               },
@@ -311,7 +301,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
             ),
             ElevatedButton(
               onPressed: () async {
-                Navigator.pop(context); // Close dialog
+                Navigator.pop(context);
                 await _restoreDraftData();
               },
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF667EEA)),
@@ -324,7 +314,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   Future<void> _restoreDraftData() async {
-    setState(() => _isRestoringDraft = true); // Block auto-save trigger loop
+    setState(() => _isRestoringDraft = true);
 
     final draft = await _draftService.getDraft(widget.interventionDoc.id);
     if (draft != null) {
@@ -359,9 +349,359 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // 💾 DRAFT LOGIC END
+  // 🚀 MISSING HELPER FUNCTIONS RESTORED HERE
   // ----------------------------------------------------------------------
+  Future<void> _fetchTechnicians() async {
+    try {
+      final query = await FirebaseFirestore.instance.collection('users').get();
+      _allTechnicians = query.docs
+          .map((doc) => AppUser(
+          uid: doc.id,
+          displayName: (doc.data()['displayName'] ?? 'No Name') as String))
+          .toList();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur de chargement des techniciens: $e')),
+      );
+    }
+  }
 
+  bool _isVideoPath(String path) {
+    final p = path.toLowerCase();
+    return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
+  }
+
+  Future<void> _pickMedia() async {
+    final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
+    if (pickedFiles.isEmpty) return;
+    final List<XFile> validFiles = [];
+    final List<String> rejectedFiles = [];
+    for (final file in pickedFiles) {
+      final int fileSize = await file.length();
+      final bool isVideo = _isVideoPath(file.name);
+      if (isVideo && fileSize > _maxFileSizeInBytes) {
+        rejectedFiles.add(
+          '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
+        );
+      } else {
+        validFiles.add(file);
+      }
+    }
+
+    if (validFiles.isNotEmpty) {
+      setState(() => _mediaFilesToUpload.addAll(validFiles));
+    }
+
+    if (rejectedFiles.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 5),
+          content: Text(
+            'Fichiers suivants non ajoutés (limite 50 Mo):\n${rejectedFiles.join('\n')}',
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _generateAiText({
+    required String aiContext,
+    required TextEditingController controller,
+  }) async {
+    final rawNotes = controller.text;
+    if (rawNotes.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez d\'abord saisir des mots-clés.')),
+      );
+      return;
+    }
+
+    setState(() {
+      if (aiContext == 'diagnostic') {
+        _isGeneratingDiagnostic = true;
+      } else {
+        _isGeneratingWorkDone = true;
+      }
+    });
+
+    if (mounted) FocusScope.of(context).unfocus();
+
+    try {
+      final HttpsCallable callable =
+      FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('generateReportFromNotes');
+
+      final result = await callable.call<String>({
+        'rawNotes': rawNotes,
+        'context': aiContext,
+      });
+
+      controller.text = result.data;
+      _onDataChanged();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur de génération AI: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (aiContext == 'diagnostic') {
+            _isGeneratingDiagnostic = false;
+          } else {
+            _isGeneratingWorkDone = false;
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _updateStoreInventory(String clientId, String storeId) async {
+    final storeRef = FirebaseFirestore.instance
+        .collection('clients')
+        .doc(clientId)
+        .collection('stores')
+        .doc(storeId)
+        .collection('materiel_installe');
+
+    for (var system in _selectedSystems) {
+      final String reference = system['reference'] ?? 'N/A';
+      final String name = system['name'] ?? 'Produit Inconnu';
+      final String? image = system['image'];
+      final String? marque = system['marque'];
+      final String? category = system['category'];
+      final int quantityToAdd = system['quantity'] ?? 1;
+      final List<String> newSerials =
+      List<String>.from(system['serialNumbers'] ?? []);
+
+      final query = await storeRef
+          .where('reference', isEqualTo: reference)
+          .limit(1)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        final doc = query.docs.first;
+        final existingData = doc.data();
+        int currentQty = existingData['quantity'] ?? 1;
+        List<String> currentSerials =
+        List<String>.from(existingData['serialNumbers'] ?? []);
+
+        for (var sn in newSerials) {
+          if (sn.isNotEmpty && !currentSerials.contains(sn)) {
+            currentSerials.add(sn);
+          }
+        }
+
+        await doc.reference.update({
+          'quantity': currentQty + quantityToAdd,
+          'serialNumbers': currentSerials,
+          'lastInterventionDate': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          if (existingData['marque'] == null) 'marque': marque,
+          if (existingData['category'] == null) 'category': category,
+          if (existingData['imageUrl'] == null) 'imageUrl': image,
+        });
+      } else {
+        await storeRef.add({
+          'name': name,
+          'reference': reference,
+          'marque': marque ?? 'Non spécifié',
+          'category': category ?? 'Autre',
+          'imageUrl': image,
+          'quantity': quantityToAdd,
+          'serialNumbers': newSerials,
+          'installedAt': FieldValue.serverTimestamp(),
+          'lastInterventionDate': FieldValue.serverTimestamp(),
+          'status': 'Opérationnel',
+          'addedByInterventionId': widget.interventionDoc.id,
+        });
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // 🚀 ESCALATION LOGIC
+  // ----------------------------------------------------------------------
+  Future<void> _escalateToExtended(BuildContext context) async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.timeline, color: Colors.teal),
+            SizedBox(width: 8),
+            Text('Passer en Multi-Visites ?'),
+          ],
+        ),
+        content: const Text(
+            'Cela transformera cette intervention en un dossier multi-jours.\n\nLe formulaire de rapport simple sera remplacé par un journal de bord où vous pourrez ajouter une entrée pour chaque jour de visite.\n\nÊtes-vous sûr ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isLoading = true);
+      try {
+        await widget.interventionDoc.reference.update({'isExtended': true});
+        setState(() {
+          _isExtended = true;
+          _isLoading = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Intervention transformée en dossier multi-visites !'),
+              backgroundColor: Colors.teal,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // 🚀 ADD JOURNAL ENTRY (WITH MEDIA)
+  // ----------------------------------------------------------------------
+  void _showAddJournalEntrySheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AddJournalEntrySheet(
+        onSave: (String workDone, double hours, List<XFile> files) async {
+          await _uploadAndSaveJournalEntry(ctx, workDone, hours, files);
+        },
+      ),
+    );
+  }
+
+  Future<void> _uploadAndSaveJournalEntry(
+      BuildContext sheetContext, String workDone, double hours, List<XFile> files) async {
+
+    final ValueNotifier<double> progressNotifier = ValueNotifier(0.0);
+    final ValueNotifier<String> statusNotifier = ValueNotifier("Préparation...");
+
+    // Show Progress Dialog over the Bottom Sheet
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            contentPadding: const EdgeInsets.all(24),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 10),
+                const CircularProgressIndicator(strokeWidth: 2),
+                const SizedBox(height: 20),
+                ValueListenableBuilder<String>(
+                  valueListenable: statusNotifier,
+                  builder: (context, status, child) => Text(status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(height: 20),
+                ValueListenableBuilder<double>(
+                  valueListenable: progressNotifier,
+                  builder: (context, value, child) {
+                    return Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(value: value, minHeight: 8, backgroundColor: Colors.grey.shade200, valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF667EEA))),
+                        ),
+                        const SizedBox(height: 8),
+                        Text("${(value * 100).toInt()}%", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    try {
+      List<String> uploadedUrls = [];
+
+      // Upload media if present
+      if (files.isNotEmpty) {
+        final creds = await _getB2UploadCredentials();
+        if (creds == null) throw Exception("Impossible de récupérer les accès B2.");
+
+        int currentFile = 0;
+        for (final file in files) {
+          currentFile++;
+          statusNotifier.value = "Envoi média $currentFile / ${files.length}...";
+          progressNotifier.value = 0.0;
+
+          final url = await _uploadFileToB2WithProgress(
+              file, creds, (progress) => progressNotifier.value = progress);
+
+          if (url != null) uploadedUrls.add(url);
+        }
+      }
+
+      statusNotifier.value = "Sauvegarde...";
+      progressNotifier.value = 1.0;
+
+      final user = FirebaseAuth.instance.currentUser;
+
+      // Save entry to sub-collection
+      await widget.interventionDoc.reference.collection('journal_entries').add({
+        'date': Timestamp.now(),
+        'technicianId': user?.uid ?? 'unknown',
+        'technicianName': user?.displayName ?? 'Technicien',
+        'workDone': workDone,
+        'hours': hours,
+        'mediaUrls': uploadedUrls, // ✅ Saved here!
+      });
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close Progress Dialog
+        Navigator.of(sheetContext).pop(); // Close Bottom Sheet
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Visite enregistrée avec succès!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close Progress Dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+
+  // ----------------------------------------------------------------------
+  // Data Loaders & Logic
+  // ----------------------------------------------------------------------
   Future<void> _fetchStoreData() async {
     final data = widget.interventionDoc.data();
     if (data == null) return;
@@ -388,7 +728,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                 _storeLat = (storeData['latitude'] as num).toDouble();
                 _storeLng = (storeData['longitude'] as num).toDouble();
               }
-              // Only auto-fill if empty to not overwrite draft or existing data
               if (_managerNameController.text.isEmpty) {
                 _managerNameController.text = storeData['contactName'] ??
                     storeData['managerName'] ??
@@ -558,7 +897,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         }).toList();
         _suggestedSystemsFromHistory = null;
       });
-      _onDataChanged(); // Trigger save
+      _onDataChanged();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('Systèmes ajoutés. Veuillez vérifier les quantités.'),
@@ -667,7 +1006,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'serialNumbers': List<String>.filled(qty, ''),
       });
     });
-    _onDataChanged(); // Trigger save
+    _onDataChanged();
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -725,7 +1064,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'serialNumbers': List<String>.filled(qty, ''),
         });
       });
-      _onDataChanged(); // Trigger save
+      _onDataChanged();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -748,7 +1087,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     setState(() {
       _selectedSystems.removeAt(index);
     });
-    _onDataChanged(); // Trigger save
+    _onDataChanged();
   }
 
   Future<void> _pickFromStoreInventory() async {
@@ -940,7 +1279,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         });
       }
     });
-    _onDataChanged(); // Trigger save
+    _onDataChanged();
   }
 
   Future<void> _manageSerialNumbers(int index) async {
@@ -1040,7 +1379,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
                   setState(() {
                     _selectedSystems[index]['serialNumbers'] = currentSerials;
                   });
-                  _onDataChanged(); // Trigger save
+                  _onDataChanged();
                   Navigator.pop(ctx);
                 },
                 style: ElevatedButton.styleFrom(
@@ -1057,414 +1396,17 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
-  // Theme
-  // ----------------------------------------------------------------------
-  ThemeData _interventionTheme(BuildContext context) {
-    final base = Theme.of(context);
-    return base.copyWith(
-      scaffoldBackgroundColor: Colors.transparent,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-        centerTitle: false,
-        titleTextStyle: TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-        iconTheme: IconThemeData(color: Colors.white),
-      ),
-      cardTheme: CardThemeData(
-        color: Colors.white.withOpacity(0.95),
-        elevation: 8,
-        shadowColor: const Color(0xFF667EEA).withOpacity(0.15),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
-        ),
-        contentPadding:
-        const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        labelStyle: TextStyle(color: Colors.grey.shade700),
-        hintStyle: TextStyle(color: Colors.grey.shade400),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF667EEA),
-          foregroundColor: Colors.white,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          elevation: 0,
-        ),
-      ),
-      dividerTheme:
-      const DividerThemeData(color: Color(0xFFE5E7EB), thickness: 1),
-    );
-  }
-
-  // ----------------------------------------------------------------------
-  // AI Function
-  // ----------------------------------------------------------------------
-  Future<void> _generateAiText({
-    required String aiContext,
-    required TextEditingController controller,
-  }) async {
-    final rawNotes = controller.text;
-    if (rawNotes.trim().isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Veuillez d\'abord saisir des mots-clés.')),
-      );
-      return;
-    }
-
-    setState(() {
-      if (aiContext == 'diagnostic') {
-        _isGeneratingDiagnostic = true;
-      } else {
-        _isGeneratingWorkDone = true;
-      }
-    });
-
-    if (mounted) {
-      FocusScope.of(context).unfocus();
-    }
-
-    try {
-      final HttpsCallable callable =
-      FirebaseFunctions.instanceFor(region: 'europe-west1')
-          .httpsCallable('generateReportFromNotes');
-
-      final result = await callable.call<String>({
-        'rawNotes': rawNotes,
-        'context': aiContext,
-      });
-
-      controller.text = result.data;
-      _onDataChanged(); // Save generated text
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de génération AI: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          if (aiContext == 'diagnostic') {
-            _isGeneratingDiagnostic = false;
-          } else {
-            _isGeneratingWorkDone = false;
-          }
-        });
-      }
-    }
-  }
-
-  // ----------------------------------------------------------------------
-  // Data helpers
-  // ----------------------------------------------------------------------
-  Future<void> _fetchTechnicians() async {
-    try {
-      final query = await FirebaseFirestore.instance.collection('users').get();
-      _allTechnicians = query.docs
-          .map((doc) => AppUser(
-          uid: doc.id,
-          displayName: (doc.data()['displayName'] ?? 'No Name') as String))
-          .toList();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de chargement des techniciens: $e')),
-      );
-    }
-  }
-
-  bool _isVideoPath(String path) {
-    final p = path.toLowerCase();
-    return p.endsWith('.mp4') ||
-        p.endsWith('.mov') ||
-        p.endsWith('.avi') ||
-        p.endsWith('.mkv');
-  }
-
-  Future<void> _pickMedia() async {
-    final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
-    if (pickedFiles.isEmpty) return;
-    final List<XFile> validFiles = [];
-    final List<String> rejectedFiles = [];
-    for (final file in pickedFiles) {
-      final int fileSize = await file.length();
-      final bool isVideo = _isVideoPath(file.name);
-      if (isVideo && fileSize > _maxFileSizeInBytes) {
-        rejectedFiles.add(
-          '${file.name} (${(fileSize / 1024 / 1024).toStringAsFixed(1)} Mo)',
-        );
-      } else {
-        validFiles.add(file);
-      }
-    }
-
-    if (validFiles.isNotEmpty) {
-      setState(() => _mediaFilesToUpload.addAll(validFiles));
-    }
-
-    if (rejectedFiles.isNotEmpty && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          duration: const Duration(seconds: 5),
-          content: Text(
-            'Fichiers suivants non ajoutés (limite 50 Mo):\n${rejectedFiles.join('\n')}',
-            style: const TextStyle(color: Colors.white),
-          ),
-        ),
-      );
-    }
-  }
-
-  // ----------------------------------------------------------------------
-  // B2 Upload Logic
-  // ----------------------------------------------------------------------
-  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
-    try {
-      final response =
-      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
-      if (response.statusCode == 200) {
-        return json.decode(response.body) as Map<String, dynamic>;
-      } else {
-        debugPrint('Failed to get B2 credentials: ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('Error calling Cloud Function: $e');
-      return null;
-    }
-  }
-
-  // ✅ PREMIUM: Generic Upload with Progress Reporting
-  Future<String?> _uploadStreamWithProgress({
-    required Uri uploadUri,
-    required Map<String, String> headers,
-    required Stream<List<int>> stream,
-    required int totalLength,
-    required Function(double) onProgress,
-  }) async {
-    try {
-      final request = http.StreamedRequest('POST', uploadUri);
-      request.headers.addAll(headers);
-      request.contentLength = totalLength;
-
-      int bytesSent = 0;
-      final completer = Completer<void>();
-
-      stream.listen(
-            (chunk) {
-          request.sink.add(chunk);
-          bytesSent += chunk.length;
-          onProgress(bytesSent / totalLength);
-        },
-        onDone: () {
-          request.sink.close();
-          completer.complete();
-        },
-        onError: (e) {
-          request.sink.addError(e);
-          completer.completeError(e);
-        },
-        cancelOnError: true,
-      );
-
-      await completer.future;
-
-      final response = await request.send();
-      final respStr = await response.stream.bytesToString();
-
-      if (response.statusCode == 200) {
-        final responseBody = json.decode(respStr);
-        return responseBody['fileName'];
-      } else {
-        print('B2 Upload Failed: ${response.statusCode} - $respStr');
-        return null;
-      }
-    } catch (e) {
-      print('Error streaming to B2: $e');
-      return null;
-    }
-  }
-
-  // Wrapper for File Upload (Media)
-  Future<String?> _uploadFileToB2WithProgress(
-      XFile file,
-      Map<String, dynamic> b2Credentials,
-      Function(double) onProgress,
-      ) async {
-    try {
-      final int length = await file.length();
-      final bytes = await file.readAsBytes();
-      final sha1Hash = sha1.convert(bytes).toString();
-
-      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
-      final String fileName = file.name.split('/').last;
-
-      // ✅ FIX: Explicit cast
-      final headers = <String, String>{
-        'Authorization': b2Credentials['authorizationToken'] as String,
-        'X-Bz-File-Name': Uri.encodeComponent(fileName),
-        'Content-Type': file.mimeType ?? 'b2/x-auto',
-        'X-Bz-Content-Sha1': sha1Hash,
-        'Content-Length': length.toString(),
-      };
-
-      final stream = Stream.value(bytes);
-
-      final uploadedFileName = await _uploadStreamWithProgress(
-        uploadUri: uploadUri,
-        headers: headers,
-        stream: stream,
-        totalLength: length,
-        onProgress: onProgress,
-      );
-
-      if (uploadedFileName != null) {
-        return b2Credentials['downloadUrlPrefix'] +
-            uploadedFileName.split('/').map(Uri.encodeComponent).join('/');
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // Wrapper for Bytes Upload (Signature)
-  Future<String?> _uploadBytesToB2WithProgress(
-      Uint8List bytes,
-      String fileName,
-      Map<String, dynamic> b2Credentials,
-      Function(double) onProgress,
-      ) async {
-    try {
-      final sha1Hash = sha1.convert(bytes).toString();
-      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
-
-      // ✅ FIX: Explicit cast
-      final headers = <String, String>{
-        'Authorization': b2Credentials['authorizationToken'] as String,
-        'X-Bz-File-Name': Uri.encodeComponent(fileName),
-        'Content-Type': 'image/png',
-        'X-Bz-Content-Sha1': sha1Hash,
-        'Content-Length': bytes.length.toString(),
-      };
-
-      final stream = Stream.value(bytes);
-
-      final uploadedFileName = await _uploadStreamWithProgress(
-        uploadUri: uploadUri,
-        headers: headers,
-        stream: stream,
-        totalLength: bytes.length,
-        onProgress: onProgress,
-      );
-
-      if (uploadedFileName != null) {
-        return b2Credentials['downloadUrlPrefix'] +
-            uploadedFileName.split('/').map(Uri.encodeComponent).join('/');
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<void> _updateStoreInventory(String clientId, String storeId) async {
-    final storeRef = FirebaseFirestore.instance
-        .collection('clients')
-        .doc(clientId)
-        .collection('stores')
-        .doc(storeId)
-        .collection('materiel_installe');
-
-    for (var system in _selectedSystems) {
-      final String reference = system['reference'] ?? 'N/A';
-      final String name = system['name'] ?? 'Produit Inconnu';
-      final String? image = system['image'];
-      final String? marque = system['marque'];
-      final String? category = system['category'];
-      final int quantityToAdd = system['quantity'] ?? 1;
-      final List<String> newSerials =
-      List<String>.from(system['serialNumbers'] ?? []);
-
-      final query = await storeRef
-          .where('reference', isEqualTo: reference)
-          .limit(1)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        final doc = query.docs.first;
-        final existingData = doc.data();
-        int currentQty = existingData['quantity'] ?? 1;
-        List<String> currentSerials =
-        List<String>.from(existingData['serialNumbers'] ?? []);
-
-        for (var sn in newSerials) {
-          if (sn.isNotEmpty && !currentSerials.contains(sn)) {
-            currentSerials.add(sn);
-          }
-        }
-
-        await doc.reference.update({
-          'quantity': currentQty + quantityToAdd,
-          'serialNumbers': currentSerials,
-          'lastInterventionDate': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-          if (existingData['marque'] == null) 'marque': marque,
-          if (existingData['category'] == null) 'category': category,
-          if (existingData['imageUrl'] == null) 'imageUrl': image,
-        });
-      } else {
-        await storeRef.add({
-          'name': name,
-          'reference': reference,
-          'marque': marque ?? 'Non spécifié',
-          'category': category ?? 'Autre',
-          'imageUrl': image,
-          'quantity': quantityToAdd,
-          'serialNumbers': newSerials,
-          'installedAt': FieldValue.serverTimestamp(),
-          'lastInterventionDate': FieldValue.serverTimestamp(),
-          'status': 'Opérationnel',
-          'addedByInterventionId': widget.interventionDoc.id,
-        });
-      }
-    }
-  }
-
-  // ----------------------------------------------------------------------
-  // Save Report
+  // Save Report & Media (B2) Methods
   // ----------------------------------------------------------------------
   Future<void> _saveReport() async {
     if (_isLoading) return;
 
-    if (_currentStatus == 'Terminé') {
+    if (_currentStatus == 'Terminé' || _currentStatus == 'Clôturé') {
       if (_selectedSystems.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                '⛔️ Impossible de terminer : Veuillez ajouter au moins un produit/système.'),
+                '⛔️ Impossible de clôturer : Veuillez ajouter au moins un produit/système.'),
             backgroundColor: Colors.red,
             duration: Duration(seconds: 4),
           ),
@@ -1475,12 +1417,10 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
 
     setState(() => _isLoading = true);
 
-    // ✅ PREMIUM: Setup Progress Dialog Controller
     final ValueNotifier<double> progressNotifier = ValueNotifier(0.0);
     final ValueNotifier<String> statusNotifier =
     ValueNotifier("Préparation...");
 
-    // Show Non-Dismissible Dialog
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1632,7 +1572,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       };
 
       final prevStatus = (widget.interventionDoc.data() ?? {})['status'];
-      if (_currentStatus == 'Clôturé' && prevStatus != 'Clôturé') {
+      if ((_currentStatus == 'Terminé' || _currentStatus == 'Clôturé') &&
+          (prevStatus != 'Terminé' && prevStatus != 'Clôturé')) {
         reportData['closedAt'] = FieldValue.serverTimestamp();
       }
 
@@ -1657,15 +1598,13 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'managerEmail': _managerEmailController.text.trim(),
         }, SetOptions(merge: true));
 
-        if (_currentStatus == 'Terminé') {
+        if (_currentStatus == 'Terminé' || _currentStatus == 'Clôturé') {
           await _updateStoreInventory(clientId, storeId);
         }
       }
 
-      // ✅ CLEAR DRAFT ON SUCCESSFUL SAVE
       await _draftService.clearDraft(widget.interventionDoc.id);
 
-      // Close Progress Dialog
       if (mounted) Navigator.of(context).pop();
 
       if (!mounted) return;
@@ -1674,7 +1613,6 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       );
       Navigator.of(context).pop();
     } catch (e) {
-      // Close Dialog on Error
       if (mounted && _isLoading) Navigator.of(context).pop();
 
       if (!mounted) return;
@@ -1685,6 +1623,146 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } else {
+        return null;
+      }
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<String?> _uploadStreamWithProgress({
+    required Uri uploadUri,
+    required Map<String, String> headers,
+    required Stream<List<int>> stream,
+    required int totalLength,
+    required Function(double) onProgress,
+  }) async {
+    try {
+      final request = http.StreamedRequest('POST', uploadUri);
+      request.headers.addAll(headers);
+      request.contentLength = totalLength;
+
+      int bytesSent = 0;
+      final completer = Completer<void>();
+
+      stream.listen(
+            (chunk) {
+          request.sink.add(chunk);
+          bytesSent += chunk.length;
+          onProgress(bytesSent / totalLength);
+        },
+        onDone: () {
+          request.sink.close();
+          completer.complete();
+        },
+        onError: (e) {
+          request.sink.addError(e);
+          completer.completeError(e);
+        },
+        cancelOnError: true,
+      );
+
+      await completer.future;
+
+      final response = await request.send();
+      final respStr = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final responseBody = json.decode(respStr);
+        return responseBody['fileName'];
+      } else {
+        return null;
+      }
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<String?> _uploadFileToB2WithProgress(
+      XFile file,
+      Map<String, dynamic> b2Credentials,
+      Function(double) onProgress,
+      ) async {
+    try {
+      final int length = await file.length();
+      final bytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(bytes).toString();
+
+      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+      final String fileName = file.name.split('/').last;
+
+      final headers = <String, String>{
+        'Authorization': b2Credentials['authorizationToken'] as String,
+        'X-Bz-File-Name': Uri.encodeComponent(fileName),
+        'Content-Type': file.mimeType ?? 'b2/x-auto',
+        'X-Bz-Content-Sha1': sha1Hash,
+        'Content-Length': length.toString(),
+      };
+
+      final stream = Stream.value(bytes);
+
+      final uploadedFileName = await _uploadStreamWithProgress(
+        uploadUri: uploadUri,
+        headers: headers,
+        stream: stream,
+        totalLength: length,
+        onProgress: onProgress,
+      );
+
+      if (uploadedFileName != null) {
+        return b2Credentials['downloadUrlPrefix'] +
+            uploadedFileName.split('/').map(Uri.encodeComponent).join('/');
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<String?> _uploadBytesToB2WithProgress(
+      Uint8List bytes,
+      String fileName,
+      Map<String, dynamic> b2Credentials,
+      Function(double) onProgress,
+      ) async {
+    try {
+      final sha1Hash = sha1.convert(bytes).toString();
+      final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+
+      final headers = <String, String>{
+        'Authorization': b2Credentials['authorizationToken'] as String,
+        'X-Bz-File-Name': Uri.encodeComponent(fileName),
+        'Content-Type': 'image/png',
+        'X-Bz-Content-Sha1': sha1Hash,
+        'Content-Length': bytes.length.toString(),
+      };
+
+      final stream = Stream.value(bytes);
+
+      final uploadedFileName = await _uploadStreamWithProgress(
+        uploadUri: uploadUri,
+        headers: headers,
+        stream: stream,
+        totalLength: bytes.length,
+        onProgress: onProgress,
+      );
+
+      if (uploadedFileName != null) {
+        return b2Credentials['downloadUrlPrefix'] +
+            uploadedFileName.split('/').map(Uri.encodeComponent).join('/');
+      }
+      return null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -1856,7 +1934,7 @@ L'équipe BOITEX INFO'''
 
   @override
   void dispose() {
-    _debouncer.dispose(); // ✅ Dispose Debouncer
+    _debouncer.dispose();
     _managerNameController.dispose();
     _managerPhoneController.dispose();
     _managerEmailController.dispose();
@@ -1867,8 +1945,65 @@ L'équipe BOITEX INFO'''
   }
 
   // ----------------------------------------------------------------------
-  // UI
+  // UI & Layout
   // ----------------------------------------------------------------------
+  ThemeData _interventionTheme(BuildContext context) {
+    final base = Theme.of(context);
+    return base.copyWith(
+      scaffoldBackgroundColor: Colors.transparent,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      cardTheme: CardThemeData(
+        color: Colors.white.withOpacity(0.95),
+        elevation: 8,
+        shadowColor: const Color(0xFF667EEA).withOpacity(0.15),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(20),
+          borderSide: const BorderSide(color: Color(0xFF667EEA), width: 2),
+        ),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        labelStyle: TextStyle(color: Colors.grey.shade700),
+        hintStyle: TextStyle(color: Colors.grey.shade400),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF667EEA),
+          foregroundColor: Colors.white,
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          elevation: 0,
+        ),
+      ),
+      dividerTheme:
+      const DividerThemeData(color: Color(0xFFE5E7EB), thickness: 1),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = widget.interventionDoc.data() ?? {};
@@ -1895,7 +2030,6 @@ L'équipe BOITEX INFO'''
       billingIcon = Icons.help_outline;
     }
 
-    // ✅ Logic to disable editing controls
     bool disableInputs = !_isEditing || _isLoading || isArchived;
 
     return Theme(
@@ -1907,6 +2041,14 @@ L'équipe BOITEX INFO'''
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
+            // 🚀 STEP 1: Escalation Toggle Icon
+            if (!_isExtended && !isArchived)
+              IconButton(
+                icon: const Icon(Icons.timeline),
+                tooltip: 'Passer en multi-visites',
+                onPressed: () => _escalateToExtended(context),
+              ),
+
             // ✅ TOGGLE: Edit / Save Mode
             if (!isArchived)
               IconButton(
@@ -1914,10 +2056,10 @@ L'équipe BOITEX INFO'''
                 tooltip: _isEditing ? 'Sauvegarder' : 'Modifier',
                 onPressed: () {
                   if (_isEditing) {
-                    _saveReport(); // Save on check
+                    _saveReport();
                   }
                   setState(() {
-                    _isEditing = !_isEditing; // Toggle mode
+                    _isEditing = !_isEditing;
                   });
                 },
               ),
@@ -2111,7 +2253,9 @@ L'équipe BOITEX INFO'''
 
                   _buildSummaryCard(data, createdAt),
                   const SizedBox(height: 24),
-                  _buildReportForm(context, disableInputs),
+
+                  // 🚀 UNIFIED BODY BUILDER
+                  _buildInterventionBody(context, disableInputs),
                 ],
               ),
             ),
@@ -2121,369 +2265,32 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
-    final String? clientPhone = data['clientPhone'];
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Demandé par ${data['createdByName'] ?? 'Inconnu'}',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Client: ${data['clientName'] ?? 'N/A'} - Magasin: ${data['storeName'] ?? 'N/A'}',
-                        style: const TextStyle(color: Colors.black54),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_storeLat != null && _storeLng != null)
-                  IconButton(
-                    icon: const Icon(Icons.directions,
-                        color: Color(0xFF667EEA), size: 32),
-                    tooltip: "Y aller (GPS)",
-                    onPressed: _launchMaps,
-                  )
-                else if (_isLoadingGps)
-                  const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}',
-              style: const TextStyle(color: Colors.black54),
-            ),
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 12),
-            const Text('Description du Problème:',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text(data['requestDescription'] ?? 'Non spécifié'),
-
-            const SizedBox(height: 12),
-            const Text('Type d\'Intervention:',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text(data['interventionType'] ?? 'Non spécifié'),
-
-            if (data['equipmentName'] != null) ...[
-              const SizedBox(height: 12),
-              const Divider(),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.settings_input_component,
-                      size: 16, color: Colors.grey),
-                  const SizedBox(width: 8),
-                  Text("Équipement: ${data['equipmentName']}",
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ],
-
-            if (clientPhone != null && clientPhone.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              const Text('Tél Client:',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              InkWell(
-                onTap: () async {
-                  final Uri launchUri = Uri(
-                    scheme: 'tel',
-                    path: clientPhone,
-                  );
-                  if (await canLaunchUrl(launchUri)) {
-                    await launchUrl(launchUri);
-                  }
-                },
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.phone, size: 18, color: Color(0xFF667EEA)),
-                    const SizedBox(width: 8),
-                    Text(
-                      clientPhone,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF667EEA),
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSystemSection() {
-    // Determine if we can edit systems
-    bool canEditSystems = _isEditing && !isArchived;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              "Systèmes / Équipements",
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87),
-            ),
-            if (canEditSystems)
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF667EEA).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Text(
-                  "${_selectedSystems.length} ajouté(s)",
-                  style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF667EEA),
-                      fontWeight: FontWeight.bold),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-
-        if (_selectedSystems.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: const Center(
-              child: Text("Aucun système sélectionné",
-                  style: TextStyle(color: Colors.grey)),
-            ),
-          )
-        else
-          ..._selectedSystems.asMap().entries.map((entry) {
-            final index = entry.key;
-            final system = entry.value;
-            final int qty = system['quantity'] ?? 1;
-            final List<String> serials =
-            List<String>.from(system['serialNumbers'] ?? []);
-            final int scannedCount = serials.where((s) => s.isNotEmpty).length;
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: ListTile(
-                contentPadding: const EdgeInsets.all(8),
-                leading: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: system['image'] != null
-                      ? ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.network(
-                      system['image'],
-                      fit: BoxFit.cover,
-                      errorBuilder: (c, e, s) => const Icon(
-                          Icons.inventory_2,
-                          color: Colors.grey),
-                    ),
-                  )
-                      : const Icon(Icons.inventory_2, color: Color(0xFF667EEA)),
-                ),
-                title: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        system['name'] ?? 'Système',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.orange.shade200),
-                      ),
-                      child: Text(
-                        "x$qty",
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange.shade800),
-                      ),
-                    ),
-                  ],
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      system['reference'] ?? '',
-                      style:
-                      TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                    ),
-                    const SizedBox(height: 4),
-                    InkWell(
-                      onTap: !canEditSystems
-                          ? null
-                          : () => _manageSerialNumbers(index),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.blue.shade200),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.qr_code,
-                                size: 14, color: Colors.blue.shade700),
-                            const SizedBox(width: 6),
-                            Text(
-                              qty > 1
-                                  ? "S/N: $scannedCount/$qty scannés"
-                                  : (scannedCount > 0
-                                  ? "S/N: ${serials[0]}"
-                                  : "Ajouter S/N"),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.blue.shade700,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                trailing: !canEditSystems
-                    ? null
-                    : IconButton(
-                  icon:
-                  const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () => _removeSystem(index),
-                ),
-              ),
-            );
-          }).toList(),
-
-        const SizedBox(height: 8),
-
-        if (canEditSystems)
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.store),
-                  label: const Text("Inventaire Magasin"),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: Color(0xFF10B981)),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: _pickFromStoreInventory,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text("Catalogue"),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: Color(0xFF667EEA)),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: _selectSystem,
-                ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  padding:
-                  const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-                  side: const BorderSide(color: Colors.black87),
-                  foregroundColor: Colors.black87,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                onPressed: _scanSystem,
-                child: const Icon(Icons.qr_code_scanner_rounded),
-              ),
-            ],
-          ),
-      ],
-    );
-  }
-
-  Widget _buildReportForm(BuildContext context, bool disableInputs) {
+  // =======================================================================
+  // 🏗️ UNIFIED INTERVENTION BODY WIDGETS
+  // =======================================================================
+  Widget _buildInterventionBody(BuildContext context, bool disableInputs) {
     return Form(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text("Rapport d'Intervention",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-
           const SizedBox(height: 16),
-          _buildSystemSection(),
+
+          _buildSystemSection(disableInputs),
 
           const SizedBox(height: 16),
           TextFormField(
             controller: _managerNameController,
             readOnly: disableInputs,
-            decoration:
-            const InputDecoration(labelText: 'Nom du contact sur site'),
+            decoration: const InputDecoration(labelText: 'Nom du contact sur site'),
           ),
           const SizedBox(height: 16),
           TextFormField(
             controller: _managerPhoneController,
             readOnly: disableInputs,
             keyboardType: TextInputType.phone,
-            decoration:
-            const InputDecoration(labelText: 'Téléphone du contact'),
+            decoration: const InputDecoration(labelText: 'Téléphone du contact'),
           ),
           const SizedBox(height: 16),
           TextFormField(
@@ -2497,23 +2304,17 @@ L'équipe BOITEX INFO'''
           ),
           const SizedBox(height: 16),
           MultiSelectDialogField<AppUser>(
-            items: _allTechnicians
-                .map((t) => MultiSelectItem(t, t.displayName))
-                .toList(),
+            items: _allTechnicians.map((t) => MultiSelectItem(t, t.displayName)).toList(),
             title: const Text('Techniciens'),
             selectedColor: const Color(0xFF667EEA),
             buttonText: const Text('Techniciens Assignés'),
             onConfirm: (results) {
-              if (!disableInputs) {
-                setState(() => _selectedTechnicians = results);
-              }
+              if (!disableInputs) setState(() => _selectedTechnicians = results);
             },
             initialValue: _selectedTechnicians,
             chipDisplay: MultiSelectChipDisplay(
               onTap: (value) {
-                if (!disableInputs) {
-                  setState(() => _selectedTechnicians.remove(value));
-                }
+                if (!disableInputs) setState(() => _selectedTechnicians.remove(value));
               },
             ),
             decoration: BoxDecoration(
@@ -2523,9 +2324,30 @@ L'équipe BOITEX INFO'''
             ),
             dialogWidth: MediaQuery.of(context).size.width * 0.9,
           ),
-          const SizedBox(height: 16),
 
-          // 🚀 DIAGNOSTIC SECTION: Switchable between ExpandableText and TextFormField
+          const SizedBox(height: 24),
+
+          // 🚀 BRANCHING: Extended Timeline OR Simple Diagnostic
+          if (_isExtended)
+            _buildTimelineSection(disableInputs)
+          else
+            _buildSimpleLogSection(disableInputs),
+
+          const SizedBox(height: 24),
+          _buildMediaSection(disableInputs),
+
+          const SizedBox(height: 24),
+          // 🚀 FINALIZATION (Signature & Status)
+          _buildFinalizationSection(disableInputs),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSimpleLogSection(bool disableInputs) {
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           disableInputs
               ? Container(
             width: double.infinity,
@@ -2540,8 +2362,7 @@ L'équipe BOITEX INFO'''
               children: [
                 Text(
                   'Diagnostique / Panne Signalée',
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade700),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
                 const SizedBox(height: 8),
                 _ExpandableText(
@@ -2565,15 +2386,9 @@ L'équipe BOITEX INFO'''
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
                     : IconButton(
-                  icon: Icon(
-                    Icons.auto_awesome,
-                    color: Colors.grey.shade600,
-                  ),
+                  icon: Icon(Icons.auto_awesome, color: Colors.grey.shade600),
                   tooltip: 'Améliorer le texte par IA',
-                  onPressed: () => _generateAiText(
-                    aiContext: 'diagnostic',
-                    controller: _diagnosticController,
-                  ),
+                  onPressed: () => _generateAiText(aiContext: 'diagnostic', controller: _diagnosticController),
                 ),
               ),
             ),
@@ -2581,7 +2396,6 @@ L'équipe BOITEX INFO'''
 
           const SizedBox(height: 16),
 
-          // 🚀 TRAVAUX EFFECTUES SECTION: Switchable between ExpandableText and TextFormField
           disableInputs
               ? Container(
             width: double.infinity,
@@ -2596,8 +2410,7 @@ L'équipe BOITEX INFO'''
               children: [
                 Text(
                   'Travaux Effectués',
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade700),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
                 const SizedBox(height: 8),
                 _ExpandableText(
@@ -2621,87 +2434,532 @@ L'équipe BOITEX INFO'''
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
                     : IconButton(
-                  icon: Icon(
-                    Icons.auto_awesome,
-                    color: Colors.grey.shade600,
-                  ),
+                  icon: Icon(Icons.auto_awesome, color: Colors.grey.shade600),
                   tooltip: 'Améliorer le texte par IA',
-                  onPressed: () => _generateAiText(
-                    aiContext: 'workDone',
-                    controller: _workDoneController,
-                  ),
+                  onPressed: () => _generateAiText(aiContext: 'workDone', controller: _workDoneController),
                 ),
               ),
             ),
           ),
+        ]
+    );
+  }
 
-          const SizedBox(height: 24),
-          _buildMediaSection(disableInputs),
-          const SizedBox(height: 24),
-          const Text('Signature du Client',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          if (_signatureImageUrl != null && _signatureController.isEmpty)
-            Container(
-              height: 150,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(20),
-                color: const Color(0xFFF1F5F9),
+  Widget _buildTimelineSection(bool disableInputs) {
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.timeline, color: Color(0xFF667EEA)),
+                  SizedBox(width: 8),
+                  Text("Journal Multi-Visites", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
               ),
-              child: Center(
-                  child:
-                  Image.network(_signatureImageUrl!, fit: BoxFit.contain)),
-            )
-          else if (!disableInputs)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Signature(
-                controller: _signatureController,
-                height: 150,
-                backgroundColor: const Color(0xFFF1F5F9),
-              ),
-            ),
-          if (!disableInputs)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () {
-                  _signatureController.clear();
-                  setState(() => _signatureImageUrl = null);
-                },
-                child: const Text('Effacer la signature'),
-              ),
-            ),
-          const SizedBox(height: 24),
-          DropdownButtonFormField<String>(
-            value: _currentStatus,
-            items: statusOptions
-                .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                .toList(),
-            onChanged: disableInputs
-                ? null
-                : (v) {
-              setState(() => _currentStatus = v!);
-              _onDataChanged(); // Trigger Save on status change
-            },
-            decoration:
-            const InputDecoration(labelText: "Statut de l'intervention"),
+              if (!disableInputs)
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text("Ajouter"),
+                  style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                  ),
+                  onPressed: () => _showAddJournalEntrySheet(context),
+                ),
+            ],
           ),
-          const SizedBox(height: 24),
-          if (!disableInputs)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _saveReport,
-                child: _isLoading
-                    ? const CircularProgressIndicator(
-                    color: Colors.white, strokeWidth: 3)
-                    : const Text('Enregistrer le Rapport'),
+          const SizedBox(height: 16),
+          StreamBuilder<QuerySnapshot>(
+            stream: widget.interventionDoc.reference.collection('journal_entries').orderBy('date', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.history_edu, size: 48, color: Colors.grey.shade400),
+                      const SizedBox(height: 12),
+                      const Text("Dossier Multi-Visites", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 8),
+                      Text(
+                          "Aucune visite enregistrée pour le moment. Cliquez sur 'Ajouter' pour consigner votre premier passage.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey.shade600)
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final entries = snapshot.data!.docs;
+
+              return ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: entries.length,
+                  itemBuilder: (context, index) {
+                    final entry = entries[index].data() as Map<String, dynamic>;
+                    final date = (entry['date'] as Timestamp?)?.toDate() ?? DateTime.now();
+                    final bool isLast = index == entries.length - 1;
+
+                    // ✅ Fetch the specific media for this entry
+                    final List<String> entryMedia = List<String>.from(entry['mediaUrls'] ?? []);
+
+                    return IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Column(
+                            children: [
+                              Container(
+                                width: 16,
+                                height: 16,
+                                margin: const EdgeInsets.only(top: 4),
+                                decoration: BoxDecoration(
+                                    color: const Color(0xFF667EEA),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 3),
+                                    boxShadow: [
+                                      BoxShadow(color: const Color(0xFF667EEA).withOpacity(0.4), blurRadius: 4)
+                                    ]
+                                ),
+                              ),
+                              if (!isLast)
+                                Expanded(child: Container(width: 2, color: Colors.grey.shade300)),
+                            ],
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                  boxShadow: [
+                                    BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 4))
+                                  ]
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        DateFormat('EEEE d MMM yyyy', 'fr_FR').format(date),
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF667EEA)),
+                                      ),
+                                      if (entry['hours'] != null && entry['hours'] > 0)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                              color: Colors.orange.shade50,
+                                              borderRadius: BorderRadius.circular(8)
+                                          ),
+                                          child: Text(
+                                            "${entry['hours']}h",
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
+                                          ),
+                                        )
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(entry['workDone'] ?? ''),
+
+                                  // ✅ Display Media thumbnails specifically for this entry
+                                  if (entryMedia.isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: entryMedia.map((url) => _buildMediaThumbnail(
+                                          url: url,
+                                          canRemove: false, // Since they are already saved
+                                          galleryContextUrls: entryMedia // Open only this entry's images in gallery
+                                      )).toList(),
+                                    )
+                                  ],
+
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.person, size: 14, color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        entry['technicianName'] ?? 'Technicien Inconnu',
+                                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                      ),
+                                    ],
+                                  )
+                                ],
+                              ),
+                            ),
+                          )
+                        ],
+                      ),
+                    );
+                  }
+              );
+            },
+          ),
+        ]
+    );
+  }
+
+  Widget _buildFinalizationSection(bool disableInputs) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _isExtended ? Colors.orange.shade50 : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _isExtended ? Colors.orange.shade200 : Colors.grey.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_isExtended ? 'Clôture Définitive du Dossier' : 'Signature & Clôture',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _isExtended ? Colors.deepOrange : const Color(0xFF667EEA))),
+              const SizedBox(height: 16),
+              const Text('Signature du Client', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              if (_signatureImageUrl != null && _signatureController.isEmpty)
+                Container(
+                  height: 150,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(20),
+                    color: const Color(0xFFF1F5F9),
+                  ),
+                  child: Center(child: Image.network(_signatureImageUrl!, fit: BoxFit.contain)),
+                )
+              else if (!disableInputs)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Signature(
+                    controller: _signatureController,
+                    height: 150,
+                    backgroundColor: const Color(0xFFF1F5F9),
+                  ),
+                ),
+              if (!disableInputs)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      _signatureController.clear();
+                      setState(() => _signatureImageUrl = null);
+                    },
+                    child: const Text('Effacer la signature'),
+                  ),
+                ),
+              const SizedBox(height: 24),
+              DropdownButtonFormField<String>(
+                value: _currentStatus,
+                items: statusOptions.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                onChanged: disableInputs
+                    ? null
+                    : (v) {
+                  setState(() => _currentStatus = v!);
+                  _onDataChanged();
+                },
+                decoration: const InputDecoration(labelText: "Statut de l'intervention"),
               ),
+              const SizedBox(height: 24),
+              if (!disableInputs)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _saveReport,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isExtended ? Colors.deepOrange : const Color(0xFF667EEA),
+                    ),
+                    child: _isLoading
+                        ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
+                        : Text(_isExtended ? 'Clôturer Définitivement' : 'Enregistrer le Rapport', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // REUSABLE HELPER WIDGETS
+  // ----------------------------------------------------------------------
+  Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
+    final String? clientPhone = data['clientPhone'];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Demandé par ${data['createdByName'] ?? 'Inconnu'}',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Client: ${data['clientName'] ?? 'N/A'} - Magasin: ${data['storeName'] ?? 'N/A'}',
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_storeLat != null && _storeLng != null)
+                  IconButton(
+                    icon: const Icon(Icons.directions, color: Color(0xFF667EEA), size: 32),
+                    tooltip: "Y aller (GPS)",
+                    onPressed: _launchMaps,
+                  )
+                else if (_isLoadingGps)
+                  const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+              ],
             ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              'Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}',
+              style: const TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 12),
+            const Text('Description du Problème:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(data['requestDescription'] ?? 'Non spécifié'),
+            const SizedBox(height: 12),
+            const Text('Type d\'Intervention:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(data['interventionType'] ?? 'Non spécifié'),
+            if (data['equipmentName'] != null) ...[
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.settings_input_component, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text("Équipement: ${data['equipmentName']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ],
+            if (clientPhone != null && clientPhone.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('Tél Client:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: () async {
+                  final Uri launchUri = Uri(scheme: 'tel', path: clientPhone);
+                  if (await canLaunchUrl(launchUri)) await launchUrl(launchUri);
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.phone, size: 18, color: Color(0xFF667EEA)),
+                    const SizedBox(width: 8),
+                    Text(
+                      clientPhone,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF667EEA), decoration: TextDecoration.underline),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildSystemSection(bool disableInputs) {
+    bool canEditSystems = !disableInputs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              "Systèmes / Équipements",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            if (canEditSystems)
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF667EEA).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text(
+                  "${_selectedSystems.length} ajouté(s)",
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF667EEA), fontWeight: FontWeight.bold),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_selectedSystems.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: const Center(child: Text("Aucun système sélectionné", style: TextStyle(color: Colors.grey))),
+          )
+        else
+          ..._selectedSystems.asMap().entries.map((entry) {
+            final index = entry.key;
+            final system = entry.value;
+            final int qty = system['quantity'] ?? 1;
+            final List<String> serials = List<String>.from(system['serialNumbers'] ?? []);
+            final int scannedCount = serials.where((s) => s.isNotEmpty).length;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(8),
+                leading: Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: system['image'] != null
+                      ? ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(system['image'], fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.inventory_2, color: Colors.grey)),
+                  )
+                      : const Icon(Icons.inventory_2, color: Color(0xFF667EEA)),
+                ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(system['name'] ?? 'Système', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Text("x$qty", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+                    ),
+                  ],
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(system['reference'] ?? '', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    InkWell(
+                      onTap: !canEditSystems ? null : () => _manageSerialNumbers(index),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.qr_code, size: 14, color: Colors.blue.shade700),
+                            const SizedBox(width: 6),
+                            Text(
+                              qty > 1 ? "S/N: $scannedCount/$qty scannés" : (scannedCount > 0 ? "S/N: ${serials[0]}" : "Ajouter S/N"),
+                              style: TextStyle(fontSize: 12, color: Colors.blue.shade700, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                trailing: !canEditSystems ? null : IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _removeSystem(index)),
+              ),
+            );
+          }).toList(),
+        const SizedBox(height: 8),
+        if (canEditSystems)
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.store),
+                  label: const Text("Inventaire Magasin"),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: Color(0xFF10B981)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _pickFromStoreInventory,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text("Catalogue"),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: Color(0xFF667EEA)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _selectSystem,
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                  side: const BorderSide(color: Colors.black87),
+                  foregroundColor: Colors.black87,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _scanSystem,
+                child: const Icon(Icons.qr_code_scanner_rounded),
+              ),
+            ],
+          ),
+      ],
     );
   }
 
@@ -2709,29 +2967,19 @@ L'équipe BOITEX INFO'''
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Photos & Vidéos',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text('Photos & Vidéos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
         if (_existingMediaUrls.isEmpty && _mediaFilesToUpload.isEmpty)
-          const Text('Aucun fichier ajouté.',
-              style: TextStyle(color: Colors.grey)),
-        // Existing
+          const Text('Aucun fichier ajouté.', style: TextStyle(color: Colors.grey)),
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: _existingMediaUrls
-              .map((url) =>
-              _buildMediaThumbnail(url: url, canRemove: !disableInputs))
-              .toList(),
+          children: _existingMediaUrls.map((url) => _buildMediaThumbnail(url: url, canRemove: !disableInputs)).toList(),
         ),
-        // Pending
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: _mediaFilesToUpload
-              .map((file) =>
-              _buildMediaThumbnail(file: file, canRemove: !disableInputs))
-              .toList(),
+          children: _mediaFilesToUpload.map((file) => _buildMediaThumbnail(file: file, canRemove: !disableInputs)).toList(),
         ),
         const SizedBox(height: 16),
         if (!disableInputs)
@@ -2751,78 +2999,38 @@ L'équipe BOITEX INFO'''
     );
   }
 
-  Widget _buildMediaThumbnail(
-      {String? url, XFile? file, required bool canRemove}) {
-    final bool isVideo = (url != null && _isVideoPath(url)) ||
-        (file != null && _isVideoPath(file.path));
-    final bool isPdf = (url != null && url.toLowerCase().endsWith('.pdf')) ||
-        (file != null && file.path.toLowerCase().endsWith('.pdf'));
+  // ✅ UPDATED: Added galleryContextUrls parameter to isolate which gallery is opened
+  Widget _buildMediaThumbnail({String? url, XFile? file, required bool canRemove, List<String>? galleryContextUrls}) {
+    final bool isVideo = (url != null && _isVideoPath(url)) || (file != null && _isVideoPath(file.path));
+    final bool isPdf = (url != null && url.toLowerCase().endsWith('.pdf')) || (file != null && file.path.toLowerCase().endsWith('.pdf'));
 
     Widget content;
     if (file != null) {
       if (isVideo) {
         content = FutureBuilder<Uint8List?>(
-          future: VideoThumbnail.thumbnailData(
-            video: file.path,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 100,
-            quality: 30,
-          ),
+          future: VideoThumbnail.thumbnailData(video: file.path, imageFormat: ImageFormat.JPEG, maxWidth: 100, quality: 30),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasData && snapshot.data != null) {
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.memory(snapshot.data!,
-                    width: 100, height: 100, fit: BoxFit.cover),
-              );
-            }
-            return const Center(
-                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasData && snapshot.data != null) return ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(snapshot.data!, width: 100, height: 100, fit: BoxFit.cover));
+            return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
         content = ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: isPdf
-              ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
-              : Image.file(
-            File(file.path),
-            width: 100,
-            height: 100,
-            fit: BoxFit.cover,
-            errorBuilder: (c, e, s) => const Icon(Icons.insert_drive_file,
-                size: 40, color: Colors.blue),
-          ),
+          child: isPdf ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red) : Image.file(File(file.path), width: 100, height: 100, fit: BoxFit.cover, errorBuilder: (c, e, s) => const Icon(Icons.insert_drive_file, size: 40, color: Colors.blue)),
         );
       }
     } else if (url != null && url.isNotEmpty) {
       if (isPdf) {
-        content = const Center(
-            child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
+        content = const Center(child: Icon(Icons.picture_as_pdf, size: 40, color: Colors.red));
       } else if (isVideo) {
         content = FutureBuilder<Uint8List?>(
-          future: VideoThumbnail.thumbnailData(
-            video: url,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 100,
-            quality: 30,
-          ),
+          future: VideoThumbnail.thumbnailData(video: url, imageFormat: ImageFormat.JPEG, maxWidth: 100, quality: 30),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasData && snapshot.data != null) {
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.memory(snapshot.data!,
-                    width: 100, height: 100, fit: BoxFit.cover),
-              );
-            }
-            return const Center(
-                child: Icon(Icons.videocam, size: 40, color: Colors.black54));
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasData && snapshot.data != null) return ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(snapshot.data!, width: 100, height: 100, fit: BoxFit.cover));
+            return const Center(child: Icon(Icons.videocam, size: 40, color: Colors.black54));
           },
         );
       } else {
@@ -2830,17 +3038,7 @@ L'équipe BOITEX INFO'''
           tag: url,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              url,
-              width: 100,
-              height: 100,
-              fit: BoxFit.cover,
-              loadingBuilder: (c, child, prog) => prog == null
-                  ? child
-                  : const Center(child: CircularProgressIndicator()),
-              errorBuilder: (c, e, s) =>
-              const Icon(Icons.broken_image, color: Colors.grey),
-            ),
+            child: Image.network(url, width: 100, height: 100, fit: BoxFit.cover, loadingBuilder: (c, child, prog) => prog == null ? child : const Center(child: CircularProgressIndicator()), errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.grey)),
           ),
         );
       }
@@ -2851,68 +3049,33 @@ L'équipe BOITEX INFO'''
     return GestureDetector(
       onTap: () async {
         if (url == null || url.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'Veuillez d\'abord enregistrer pour voir ce fichier.')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez d\'abord enregistrer pour voir ce fichier.')));
           return;
         }
         if (isPdf) {
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
         } else if (isVideo) {
-          Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => VideoPlayerPage(videoUrl: url)));
+          Navigator.of(context).push(MaterialPageRoute(builder: (_) => VideoPlayerPage(videoUrl: url)));
         } else {
-          final images = _existingMediaUrls
-              .where(
-                  (u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf'))
-              .toList();
+          // ✅ Use custom gallery context if provided, else fallback to existing urls
+          final images = (galleryContextUrls ?? _existingMediaUrls).where((u) => !_isVideoPath(u) && !u.toLowerCase().endsWith('.pdf')).toList();
           if (images.isEmpty) return;
           final initial = images.indexOf(url);
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => ImageGalleryPage(
-                imageUrls: images, initialIndex: initial != -1 ? initial : 0),
-          ));
+          Navigator.of(context).push(MaterialPageRoute(builder: (_) => ImageGalleryPage(imageUrls: images, initialIndex: initial != -1 ? initial : 0)));
         }
       },
       onLongPress: (file != null) ? null : () => _downloadMedia(url),
       child: Container(
         width: 100,
         height: 100,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade300),
-          color: const Color(0xFFF1F5F9),
-        ),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300), color: const Color(0xFFF1F5F9)),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
             Positioned.fill(child: content),
-            if (isVideo && !isPdf)
-              const Center(
-                  child: Icon(Icons.play_circle_fill,
-                      color: Colors.white, size: 30)),
-            if (canRemove && file != null)
-              Positioned(
-                top: -10,
-                right: -10,
-                child: IconButton(
-                  icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () =>
-                      setState(() => _mediaFilesToUpload.remove(file)),
-                ),
-              ),
-            if (canRemove && url != null)
-              Positioned(
-                top: -10,
-                right: -10,
-                child: IconButton(
-                  icon: const Icon(Icons.cancel, color: Colors.redAccent),
-                  onPressed: () =>
-                      setState(() => _existingMediaUrls.remove(url)),
-                ),
-              ),
+            if (isVideo && !isPdf) const Center(child: Icon(Icons.play_circle_fill, color: Colors.white, size: 30)),
+            if (canRemove && file != null) Positioned(top: -10, right: -10, child: IconButton(icon: const Icon(Icons.cancel, color: Colors.redAccent), onPressed: () => setState(() => _mediaFilesToUpload.remove(file)))),
+            if (canRemove && url != null) Positioned(top: -10, right: -10, child: IconButton(icon: const Icon(Icons.cancel, color: Colors.redAccent), onPressed: () => setState(() => _existingMediaUrls.remove(url)))),
           ],
         ),
       ),
@@ -2931,7 +3094,7 @@ class _ExpandableText extends StatefulWidget {
     // ignore: unused_element
     super.key,
     required this.text,
-    this.maxLines = 4, // Default to 4 lines
+    this.maxLines = 4,
   });
 
   @override
@@ -3003,6 +3166,185 @@ class _ExpandableTextState extends State<_ExpandableText> {
           ],
         );
       },
+    );
+  }
+}
+
+// =============================================================================
+// 🚀 WIDGET: ADD JOURNAL ENTRY BOTTOM SHEET (STEP 3)
+// =============================================================================
+class _AddJournalEntrySheet extends StatefulWidget {
+  final Future<void> Function(String workDone, double hours, List<XFile> files) onSave;
+
+  const _AddJournalEntrySheet({required this.onSave});
+
+  @override
+  State<_AddJournalEntrySheet> createState() => _AddJournalEntrySheetState();
+}
+
+class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _workDoneController = TextEditingController();
+  final _hoursController = TextEditingController();
+
+  // ✅ Image Picker State
+  final ImagePicker _picker = ImagePicker();
+  final List<XFile> _selectedFiles = [];
+
+  bool _isLoading = false;
+
+  Future<void> _pickMedia() async {
+    final List<XFile> pickedFiles = await _picker.pickMultipleMedia();
+    if (pickedFiles.isNotEmpty) {
+      setState(() {
+        _selectedFiles.addAll(pickedFiles);
+      });
+    }
+  }
+
+  Future<void> _handleSave() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      await widget.onSave(
+          _workDoneController.text.trim(),
+          double.tryParse(_hoursController.text.trim().replaceAll(',', '.')) ?? 0.0,
+          _selectedFiles
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  bool _isVideoPath(String path) {
+    final p = path.toLowerCase();
+    return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(
+        top: 24,
+        left: 24,
+        right: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.edit_document, color: Color(0xFF667EEA)),
+                SizedBox(width: 8),
+                Text("Nouvelle Visite", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text("Consignez les travaux effectués aujourd'hui.", style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 24),
+            TextFormField(
+              controller: _workDoneController,
+              maxLines: 4,
+              decoration: InputDecoration(
+                labelText: "Travaux effectués aujourd'hui *",
+                alignLabelWithHint: true,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              ),
+              validator: (v) => v!.isEmpty ? "Veuillez décrire les travaux" : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _hoursController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: "Temps passé (Heures)",
+                hintText: "Ex: 2.5",
+                prefixIcon: const Icon(Icons.timer),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ✅ NEW: MEDIA PICKER INSIDE SHEET
+            const Text('Fichiers & Médias de la visite', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            if (_selectedFiles.isNotEmpty)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _selectedFiles.map((f) {
+                  final isVid = _isVideoPath(f.path);
+                  return Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300)
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: isVid
+                                ? Container(color: Colors.black12, child: const Center(child: Icon(Icons.videocam, color: Colors.black54)))
+                                : Image.file(File(f.path), fit: BoxFit.cover),
+                          ),
+                        ),
+                        Positioned(
+                          top: -10,
+                          right: -10,
+                          child: IconButton(
+                            icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20),
+                            onPressed: () => setState(() => _selectedFiles.remove(f)),
+                          ),
+                        )
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton.icon(
+                icon: const Icon(Icons.add_a_photo),
+                label: const Text('Ajouter Photos/Vidéos'),
+                onPressed: _pickMedia,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _handleSave,
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF667EEA),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))
+                ),
+                child: _isLoading
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text("Enregistrer la visite", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+              ),
+            )
+          ],
+        ),
+      ),
     );
   }
 }

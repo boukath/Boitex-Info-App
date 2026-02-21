@@ -726,10 +726,11 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           'priority': _selectedInterventionPriority,
           'status': 'Nouvelle Demande',
           'createdAt': Timestamp.now(),
-          'scheduledAt': scheduledFullDate != null ? Timestamp.fromDate(scheduledFullDate) : null, // 👈 Saved Here
+          'scheduledAt': scheduledFullDate != null ? Timestamp.fromDate(scheduledFullDate) : null,
           'createdByUid': user.uid,
           'createdByName': creatorName,
           'mediaUrls': _uploadedMediaUrls,
+          'isExtended': false, // 👈 ADDED: Initialize as a Simple Intervention
         });
 
         transaction.set(counterRef, {'count': newCount, 'lastReset': currentYear});
