@@ -18,9 +18,13 @@ class EquipmentWarranty {
   });
 
   /// 🟢 Helper: Check if currently valid
+  /// ✅ FIXED: Made inclusive so it doesn't fail on the exact same day
   bool get isValid {
     final now = DateTime.now();
-    return now.isAfter(startDate) && now.isBefore(endDate);
+    bool isAfterOrSame = now.compareTo(startDate) >= 0;
+    bool isBeforeOrSame = now.compareTo(endDate) <= 0;
+
+    return isAfterOrSame && isBeforeOrSame;
   }
 
   /// 🟠 Helper: Check if expiring soon (e.g., in 30 days)
@@ -89,10 +93,14 @@ class MaintenanceContract {
   });
 
   /// 🟢 Helper: Check if the contract is active (Date-wise)
+  /// ✅ FIXED: Made inclusive to prevent exact-date false negatives
   bool get isValidNow {
     if (!isActive) return false;
     final now = DateTime.now();
-    return now.isAfter(startDate) && now.isBefore(endDate);
+    bool isAfterOrSame = now.compareTo(startDate) >= 0;
+    bool isBeforeOrSame = now.compareTo(endDate) <= 0;
+
+    return isAfterOrSame && isBeforeOrSame;
   }
 
   // 📊 CALCULATED GETTERS

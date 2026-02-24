@@ -3,6 +3,7 @@
 import PDFDocument from "pdfkit";
 import axios from "axios";
 import * as logger from "firebase-functions/logger";
+import * as admin from "firebase-admin";
 
 // --- 1. ASSETS ---
 const LOGO_URL = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
@@ -80,7 +81,7 @@ function _checkPageBreak(doc: PDFKit.PDFDocument, requiredSpace: number) {
 /**
  * 🚀 MAIN GENERATOR FUNCTION
  */
-export async function generateInterventionPdf(data: any): Promise<Buffer> {
+export async function generateInterventionPdf(data: any, interventionId: string): Promise<Buffer> {
   return new Promise(async (resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -106,10 +107,29 @@ export async function generateInterventionPdf(data: any): Promise<Buffer> {
         fetchImage(QR_URL),
       ]);
 
-      // Safely Fetch Photos
+      // --- FETCH MULTI-VISIT JOURNAL ENTRIES (IF APPLICABLE) ---
+      let journalEntries: any[] = [];
+      if (data.isExtended === true) {
+        try {
+          const snapshot = await admin.firestore()
+            .collection('interventions')
+            .doc(interventionId)
+            .collection('journal_entries')
+            .orderBy('date', 'asc') // Chronological order for PDF
+            .get();
+
+          if (!snapshot.empty) {
+            journalEntries = snapshot.docs.map(d => d.data());
+          }
+        } catch (e) {
+          logger.error(`Error fetching journal entries for ${interventionId}`, e);
+        }
+      }
+
+      // Safely Fetch Photos (Combine both types if possible)
       let photoUrls: string[] = [];
-      if (data.isExtended && Array.isArray(data.journal_entries)) {
-        data.journal_entries.forEach((entry: any) => {
+      if (data.isExtended && journalEntries.length > 0) {
+        journalEntries.forEach((entry: any) => {
           if (Array.isArray(entry.mediaUrls)) {
             photoUrls.push(...entry.mediaUrls);
           }
@@ -136,8 +156,9 @@ export async function generateInterventionPdf(data: any): Promise<Buffer> {
       _drawEquipmentTable(doc, data);
 
       doc.moveDown(1);
-      if (data.isExtended && Array.isArray(data.journal_entries) && data.journal_entries.length > 0) {
-        _drawMultiVisitTimeline(doc, data.journal_entries);
+      // THE CORE CONTENT: Switch based on whether it's extended
+      if (data.isExtended && journalEntries.length > 0) {
+        _drawMultiVisitTimeline(doc, journalEntries);
       } else {
         _drawSimpleDiagnostic(doc, data);
       }
@@ -325,21 +346,16 @@ function _drawEquipmentTable(doc: PDFKit.PDFDocument, data: any) {
   doc.x = LAYOUT.margin;
 }
 
+// 🚀 NEW: Dynamic Timeline for Multi-Visit Interventions
 function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
   doc.x = LAYOUT.margin;
   _drawSectionTitle(doc, "Journal Multi-Visites");
-
-  const sortedEntries = entries.sort((a, b) => {
-    const dA = a.date?._seconds || a.date?.seconds || 0;
-    const dB = b.date?._seconds || b.date?.seconds || 0;
-    return dA - dB;
-  });
 
   const timelineX = LAYOUT.margin + 10;
   const contentX = timelineX + 25;
   const contentWidth = LAYOUT.pageWidth - LAYOUT.margin - contentX;
 
-  sortedEntries.forEach((entry, index) => {
+  entries.forEach((entry, index) => {
     _checkPageBreak(doc, 60);
 
     const startY = doc.y;
@@ -363,10 +379,12 @@ function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
 
     const endY = doc.y + 15;
 
+    // Timeline Dot
     doc.circle(timelineX, startY + 5, 4).lineWidth(2).strokeColor(COLORS.accent).stroke();
     doc.circle(timelineX, startY + 5, 1.5).fill(COLORS.accent);
 
-    if (index < sortedEntries.length - 1) {
+    // Timeline Vertical Line (except for the last one)
+    if (index < entries.length - 1) {
       doc.moveTo(timelineX, startY + 15).lineTo(timelineX, endY - 5).lineWidth(1).strokeColor(COLORS.border).stroke();
     }
 
@@ -433,23 +451,20 @@ function _drawPhotoGallery(doc: PDFKit.PDFDocument, photoBuffers: Buffer[]) {
 }
 
 // ----------------------------------------------------------------------------
-// 🌟 THE ULTIMATE VALIDATION CARD (Smart Squeeze & WhatsApp QR)
+// 🌟 THE ULTIMATE VALIDATION CARD
 // ----------------------------------------------------------------------------
 function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuffer: Buffer | null, stampBuffer: Buffer | null, qrBuffer: Buffer | null) {
-  // 🔥 SMART SQUEEZE: Will fit on the bottom of page 1 if there's at least 145 points left
   _checkPageBreak(doc, 145);
   doc.x = LAYOUT.margin;
 
   const cardX = LAYOUT.margin;
   const cardY = doc.y;
   const cardWidth = LAYOUT.contentWidth;
-  const cardHeight = 125; // Compact, perfectly proportioned height
+  const cardHeight = 125;
 
-  // Draw The Outer Card
   doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 10)
      .fillAndStroke(COLORS.bgLight, COLORS.border);
 
-  // Card Header & Subtitle
   doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary)
      .text("VALIDATION & SIGNATURE", cardX + 15, cardY + 12);
   doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.secondary)
@@ -457,14 +472,12 @@ function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuf
 
   const elementsY = cardY + 40;
 
-  // 1. WhatsApp-Style Embedded Logo QR Code (Far Left)
   if (qrBuffer) {
     try {
       doc.image(qrBuffer, cardX + 15, elementsY, { width: 60, height: 60 });
     } catch (e) {}
   }
 
-  // 2. Company Stamp / Cache (Right next to QR Code)
   const stampX = cardX + 90;
   if (stampBuffer) {
     try {
@@ -472,11 +485,9 @@ function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuf
     } catch (e) {}
   }
 
-  // 3. Client Signature Box (Far Right)
   const sigWidth = 160;
   const sigX = cardX + cardWidth - sigWidth - 15;
 
-  // White box inside the gray card for contrast
   doc.roundedRect(sigX, elementsY, sigWidth, 60, 6).fillAndStroke(COLORS.white, COLORS.border);
 
   if (signatureBuffer) {
@@ -489,18 +500,15 @@ function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuf
     doc.fillColor(COLORS.secondary).fontSize(8).text("Signature non fournie", sigX, elementsY + 25, { width: sigWidth, align: "center" });
   }
 
-  // Name below signature box
   doc.fillColor(COLORS.primary).font(FONTS.bold).fontSize(9)
      .text(data.managerName || "Client", sigX, elementsY + 47, { width: sigWidth, align: "center" });
 
-  // 4. Quality Guarantee (Locked safely inside the bottom of the card)
   doc.moveTo(cardX, cardY + 110).lineTo(cardX + cardWidth, cardY + 110)
      .lineWidth(0.5).strokeColor(COLORS.border).stroke();
 
   doc.font(FONTS.italic).fontSize(7).fillColor(COLORS.secondary)
      .text("Certifié Numériquement -- Qualité Garantie par Boitex Info.", cardX, cardY + 115, { align: "center", width: cardWidth });
 
-  // Set doc.y safely below the entire card
   doc.y = cardY + cardHeight + 20;
 }
 

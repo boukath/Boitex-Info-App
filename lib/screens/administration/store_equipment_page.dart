@@ -74,7 +74,14 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> {
         final data = doc.data();
         final List products = data['products'] ?? [];
         final String deliveryId = doc.id;
-        final Timestamp? deliveryDate = data['completedAt'] as Timestamp? ?? data['createdAt'] as Timestamp?;
+
+        // ✅ FIXED: Safer Date parsing to prevent silent type cast crashes
+        Timestamp? deliveryDate;
+        if (data['completedAt'] is Timestamp) {
+          deliveryDate = data['completedAt'];
+        } else if (data['createdAt'] is Timestamp) {
+          deliveryDate = data['createdAt'];
+        }
 
         for (var item in products) {
           List<dynamic> serialsToAdd = [];
@@ -233,7 +240,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> {
       } catch (e) {}
     }
 
-    // ✅ FIXED: Support both 'installDate' and 'installationDate' for warranty check
     final Timestamp? ts = data['installDate'] ?? data['installationDate'];
 
     if (warranty == null && ts != null) {
@@ -368,7 +374,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> {
             .collection('stores')
             .doc(widget.storeId)
             .collection('materiel_installe')
-        // ❌ FIXED: Removed orderBy('installDate') to prevent hiding new items
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -378,20 +383,18 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          // ✅ SMART SORT: Sort in memory to handle mixed date fields
           final docs = snapshot.data!.docs;
 
           docs.sort((a, b) {
             final da = a.data() as Map<String, dynamic>;
             final db = b.data() as Map<String, dynamic>;
 
-            // Try 'installDate', then 'installationDate', then 'createdAt'
             final Timestamp? tA = da['installDate'] ?? da['installationDate'] ?? da['createdAt'];
             final Timestamp? tB = db['installDate'] ?? db['installationDate'] ?? db['createdAt'];
 
-            if (tA == null) return 1; // Put nulls at the end
+            if (tA == null) return 1;
             if (tB == null) return -1;
-            return tB.compareTo(tA); // Descending order (Newest first)
+            return tB.compareTo(tA);
           });
 
           if (docs.isEmpty) {
@@ -416,10 +419,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> {
 
               final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
               final Timestamp? lastSeen = data['lastInterventionDate'] as Timestamp?;
-
-              // ✅ FIXED: Read from both possible date fields
               final Timestamp? installDate = (data['installDate'] ?? data['installationDate']) as Timestamp?;
-
               final String? imageUrl = data['image'];
 
               return Slidable(
@@ -550,7 +550,8 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> {
                                         if (installDate != null)
                                           _buildInfoTag(
                                               Icons.calendar_today,
-                                              DateFormat('yyyy').format(installDate.toDate()),
+                                              // ✅ FIXED: Changed from 'yyyy' to 'dd/MM/yyyy' so the full date shows!
+                                              DateFormat('dd/MM/yyyy').format(installDate.toDate()),
                                               Colors.grey.shade600
                                           ),
                                       ],

@@ -123,7 +123,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
           tabs: const [
             Tab(text: "Global"),
             Tab(text: "Opérations"),
-            Tab(text: "Logistique"), // This is the PRO tab
+            Tab(text: "Logistique"),
           ],
         ),
       ),
@@ -143,8 +143,8 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
             controller: _tabController,
             children: [
               _buildGlobalTab(stats),
+              // ✅ UPDATED: Call the new Stateful Widget for the Operations tab
               _buildOperationsTab(stats),
-              // ✅ WE USE A SEPARATE WIDGET FOR THE PRO TAB TO MANAGE ITS OWN DATE STATE
               LogisticsProTab(currentStats: stats),
             ],
           );
@@ -191,17 +191,7 @@ class _AnalyticsDashboardPageState extends State<AnalyticsDashboardPage> with Si
 
   // --- 2. OPERATIONS TAB (UPDATED ONLY HERE) ---
   Widget _buildOperationsTab(AnalyticsStats stats) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text("Classement Techniciens (XP)", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
-        const SizedBox(height: 8), // Adjusted spacing slightly
-
-        // 🏆 REPLACED: Old BarChart with New Podium Widget
-        // The rest of the page remains exactly the same.
-        TechnicianPodium(topTechnicians: stats.topTechnicians),
-      ],
-    );
+    return OperationsProTab(currentStats: stats);
   }
 
   // --- 🏷️ HELPERS FOR GLOBAL TAB ---
@@ -701,6 +691,163 @@ class _LogisticsProTabState extends State<LogisticsProTab> {
         const SizedBox(width: 8),
         Text(text, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[700])),
       ],
+    );
+  }
+}
+
+// ==================================================================================
+// 🏆 PRO OPERATIONS TAB (MONTHLY SALARY SELECTOR)
+// ==================================================================================
+class OperationsProTab extends StatefulWidget {
+  final AnalyticsStats currentStats;
+  const OperationsProTab({super.key, required this.currentStats});
+
+  @override
+  State<OperationsProTab> createState() => _OperationsProTabState();
+}
+
+class _OperationsProTabState extends State<OperationsProTab> {
+  bool _isAllTime = true;
+  DateTime _selectedDate = DateTime.now();
+  List<TechnicianData> _monthlyData = [];
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchMonthlyData();
+  }
+
+  Future<void> _fetchMonthlyData() async {
+    setState(() => _isLoading = true);
+    final monthKey = DateFormat('yyyy-MM').format(_selectedDate);
+
+    try {
+      print("🔍 Searching for data in: monthly_$monthKey"); // Debug print
+
+      final snap = await FirebaseFirestore.instance
+          .collection('analytics_dashboard')
+          .doc('monthly_$monthKey')
+          .collection('counters')
+          .orderBy('score', descending: true)
+          .get();
+
+      print("✅ Found ${snap.docs.length} technicians for this month."); // Debug print
+
+      setState(() {
+        _monthlyData = snap.docs.map((d) => TechnicianData.fromMap(d.id, d.data())).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      print("❌ Firebase Error: $e"); // Print error to console
+      setState(() => _isLoading = false);
+
+      // Show the error inside the app as a red popup
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Erreur Firebase: $e"),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            )
+        );
+      }
+    }
+  }
+
+  Future<void> _pickMonth() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2023),
+      lastDate: DateTime(2030),
+      locale: const Locale('fr', 'FR'),
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+      _fetchMonthlyData();
+    }
+  }
+
+  void _changeMonth(int offset) {
+    setState(() => _selectedDate = DateTime(_selectedDate.year, _selectedDate.month + offset, 1));
+    _fetchMonthlyData();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dateLabel = DateFormat.yMMMM('fr_FR').format(_selectedDate);
+    final formattedDateLabel = dateLabel[0].toUpperCase() + dateLabel.substring(1);
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // 🎛️ HEADER & TOGGLE
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("Classement", style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueGrey[800])),
+            Container(
+              decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(12)),
+              child: Row(
+                children: [
+                  _buildToggleBtn("Global", _isAllTime, () => setState(() => _isAllTime = true)),
+                  _buildToggleBtn("Mensuel", !_isAllTime, () { setState(() => _isAllTime = false); _fetchMonthlyData(); }),
+                ],
+              ),
+            )
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // 🗓️ MONTH SELECTOR (Only visible in Monthly Mode)
+        if (!_isAllTime)
+          Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white, borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(icon: const Icon(Icons.chevron_left_rounded), onPressed: () => _changeMonth(-1)),
+                GestureDetector(
+                  onTap: _pickMonth,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_month_rounded, color: Color(0xFF667EEA)),
+                      const SizedBox(width: 8),
+                      Text(formattedDateLabel, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87)),
+                    ],
+                  ),
+                ),
+                IconButton(icon: const Icon(Icons.chevron_right_rounded), onPressed: () => _changeMonth(1)),
+              ],
+            ),
+          ),
+
+        // 🏆 THE PODIUM
+        if (_isLoading && !_isAllTime)
+          const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator()))
+        else
+          TechnicianPodium(topTechnicians: _isAllTime ? widget.currentStats.topTechnicians : _monthlyData),
+      ],
+    );
+  }
+
+  Widget _buildToggleBtn(String text, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue[700] : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(text, style: GoogleFonts.poppins(color: isSelected ? Colors.white : Colors.grey[600], fontWeight: FontWeight.w600, fontSize: 13)),
+      ),
     );
   }
 }

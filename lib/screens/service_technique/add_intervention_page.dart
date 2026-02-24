@@ -416,7 +416,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     }
   }
 
-  // --- AI & UPLOAD FUNCTIONS (Preserved) ---
+  // --- AI & UPLOAD FUNCTIONS ---
   Future<void> _generateReportFromKeywords() async {
     final rawNotes = _requestController.text;
     if (rawNotes.trim().isEmpty) return;
@@ -451,30 +451,38 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
   Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds) async {
     try {
-      final fileBytes = await file.readAsBytes();
-      final sha1Hash = sha1.convert(fileBytes).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
       final fileName = path.basename(file.path);
+      final length = await file.length();
+      final bytes = await file.readAsBytes();
+      final sha1Hash = sha1.convert(bytes).toString();
 
-      final resp = await http.post(
-        uploadUri,
-        headers: {
-          'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': 'b2/x-auto',
-          'X-Bz-Content-Sha1': sha1Hash,
-          'Content-Length': fileBytes.length.toString(),
-        },
-        body: fileBytes,
-      );
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
 
-      if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
+      var request = http.StreamedRequest('POST', uploadUri);
+      request.headers.addAll({
+        'Authorization': b2Creds['authorizationToken'] as String,
+        'X-Bz-File-Name': Uri.encodeComponent(fileName),
+        'Content-Type': 'b2/x-auto',
+        'X-Bz-Content-Sha1': sha1Hash,
+        'Content-Length': length.toString(),
+      });
+
+      request.sink.add(bytes);
+      request.sink.close();
+
+      final response = await request.send();
+      final respStr = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final body = json.decode(respStr) as Map<String, dynamic>;
         final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
         return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint("❌ B2 Upload Failed: ${response.statusCode} - $respStr");
+        return null;
       }
-      return null;
     } catch (e) {
+      debugPrint("❌ B2 Upload Error: $e");
       return null;
     }
   }
@@ -575,10 +583,23 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       final equipments = snapshot.docs.map((doc) {
         final data = doc.data();
         EquipmentWarranty? warranty;
+
+        // 1. Try to read explicit warranty map
         if (data['warranty'] != null) {
           try {
-            warranty = EquipmentWarranty.fromMap(data['warranty']);
-          } catch (_) {}
+            final Map<String, dynamic> warrantyMap = Map<String, dynamic>.from(data['warranty'] as Map);
+            warranty = EquipmentWarranty.fromMap(warrantyMap);
+          } catch (e) {
+            debugPrint('❌ Erreur de lecture de la garantie: $e');
+          }
+        }
+
+        // 2. If no explicit warranty is found, fallback to 1-year default based on installationDate!
+        if (warranty == null) {
+          final Timestamp? installTs = data['installationDate'] ?? data['installDate'] ?? data['createdAt'];
+          if (installTs != null) {
+            warranty = EquipmentWarranty.defaultOneYear(installTs.toDate());
+          }
         }
 
         return Equipment(
@@ -730,7 +751,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           'createdByUid': user.uid,
           'createdByName': creatorName,
           'mediaUrls': _uploadedMediaUrls,
-          'isExtended': false, // 👈 ADDED: Initialize as a Simple Intervention
+          'isExtended': false,
         });
 
         transaction.set(counterRef, {'count': newCount, 'lastReset': currentYear});
@@ -782,13 +803,63 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     );
   }
 
-  // --- MEDIA WIDGET ---
   Widget _buildMediaSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('FICHIERS & MÉDIAS DE SUPPORT', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
+
+        // Show thumbnails if any files are picked
+        if (_localFilesToUpload.isNotEmpty) ...[
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: _localFilesToUpload.map((file) {
+              final isVid = file.path.toLowerCase().endsWith('.mp4') || file.path.toLowerCase().endsWith('.mov');
+              final isPdf = file.path.toLowerCase().endsWith('.pdf');
+
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                      color: Colors.grey.shade100,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: isPdf
+                          ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
+                          : isVid
+                          ? const Icon(Icons.videocam, size: 40, color: Colors.blue)
+                          : Image.file(file, fit: BoxFit.cover),
+                    ),
+                  ),
+                  Positioned(
+                    right: -8,
+                    top: -8,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _localFilesToUpload.remove(file)),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.cancel, color: Colors.redAccent, size: 24),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+        ],
+
         Row(
           children: [
             Expanded(child: ElevatedButton.icon(onPressed: _isUploadingMedia ? null : _capturePhoto, icon: const Icon(Icons.photo_camera), label: const Text('Photo'))),
@@ -952,10 +1023,12 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                       controller: controller,
                                       focusNode: focusNode,
                                       decoration: const InputDecoration(
+                                        // ✅ FIXED: Label changed back to Optionnel
                                         labelText: 'Machine / Équipement (Optionnel)',
                                         prefixIcon: Icon(Icons.settings_input_component),
                                         suffixIcon: Icon(Icons.arrow_drop_down),
                                       ),
+                                      // ✅ FIXED: Validator removed
                                     );
                                   },
                                 ),
@@ -1117,9 +1190,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                               padding: const EdgeInsets.only(bottom: 16),
                               child: TextFormField(
                                 controller: _clientPhoneController,
-                                decoration: const InputDecoration(labelText: 'Numéro de Téléphone *'),
+                                decoration: const InputDecoration(labelText: 'Numéro de Téléphone (Optionnel)'),
                                 keyboardType: TextInputType.phone,
-                                validator: (v) => v!.isEmpty ? 'Requis' : null,
                               ),
                             ),
 

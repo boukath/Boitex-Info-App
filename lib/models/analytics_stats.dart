@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // ✅ NEW: Helper class for Technician Leaderboard (Supports Score + Count + Badge + Breakdown)
 class TechnicianData {
   final String name;
-  final int score;
+  final double score; // 👈 CHANGED TO DOUBLE to support split points like 1.5
   final int count;
   final String badge;
   final Map<String, int> breakdown; // 👈 NEW FIELD
@@ -26,16 +26,35 @@ class TechnicianData {
     Map<String, int> parsedBreakdown = {};
     if (data['breakdown'] != null && data['breakdown'] is Map) {
       (data['breakdown'] as Map).forEach((k, v) {
-        parsedBreakdown[k.toString()] = (v is int) ? v : 0;
+        // 🟢 FIX: safely parse as num to handle both ints and doubles gracefully
+        parsedBreakdown[k.toString()] = (v is num) ? (v as num).toInt() : 0;
       });
+    }
+
+    int count = (data['count'] ?? 1) as int;
+    String assignedBadge = data['badge'] as String? ?? 'Polyvalent';
+
+    // 🧠 AUTO-CALCULATE BADGE for dynamic Monthly pulls (Since raw monthly data might miss the badge field)
+    if (data['badge'] == null && parsedBreakdown.isNotEmpty) {
+      int install = parsedBreakdown['Installation'] ?? 0;
+      int sav = parsedBreakdown['SAV'] ?? 0;
+      int log = parsedBreakdown['Livraison'] ?? 0;
+
+      if (install > count * 0.5) {
+        assignedBadge = 'Installateur';
+      } else if (sav > count * 0.5) {
+        assignedBadge = 'Expert SAV';
+      } else if (log > count * 0.5) {
+        assignedBadge = 'Logistique';
+      }
     }
 
     return TechnicianData(
       name: name,
-      score: (data['score'] ?? 0) as int,
-      count: (data['count'] ?? 1) as int,
-      badge: (data['badge'] ?? 'Polyvalent') as String,
-      breakdown: parsedBreakdown, // 👈 Store the parsed map
+      score: (data['score'] ?? 0).toDouble(), // 👈 Safely handle decimals
+      count: count,
+      badge: assignedBadge,
+      breakdown: parsedBreakdown,
     );
   }
 }
@@ -125,9 +144,9 @@ class AnalyticsStats {
         // Handle both old format (int) and new format (Map)
         if (value is Map<String, dynamic>) {
           techList.add(TechnicianData.fromMap(key, value));
-        } else if (value is int) {
+        } else if (value is num) { // 👈 CHANGED TO num to handle doubles and ints safely
           // Fallback for old data to prevent crashes during migration
-          techList.add(TechnicianData(name: key, score: value, count: 1));
+          techList.add(TechnicianData(name: key, score: value.toDouble(), count: 1));
         }
       });
     }

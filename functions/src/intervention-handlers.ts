@@ -265,7 +265,8 @@ export const onInterventionTermine = onDocumentUpdated(
       // ✅ --- NEW ---
       // Generate the PDF buffer *before* sending the email
       logger.log("Generating PDF report in memory...");
-      const pdfBuffer = await generateInterventionPdf(afterData);
+      // ✅ Added event.params.interventionId as the 2nd argument
+      const pdfBuffer = await generateInterventionPdf(afterData, event.params.interventionId);
       logger.log("✅ PDF report generated successfully.");
       // ✅ --- END NEW ---
 

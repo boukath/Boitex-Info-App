@@ -162,8 +162,9 @@ class TechnicianPodium extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // ✅ USED NEW FORMATTER HERE
             Text(
-              "${data.score} XP",
+              "${_formatScore(data.score)} XP",
               style: GoogleFonts.poppins(
                 fontWeight: FontWeight.bold,
                 fontSize: 12,
@@ -323,8 +324,9 @@ class TechnicianPodium extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // ✅ USED NEW FORMATTER HERE
                 Text(
-                  "${data.score} pts",
+                  "${_formatScore(data.score)} pts",
                   style: GoogleFonts.poppins(
                     fontWeight: FontWeight.bold,
                     color: Colors.blue.shade700,
@@ -459,6 +461,14 @@ class TechnicianPodium extends StatelessWidget {
       case 'Mission': return Colors.teal;
       default: return Colors.blue; // Polyvalent
     }
+  }
+
+  // ✅ NEW: Formats the score beautifully (e.g., 2.0 -> "2", 1.5 -> "1.5")
+  String _formatScore(double score) {
+    if (score == score.truncateToDouble()) {
+      return score.toInt().toString(); // Removes the decimal if it's a whole number
+    }
+    return score.toStringAsFixed(1); // Keeps 1 decimal otherwise
   }
 
   Widget _buildEmptyState() {

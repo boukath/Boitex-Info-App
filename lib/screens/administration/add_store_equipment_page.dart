@@ -54,6 +54,9 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
   final List<EquipmentBatchItem> _batchItems = [];
   DateTime? _installationDate;
 
+  // ✅ NEW: Variable to hold the warranty duration in years
+  int _warrantyYears = 1;
+
   @override
   void initState() {
     super.initState();
@@ -92,12 +95,24 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
     setState(() {
       _batchItems.add(item);
 
-      // ✅ FIXED: Check both 'installDate' AND 'installationDate'
-      // This ensures auto-generated items load their date correctly in the edit form.
+      // Check both 'installDate' AND 'installationDate'
       final Timestamp? ts = data['installDate'] ?? data['installationDate'];
 
       if (ts != null) {
         _installationDate = ts.toDate();
+      }
+
+      // ✅ Attempt to pre-fill warranty years if editing
+      if (data['warranty'] != null) {
+        try {
+          DateTime start = (data['warranty']['startDate'] as Timestamp).toDate();
+          DateTime end = (data['warranty']['endDate'] as Timestamp).toDate();
+          int diff = end.year - start.year;
+          if (diff >= 0 && diff <= 5) _warrantyYears = diff;
+        } catch (_) {}
+      } else if (data['warrantyEnd'] == null) {
+        // If it explicitly had no warranty end date, assume 0
+        _warrantyYears = 0;
       }
     });
   }
@@ -132,7 +147,6 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
     }
   }
 
-  // ✅ FIXED LOGIC: Loops through quantity to create distinct rows
   Future<void> _openProductSearch() async {
     await Navigator.push(
       context,
@@ -238,11 +252,11 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
           .doc(widget.storeId)
           .collection('materiel_installe');
 
-      for (var item in _batchItems) {
+      // 🟢 Calculate dynamic dates based on Dropdown
+      DateTime startDate = _installationDate!;
+      DateTime endDate = DateTime(startDate.year + _warrantyYears, startDate.month, startDate.day);
 
-        // 🟢 NEW: Create Warranty Automatically
-        // Using the factory method we created in Step 1
-        final warranty = EquipmentWarranty.defaultOneYear(_installationDate!);
+      for (var item in _batchItems) {
 
         final data = {
           'productId': item.product.productId,
@@ -255,12 +269,21 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
           'category': item.richCategory ?? 'N/A',
           'serialNumber': item.serialController.text.trim(),
           'serial': item.serialController.text.trim(),
-          'installDate': Timestamp.fromDate(_installationDate!),
+          'installDate': Timestamp.fromDate(startDate),
           'image': item.richImage,
 
-          // 👇 NEW: Attach Warranty Data
-          'warranty': warranty.toMap(),
-          'warrantyStatus': 'active', // Helps with quick filtering
+          // ✅ NEW: Write exact warranty end date to Firestore
+          'warrantyEnd': _warrantyYears > 0 ? Timestamp.fromDate(endDate) : null,
+
+          // ✅ NEW: Write the full Warranty Object dynamically
+          'warranty': _warrantyYears > 0 ? {
+            'startDate': Timestamp.fromDate(startDate),
+            'endDate': Timestamp.fromDate(endDate),
+            'isExtended': _warrantyYears > 1, // Optional logical flag
+            'notes': 'Garantie de $_warrantyYears an(s)',
+          } : null,
+
+          'warrantyStatus': _warrantyYears > 0 ? 'active' : 'none',
         };
 
         if (_isEditMode && widget.equipmentId != null) {
@@ -311,38 +334,71 @@ class _AddStoreEquipmentPageState extends State<AddStoreEquipmentPage> {
       ),
       body: Column(
         children: [
-          // --- 1. Global Settings (Date) ---
+          // --- 1. Global Settings (Date & Warranty) ---
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.white,
-            child: InkWell(
-              onTap: () => _selectDate(context),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.calendar_today, color: Colors.grey),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              children: [
+                // Date Picker
+                InkWell(
+                  onTap: () => _selectDate(context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
                       children: [
-                        const Text('Date d\'installation (pour tous)', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                        Text(
-                          _installationDate == null
-                              ? 'Sélectionner une date'
-                              : DateFormat('dd MMMM yyyy', 'fr_FR').format(_installationDate!),
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: primaryColor),
+                        const Icon(Icons.calendar_today, color: Colors.grey),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Date d\'installation (pour tous)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            Text(
+                              _installationDate == null
+                                  ? 'Sélectionner une date'
+                                  : DateFormat('dd MMMM yyyy', 'fr_FR').format(_installationDate!),
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: primaryColor),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 16),
+
+                // ✅ NEW: WARRANTY DURATION DROPDOWN
+                DropdownButtonFormField<int>(
+                  value: _warrantyYears,
+                  decoration: InputDecoration(
+                    labelText: 'Durée de la Garantie Constructeur',
+                    prefixIcon: const Icon(Icons.shield_outlined, color: Colors.teal),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text('Aucune garantie (0 an)')),
+                    DropdownMenuItem(value: 1, child: Text('1 An (Standard)')),
+                    DropdownMenuItem(value: 2, child: Text('2 Ans')),
+                    DropdownMenuItem(value: 3, child: Text('3 Ans')),
+                    DropdownMenuItem(value: 5, child: Text('5 Ans')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _warrantyYears = value);
+                    }
+                  },
+                ),
+              ],
             ),
           ),
 

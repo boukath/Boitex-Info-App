@@ -24,6 +24,17 @@ const VALID_NAMES = Object.values(TECHNICIAN_MAP); // ["Athmane", "Lounes", ...]
 // 2️⃣ HELPERS
 // ==================================================================
 
+// 🗓️ NEW HELPER: Extracts the most accurate date from a document
+const getDocDate = (snap: any): Date => {
+if (!snap) return new Date();
+  const d = snap.data ? snap.data() : snap;
+  if (!d) return new Date();
+  if (d.date && typeof d.date.toDate === 'function') return d.date.toDate();
+  if (d.createdAt && typeof d.createdAt.toDate === 'function') return d.createdAt.toDate();
+  if (d.timestamp && typeof d.timestamp.toDate === 'function') return d.timestamp.toDate();
+  return snap.createTime ? snap.createTime.toDate() : new Date();
+};
+
 // ✅ SPECIFIC HELPER FOR INTERVENTIONS (Smart Filtering)
 async function getInterventionStats(db: admin.firestore.Firestore) {
   try {
@@ -129,13 +140,13 @@ async function getLogisticsStats(db: admin.firestore.Firestore) {
 }
 
 // ==================================================================
-// 3️⃣ TECHNICIAN LEADERBOARD (UPDATED FOR STATIC USERS 🛡️)
+// 3️⃣ TECHNICIAN LEADERBOARD (UPDATED FOR SHARED POOL & MONTHLY 🛡️)
 // ==================================================================
 async function updateTechnicianCounters(
   change: functions.Change<DocumentSnapshot>,
   techFieldName: string,
   successStatus: string | string[], // 👈 CHANGED: Now accepts Array OR String
-  points: number,
+  totalPoints: number,
   category: string
 ) {
   const db = admin.firestore();
@@ -170,35 +181,59 @@ async function updateTechnicianCounters(
   const techsBefore = getNames(before);
   const techsAfter = getNames(after);
 
-  const toIncrement = techsAfter.filter(t => !techsBefore.includes(t));
-  const toDecrement = techsBefore.filter(t => !techsAfter.includes(t));
+  // 🧮 CALCULATE POINTS PER TECH
+  let pointsBefore = 0;
+  if (techsBefore.length > 0) {
+    pointsBefore = category === "Mission" ? 1 : (totalPoints / techsBefore.length);
+  }
 
-  if (toIncrement.length === 0 && toDecrement.length === 0) return;
+  let pointsAfter = 0;
+  if (techsAfter.length > 0) {
+    pointsAfter = category === "Mission" ? 1 : (totalPoints / techsAfter.length);
+  }
+
+  const allInvolved = Array.from(new Set([...techsBefore, ...techsAfter]));
+  if (allInvolved.length === 0) return;
+
+  // 🗓️ DETERMINE THE MONTH OF THIS TASK
+  const targetSnap = change.after.exists ? change.after : change.before;
+  const docDate = getDocDate(targetSnap);
+  const monthKey = `${docDate.getFullYear()}-${String(docDate.getMonth() + 1).padStart(2, '0')}`;
 
   const batch = db.batch();
   const countersRef = db.collection("analytics_dashboard").doc("technician_performance").collection("counters");
+  const monthlyCountersRef = db.collection("analytics_dashboard").doc(`monthly_${monthKey}`).collection("counters");
 
-  // 1. Increment
-  toIncrement.forEach(techName => {
-    if (!techName) return;
-    const docRef = countersRef.doc(techName);
-    batch.set(docRef, {
-      name: techName,
-      count: admin.firestore.FieldValue.increment(1),
-      score: admin.firestore.FieldValue.increment(points),
-      [`breakdown.${category}`]: admin.firestore.FieldValue.increment(1)
-    }, { merge: true });
-  });
+  allInvolved.forEach(techName => {
+    let scoreChange = 0;
+    let countChange = 0;
 
-  // 2. Decrement
-  toDecrement.forEach(techName => {
-    if (!techName) return;
-    const docRef = countersRef.doc(techName);
-    batch.set(docRef, {
-      count: admin.firestore.FieldValue.increment(-1),
-      score: admin.firestore.FieldValue.increment(-points),
-      [`breakdown.${category}`]: admin.firestore.FieldValue.increment(-1)
-    }, { merge: true });
+    // Subtract old points, add new points to recalculate the split dynamically
+    if (techsBefore.includes(techName)) scoreChange -= pointsBefore;
+    if (techsAfter.includes(techName)) scoreChange += pointsAfter;
+
+    // Only change total tasks count if they were freshly added or completely removed
+    if (!techsBefore.includes(techName) && techsAfter.includes(techName)) countChange = 1;
+    if (techsBefore.includes(techName) && !techsAfter.includes(techName)) countChange = -1;
+
+    // Round to 2 decimal places to avoid messy floats in Firestore
+    scoreChange = Math.round(scoreChange * 100) / 100;
+
+    if (scoreChange !== 0 || countChange !== 0) {
+      const updateData: any = { name: techName };
+
+      if (scoreChange !== 0) {
+        updateData.score = admin.firestore.FieldValue.increment(scoreChange);
+      }
+      if (countChange !== 0) {
+        updateData.count = admin.firestore.FieldValue.increment(countChange);
+        updateData[`breakdown.${category}`] = admin.firestore.FieldValue.increment(countChange);
+      }
+
+      // ✅ Update BOTH All-Time and Monthly records
+      batch.set(countersRef.doc(techName), updateData, { merge: true });
+      batch.set(monthlyCountersRef.doc(techName), updateData, { merge: true });
+    }
   });
 
   await batch.commit();
@@ -331,37 +366,37 @@ async function updateGlobalDashboard() {
 }
 
 // ==================================================================
-// 5️⃣ TRIGGERS (FIXED)
+// 5️⃣ TRIGGERS (UPDATED POINTS)
 // ==================================================================
 
-// 🔧 Interventions: 3 Points
+// 🔧 Interventions: 2 Points (Split)
 export const onInterventionAnalytics = functions.region("europe-west1").firestore.document("interventions/{id}").onWrite(async (change) => {
   await updateGlobalDashboard();
   // 🟢 FIX: We now accept BOTH statuses. Moving from "Terminé" to "Clôturé" will NOT remove points.
-  await updateTechnicianCounters(change, "assignedTechnicians", ["Terminé", "Clôturé"], 3, "Intervention");
+  await updateTechnicianCounters(change, "assignedTechnicians", ["Terminé", "Clôturé"], 2, "Intervention");
 });
 
-// 🛠️ Installations: 10 Points
+// 🛠️ Installations: 3 Points (Split)
 export const onInstallationAnalytics = functions.region("europe-west1").firestore.document("installations/{id}").onWrite(async (change) => {
   await updateGlobalDashboard();
   // 🟢 Field: "assignedTechnicianNames"
-  await updateTechnicianCounters(change, "assignedTechnicianNames", "Terminée", 10, "Installation");
+  await updateTechnicianCounters(change, "assignedTechnicianNames", "Terminée", 3, "Installation");
 });
 
-// 🚩 Missions: 5 Points
+// 🚩 Missions: 1 Point (Per Technician)
 export const onMissionAnalytics = functions.region("europe-west1").firestore.document("missions/{id}").onWrite(async (change) => {
   await updateGlobalDashboard();
   // 🟢 Field: "assignedTechniciansNames"
-  await updateTechnicianCounters(change, "assignedTechniciansNames", "Terminée", 5, "Mission");
+  await updateTechnicianCounters(change, "assignedTechniciansNames", "Terminée", 1, "Mission");
 });
 
-// 🚑 SAV: 5 Points (Kept same)
+// 🚑 SAV: 2 Points (Split)
 export const onSavAnalytics = functions.region("europe-west1").firestore.document("sav_tickets/{id}").onWrite(async (change) => {
   await updateGlobalDashboard();
-  await updateTechnicianCounters(change, "pickupTechnicianNames", "Retourné", 5, "SAV");
+  await updateTechnicianCounters(change, "pickupTechnicianNames", "Retourné", 2, "SAV");
 });
 
-// 🚚 Livraisons: 2 Points (Kept same)
+// 🚚 Livraisons: 2 Points (Split)
 export const onLivraisonAnalytics = functions.region("europe-west1").firestore.document("livraisons/{id}").onWrite(async (change) => {
   await updateGlobalDashboard();
   await updateTechnicianCounters(change, "livreurName", "Livré", 2, "Livraison");
@@ -439,7 +474,10 @@ export const recalculateTechnicianStats = functions
   .https.onCall(async (data, context) => {
 
     const db = admin.firestore();
-    const statsMap: { [name: string]: TechStats } = {};
+
+    // 🗂️ We will hold stats for ALL-TIME and for EACH MONTH
+    const allTimeStats: { [name: string]: TechStats } = {};
+    const monthlyStats: { [monthKey: string]: { [name: string]: TechStats } } = {};
 
     console.log("🔄 STARTING FULL RECALCULATION (CLEAN MODE)...");
 
@@ -466,47 +504,56 @@ export const recalculateTechnicianStats = functions
       console.warn("⚠️ Cleanup warning (non-fatal):", e);
     }
 
-    // Helper to process a list of names/ids
-    const processNames = (rawInput: any, points: number, category: string) => {
+    // 🧮 NEW HELPER: Handles Splitting Points AND Monthly Buckets
+    const processDoc = (doc: any, techField: any, totalPoints: number, category: string) => {
       let inputList: string[] = [];
-      if (Array.isArray(rawInput)) inputList = rawInput;
-      else if (typeof rawInput === 'string' && rawInput.trim() !== '') inputList = [rawInput];
+      if (Array.isArray(techField)) inputList = techField;
+      else if (typeof techField === 'string' && techField.trim() !== '') inputList = [techField];
 
-      inputList.forEach(raw => {
-        if (!raw) return;
+      const validTechs = inputList
+        .map(raw => TECHNICIAN_MAP[raw] || raw)
+        .map(name => String(name).trim())
+        .filter(name => VALID_NAMES.includes(name));
 
-        // 🧠 RESOLVE NAME: Check if 'raw' is a UID in our map
-        let finalName = TECHNICIAN_MAP[raw] || raw; // Convert ID to Name if possible
+      if (validTechs.length === 0) return;
 
-        finalName = String(finalName).trim(); // Safety string conversion
+      // Determine Date & MonthKey
+      const docDate = getDocDate(doc);
+      const monthKey = `${docDate.getFullYear()}-${String(docDate.getMonth() + 1).padStart(2, '0')}`;
 
-        // 🛑 STRICT FILTER: ONLY ALLOW OUR 5 TECHNICIANS
-        if (!VALID_NAMES.includes(finalName)) {
-          // console.log(`Skipping unknown user: ${finalName} (Raw: ${raw})`);
-          return;
-        }
+      // 🎯 THE SPLIT LOGIC
+      const pointsPerTech = category === "Mission" ? 1 : (totalPoints / validTechs.length);
+      const addedScore = Math.round(pointsPerTech * 100) / 100;
 
-        if (!statsMap[finalName]) {
-          statsMap[finalName] = { score: 0, count: 0, breakdown: {} };
-        }
-        statsMap[finalName].score += points;
-        statsMap[finalName].count += 1;
-        statsMap[finalName].breakdown[category] = (statsMap[finalName].breakdown[category] || 0) + 1;
+      if (!monthlyStats[monthKey]) monthlyStats[monthKey] = {};
+
+      validTechs.forEach(finalName => {
+        // 1. All-Time
+        if (!allTimeStats[finalName]) allTimeStats[finalName] = { score: 0, count: 0, breakdown: {} };
+        allTimeStats[finalName].score += addedScore;
+        allTimeStats[finalName].count += 1;
+        allTimeStats[finalName].breakdown[category] = (allTimeStats[finalName].breakdown[category] || 0) + 1;
+
+        // 2. Monthly
+        if (!monthlyStats[monthKey][finalName]) monthlyStats[monthKey][finalName] = { score: 0, count: 0, breakdown: {} };
+        monthlyStats[monthKey][finalName].score += addedScore;
+        monthlyStats[monthKey][finalName].count += 1;
+        monthlyStats[monthKey][finalName].breakdown[category] = (monthlyStats[monthKey][finalName].breakdown[category] || 0) + 1;
       });
     };
 
     try {
-      // 1️⃣ INTERVENTIONS (+3 pts)
+      // 1️⃣ INTERVENTIONS (2 pts total)
       const interventionsSnap = await db.collection('interventions')
         .where('status', 'in', ['Terminé', 'Clôturé'])
         .get();
 
       interventionsSnap.docs.forEach(doc => {
-        processNames(doc.data().assignedTechnicians, 3, "Intervention");
+        processDoc(doc, doc.data().assignedTechnicians, 2, "Intervention");
       });
       console.log(`✅ Processed ${interventionsSnap.size} Interventions`);
 
-      // 2️⃣ INSTALLATIONS (+10 pts)
+      // 2️⃣ INSTALLATIONS (3 pts total)
       const installationsSnap = await db.collection('installations')
         .where('status', '==', 'Terminée')
         .get();
@@ -516,11 +563,11 @@ export const recalculateTechnicianStats = functions
         const targets = (d.assignedTechnicianNames && d.assignedTechnicianNames.length > 0)
                         ? d.assignedTechnicianNames
                         : d.assignedTechnicians;
-        processNames(targets, 10, "Installation");
+        processDoc(doc, targets, 3, "Installation");
       });
       console.log(`✅ Processed ${installationsSnap.size} Installations`);
 
-      // 3️⃣ MISSIONS (+5 pts)
+      // 3️⃣ MISSIONS (1 pt per tech)
       const missionsSnap = await db.collection('missions')
         .where('status', '==', 'Terminée')
         .get();
@@ -530,50 +577,53 @@ export const recalculateTechnicianStats = functions
         const targets = (d.assignedTechniciansNames && d.assignedTechniciansNames.length > 0)
                         ? d.assignedTechniciansNames
                         : d.assignedTechniciansIds;
-        processNames(targets, 5, "Mission");
+        processDoc(doc, targets, 1, "Mission");
       });
       console.log(`✅ Processed ${missionsSnap.size} Missions`);
 
-      // 4️⃣ SAV (+5 pts)
+      // 4️⃣ SAV (2 pts total)
       const savSnap = await db.collection('sav_tickets')
         .where('status', '==', 'Retourné')
         .get();
 
       savSnap.docs.forEach(doc => {
-        processNames(doc.data().pickupTechnicianNames, 5, "SAV");
+        processDoc(doc, doc.data().pickupTechnicianNames, 2, "SAV");
       });
       console.log(`✅ Processed ${savSnap.size} SAV Tickets`);
 
-      // 5️⃣ LIVRAISONS (+2 pts)
+      // 5️⃣ LIVRAISONS (2 pts total)
       const livraisonsSnap = await db.collection('livraisons')
         .where('status', '==', 'Livré')
         .get();
 
       livraisonsSnap.docs.forEach(doc => {
-        processNames(doc.data().livreurName, 2, "Livraison");
+        processDoc(doc, doc.data().livreurName, 2, "Livraison");
       });
       console.log(`✅ Processed ${livraisonsSnap.size} Livraisons`);
 
       // 6️⃣ WRITE RESULTS TO FIRESTORE
       const batch = db.batch();
-      const countersRef = db.collection("analytics_dashboard").doc("technician_performance").collection("counters");
-
-      const entries = Object.entries(statsMap);
       let batchCount = 0;
 
-      for (const [name, stats] of entries) {
-        const docRef = countersRef.doc(name);
-        batch.set(docRef, {
-          name: name,
-          score: stats.score,
-          count: stats.count,
-          breakdown: stats.breakdown
-        });
-
+      const commitBatchIfNeeded = async () => {
         batchCount++;
-        if (batchCount >= 450) {
-          await batch.commit();
-          batchCount = 0;
+        if (batchCount >= 450) { await batch.commit(); batchCount = 0; }
+      };
+
+      // Wipe old valid data to prevent duplicates (Global)
+      const countersRef = db.collection("analytics_dashboard").doc("technician_performance").collection("counters");
+
+      for (const [name, stats] of Object.entries(allTimeStats)) {
+        batch.set(countersRef.doc(name), { name: name, ...stats });
+        await commitBatchIfNeeded();
+      }
+
+      // Write all Monthly data
+      for (const [mKey, mData] of Object.entries(monthlyStats)) {
+        const mRef = db.collection("analytics_dashboard").doc(`monthly_${mKey}`).collection("counters");
+        for (const [name, stats] of Object.entries(mData)) {
+          batch.set(mRef.doc(name), { name: name, ...stats });
+          await commitBatchIfNeeded();
         }
       }
 
@@ -583,7 +633,7 @@ export const recalculateTechnicianStats = functions
       await refreshTopTechnicians(db);
 
       console.log("🚀 LEADERBOARD RECALIBRATED SUCCESSFULLY!");
-      return { success: true, message: `Updated ${entries.length} technicians (Strict Mode).` };
+      return { success: true, message: `Recalculated All-Time and Monthly records across ${Object.keys(monthlyStats).length} months.` };
 
     } catch (e: any) {
       console.error("❌ Recalculation Failed:", e);

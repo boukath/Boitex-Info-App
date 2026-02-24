@@ -138,7 +138,7 @@ export const exportInterventionPdf = onCall(
 
       // 2. Call your EXISTING PDF generator
       functions.logger.info(`Generating PDF for ${interventionId}...`);
-      const pdfBuffer = await generateInterventionPdf(interventionData);
+      const pdfBuffer = await generateInterventionPdf(interventionData, interventionId);
       functions.logger.info("✅ PDF generated successfully.");
 
       // 3. Return the PDF as a Base64 string
