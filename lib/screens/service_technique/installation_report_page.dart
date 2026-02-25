@@ -854,22 +854,43 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
           .map((t) => t['name'] as String)
           .toList();
 
-      await FirebaseFirestore.instance
-          .collection('installations')
-          .doc(widget.installationId)
-          .update({
-        'status': 'Terminée',
-        'notes': _notesController.text,
-        'clientEmail': _emailController.text.trim(),
-        'signatoryName': _signatoryNameController.text.trim(),
-        'contactName': _signatoryNameController.text.trim(),
-        'signatureUrl': signatureUrl,
-        'mediaUrls': uploadedMediaUrls,
-        'photoUrls': FieldValue.delete(),
-        'systems': _installedSystems,
-        'assignedTechnicians': _selectedTechnicianIds,
-        'assignedTechnicianNames': selectedNames,
-        'completedAt': FieldValue.serverTimestamp(),
+      // 🔴 REPLACED: Simple update is now a Transaction to safely generate the Code
+      final currentYear = DateTime.now().year.toString();
+      final counterRef = FirebaseFirestore.instance.collection('counters').doc('installation_counter_$currentYear');
+      final installationRef = FirebaseFirestore.instance.collection('installations').doc(widget.installationId);
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final installationSnap = await transaction.get(installationRef);
+        if (!installationSnap.exists) throw Exception("Installation introuvable");
+
+        final docData = installationSnap.data() as Map<String, dynamic>;
+        String currentCode = docData['installationCode'] ?? '';
+        String finalInstallationCode = currentCode;
+
+        // Generate a new code ONLY if it doesn't have a real one yet
+        if (currentCode.isEmpty || currentCode == 'En attente de clôture' || currentCode == 'Brouillon') {
+          final counterDoc = await transaction.get(counterRef);
+          int newCount = counterDoc.exists ? (counterDoc.data()?['count'] ?? 0) + 1 : 1;
+          finalInstallationCode = 'INST-$newCount/$currentYear';
+          transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
+        }
+
+        // Apply all the updates
+        transaction.update(installationRef, {
+          'installationCode': finalInstallationCode, // The newly generated code
+          'status': 'Terminée',
+          'notes': _notesController.text,
+          'clientEmail': _emailController.text.trim(),
+          'signatoryName': _signatoryNameController.text.trim(),
+          'contactName': _signatoryNameController.text.trim(),
+          'signatureUrl': signatureUrl,
+          'mediaUrls': uploadedMediaUrls,
+          'photoUrls': FieldValue.delete(),
+          'systems': _installedSystems,
+          'assignedTechnicians': _selectedTechnicianIds,
+          'assignedTechnicianNames': selectedNames,
+          'completedAt': FieldValue.serverTimestamp(),
+        });
       });
 
       // Close Progress Dialog

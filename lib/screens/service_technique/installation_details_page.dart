@@ -12,7 +12,7 @@ import 'package:boitex_info_app/services/installation_pdf_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-// ✅ NEW: Import Timeline for Multi-day jobs
+// ✅ Import Timeline for Multi-day jobs
 import 'package:boitex_info_app/screens/service_technique/installation_timeline_page.dart';
 
 // ✅ Cloud PDF Generation Imports
@@ -334,18 +334,40 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
+  // ✅ UPDATED: Robust Error Logging & Feedback for the PDF Generation
   Future<Map<String, dynamic>?> _fetchPdfBytes() async {
     setState(() => _isLoading = true);
     try {
       final result = await FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('getInstallationPdf')
           .call({'installationId': widget.installationDoc.id});
+
       final data = result.data as Map<dynamic, dynamic>;
       return {
         'bytes': base64Decode(data['pdfBase64']),
         'filename': data['filename']
       };
+    } on FirebaseFunctionsException catch (e) {
+      // ✅ Catch specific Firebase errors (timeouts, permissions, crashes)
+      debugPrint("🔥 CLOUD FUNCTION ERROR: [${e.code}] ${e.message}");
+      debugPrint("🔥 DETAILS: ${e.details}");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erreur Serveur: ${e.message}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ));
+      }
+      return null;
     } catch (e) {
+      // ✅ Catch any other Dart/Network errors
+      debugPrint("❌ GENERAL ERROR: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erreur inattendue: $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
       return null;
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -388,24 +410,13 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }
   }
 
-  // ignore: unused_element
-  Future<void> _shareViaEmail() async {
-    if (kIsWeb) return;
-    final pdfData = await _fetchPdfBytes();
-    if (pdfData != null) {
-      final file =
-      await _saveFileForMobile(pdfData['bytes'], pdfData['filename']);
-      await Share.shareXFiles([XFile(file.path)],
-          subject: "Rapport", text: "Ci-joint le rapport.");
-    }
-  }
-
   Future<void> _launchMaps(String? address) async {
     if (address == null || address.isEmpty) return;
     final url = Uri.parse(
         "https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}");
-    if (await canLaunchUrl(url))
+    if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
   }
 
   bool _isVideoUrl(String path) {
@@ -413,68 +424,118 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     return l.endsWith('.mp4') || l.endsWith('.mov') || l.endsWith('.avi');
   }
 
-  Widget _buildTimeline(String status) {
+  // ===========================================================================
+  // ⏱️ SMART TIMELINE WIDGET
+  // ===========================================================================
+  Widget _buildSmartTimeline(Map<String, dynamic> data) {
+    final status = data['status'] ?? 'Inconnu';
+
+    // Parse Dates
+    DateTime? created = (data['createdAt'] as Timestamp?)?.toDate();
+    DateTime? scheduled = (data['installationDate'] as Timestamp?)?.toDate();
+    DateTime? completed = (data['completedAt'] as Timestamp?)?.toDate();
+    DateTime? updated = (data['updatedAt'] as Timestamp?)?.toDate();
+
     int step = 0;
     if (status == 'Planifiée') step = 1;
     if (status == 'En Cours') step = 2;
     if (status == 'Terminée') step = 3;
 
+    // Safety fallback: if completion date exists, force step 3
+    if (completed != null) step = 3;
+
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 20),
+      margin: const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStep(0, "Attente", Icons.schedule, step >= 0),
-          _buildLine(step >= 1),
-          _buildStep(1, "Planifié", Icons.event_available, step >= 1),
-          _buildLine(step >= 2),
-          _buildStep(2, "En Cours", Icons.handyman, step >= 2),
-          _buildLine(step >= 3),
-          _buildStep(3, "Terminé", Icons.check_circle, step >= 3),
+          _buildSmartStep("Créée", Icons.note_add, step >= 0, created),
+          _buildSmartLine(step >= 1),
+          _buildSmartStep("Planifiée", Icons.event_available, step >= 1, scheduled, isScheduled: true, isDone: step >= 2),
+          _buildSmartLine(step >= 2),
+          _buildSmartStep("En Cours", Icons.handyman, step >= 2, step == 2 ? updated : null),
+          _buildSmartLine(step >= 3),
+          _buildSmartStep("Terminée", Icons.check_circle, step >= 3, completed),
         ],
       ),
     );
   }
 
-  Widget _buildStep(int idx, String label, IconData icon, bool active) {
-    return Column(
-      children: [
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: active ? _primaryBlue : Colors.grey.shade300,
-            shape: BoxShape.circle,
-            boxShadow: active
-                ? [BoxShadow(color: _primaryBlue.withOpacity(0.4), blurRadius: 8)]
-                : [],
+  Widget _buildSmartStep(String label, IconData icon, bool active, DateTime? date, {bool isScheduled = false, bool isDone = false}) {
+    String dateStr = "";
+    Color dateColor = Colors.grey;
+
+    if (date != null) {
+      bool isCurrentYear = date.year == DateTime.now().year;
+      // Ex: "12 Fév" or "12 Fév 2025"
+      dateStr = DateFormat(isCurrentYear ? 'dd MMM' : 'dd MMM yy', 'fr_FR').format(date);
+
+      // Overdue logic: If scheduled in the past but not yet in progress/completed
+      if (isScheduled && !isDone && date.isBefore(DateTime.now().subtract(const Duration(days: 1)))) {
+        dateColor = Colors.red; // Overdue Highlight
+      } else {
+        dateColor = active ? _primaryBlue : Colors.grey.shade600;
+      }
+    }
+
+    return SizedBox(
+      width: 65, // Fixed width prevents wrapping/overflow issues
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: active ? _primaryBlue : Colors.grey.shade200,
+              shape: BoxShape.circle,
+              boxShadow: active
+                  ? [BoxShadow(color: _primaryBlue.withOpacity(0.4), blurRadius: 8)]
+                  : [],
+            ),
+            child: Icon(icon, color: active ? Colors.white : Colors.grey.shade400, size: 18),
           ),
-          child: Icon(icon, color: Colors.white, size: 18),
-        ),
-        const SizedBox(height: 6),
-        Text(label,
-            style: GoogleFonts.poppins(
-                fontSize: 10,
-                color: active ? _primaryBlue : Colors.grey)),
-      ],
+          const SizedBox(height: 8),
+          Text(label,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                  fontSize: 10,
+                  fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                  color: active ? _primaryBlue : Colors.grey.shade500)),
+          if (dateStr.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(dateStr,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color: dateColor)),
+            ),
+        ],
+      ),
     );
   }
 
-  Widget _buildLine(bool active) {
-    return Container(
-        width: 20,
+  Widget _buildSmartLine(bool active) {
+    return Expanded(
+      child: Container(
         height: 2,
-        color: active ? _primaryBlue : Colors.grey.shade300,
-        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 15));
+        color: active ? _primaryBlue : Colors.grey.shade200,
+        margin: const EdgeInsets.only(top: 18), // Perfectly aligns with the center of the 36px circles
+      ),
+    );
   }
 
+  // ===========================================================================
+  // WIDGETS
+  // ===========================================================================
+
   Widget _buildJobTicket(Map<String, dynamic> data) {
-    // ✅ NEW: Read the installation type (Identity)
     final serviceType = data['serviceType'] ?? 'Service Technique';
     final isIT = serviceType == 'Service IT';
 
-    // Choose icon/color based on type
     final typeColor = isIT ? Colors.blue : Colors.deepPurple;
     final typeIcon = isIT ? Icons.dns : Icons.settings_input_component;
 
@@ -492,7 +553,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              // Gradient based on service type
               gradient: LinearGradient(
                   colors: [typeColor.withOpacity(0.1), Colors.white]),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -759,11 +819,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ NEW: Widget Switcher Logic
   Widget _buildEvaluationSection(Map<String, dynamic> data) {
     final String serviceType = data['serviceType'] ?? 'Service Technique';
 
-    // Switch between IT and Technique
     if (serviceType == 'Service IT') {
       final itData = data['itEvaluation'] as Map<String, dynamic>? ?? {};
       return _buildITEvalCard(itData);
@@ -775,7 +833,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     }
   }
 
-  // ✅ NEW: IT Specific Widget
   Widget _buildITEvalCard(Map<String, dynamic> itData) {
     if (itData.isEmpty) return const SizedBox.shrink();
 
@@ -794,7 +851,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         backgroundColor: Colors.transparent,
         childrenPadding: const EdgeInsets.all(16),
         children: [
-          // Network Info
           Text("Réseau & Baie",
               style: GoogleFonts.poppins(
                   fontWeight: FontWeight.bold, color: Colors.blue)),
@@ -806,7 +862,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           _buildBooleanRow('Espace Dispo', itData['hasRackSpace']),
 
           const SizedBox(height: 12),
-          // Cabling Info
           Text("Câblage",
               style: GoogleFonts.poppins(
                   fontWeight: FontWeight.bold, color: Colors.blue)),
@@ -816,7 +871,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
           _buildDetailRow('Distance Max', itData['cableDistance']),
 
           const SizedBox(height: 12),
-          // Internet Info
           Text("Connexion",
               style: GoogleFonts.poppins(
                   fontWeight: FontWeight.bold, color: Colors.blue)),
@@ -829,7 +883,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // Existing Technical Widget (Unchanged logic)
   Widget _buildTechEvalList(List<dynamic> evals) {
     if (evals.isEmpty) return const SizedBox.shrink();
     return Column(
@@ -963,23 +1016,21 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ STREAM BUILDER IMPLEMENTATION
-    // This replaces the static access to widget.installationDoc.data()
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
           .collection('installations')
           .doc(widget.installationDoc.id)
           .snapshots(),
       builder: (context, snapshot) {
-        // Use live data if available, otherwise fallback to widget data
         final currentDoc =
         snapshot.hasData ? snapshot.data! : widget.installationDoc;
         final data = currentDoc.data() as Map<String, dynamic>? ?? {};
         final status = data['status'] ?? 'Inconnu';
 
-        if (_isLoading)
+        if (_isLoading) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
+        }
 
         return Scaffold(
           backgroundColor: _bgLight,
@@ -993,7 +1044,11 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
               onPressed: () => Navigator.pop(context),
             ),
             title: Text(
-              data['installationCode'] ?? 'Détails',
+              (data['installationCode'] == null ||
+                  data['installationCode'] == 'En attente de clôture' ||
+                  data['installationCode'] == 'Brouillon')
+                  ? 'Détails Installation'
+                  : data['installationCode'],
               style: GoogleFonts.poppins(
                   color: Colors.black87,
                   fontWeight: FontWeight.bold,
@@ -1006,7 +1061,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildTimeline(status),
+                _buildSmartTimeline(data),
+
                 _buildJobTicket(data),
                 _buildCompletionReport(),
                 const SizedBox(height: 20),
@@ -1014,7 +1070,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 const SizedBox(height: 20),
                 _buildProductsCard(data['orderedProducts']),
                 const SizedBox(height: 20),
-                // ✅ CHANGED: Now calls the smart switcher instead of hardcoded Tech eval
                 _buildEvaluationSection(data),
                 const SizedBox(height: 20),
                 _buildMediaGallery(data),
@@ -1026,7 +1081,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ UPDATED: Accepts 'liveData' to pass correct info to Timeline
   Widget _buildStickyFooter(String status, Map<String, dynamic> liveData) {
     List<Widget> buttons = [];
 
@@ -1048,9 +1102,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       );
     }
 
-    // ✅ UPDATED LOGIC: Split Timeline vs Report
+    // ACTIONS FOR PLANNED OR IN PROGRESS
     if (status == 'Planifiée' || status == 'En Cours') {
-      // 1. TIMELINE / JOURNAL (Secondary Action)
+      // 1. TIMELINE / JOURNAL
       buttons.add(
         Expanded(
           child: OutlinedButton.icon(
@@ -1060,7 +1114,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 MaterialPageRoute(
                   builder: (_) => InstallationTimelinePage(
                     installationId: widget.installationDoc.id,
-                    installationData: liveData, // ✅ Uses live data
+                    installationData: liveData,
                   ),
                 ),
               );
@@ -1079,10 +1133,9 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         ),
       );
 
-      // Spacing
       buttons.add(const SizedBox(width: 8));
 
-      // 2. RAPPORT (Primary Action)
+      // 2. RAPPORT
       buttons.add(
         Expanded(
           child: ElevatedButton.icon(

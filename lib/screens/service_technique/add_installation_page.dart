@@ -237,7 +237,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // ----------------------------------------------------------------------
-  // ⚙️ LOGIC METHODS (UNCHANGED)
+  // ⚙️ LOGIC METHODS
   // ----------------------------------------------------------------------
 
   Future<void> _extractCoordinatesFromLink() async {
@@ -449,12 +449,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       return;
     }
 
-    // ... (Keep existing save logic exactly as is)
-    // For brevity, I am assuming the logic follows the previous pattern.
-    // I will include the core structure to ensure it works.
-
-    final currentYear = DateTime.now().year.toString();
-    final counterRef = FirebaseFirestore.instance.collection('counters').doc('installation_counter_$currentYear');
     final DocumentReference installationRef = _isEditing
         ? widget.installationToEdit!.reference
         : FirebaseFirestore.instance.collection('installations').doc();
@@ -503,14 +497,15 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       final techniciansToSave = _selectedTechnicians.map((user) => {'uid': user.uid, 'displayName': user.displayName}).toList();
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        String installationCode;
+        String? installationCode;
+
+        // If editing, preserve the existing code (whether it's a placeholder or a real code)
         if (_isEditing) {
-          installationCode = widget.installationToEdit!.get('installationCode');
+          final existingData = widget.installationToEdit!.data() as Map<String, dynamic>;
+          installationCode = existingData['installationCode'] ?? 'Brouillon';
         } else {
-          final counterDoc = await transaction.get(counterRef);
-          int newCount = counterDoc.exists ? (counterDoc.data()?['count'] ?? 0) + 1 : 1;
-          installationCode = 'INST-$newCount/$currentYear';
-          transaction.set(counterRef, {'count': newCount}, SetOptions(merge: true));
+          // New installations get a placeholder. The real one is generated on finish.
+          installationCode = 'En attente de clôture';
         }
 
         final double? finalLat = _parsedLat ?? _selectedStore!.latitude;
