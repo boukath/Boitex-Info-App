@@ -43,6 +43,7 @@ class StoreReportData {
   final String id;
   final String name;
   final String location;
+  final String? logoUrl;
   final List<EquipmentReportItem> equipment;
   final List<InterventionReportItem> interventions;
   final List<InstallationReportItem> installations;
@@ -52,6 +53,7 @@ class StoreReportData {
     required this.id,
     required this.name,
     required this.location,
+    this.logoUrl,
     required this.equipment,
     required this.interventions,
     required this.installations,
@@ -80,13 +82,54 @@ class InterventionReportItem {
   InterventionReportItem({required this.date, required this.technician, required this.type, required this.status, required this.diagnostic});
 }
 
+// ✅ NEW: Model to hold specific product details inside an installation
+class InstallationProductItem {
+  final String name;
+  final String marque;
+  final String reference;
+  final int quantity;
+  final List<String> serialNumbers;
+
+  InstallationProductItem({
+    required this.name,
+    required this.marque,
+    required this.reference,
+    required this.quantity,
+    required this.serialNumbers,
+  });
+}
+
+// ✅ UPDATED: Added products list to the installation report item
 class InstallationReportItem {
   final DateTime date;
   final String code;
   final String status;
   final String technicians;
+  final List<InstallationProductItem> products; // Added this
 
-  InstallationReportItem({required this.date, required this.code, required this.status, required this.technicians});
+  InstallationReportItem({
+    required this.date,
+    required this.code,
+    required this.status,
+    required this.technicians,
+    required this.products, // Added this
+  });
+}
+
+class LivraisonProductItem {
+  final String name;
+  final String marque;
+  final String partNumber;
+  final int quantity;
+  final List<String> serialNumbers;
+
+  LivraisonProductItem({
+    required this.name,
+    required this.marque,
+    required this.partNumber,
+    required this.quantity,
+    required this.serialNumbers,
+  });
 }
 
 class LivraisonReportItem {
@@ -94,8 +137,15 @@ class LivraisonReportItem {
   final String code;
   final String status;
   final String recipient;
+  final List<LivraisonProductItem> products;
 
-  LivraisonReportItem({required this.date, required this.code, required this.status, required this.recipient});
+  LivraisonReportItem({
+    required this.date,
+    required this.code,
+    required this.status,
+    required this.recipient,
+    required this.products,
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -178,33 +228,55 @@ class ClientReportService {
         statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
         statsByType['Installations'] = (statsByType['Installations'] ?? 0) + 1;
 
-        // --- ✅ FIXED TECHNICIAN PARSING LOGIC ---
         String techs = 'Non assigné';
 
-        // 1. Try to get the real names if they are saved directly
         if (data['effectiveTechnicians'] is List && (data['effectiveTechnicians'] as List).isNotEmpty) {
           techs = (data['effectiveTechnicians'] as List).join(', ');
         } else if (data['assignedTechnicianNames'] is List && (data['assignedTechnicianNames'] as List).isNotEmpty) {
           techs = (data['assignedTechnicianNames'] as List).join(', ');
         }
-        // 2. Otherwise safely parse the assignedTechnicians array
         else if (data['assignedTechnicians'] is List) {
           List techList = data['assignedTechnicians'];
           if (techList.isNotEmpty) {
             techs = techList.map((t) {
               if (t is Map) return t['displayName'] ?? 'Inconnu';
-              if (t is String) return 'Tech (Assigné)'; // Fallback if it's just a raw UID String
+              if (t is String) return 'Tech (Assigné)';
               return '';
             }).where((s) => s.isNotEmpty).join(', ');
           }
         }
-        // ----------------------------------------
+
+        // ✅ NEW: Parse the systems/products array for full installation details
+        List<InstallationProductItem> parsedProducts = [];
+        if (data['systems'] is List) {
+          for (var p in (data['systems'] as List)) {
+            if (p is Map) {
+              List<String> serials = [];
+              if (p['serialNumbers'] is List) {
+                // Filter out empty strings in case a serial number wasn't fully entered
+                serials = (p['serialNumbers'] as List)
+                    .map((s) => s.toString())
+                    .where((s) => s.trim().isNotEmpty)
+                    .toList();
+              }
+
+              parsedProducts.add(InstallationProductItem(
+                name: p['name'] ?? p['productName'] ?? 'Produit',
+                marque: p['marque'] ?? '-',
+                reference: p['reference'] ?? '-',
+                quantity: (p['quantity'] ?? 0).toInt(),
+                serialNumbers: serials,
+              ));
+            }
+          }
+        }
 
         installationsByStore.putIfAbsent(sId, () => []).add(InstallationReportItem(
           date: date,
           code: data['installationCode'] ?? 'INST-XXX',
           status: data['status'] ?? 'À Planifier',
           technicians: techs,
+          products: parsedProducts, // ✅ Pass detailed products
         ));
       }
 
@@ -218,11 +290,34 @@ class ClientReportService {
         statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
         statsByType['Livraisons'] = (statsByType['Livraisons'] ?? 0) + 1;
 
+        List<LivraisonProductItem> parsedProducts = [];
+        if (data['products'] is List) {
+          for (var p in (data['products'] as List)) {
+            if (p is Map) {
+              List<String> serials = [];
+              if (p['serialNumbers'] is List) {
+                serials = (p['serialNumbers'] as List).map((s) => s.toString()).toList();
+              } else if (p['deliveredSerials'] is List) {
+                serials = (p['deliveredSerials'] as List).map((s) => s.toString()).toList();
+              }
+
+              parsedProducts.add(LivraisonProductItem(
+                name: p['productName'] ?? 'Produit',
+                marque: p['marque'] ?? '-',
+                partNumber: p['partNumber'] ?? p['reference'] ?? '-',
+                quantity: (p['quantity'] ?? p['deliveredQuantity'] ?? 0).toInt(),
+                serialNumbers: serials,
+              ));
+            }
+          }
+        }
+
         livraisonsByStore.putIfAbsent(sId, () => []).add(LivraisonReportItem(
           date: date,
           code: data['bonLivraisonCode'] ?? 'BL-XXX',
           status: data['status'] ?? 'En Cours',
           recipient: data['recipientName'] ?? 'Non spécifié',
+          products: parsedProducts,
         ));
       }
 
@@ -246,6 +341,7 @@ class ClientReportService {
           id: storeId,
           name: data['name'] ?? 'Magasin Inconnu',
           location: data['location'] ?? '',
+          logoUrl: data['logoUrl'],
           equipment: equipmentList,
           interventions: interventionsByStore[storeId] ?? [],
           installations: installationsByStore[storeId] ?? [],
@@ -255,16 +351,14 @@ class ClientReportService {
 
       final List<StoreReportData> allStoresData = await Future.wait(storeFutures);
 
-      // Sort Stores by total activity volume
       allStoresData.sort((a, b) {
         int aVol = a.interventions.length + a.installations.length + a.livraisons.length;
         int bVol = b.interventions.length + b.installations.length + b.livraisons.length;
-        return bVol.compareTo(aVol); // Descending
+        return bVol.compareTo(aVol);
       });
 
       final top3 = allStoresData.take(3).where((s) => s.hasActivity).toList();
 
-      // Sort alphabetically for final display
       allStoresData.sort((a, b) => a.name.compareTo(b.name));
 
       return ClientReportData(
