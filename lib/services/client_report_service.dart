@@ -82,7 +82,6 @@ class InterventionReportItem {
   InterventionReportItem({required this.date, required this.technician, required this.type, required this.status, required this.diagnostic});
 }
 
-// ✅ NEW: Model to hold specific product details inside an installation
 class InstallationProductItem {
   final String name;
   final String marque;
@@ -99,20 +98,19 @@ class InstallationProductItem {
   });
 }
 
-// ✅ UPDATED: Added products list to the installation report item
 class InstallationReportItem {
   final DateTime date;
   final String code;
   final String status;
   final String technicians;
-  final List<InstallationProductItem> products; // Added this
+  final List<InstallationProductItem> products;
 
   InstallationReportItem({
     required this.date,
     required this.code,
     required this.status,
     required this.technicians,
-    required this.products, // Added this
+    required this.products,
   });
 }
 
@@ -159,37 +157,52 @@ class ClientReportService {
     required String clientId,
     required String clientName,
     required DateTimeRange dateRange,
+    List<String>? storeIds, // ✅ UPDATED: Accepts a list of store IDs for multi-select
+    List<String>? activityTypes,
   }) async {
     try {
       print("🚀 STARTING PREMIUM REPORT GENERATION for $clientName");
 
-      // 1. Fetch All Stores
-      final storesSnapshot = await _firestore.collection('clients').doc(clientId).collection('stores').get();
+      // ✅ 1. Determine what to fetch based on filters
+      bool fetchInt = activityTypes == null || activityTypes.contains('Interventions');
+      bool fetchInst = activityTypes == null || activityTypes.contains('Installations');
+      bool fetchLiv = activityTypes == null || activityTypes.contains('Livraisons');
 
-      // 2. Fetch Interventions, Installations, Livraisons concurrently
+      // ✅ 2. Fetch Stores (Filter in memory if specific stores were requested)
+      final storesSnapshot = await _firestore.collection('clients').doc(clientId).collection('stores').get();
+      final filteredStoreDocs = storeIds != null && storeIds.isNotEmpty
+          ? storesSnapshot.docs.where((doc) => storeIds.contains(doc.id)).toList()
+          : storesSnapshot.docs;
+
+      // ✅ 3. Build Base Queries (Date and Client only, avoiding DB-level store filters to bypass limits)
       final startTimestamp = Timestamp.fromDate(dateRange.start);
       final endTimestamp = Timestamp.fromDate(dateRange.end);
 
+      Query intQuery = _firestore.collection('interventions')
+          .where('clientId', isEqualTo: clientId)
+          .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
+          .where('createdAt', isLessThanOrEqualTo: endTimestamp);
+
+      Query instQuery = _firestore.collection('installations')
+          .where('clientId', isEqualTo: clientId)
+          .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
+          .where('createdAt', isLessThanOrEqualTo: endTimestamp);
+
+      Query livQuery = _firestore.collection('livraisons')
+          .where('clientId', isEqualTo: clientId)
+          .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
+          .where('createdAt', isLessThanOrEqualTo: endTimestamp);
+
+      // ✅ 4. Fetch Data Concurrently
       final futures = await Future.wait([
-        _firestore.collection('interventions')
-            .where('clientId', isEqualTo: clientId)
-            .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
-            .where('createdAt', isLessThanOrEqualTo: endTimestamp).get(),
-
-        _firestore.collection('installations')
-            .where('clientId', isEqualTo: clientId)
-            .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
-            .where('createdAt', isLessThanOrEqualTo: endTimestamp).get(),
-
-        _firestore.collection('livraisons')
-            .where('clientId', isEqualTo: clientId)
-            .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
-            .where('createdAt', isLessThanOrEqualTo: endTimestamp).get(),
+        fetchInt ? intQuery.get() : Future.value(null),
+        fetchInst ? instQuery.get() : Future.value(null),
+        fetchLiv ? livQuery.get() : Future.value(null),
       ]);
 
-      final interventionsDocs = futures[0].docs;
-      final installationsDocs = futures[1].docs;
-      final livraisonsDocs = futures[2].docs;
+      final interventionsDocs = futures[0]?.docs ?? [];
+      final installationsDocs = futures[1]?.docs ?? [];
+      final livraisonsDocs = futures[2]?.docs ?? [];
 
       // Grouping Maps
       final Map<String, List<InterventionReportItem>> interventionsByStore = {};
@@ -197,13 +210,16 @@ class ClientReportService {
       final Map<String, List<LivraisonReportItem>> livraisonsByStore = {};
 
       final Map<String, int> statsByMonth = {};
-      final Map<String, int> statsByType = {}; // Tracks all activity types
+      final Map<String, int> statsByType = {};
 
-      // Process Interventions
+      // ✅ 5. Process Interventions with Local Filtering
       for (var doc in interventionsDocs) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>;
         final sId = data['storeId'];
         if (sId == null) continue;
+
+        // Apply local filter
+        if (storeIds != null && storeIds.isNotEmpty && !storeIds.contains(sId)) continue;
 
         DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
         statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
@@ -218,11 +234,14 @@ class ClientReportService {
         ));
       }
 
-      // Process Installations
+      // ✅ 6. Process Installations with Local Filtering
       for (var doc in installationsDocs) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>;
         final sId = data['storeId'];
         if (sId == null) continue;
+
+        // Apply local filter
+        if (storeIds != null && storeIds.isNotEmpty && !storeIds.contains(sId)) continue;
 
         DateTime date = (data['installationDate'] as Timestamp?)?.toDate() ?? (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
         statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
@@ -246,14 +265,12 @@ class ClientReportService {
           }
         }
 
-        // ✅ NEW: Parse the systems/products array for full installation details
         List<InstallationProductItem> parsedProducts = [];
         if (data['systems'] is List) {
           for (var p in (data['systems'] as List)) {
             if (p is Map) {
               List<String> serials = [];
               if (p['serialNumbers'] is List) {
-                // Filter out empty strings in case a serial number wasn't fully entered
                 serials = (p['serialNumbers'] as List)
                     .map((s) => s.toString())
                     .where((s) => s.trim().isNotEmpty)
@@ -276,15 +293,18 @@ class ClientReportService {
           code: data['installationCode'] ?? 'INST-XXX',
           status: data['status'] ?? 'À Planifier',
           technicians: techs,
-          products: parsedProducts, // ✅ Pass detailed products
+          products: parsedProducts,
         ));
       }
 
-      // Process Livraisons
+      // ✅ 7. Process Livraisons with Local Filtering
       for (var doc in livraisonsDocs) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>;
         final sId = data['storeId'];
         if (sId == null) continue;
+
+        // Apply local filter
+        if (storeIds != null && storeIds.isNotEmpty && !storeIds.contains(sId)) continue;
 
         DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
         statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
@@ -321,10 +341,10 @@ class ClientReportService {
         ));
       }
 
-      // 3. Parallel Fetch of Equipment for Stores
-      List<Future<StoreReportData>> storeFutures = storesSnapshot.docs.map((doc) async {
-        final data = doc.data();
-        final String storeId = doc.id;
+      // ✅ 8. Parallel Fetch of Equipment for Filtered Stores ONLY
+      List<Future<StoreReportData>> storeFutures = filteredStoreDocs.map((doc) async {
+        final data = doc.data() as Map<String, dynamic>;
+        final String sId = doc.id;
 
         final equipmentSnapshot = await doc.reference.collection('materiel_installe').get();
         final equipmentList = equipmentSnapshot.docs.map((eDoc) {
@@ -338,19 +358,20 @@ class ClientReportService {
         }).toList();
 
         return StoreReportData(
-          id: storeId,
+          id: sId,
           name: data['name'] ?? 'Magasin Inconnu',
           location: data['location'] ?? '',
           logoUrl: data['logoUrl'],
           equipment: equipmentList,
-          interventions: interventionsByStore[storeId] ?? [],
-          installations: installationsByStore[storeId] ?? [],
-          livraisons: livraisonsByStore[storeId] ?? [],
+          interventions: interventionsByStore[sId] ?? [],
+          installations: installationsByStore[sId] ?? [],
+          livraisons: livraisonsByStore[sId] ?? [],
         );
       }).toList();
 
       final List<StoreReportData> allStoresData = await Future.wait(storeFutures);
 
+      // Sort Stores by total activity volume (descending)
       allStoresData.sort((a, b) {
         int aVol = a.interventions.length + a.installations.length + a.livraisons.length;
         int bVol = b.interventions.length + b.installations.length + b.livraisons.length;
@@ -359,6 +380,7 @@ class ClientReportService {
 
       final top3 = allStoresData.take(3).where((s) => s.hasActivity).toList();
 
+      // Finally, sort alphabetically for final display
       allStoresData.sort((a, b) => a.name.compareTo(b.name));
 
       return ClientReportData(
@@ -367,9 +389,10 @@ class ClientReportService {
         endDate: dateRange.end,
         stores: allStoresData,
         topProblematicStores: top3,
-        totalInterventions: interventionsDocs.length,
-        totalInstallations: installationsDocs.length,
-        totalLivraisons: livraisonsDocs.length,
+        // ✅ Calculate totals dynamically from the filtered data so the KPIs are accurate!
+        totalInterventions: allStoresData.fold(0, (sum, store) => sum + store.interventions.length),
+        totalInstallations: allStoresData.fold(0, (sum, store) => sum + store.installations.length),
+        totalLivraisons: allStoresData.fold(0, (sum, store) => sum + store.livraisons.length),
         totalEquipment: allStoresData.fold(0, (sum, store) => sum + store.equipment.length),
         activityByMonth: statsByMonth,
         activityByType: statsByType,

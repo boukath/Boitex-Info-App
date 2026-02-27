@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_slidable/flutter_slidable.dart'; // ✅ ADDED: Swipe Actions
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:boitex_info_app/screens/administration/add_client_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_stores_page.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,7 +10,6 @@ import 'dart:ui';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
-// ✅ IMPORTS FOR REPORT GENERATION
 import 'package:printing/printing.dart';
 import 'package:boitex_info_app/services/client_report_service.dart';
 import 'package:boitex_info_app/services/client_report_pdf_service.dart';
@@ -91,7 +90,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     super.dispose();
   }
 
-  // --- ADVANCED SEARCH START ---
   void _onClientSearchChanged() {
     if (_clientDebounce?.isActive ?? false) _clientDebounce!.cancel();
     _clientDebounce = Timer(const Duration(milliseconds: 300), () {
@@ -115,25 +113,20 @@ class _ManageClientsPageState extends State<ManageClientsPage>
       });
     });
   }
-  // --- ADVANCED SEARCH END ---
 
   Color _getAvatarColor(String text) {
     return Colors.primaries[text.hashCode % Colors.primaries.length].shade300;
   }
 
-  // ✅ UPDATED: Added Filter for 'archived' status
   bool _matchesClient(Map data) {
-    // 1. Safety Check: Hide Archived
     if (data['status'] == 'archived') return false;
 
-    // 2. Service Filter
     final services = List<String>.from(data['services'] ?? []);
     final matchesService = _selectedServices.isEmpty ||
         services.any((s) => _selectedServices.contains(s));
 
     if (!matchesService) return false;
 
-    // 3. Search Filter
     if (_clientSearchTokens.isEmpty) return true;
 
     final name = data['name'] as String? ?? '';
@@ -146,7 +139,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
   }
 
   bool _matchesStore(Map data) {
-    // 1. Safety Check: Hide Archived (Consistent with Manage Stores)
     if (data['status'] == 'archived') return false;
 
     if (_storeSearchTokens.isEmpty) return true;
@@ -162,11 +154,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     return _storeSearchTokens.every((token) => searchable.contains(token));
   }
 
-  // ---------------------------------------------------------------------------
-  // 🗑️ DELETE & ARCHIVE LOGIC
-  // ---------------------------------------------------------------------------
-
-  /// ✅ ACTION 1: Archive (Soft Delete) - Swipe LEFT
   Future<void> _archiveClient(BuildContext context, DocumentSnapshot doc) async {
     final data = doc.data() as Map<String, dynamic>;
     final clientName = data['name'] ?? 'ce client';
@@ -203,12 +190,10 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     }
   }
 
-  /// ✅ ACTION 2: Hard Delete - Swipe RIGHT
   Future<void> _deleteClient(BuildContext context, DocumentSnapshot doc) async {
     final data = doc.data() as Map<String, dynamic>;
     final clientName = data['name'] ?? 'ce client';
 
-    // 🛑 DANGER ALERT DIALOG
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -266,35 +251,19 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 📊 REPORT GENERATION LOGIC
-  // ---------------------------------------------------------------------------
+  // ✅ UPDATED REPORT GENERATION LOGIC TO ACCEPT LIST OF STORES
   Future<void> _handleGenerateReport(String clientId, String clientName) async {
     try {
-      final DateTimeRange? dateRange = await showDateRangePicker(
+      final result = await showDialog<Map<String, dynamic>>(
         context: context,
-        firstDate: DateTime(2020),
-        lastDate: DateTime.now(),
-        initialDateRange: DateTimeRange(
-          start: DateTime.now().subtract(const Duration(days: 30)),
-          end: DateTime.now(),
-        ),
-        builder: (context, child) {
-          return Theme(
-            data: Theme.of(context).copyWith(
-              colorScheme: const ColorScheme.light(
-                primary: kPrimaryColor,
-                onPrimary: Colors.white,
-                surface: kCardColor,
-                onSurface: kTextPrimary,
-              ),
-            ),
-            child: child!,
-          );
-        },
+        builder: (context) => ReportFilterDialog(clientId: clientId),
       );
 
-      if (dateRange == null) return;
+      if (result == null) return;
+
+      final DateTimeRange dateRange = result['dateRange'];
+      final List<String> storeIds = result['storeIds']; // ✅ Received as List<String>
+      final List<String> activityTypes = result['activityTypes'];
 
       if (!mounted) return;
       showDialog(
@@ -305,32 +274,26 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         ),
       );
 
-      // 1. Fetch Data
       final reportService = ClientReportService();
       final reportData = await reportService.fetchReportData(
         clientId: clientId,
         clientName: clientName,
         dateRange: dateRange,
+        storeIds: storeIds, // ✅ Passed correctly
+        activityTypes: activityTypes,
       );
 
       print("✅ Data fetched successfully! Generating PDF bytes...");
 
-      // 2. Generate PDF Bytes
       final pdfService = ClientReportPdfService();
       final pdfBytes = await pdfService.generateReport(reportData);
 
-      print("✅ PDF bytes generated: ${pdfBytes.length} bytes.");
-
-      // 3. Close the loading indicator
       if (mounted) Navigator.pop(context);
 
-      // 4. SHARE the PDF instead of trying to Print it (Fixes Android silent crash)
       await Printing.sharePdf(
         bytes: pdfBytes,
         filename: 'Rapport_${clientName.replaceAll(' ', '_')}_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf',
       );
-
-      print("✅ PDF shared/opened successfully!");
 
     } catch (e) {
       if (mounted && Navigator.canPop(context)) {
@@ -627,7 +590,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                 return const Center(
                     child: CircularProgressIndicator(color: kPrimaryColor));
               }
-              // ✅ Updated to use _matchesClient which now checks for Archived status
               final docs = snapshot.data?.docs.where((d) {
                 final data = d.data() as Map<String, dynamic>;
                 return _matchesClient(data);
@@ -659,12 +621,10 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         final doc = docs[i];
         final data = doc.data() as Map<String, dynamic>;
 
-        // ✅ ADDED SLIDABLE (SWIPE)
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Slidable(
             key: Key(doc.id),
-            // Swipe RIGHT -> DELETE
             startActionPane: ActionPane(
               motion: const ScrollMotion(),
               children: [
@@ -678,7 +638,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
                 ),
               ],
             ),
-            // Swipe LEFT -> ARCHIVE
             endActionPane: ActionPane(
               motion: const ScrollMotion(),
               children: [
@@ -746,8 +705,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     final services = List<String>.from(data['services'] ?? []);
 
     return Container(
-      // Margin handled by ListView padding/Slidable now for list, Grid for grid
-      // Keeping internal decoration
       decoration: BoxDecoration(
         color: kCardColor,
         borderRadius: BorderRadius.circular(24),
@@ -1277,6 +1234,203 @@ class _ManageClientsPageState extends State<ManageClientsPage>
       text: TextSpan(children: spans),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 🎛️ REPORT FILTER DIALOG
+// -----------------------------------------------------------------------------
+class ReportFilterDialog extends StatefulWidget {
+  final String clientId;
+  const ReportFilterDialog({super.key, required this.clientId});
+
+  @override
+  State<ReportFilterDialog> createState() => _ReportFilterDialogState();
+}
+
+class _ReportFilterDialogState extends State<ReportFilterDialog> {
+  DateTimeRange _dateRange = DateTimeRange(
+    start: DateTime.now().subtract(const Duration(days: 30)),
+    end: DateTime.now(),
+  );
+
+  // Multi-select Stores state
+  bool _selectAllStores = true;
+  List<String> _selectedStoreIds = [];
+  List<Map<String, dynamic>> _stores = [];
+  bool _isLoadingStores = true;
+
+  final Map<String, bool> _activityTypes = {
+    'Interventions': true,
+    'Installations': true,
+    'Livraisons': true,
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchStores();
+  }
+
+  Future<void> _fetchStores() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('clients')
+          .doc(widget.clientId)
+          .collection('stores')
+          .where('status', isNotEqualTo: 'archived')
+          .get();
+      setState(() {
+        // Sort stores alphabetically for easier reading
+        _stores = snap.docs.map((d) => {'id': d.id, 'name': d.data()['name'] ?? 'Magasin'}).toList();
+        _stores.sort((a, b) => a['name'].compareTo(b['name']));
+        _isLoadingStores = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingStores = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: kCardColor,
+      title: Text("Configurer le Rapport", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: kPrimaryColor)),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 1. DATE RANGE
+              Text("Période", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    initialDateRange: _dateRange,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                    builder: (context, child) => Theme(
+                      data: Theme.of(context).copyWith(
+                        colorScheme: const ColorScheme.light(primary: kPrimaryColor),
+                      ),
+                      child: child!,
+                    ),
+                  );
+                  if (picked != null) setState(() => _dateRange = picked);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(10)),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_month, color: kPrimaryColor, size: 20),
+                      const SizedBox(width: 8),
+                      Text("${DateFormat('dd/MM/yy').format(_dateRange.start)} - ${DateFormat('dd/MM/yy').format(_dateRange.end)}", style: GoogleFonts.poppins()),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // 2. MULTI-SELECT STORES
+              Text("Magasins", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(height: 8),
+              _isLoadingStores
+                  ? const LinearProgressIndicator(color: kPrimaryColor)
+                  : Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                constraints: const BoxConstraints(maxHeight: 200), // Makes list scrollable
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    CheckboxListTile(
+                      title: Text("Tous les magasins", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13, color: kPrimaryColor)),
+                      value: _selectAllStores,
+                      activeColor: kPrimaryColor,
+                      dense: true,
+                      onChanged: (val) {
+                        setState(() {
+                          _selectAllStores = true;
+                          _selectedStoreIds.clear(); // Clear individual selections
+                        });
+                      },
+                    ),
+                    const Divider(height: 1),
+                    ..._stores.map((s) {
+                      return CheckboxListTile(
+                        title: Text(s['name'], style: GoogleFonts.poppins(fontSize: 13)),
+                        value: !_selectAllStores && _selectedStoreIds.contains(s['id']),
+                        activeColor: kPrimaryColor,
+                        dense: true,
+                        onChanged: (val) {
+                          setState(() {
+                            _selectAllStores = false;
+                            if (val == true) {
+                              _selectedStoreIds.add(s['id']);
+                            } else {
+                              _selectedStoreIds.remove(s['id']);
+                              // If unselected everything, revert to "All"
+                              if (_selectedStoreIds.isEmpty) _selectAllStores = true;
+                            }
+                          });
+                        },
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // 3. ACTIVITY TYPES
+              Text("Activités à inclure", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(height: 8),
+              ..._activityTypes.keys.map((key) {
+                return CheckboxListTile(
+                  title: Text(key, style: GoogleFonts.poppins(fontSize: 13)),
+                  value: _activityTypes[key],
+                  activeColor: kPrimaryColor,
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  onChanged: (val) {
+                    setState(() => _activityTypes[key] = val ?? true);
+                  },
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text("Annuler", style: GoogleFonts.poppins(color: kTextSecondary))),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: kPrimaryColor, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+          onPressed: () {
+            final selectedActivities = _activityTypes.entries.where((e) => e.value).map((e) => e.key).toList();
+            if (selectedActivities.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez sélectionner au moins une activité.")));
+              return;
+            }
+            Navigator.pop(context, {
+              'dateRange': _dateRange,
+              // If "All Stores" is checked, we pass an empty list which the service knows means "fetch everything"
+              'storeIds': _selectAllStores ? <String>[] : _selectedStoreIds,
+              'activityTypes': selectedActivities,
+            });
+          },
+          child: Text("Générer", style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      ],
     );
   }
 }
