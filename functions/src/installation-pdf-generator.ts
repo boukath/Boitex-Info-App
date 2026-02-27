@@ -230,162 +230,168 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
          doc.font("Helvetica").fontSize(9).fillColor(COLORS.primary).text("N/A", rightCardX + 12, textY + 42);
       }
 
-      y += cardHeight + 25;
+      y += cardHeight + 20;
 
       // =========================================================================
-      // 📝 TECHNICIAN NOTES (RAPPORT D'INTERVENTION)
+      // 📝 TECHNICIAN NOTES (COMPACT INLINE STYLING) 🔥
       // =========================================================================
       if (data.notes && typeof data.notes === 'string' && data.notes.trim() !== "") {
         const notesText = data.notes.trim();
 
+        // Use inline text to save massive space: "RAPPORT TECHNIQUE: [notes text here...]"
+        const inlineText = `RAPPORT TECHNIQUE : ${notesText}`;
+
         doc.font("Helvetica").fontSize(9);
         const textWidth = doc.page.width - (MARGIN * 2) - 24;
-        const textHeight = doc.heightOfString(notesText, { width: textWidth, lineGap: 3 });
-        const boxHeight = textHeight + 40;
 
-        y = checkPageBreak(doc, y, boxHeight + 20);
+        const textHeight = doc.heightOfString(inlineText, { width: textWidth, lineGap: 2 });
+        // Significantly reduced padding
+        const boxHeight = textHeight + 20;
 
-        doc.roundedRect(MARGIN, y, doc.page.width - (MARGIN * 2), boxHeight, 8).fill(COLORS.surface);
+        y = checkPageBreak(doc, y, boxHeight + 15);
 
+        doc.roundedRect(MARGIN, y, doc.page.width - (MARGIN * 2), boxHeight, 6).fill(COLORS.surface);
+
+        // Draw title and text on the SAME line using {continued: true}
         doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.secondary)
-           .text("RAPPORT TECHNIQUE", MARGIN + 12, y + 12, { characterSpacing: 1 });
+           .text("RAPPORT TECHNIQUE : ", MARGIN + 12, y + 10, { continued: true })
+           .font("Helvetica").fontSize(9).fillColor(COLORS.primary)
+           .text(notesText, { width: textWidth, lineGap: 2 });
 
-        doc.font("Helvetica").fontSize(9).fillColor(COLORS.primary)
-           .text(notesText, MARGIN + 12, y + 28, { width: textWidth, lineGap: 3 });
-
-        y += boxHeight + 20;
+        y += boxHeight + 15;
       }
 
       // =========================================================================
       // 🧠 SMART LAYOUT CALCULATOR (TABLE VS SIGNATURES)
       // =========================================================================
       const systems = data.systems || data.orderedProducts || [];
-      let tableHeight = 0;
 
-      // 1. Calculate how much space the table needs
-      if (systems.length > 0) {
-        tableHeight += 44; // Header space
-        for (const item of systems) {
-          const qty = parseInt(item.quantity?.toString() || "1", 10);
-          let rowHeight = 20;
-          if (item.serialNumbers || item.ipAddresses || item.macAddresses) {
-            for (let i = 0; i < qty; i++) {
-               const sn = item.serialNumbers ? item.serialNumbers[i] : "";
-               const ip = item.ipAddresses ? item.ipAddresses[i] : "";
-               const mac = item.macAddresses ? item.macAddresses[i] : "";
-               if (sn || ip || mac) rowHeight += 14;
-            }
-          }
-          rowHeight += 20;
-          tableHeight += rowHeight;
-        }
-      }
+      // --- HELPER FUNCTION: Draw Compact Premium Signature Card --- 🔥
+      const drawSignatureCard = (currentY: number) => {
+        const cardHeight = 135; // Squeezed height down from 170!
 
-      // 2. Determine if everything fits on one page
-      const SIGNATURES_AND_LEGAL_HEIGHT = 180;
-      const spaceRemaining = doc.page.height - MARGIN - 30 - y;
-      const fitsOnOnePage = (tableHeight > 0) && (tableHeight + SIGNATURES_AND_LEGAL_HEIGHT <= spaceRemaining);
+        let sy = checkPageBreak(doc, currentY, cardHeight + 10);
 
-      // --- HELPER FUNCTION: Draw Signatures and Legal Text ---
-      const drawSignaturesAndLegal = (currentY: number) => {
-        let sy = checkPageBreak(doc, currentY, 120);
-        doc.moveTo(MARGIN, sy).lineTo(doc.page.width - MARGIN, sy).lineWidth(0.5).strokeColor(COLORS.border).stroke();
-        sy += 15;
+        // 1. Draw the Premium Card Background
+        doc.roundedRect(MARGIN, sy, doc.page.width - (MARGIN * 2), cardHeight, 8).fill(COLORS.surface);
 
+        let innerY = sy + 10;
         const halfWidth = doc.page.width / 2;
 
-        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("EQUIPE BOITEX INFO", MARGIN, sy, { characterSpacing: 1 });
+        // 2. Left Side: EQUIPE BOITEX INFO
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.secondary)
+           .text("EQUIPE BOITEX INFO", MARGIN + 15, innerY, { characterSpacing: 1 });
+
         let techNames = "Service Technique";
         if (data.assignedTechnicianNames && Array.isArray(data.assignedTechnicianNames) && data.assignedTechnicianNames.length > 0) {
             techNames = data.assignedTechnicianNames.join("\n");
         }
-        doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary).text(techNames, MARGIN, sy + 15);
-        if (cacheBuffer) doc.image(cacheBuffer, MARGIN, sy + 40, { width: 90 });
+        doc.font("Helvetica-Bold").fontSize(11).fillColor(COLORS.primary).text(techNames, MARGIN + 15, innerY + 15);
+        if (cacheBuffer) doc.image(cacheBuffer, MARGIN + 15, innerY + 28, { width: 75 }); // Lifted image up
 
-        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("SIGNATURE CLIENT", halfWidth, sy, { characterSpacing: 1 });
+        // 3. Right Side: SIGNATURE CLIENT
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.secondary)
+           .text("SIGNATURE CLIENT", halfWidth, innerY, { characterSpacing: 1 });
+
         const signatory = data.signatoryName || data.contactName || "Client";
-        doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary).text(signatory, halfWidth, sy + 15);
-        if (clientSigBuffer) doc.image(clientSigBuffer, halfWidth, sy + 30, { width: 150, height: 70, fit: [150, 70] });
+        doc.font("Helvetica-Bold").fontSize(11).fillColor(COLORS.primary).text(signatory, halfWidth, innerY + 15);
+        if (clientSigBuffer) doc.image(clientSigBuffer, halfWidth, innerY + 25, { width: 130, height: 50, fit: [130, 50] }); // Squeezed image
 
-        sy += 110;
+        // 4. Legal Text (Tucked tightly at the bottom)
+        innerY += 80; // Lifted from 100
+        doc.rect(MARGIN + 15, innerY, 3, 30).fill(COLORS.accent);
+        doc.font("Helvetica-Oblique").fontSize(8).fillColor(COLORS.secondary) // Made font slightly smaller
+           .text("Par la presente, le signataire atteste que les equipements detailles ci-dessous (s'il y a lieu) ont ete livres, installes, configures et testes avec succes par l'equipe technique de BOITEX INFO, et declare l'installation conforme aux attentes.", MARGIN + 25, innerY + 2, { width: doc.page.width - MARGIN * 2 - 45, lineGap: 1 });
 
-        // LEGAL TEXT DIRECTLY UNDER SIGNATURES
-        sy = checkPageBreak(doc, sy, 50);
-        doc.rect(MARGIN, sy, 3, 30).fill(COLORS.accent);
-        doc.font("Helvetica-Oblique").fontSize(9).fillColor(COLORS.secondary)
-           .text("Par la presente, le signataire atteste que les equipements detailles ci-dessous ont ete livres, installes, configures et testes avec succes par l'equipe technique de BOITEX INFO, et declare l'installation conforme aux attentes.", MARGIN + 12, sy + 2, { width: doc.page.width - MARGIN * 2 - 12, lineGap: 2 });
-        sy += 45;
-        return sy;
+        return sy + cardHeight + 15;
       };
 
       // --- HELPER FUNCTION: Draw Equipment Table ---
       const drawTable = (currentY: number) => {
         let ty = checkPageBreak(doc, currentY, 100);
         doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.secondary).text("MATERIEL INSTALLE & CONFIGURATIONS", MARGIN, ty, { characterSpacing: 1 });
-        ty += 20;
+        ty += 15;
 
-        doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.secondary);
-        doc.text("DESIGNATION", MARGIN, ty);
-        doc.text("REFERENCE", 250, ty);
-        doc.text("QTE", doc.page.width - MARGIN - 30, ty, { width: 30, align: "right" });
+        // 🛠️ Extracted Header Drawing so we can reuse it on page breaks
+        const drawTableHeader = (yPos: number) => {
+          doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.secondary);
+          doc.text("DESIGNATION", MARGIN, yPos);
+          doc.text("REFERENCE", 250, yPos);
+          doc.text("QTE", doc.page.width - MARGIN - 30, yPos, { width: 30, align: "right" });
+          yPos += 10;
+          doc.moveTo(MARGIN, yPos).lineTo(doc.page.width - MARGIN, yPos).lineWidth(0.5).strokeColor(COLORS.border).stroke();
+          return yPos + 10;
+        };
 
-        ty += 12;
-        doc.moveTo(MARGIN, ty).lineTo(doc.page.width - MARGIN, ty).lineWidth(0.5).strokeColor(COLORS.border).stroke();
-        ty += 12;
+        ty = drawTableHeader(ty);
 
         for (const item of systems) {
           const qty = parseInt(item.quantity?.toString() || "1", 10);
-          const calculatedRowHeight = 20 + (qty * 14) + 10;
-          ty = checkPageBreak(doc, ty, calculatedRowHeight);
+
+          // 🚀 SMART FIX: Pre-calculate only lines that ACTUALLY have data!
+          // This prevents bulk items (Qty: 1000) from creating a massive empty row height.
+          let configLinesToDraw: string[] = [];
+
+          if (item.serialNumbers || item.ipAddresses || item.macAddresses) {
+            // Safety limit: Check up to qty, but max 500 to prevent infinite loops on crazy data
+            const loopMax = Math.min(qty, 500);
+
+            for (let i = 0; i < loopMax; i++) {
+              let configLine = `Unité #${i + 1} -> `;
+              let hasConfig = false;
+
+              const sn = item.serialNumbers && item.serialNumbers.length > i ? item.serialNumbers[i] : "";
+              const ip = item.ipAddresses && item.ipAddresses.length > i ? item.ipAddresses[i] : "";
+              const mac = item.macAddresses && item.macAddresses.length > i ? item.macAddresses[i] : "";
+
+              if (sn && sn.trim() !== "") { configLine += `S/N: ${sn}   `; hasConfig = true; }
+              if (ip && ip.trim() !== "") { configLine += `IP: ${ip}   `; hasConfig = true; }
+              if (mac && mac.trim() !== "") { configLine += `MAC: ${mac}   `; hasConfig = true; }
+
+              if (hasConfig) {
+                 configLinesToDraw.push(configLine);
+              }
+            }
+          }
+
+          // Row height is now strictly based on ACTUAL configurations found, not `qty`!
+          const calculatedRowHeight = 20 + (configLinesToDraw.length * 14) + 10;
+
+          // 🛠️ Pagination Check: If this item spills to a new page, redraw the headers!
+          if (ty + calculatedRowHeight > doc.page.height - MARGIN - 30) {
+             doc.addPage();
+             ty = MARGIN + 20;
+             doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.secondary).text("MATERIEL INSTALLE & CONFIGURATIONS (Suite)", MARGIN, ty, { characterSpacing: 1 });
+             ty += 15;
+             ty = drawTableHeader(ty);
+          }
 
           doc.font("Helvetica-Bold").fontSize(10).fillColor(COLORS.primary).text(item.name || "Produit Inconnu", MARGIN, ty, { width: 190 });
           doc.font("Helvetica").fontSize(9).fillColor(COLORS.secondary).text(item.reference || "N/A", 250, ty);
           doc.font("Helvetica-Bold").fontSize(11).fillColor(COLORS.primary).text(qty.toString(), doc.page.width - MARGIN - 30, ty, { width: 30, align: "right" });
 
-          let lineY = doc.y + 5;
+          let lineY = doc.y + 4;
 
-          if (item.serialNumbers || item.ipAddresses || item.macAddresses) {
-            for (let i = 0; i < qty; i++) {
-              let configLine = `Unite #${i + 1} -> `;
-              const sn = item.serialNumbers ? item.serialNumbers[i] : "";
-              const ip = item.ipAddresses ? item.ipAddresses[i] : "";
-              const mac = item.macAddresses ? item.macAddresses[i] : "";
-
-              if (sn) configLine += `S/N: ${sn}   `;
-              if (ip) configLine += `IP: ${ip}   `;
-              if (mac) configLine += `MAC: ${mac}   `;
-
-              if (configLine.length > 15) {
-                 doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary).text(configLine, MARGIN + 10, lineY);
-                 lineY += 14;
-              }
-            }
+          // Draw the pre-calculated lines safely
+          for (const config of configLinesToDraw) {
+             doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary).text(config, MARGIN + 10, lineY);
+             lineY += 14;
           }
 
-          ty = lineY + 8;
+          ty = lineY + 6;
           doc.moveTo(MARGIN, ty).lineTo(doc.page.width - MARGIN, ty).lineWidth(0.5).strokeColor(COLORS.border).stroke();
-          ty += 12;
+          ty += 10;
         }
         return ty + 10;
       };
 
-      // 🚀 3. EXECUTE THE SMART RENDERER
+      // 🚀 3. EXECUTE THE SMART RENDERER (Strict Linear Flow)
       if (systems.length > 0) {
-          if (fitsOnOnePage) {
-             // It fits! Squeeze everything onto Page 1.
-             y = drawTable(y);
-             y = drawSignaturesAndLegal(y);
-          } else {
-             // Table is too long. Signatures + Legal on Page 1, Table on Page 2.
-             y = drawSignaturesAndLegal(y);
-             doc.addPage();
-             y = MARGIN + 20;
-             y = drawTable(y);
-          }
-      } else {
-          // No equipment to show, just draw signatures
-          y = drawSignaturesAndLegal(y);
+          y = drawTable(y);
       }
+
+      // Finally, draw the Signature Card! Because of our tighter design, it will fit seamlessly.
+      y = drawSignatureCard(y);
 
       // =========================================================================
       // 🛡️ PAGE 2 (OR 3): CERTIFICAT DE GARANTIE
@@ -545,12 +551,11 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
       // =========================================================================
 
       const pageCount = doc.bufferedPageRange().count;
-      // Ensure we only ever stamp a maximum of the first 2 pages
       const maxPagesToStamp = Math.min(pageCount, 2);
 
       for (let i = 0; i < maxPagesToStamp; i++) {
-        doc.switchToPage(i); // Go to Page 1 (index 0) and Page 2 (index 1)
-        drawGlobalFooter(doc); // Stamp our legal mentions at the bottom safely
+        doc.switchToPage(i);
+        drawGlobalFooter(doc);
       }
 
       doc.end();

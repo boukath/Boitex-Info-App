@@ -249,21 +249,79 @@ export const getInstallationPdf = onCall(
       throw new HttpsError("invalid-argument", "Missing installationId");
     }
 
-    const doc = await admin.firestore().collection("installations").doc(installationId).get();
+    const db = admin.firestore();
+    const doc = await db.collection("installations").doc(installationId).get();
     if (!doc.exists) {
       throw new HttpsError("not-found", "Installation not found");
     }
-    const data = doc.data();
+
+    // Get the base installation data
+    const data = doc.data() || {};
+
+    // =========================================================================
+    // 🚀 PRO FEATURE: SMART MERGE SCANNED SERIAL NUMBERS FROM LIVRAISON
+    // =========================================================================
+    try {
+      // 1. Check if this installation has a linked livraison ID
+      const livraisonId = data.linkedLivraisonId;
+
+      if (livraisonId) {
+        // Fetch the delivery document directly! (Faster and cheaper than a query)
+        const livraisonDoc = await db.collection("livraisons").doc(livraisonId).get();
+
+        if (livraisonDoc.exists) {
+          const livraisonData = livraisonDoc.data();
+          const deliveredProducts = livraisonData?.products || [];
+
+          // 2. Map over the systems to inject the serials
+          let systems = data.systems || data.orderedProducts || [];
+
+          if (systems.length > 0) {
+            systems = systems.map((installProduct: any) => {
+              // Match by checking 'productId' in livraison against 'id' or 'productId' in installation
+              const matchingDeliveryProduct = deliveredProducts.find(
+                (dp: any) => dp.productId === installProduct.id || dp.productId === installProduct.productId
+              );
+
+              if (matchingDeliveryProduct) {
+                // Check both deliveredSerials and serialNumbers fields just to be safe
+                const validSerials = (matchingDeliveryProduct.deliveredSerials && matchingDeliveryProduct.deliveredSerials.length > 0)
+                  ? matchingDeliveryProduct.deliveredSerials
+                  : matchingDeliveryProduct.serialNumbers;
+
+                // If we found valid serial numbers, inject them!
+                if (validSerials && validSerials.length > 0) {
+                  return {
+                    ...installProduct,
+                    serialNumbers: validSerials
+                  };
+                }
+              }
+              return installProduct; // Otherwise, return as is
+            });
+
+            // Re-assign the enriched array back to the data object
+            // We assign it to both just to ensure the PDF generator catches it
+            data.systems = systems;
+            data.orderedProducts = systems;
+          }
+        }
+      }
+    } catch (e) {
+      logger.warn("⚠️ Could not fetch linked livraison for serial numbers:", e);
+    }
+    // =========================================================================
 
     try {
+      // 3. Generate PDF with the newly merged data!
       const pdfBuffer = await generateInstallationPdf(data);
 
       return {
         pdfBase64: pdfBuffer.toString("base64"),
-        filename: `Installation-${data?.installationCode || "Rapport"}.pdf`
+        filename: `Installation-${data?.installationCode || "Rapport"}.pdf`,
       };
     } catch (error) {
-      logger.error("Error generating PDF on-demand:", error);
+      logger.error("❌ PDF Generation Error:", error);
       throw new HttpsError("internal", "Could not generate PDF");
     }
   }

@@ -334,7 +334,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  // ✅ UPDATED: Robust Error Logging & Feedback for the PDF Generation
   Future<Map<String, dynamic>?> _fetchPdfBytes() async {
     setState(() => _isLoading = true);
     try {
@@ -348,9 +347,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
         'filename': data['filename']
       };
     } on FirebaseFunctionsException catch (e) {
-      // ✅ Catch specific Firebase errors (timeouts, permissions, crashes)
       debugPrint("🔥 CLOUD FUNCTION ERROR: [${e.code}] ${e.message}");
-      debugPrint("🔥 DETAILS: ${e.details}");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Erreur Serveur: ${e.message}'),
@@ -360,7 +357,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       }
       return null;
     } catch (e) {
-      // ✅ Catch any other Dart/Network errors
       debugPrint("❌ GENERAL ERROR: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -430,7 +426,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
   Widget _buildSmartTimeline(Map<String, dynamic> data) {
     final status = data['status'] ?? 'Inconnu';
 
-    // Parse Dates
     DateTime? created = (data['createdAt'] as Timestamp?)?.toDate();
     DateTime? scheduled = (data['installationDate'] as Timestamp?)?.toDate();
     DateTime? completed = (data['completedAt'] as Timestamp?)?.toDate();
@@ -440,8 +435,6 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     if (status == 'Planifiée') step = 1;
     if (status == 'En Cours') step = 2;
     if (status == 'Terminée') step = 3;
-
-    // Safety fallback: if completion date exists, force step 3
     if (completed != null) step = 3;
 
     return Container(
@@ -467,19 +460,17 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
 
     if (date != null) {
       bool isCurrentYear = date.year == DateTime.now().year;
-      // Ex: "12 Fév" or "12 Fév 2025"
       dateStr = DateFormat(isCurrentYear ? 'dd MMM' : 'dd MMM yy', 'fr_FR').format(date);
 
-      // Overdue logic: If scheduled in the past but not yet in progress/completed
       if (isScheduled && !isDone && date.isBefore(DateTime.now().subtract(const Duration(days: 1)))) {
-        dateColor = Colors.red; // Overdue Highlight
+        dateColor = Colors.red;
       } else {
         dateColor = active ? _primaryBlue : Colors.grey.shade600;
       }
     }
 
     return SizedBox(
-      width: 65, // Fixed width prevents wrapping/overflow issues
+      width: 65,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -523,7 +514,7 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
       child: Container(
         height: 2,
         color: active ? _primaryBlue : Colors.grey.shade200,
-        margin: const EdgeInsets.only(top: 18), // Perfectly aligns with the center of the 36px circles
+        margin: const EdgeInsets.only(top: 18),
       ),
     );
   }
@@ -765,7 +756,78 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
     );
   }
 
-  Widget _buildProductsCard(dynamic products) {
+  // 🚀 PRO FEATURE: Smart Serial Number Fetcher Widget
+  Widget _buildLinkedSerialNumbers(String? productId, String? linkedLivraisonId) {
+    if (linkedLivraisonId == null || linkedLivraisonId.isEmpty || productId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('livraisons').doc(linkedLivraisonId).get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const SizedBox.shrink();
+        }
+
+        final livraisonData = snapshot.data!.data() as Map<String, dynamic>?;
+        if (livraisonData == null) return const SizedBox.shrink();
+
+        final products = livraisonData['products'] as List<dynamic>? ?? [];
+
+        final deliveryProduct = products.firstWhere(
+              (p) => p['productId'] == productId,
+          orElse: () => null,
+        );
+
+        if (deliveryProduct == null) return const SizedBox.shrink();
+
+        List<dynamic> serials = [];
+        if (deliveryProduct['deliveredSerials'] != null && (deliveryProduct['deliveredSerials'] as List).isNotEmpty) {
+          serials = deliveryProduct['deliveredSerials'];
+        } else if (deliveryProduct['serialNumbers'] != null) {
+          serials = deliveryProduct['serialNumbers'];
+        }
+
+        if (serials.isEmpty) return const SizedBox.shrink();
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 6.0),
+          child: Wrap(
+            spacing: 8.0,
+            runSpacing: 4.0,
+            children: serials.map((serial) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.qr_code, size: 12, color: Colors.blue.shade800),
+                    const SizedBox(width: 4),
+                    Text(
+                      "S/N: $serial",
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  // ✅ UPDATED: Product card passes the livraison ID and renders serials
+  Widget _buildProductsCard(dynamic products, String? linkedLivraisonId) {
     List safeProducts = [];
     if (products is List) {
       safeProducts = products;
@@ -791,25 +853,35 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                     color: Colors.grey.shade600)),
             const SizedBox(height: 10),
             ...safeProducts.map((p) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.inbox, size: 16, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text(p['productName'] ?? 'N/A',
-                          style: GoogleFonts.poppins(fontSize: 14))),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Text("x${p['quantity'] ?? '0'}",
-                        style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange.shade800)),
-                  )
+                  Row(
+                    children: [
+                      const Icon(Icons.inbox, size: 16, color: Colors.orange),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Text(p['productName'] ?? 'N/A',
+                              style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500))),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(8)),
+                        child: Text("x${p['quantity'] ?? '0'}",
+                            style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange.shade800)),
+                      )
+                    ],
+                  ),
+                  // 👇 Smart Serial Feature Dropped Below the Product!
+                  Padding(
+                    padding: const EdgeInsets.only(left: 24.0),
+                    child: _buildLinkedSerialNumbers(p['id'] ?? p['productId'], linkedLivraisonId),
+                  ),
                 ],
               ),
             ))
@@ -1068,7 +1140,8 @@ class _InstallationDetailsPageState extends State<InstallationDetailsPage> {
                 const SizedBox(height: 20),
                 _buildTechnicianList(),
                 const SizedBox(height: 20),
-                _buildProductsCard(data['orderedProducts']),
+                // ✅ UPDATED: Pass the linkedLivraisonId to the ProductsCard!
+                _buildProductsCard(data['orderedProducts'], data['linkedLivraisonId']),
                 const SizedBox(height: 20),
                 _buildEvaluationSection(data),
                 const SizedBox(height: 20),
