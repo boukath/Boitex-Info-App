@@ -3,6 +3,7 @@
 import PDFDocument from "pdfkit";
 import axios from "axios";
 import * as logger from "firebase-functions/logger";
+import * as QRCode from 'qrcode';
 
 // --- 🎨 2026 PREMIUM UI DESIGN SYSTEM ---
 const LOGO_URL = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
@@ -36,14 +37,13 @@ async function fetchImage(url: string): Promise<Buffer | null> {
 }
 
 /**
- * Fetch QR Code using an external free API
+ * Generate QR Code Locally (Fast & Reliable)
  */
-async function fetchQRCode(text: string): Promise<Buffer | null> {
+async function generateLocalQRCode(text: string): Promise<Buffer | null> {
   try {
-    const url = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(text)}&margin=0`;
-    const response = await axios.get(url, { responseType: "arraybuffer", timeout: 5000 });
-    return Buffer.from(response.data);
-  } catch (e) {
+    return await QRCode.toBuffer(text, { margin: 0, width: 150 });
+  } catch (error) {
+    logger.error("Failed to generate local QR Code", error);
     return null;
   }
 }
@@ -120,6 +120,26 @@ function drawPremiumShield(doc: typeof PDFDocument, x: number, y: number, scale:
 }
 
 /**
+ * 🚀 FIXED: Global Footer Function (Mentions Légales)
+ */
+function drawGlobalFooter(doc: typeof PDFDocument) {
+  const originalBottomMargin = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
+
+  const bottomY = doc.page.height - 35;
+
+  doc.font("Helvetica").fontSize(6).fillColor(COLORS.secondary);
+
+  const legalLine = "SARL BOITEX INFO : RC 01B0017926  •  NIF 000116001792641  •  ART 16124106515";
+  doc.text(legalLine, MARGIN, bottomY, { align: "center", width: doc.page.width - MARGIN * 2 });
+
+  const contactLine = "Adresse : 116 Rue des 3 frères Djillali, Birkhadem 16029  •  Téléphone : 023 56 20 85";
+  doc.text(contactLine, MARGIN, bottomY + 10, { align: "center", width: doc.page.width - MARGIN * 2 });
+
+  doc.page.margins.bottom = originalBottomMargin;
+}
+
+/**
  * ✅ MAIN GENERATOR FUNCTION
  */
 export async function generateInstallationPdf(data: any): Promise<Buffer> {
@@ -128,6 +148,7 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
       const doc = new PDFDocument({
         size: "A4",
         margin: MARGIN,
+        bufferPages: true,
         info: { Title: `Service Fait - ${data.installationCode || "Draft"}`, Author: "Boitex Info" },
       });
 
@@ -211,40 +232,117 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
 
       y += cardHeight + 25;
 
-      // --- LEGAL DECLARATION ---
-      y = checkPageBreak(doc, y, 50);
-      doc.rect(MARGIN, y, 3, 30).fill(COLORS.accent);
-      doc.font("Helvetica-Oblique").fontSize(9).fillColor(COLORS.secondary)
-         .text("Par la presente, le signataire atteste que les equipements detailles ci-dessous ont ete livres, installes, configures et testes avec succes par l'equipe technique de BOITEX INFO, et declare l'installation conforme aux attentes.", MARGIN + 12, y + 2, { width: doc.page.width - MARGIN * 2 - 12, lineGap: 2 });
-      y += 45;
+      // =========================================================================
+      // 📝 TECHNICIAN NOTES (RAPPORT D'INTERVENTION)
+      // =========================================================================
+      if (data.notes && typeof data.notes === 'string' && data.notes.trim() !== "") {
+        const notesText = data.notes.trim();
 
-      // --- EQUIPMENT TABLE ---
+        doc.font("Helvetica").fontSize(9);
+        const textWidth = doc.page.width - (MARGIN * 2) - 24;
+        const textHeight = doc.heightOfString(notesText, { width: textWidth, lineGap: 3 });
+        const boxHeight = textHeight + 40;
+
+        y = checkPageBreak(doc, y, boxHeight + 20);
+
+        doc.roundedRect(MARGIN, y, doc.page.width - (MARGIN * 2), boxHeight, 8).fill(COLORS.surface);
+
+        doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.secondary)
+           .text("RAPPORT TECHNIQUE", MARGIN + 12, y + 12, { characterSpacing: 1 });
+
+        doc.font("Helvetica").fontSize(9).fillColor(COLORS.primary)
+           .text(notesText, MARGIN + 12, y + 28, { width: textWidth, lineGap: 3 });
+
+        y += boxHeight + 20;
+      }
+
+      // =========================================================================
+      // 🧠 SMART LAYOUT CALCULATOR (TABLE VS SIGNATURES)
+      // =========================================================================
       const systems = data.systems || data.orderedProducts || [];
-      if (systems.length > 0) {
-        y = checkPageBreak(doc, y, 100);
+      let tableHeight = 0;
 
-        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.secondary).text("MATERIEL INSTALLE & CONFIGURATIONS", MARGIN, y, { characterSpacing: 1 });
-        y += 20;
+      // 1. Calculate how much space the table needs
+      if (systems.length > 0) {
+        tableHeight += 44; // Header space
+        for (const item of systems) {
+          const qty = parseInt(item.quantity?.toString() || "1", 10);
+          let rowHeight = 20;
+          if (item.serialNumbers || item.ipAddresses || item.macAddresses) {
+            for (let i = 0; i < qty; i++) {
+               const sn = item.serialNumbers ? item.serialNumbers[i] : "";
+               const ip = item.ipAddresses ? item.ipAddresses[i] : "";
+               const mac = item.macAddresses ? item.macAddresses[i] : "";
+               if (sn || ip || mac) rowHeight += 14;
+            }
+          }
+          rowHeight += 20;
+          tableHeight += rowHeight;
+        }
+      }
+
+      // 2. Determine if everything fits on one page
+      const SIGNATURES_AND_LEGAL_HEIGHT = 180;
+      const spaceRemaining = doc.page.height - MARGIN - 30 - y;
+      const fitsOnOnePage = (tableHeight > 0) && (tableHeight + SIGNATURES_AND_LEGAL_HEIGHT <= spaceRemaining);
+
+      // --- HELPER FUNCTION: Draw Signatures and Legal Text ---
+      const drawSignaturesAndLegal = (currentY: number) => {
+        let sy = checkPageBreak(doc, currentY, 120);
+        doc.moveTo(MARGIN, sy).lineTo(doc.page.width - MARGIN, sy).lineWidth(0.5).strokeColor(COLORS.border).stroke();
+        sy += 15;
+
+        const halfWidth = doc.page.width / 2;
+
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("EQUIPE BOITEX INFO", MARGIN, sy, { characterSpacing: 1 });
+        let techNames = "Service Technique";
+        if (data.assignedTechnicianNames && Array.isArray(data.assignedTechnicianNames) && data.assignedTechnicianNames.length > 0) {
+            techNames = data.assignedTechnicianNames.join("\n");
+        }
+        doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary).text(techNames, MARGIN, sy + 15);
+        if (cacheBuffer) doc.image(cacheBuffer, MARGIN, sy + 40, { width: 90 });
+
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("SIGNATURE CLIENT", halfWidth, sy, { characterSpacing: 1 });
+        const signatory = data.signatoryName || data.contactName || "Client";
+        doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary).text(signatory, halfWidth, sy + 15);
+        if (clientSigBuffer) doc.image(clientSigBuffer, halfWidth, sy + 30, { width: 150, height: 70, fit: [150, 70] });
+
+        sy += 110;
+
+        // LEGAL TEXT DIRECTLY UNDER SIGNATURES
+        sy = checkPageBreak(doc, sy, 50);
+        doc.rect(MARGIN, sy, 3, 30).fill(COLORS.accent);
+        doc.font("Helvetica-Oblique").fontSize(9).fillColor(COLORS.secondary)
+           .text("Par la presente, le signataire atteste que les equipements detailles ci-dessous ont ete livres, installes, configures et testes avec succes par l'equipe technique de BOITEX INFO, et declare l'installation conforme aux attentes.", MARGIN + 12, sy + 2, { width: doc.page.width - MARGIN * 2 - 12, lineGap: 2 });
+        sy += 45;
+        return sy;
+      };
+
+      // --- HELPER FUNCTION: Draw Equipment Table ---
+      const drawTable = (currentY: number) => {
+        let ty = checkPageBreak(doc, currentY, 100);
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.secondary).text("MATERIEL INSTALLE & CONFIGURATIONS", MARGIN, ty, { characterSpacing: 1 });
+        ty += 20;
 
         doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.secondary);
-        doc.text("DESIGNATION", MARGIN, y);
-        doc.text("REFERENCE", 250, y);
-        doc.text("QTE", doc.page.width - MARGIN - 30, y, { width: 30, align: "right" });
+        doc.text("DESIGNATION", MARGIN, ty);
+        doc.text("REFERENCE", 250, ty);
+        doc.text("QTE", doc.page.width - MARGIN - 30, ty, { width: 30, align: "right" });
 
-        y += 12;
-        doc.moveTo(MARGIN, y).lineTo(doc.page.width - MARGIN, y).lineWidth(0.5).strokeColor(COLORS.border).stroke();
-        y += 12;
+        ty += 12;
+        doc.moveTo(MARGIN, ty).lineTo(doc.page.width - MARGIN, ty).lineWidth(0.5).strokeColor(COLORS.border).stroke();
+        ty += 12;
 
         for (const item of systems) {
           const qty = parseInt(item.quantity?.toString() || "1", 10);
-          const rowHeight = 20 + (qty * 14) + 10;
-          y = checkPageBreak(doc, y, rowHeight);
+          const calculatedRowHeight = 20 + (qty * 14) + 10;
+          ty = checkPageBreak(doc, ty, calculatedRowHeight);
 
-          doc.font("Helvetica-Bold").fontSize(10).fillColor(COLORS.primary).text(item.name || "Produit Inconnu", MARGIN, y, { width: 190 });
-          doc.font("Helvetica").fontSize(9).fillColor(COLORS.secondary).text(item.reference || "N/A", 250, y);
-          doc.font("Helvetica-Bold").fontSize(11).fillColor(COLORS.primary).text(qty.toString(), doc.page.width - MARGIN - 30, y, { width: 30, align: "right" });
+          doc.font("Helvetica-Bold").fontSize(10).fillColor(COLORS.primary).text(item.name || "Produit Inconnu", MARGIN, ty, { width: 190 });
+          doc.font("Helvetica").fontSize(9).fillColor(COLORS.secondary).text(item.reference || "N/A", 250, ty);
+          doc.font("Helvetica-Bold").fontSize(11).fillColor(COLORS.primary).text(qty.toString(), doc.page.width - MARGIN - 30, ty, { width: 30, align: "right" });
 
-          let currentY = doc.y + 5;
+          let lineY = doc.y + 5;
 
           if (item.serialNumbers || item.ipAddresses || item.macAddresses) {
             for (let i = 0; i < qty; i++) {
@@ -258,43 +356,39 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
               if (mac) configLine += `MAC: ${mac}   `;
 
               if (configLine.length > 15) {
-                 doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary).text(configLine, MARGIN + 10, currentY);
-                 currentY += 14;
+                 doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary).text(configLine, MARGIN + 10, lineY);
+                 lineY += 14;
               }
             }
           }
 
-          y = currentY + 8;
-          doc.moveTo(MARGIN, y).lineTo(doc.page.width - MARGIN, y).lineWidth(0.5).strokeColor(COLORS.border).stroke();
-          y += 12;
+          ty = lineY + 8;
+          doc.moveTo(MARGIN, ty).lineTo(doc.page.width - MARGIN, ty).lineWidth(0.5).strokeColor(COLORS.border).stroke();
+          ty += 12;
         }
+        return ty + 10;
+      };
+
+      // 🚀 3. EXECUTE THE SMART RENDERER
+      if (systems.length > 0) {
+          if (fitsOnOnePage) {
+             // It fits! Squeeze everything onto Page 1.
+             y = drawTable(y);
+             y = drawSignaturesAndLegal(y);
+          } else {
+             // Table is too long. Signatures + Legal on Page 1, Table on Page 2.
+             y = drawSignaturesAndLegal(y);
+             doc.addPage();
+             y = MARGIN + 20;
+             y = drawTable(y);
+          }
+      } else {
+          // No equipment to show, just draw signatures
+          y = drawSignaturesAndLegal(y);
       }
-
-      y += 10;
-
-      // --- SIGNATURE BLOCK ---
-      y = checkPageBreak(doc, y, 150);
-      doc.moveTo(MARGIN, y).lineTo(doc.page.width - MARGIN, y).lineWidth(0.5).strokeColor(COLORS.border).stroke();
-      y += 15;
-
-      const halfWidth = doc.page.width / 2;
-
-      doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("EQUIPE BOITEX INFO", MARGIN, y, { characterSpacing: 1 });
-      let techNames = "Service Technique";
-      if (data.assignedTechnicianNames && Array.isArray(data.assignedTechnicianNames) && data.assignedTechnicianNames.length > 0) {
-          techNames = data.assignedTechnicianNames.join("\n");
-      }
-      doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary).text(techNames, MARGIN, y + 15);
-      if (cacheBuffer) doc.image(cacheBuffer, MARGIN, y + 40, { width: 90 });
-
-      doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("SIGNATURE CLIENT", halfWidth, y, { characterSpacing: 1 });
-      const signatory = data.signatoryName || data.contactName || "Client";
-      doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary).text(signatory, halfWidth, y + 15);
-      if (clientSigBuffer) doc.image(clientSigBuffer, halfWidth, y + 30, { width: 150, height: 70, fit: [150, 70] });
-
 
       // =========================================================================
-      // 🛡️ PAGE 2: CERTIFICAT DE GARANTIE
+      // 🛡️ PAGE 2 (OR 3): CERTIFICAT DE GARANTIE
       // =========================================================================
       doc.addPage();
       let certY = MARGIN + 20;
@@ -349,29 +443,34 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
       doc.font("Helvetica").fontSize(10).fillColor(COLORS.secondary)
          .text("Pour assurer la longévité de votre matériel (TPV, portiques et compteurs), nous recommandons vivement l'utilisation d'un onduleur (UPS) pour l'ensemble de vos équipements afin de pallier les coupures brusques. Veillez également à ce que l'environnement d'installation reste toujours bien aéré et facilement accessible pour les opérations de maintenance.", MARGIN, certY, { lineGap: 4, width: doc.page.width - MARGIN * 2 });
 
-      certY = doc.y + 35;
+      certY = doc.y + 15;
 
+      // =========================================================================
       // 📱 SECTION 4: QR CODE & DIGITAL LINKS
-      certY = checkPageBreak(doc, certY, 120);
+      // =========================================================================
+
+      certY = checkPageBreak(doc, certY, 75);
+
       doc.moveTo(MARGIN, certY).lineTo(doc.page.width - MARGIN, certY).lineWidth(0.5).strokeColor(COLORS.border).stroke();
-      certY += 20;
+      certY += 10;
 
       const verifyUrl = `https://boitexinfo.com`;
-      const qrBuffer = await fetchQRCode(verifyUrl);
+      const qrBuffer = await generateLocalQRCode(verifyUrl);
 
       if (qrBuffer) {
-         doc.image(qrBuffer, MARGIN, certY, { width: 70 });
+         doc.image(qrBuffer, MARGIN, certY, { width: 55 });
       } else {
-         doc.rect(MARGIN, certY, 70, 70).lineWidth(1).strokeColor(COLORS.border).stroke();
-         doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary).text("QR Code", MARGIN + 15, certY + 30);
+         doc.rect(MARGIN, certY, 55, 55).lineWidth(1).strokeColor(COLORS.border).stroke();
+         doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary).text("QR Code", MARGIN + 10, certY + 25);
       }
 
-      const supportX = MARGIN + 90;
-      doc.font("Helvetica-Bold").fontSize(10).fillColor(COLORS.primary).text("SUPPORT TECHNIQUE", supportX, certY);
-      doc.font("Helvetica").fontSize(9).fillColor(COLORS.secondary).text("Scannez ce QR Code avec l'appareil photo de votre smartphone pour acceder a notre portail, ou contactez-nous via les liens ci-contre.", supportX, certY + 15, { width: 180, lineGap: 2 });
+      const supportX = MARGIN + 70;
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("SUPPORT TECHNIQUE", supportX, certY);
+      doc.font("Helvetica").fontSize(8).fillColor(COLORS.secondary)
+         .text("Scannez ce QR Code avec l'appareil photo de votre smartphone pour acceder a notre portail, ou contactez-nous via les liens ci-contre.", supportX, certY + 12, { width: 190, lineGap: 1 });
 
-      const socialX = doc.page.width - MARGIN - 160;
-      doc.font("Helvetica-Bold").fontSize(10).fillColor(COLORS.primary).text("RESEAUX & CONTACT", socialX, certY);
+      const socialX = doc.page.width - MARGIN - 150;
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text("RESEAUX & CONTACT", socialX, certY);
 
       const drawSocial = (prefix: string, text: string, link: string, yPos: number) => {
          doc.font("Helvetica-Bold").fontSize(8).fillColor(COLORS.secondary).text(prefix, socialX, yPos, { continued: true });
@@ -379,12 +478,12 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
       };
 
       drawSocial("WEB:  ", "Boitexinfo.com", "https://boitexinfo.com", certY + 15);
-      drawSocial("YOUTUBE:  ", "@boitexinfo8469", "https://youtube.com/@boitexinfo8469", certY + 30);
-      drawSocial("FACEBOOK:  ", "Boitex Info", "https://Facebook.com/boitexinfo", certY + 45);
-      drawSocial("INSTAGRAM:  ", "@boitex_info", "https://instagram.com/boitex_info/", certY + 60);
+      drawSocial("YOUTUBE:  ", "@boitexinfo", "https://youtube.com/@boitexinfo8469", certY + 28);
+      drawSocial("FACEBOOK:  ", "Boitex Info", "https://Facebook.com/boitexinfo", certY + 41);
+      drawSocial("INSTAGRAM:  ", "@boitex_info", "https://instagram.com/boitex_info/", certY + 54);
 
       // =========================================================================
-      // 📸 PAGE 3: ANNEXE VISUELLE (If Photos Exist)
+      // 📸 ANNEXE VISUELLE
       // =========================================================================
       const rawMediaUrls = data.mediaUrls || data.photoUrls || [];
       const imageList = rawMediaUrls.filter((url: string) => typeof url === 'string' && !url.match(/\.(mp4|mov|avi|mkv)(\?.*)?$/i));
@@ -405,9 +504,11 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
         const maxImgHeight = maxImgWidth * 0.75;
         let currentX = MARGIN;
 
-        for (let i = 0; i < imageList.length; i++) {
-          const imgBuffer = await fetchImage(imageList[i]);
+        const downloadedImages = await Promise.all(
+          imageList.map((url: string) => fetchImage(url))
+        );
 
+        for (const imgBuffer of downloadedImages) {
           if (imgBuffer) {
             if (annexY + maxImgHeight > doc.page.height - MARGIN - 40) {
               doc.addPage();
@@ -437,6 +538,19 @@ export async function generateInstallationPdf(data: any): Promise<Buffer> {
             }
           }
         }
+      }
+
+      // =========================================================================
+      // 🏁 ADD GLOBAL FOOTERS ONLY TO PAGE 1 AND PAGE 2
+      // =========================================================================
+
+      const pageCount = doc.bufferedPageRange().count;
+      // Ensure we only ever stamp a maximum of the first 2 pages
+      const maxPagesToStamp = Math.min(pageCount, 2);
+
+      for (let i = 0; i < maxPagesToStamp; i++) {
+        doc.switchToPage(i); // Go to Page 1 (index 0) and Page 2 (index 1)
+        drawGlobalFooter(doc); // Stamp our legal mentions at the bottom safely
       }
 
       doc.end();

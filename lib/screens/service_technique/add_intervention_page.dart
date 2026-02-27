@@ -15,8 +15,6 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
-import 'package:image_picker/image_picker.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 // ✅ ADDED: Import for AI Keyword Enhancement
 import 'package:cloud_functions/cloud_functions.dart';
@@ -144,8 +142,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   bool _isLoadingStores = false;
   bool _isLoadingEquipments = false;
 
-  // ✅ NEW: State for Media Upload
-  List<File> _localFilesToUpload = [];
+  // ✅ UPDATED: State for Media Upload using PlatformFile (Web & Mobile safe)
+  List<PlatformFile> _localFilesToUpload = [];
   List<String> _uploadedMediaUrls = [];
   bool _isUploadingMedia = false;
 
@@ -449,13 +447,21 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     }
   }
 
-  Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds) async {
+  // ✅ UPDATED: B2 Upload for PlatformFile
+  Future<String?> _uploadFileToB2(PlatformFile file, Map<String, dynamic> b2Creds) async {
     try {
-      final fileName = path.basename(file.path);
-      final length = await file.length();
-      final bytes = await file.readAsBytes();
-      final sha1Hash = sha1.convert(bytes).toString();
+      final fileName = file.name;
+      final int length = file.size;
 
+      // Ensure proper reading of file bytes for both Web & Mobile
+      final Uint8List bytes;
+      if (kIsWeb) {
+        bytes = file.bytes!;
+      } else {
+        bytes = await File(file.path!).readAsBytes();
+      }
+
+      final sha1Hash = sha1.convert(bytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
 
       var request = http.StreamedRequest('POST', uploadUri);
@@ -487,30 +493,19 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     }
   }
 
-  // --- MEDIA PICKER ---
+  // ✅ UPDATED: MEDIA PICKER (Single Button File Picker)
   Future<void> _pickFiles() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'mp4', 'mov', 'pdf'],
       allowMultiple: true,
+      withData: kIsWeb, // Required for Flutter Web to load file bytes
     );
     if (result != null) {
       setState(() {
-        _localFilesToUpload.addAll(result.paths.where((p) => p != null).map((p) => File(p!)));
+        _localFilesToUpload.addAll(result.files);
       });
     }
-  }
-
-  Future<void> _capturePhoto() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? xFile = await picker.pickImage(source: ImageSource.camera);
-    if (xFile != null) setState(() => _localFilesToUpload.add(File(xFile.path)));
-  }
-
-  Future<void> _captureVideo() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? xFile = await picker.pickVideo(source: ImageSource.camera);
-    if (xFile != null) setState(() => _localFilesToUpload.add(File(xFile.path)));
   }
 
   // --- DATA FETCHING ---
@@ -803,6 +798,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     );
   }
 
+  // ✅ UPDATED: Single Button UI & Web/Mobile Safe Images
   Widget _buildMediaSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -816,8 +812,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
             spacing: 12,
             runSpacing: 12,
             children: _localFilesToUpload.map((file) {
-              final isVid = file.path.toLowerCase().endsWith('.mp4') || file.path.toLowerCase().endsWith('.mov');
-              final isPdf = file.path.toLowerCase().endsWith('.pdf');
+              final isVid = file.name.toLowerCase().endsWith('.mp4') || file.name.toLowerCase().endsWith('.mov');
+              final isPdf = file.name.toLowerCase().endsWith('.pdf');
 
               return Stack(
                 clipBehavior: Clip.none,
@@ -836,7 +832,9 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                           ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
                           : isVid
                           ? const Icon(Icons.videocam, size: 40, color: Colors.blue)
-                          : Image.file(file, fit: BoxFit.cover),
+                          : (kIsWeb
+                          ? Image.memory(file.bytes!, fit: BoxFit.cover)
+                          : Image.file(File(file.path!), fit: BoxFit.cover)),
                     ),
                   ),
                   Positioned(
@@ -860,14 +858,19 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           const SizedBox(height: 16),
         ],
 
-        Row(
-          children: [
-            Expanded(child: ElevatedButton.icon(onPressed: _isUploadingMedia ? null : _capturePhoto, icon: const Icon(Icons.photo_camera), label: const Text('Photo'))),
-            const SizedBox(width: 8),
-            Expanded(child: ElevatedButton.icon(onPressed: _isUploadingMedia ? null : _captureVideo, icon: const Icon(Icons.videocam), label: const Text('Vidéo'))),
-            const SizedBox(width: 8),
-            Expanded(child: ElevatedButton.icon(onPressed: _isUploadingMedia ? null : _pickFiles, icon: const Icon(Icons.attach_file), label: const Text('Fichier'))),
-          ],
+        // Single Upload Button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _isUploadingMedia ? null : _pickFiles,
+            icon: const Icon(Icons.attach_file),
+            label: const Text('Sélectionner des fichiers'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF667EEA),
+              side: const BorderSide(color: Color(0xFF667EEA)),
+            ),
+          ),
         ),
       ],
     );
@@ -1023,12 +1026,10 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                       controller: controller,
                                       focusNode: focusNode,
                                       decoration: const InputDecoration(
-                                        // ✅ FIXED: Label changed back to Optionnel
                                         labelText: 'Machine / Équipement (Optionnel)',
                                         prefixIcon: Icon(Icons.settings_input_component),
                                         suffixIcon: Icon(Icons.arrow_drop_down),
                                       ),
-                                      // ✅ FIXED: Validator removed
                                     );
                                   },
                                 ),
@@ -1140,7 +1141,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                               ),
                             ),
 
-                            // ✅ 📅 NEW: Scheduled Date & Time Pickers
+                            // 📅 Scheduled Date & Time Pickers
                             Padding(
                               padding: const EdgeInsets.only(bottom: 16),
                               child: Row(
