@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart'; // Needed for date formatting
+import 'package:intl/intl.dart';
 
 // -----------------------------------------------------------------------------
 // 📝 HELPER MODELS (DTOs)
@@ -14,12 +14,15 @@ class ClientReportData {
   final DateTime endDate;
   final List<StoreReportData> stores;
   final List<StoreReportData> topProblematicStores;
+
+  // Global KPIs
   final int totalInterventions;
+  final int totalInstallations;
+  final int totalLivraisons;
   final int totalEquipment;
 
-  // ✅ NEW: Data for Charts
-  final Map<String, int> interventionsByMonth;
-  final Map<String, int> interventionsByType;
+  final Map<String, int> activityByMonth;
+  final Map<String, int> activityByType;
 
   ClientReportData({
     required this.clientName,
@@ -28,9 +31,11 @@ class ClientReportData {
     required this.stores,
     required this.topProblematicStores,
     required this.totalInterventions,
+    required this.totalInstallations,
+    required this.totalLivraisons,
     required this.totalEquipment,
-    required this.interventionsByMonth,
-    required this.interventionsByType,
+    required this.activityByMonth,
+    required this.activityByType,
   });
 }
 
@@ -40,6 +45,8 @@ class StoreReportData {
   final String location;
   final List<EquipmentReportItem> equipment;
   final List<InterventionReportItem> interventions;
+  final List<InstallationReportItem> installations;
+  final List<LivraisonReportItem> livraisons;
 
   StoreReportData({
     required this.id,
@@ -47,9 +54,11 @@ class StoreReportData {
     required this.location,
     required this.equipment,
     required this.interventions,
+    required this.installations,
+    required this.livraisons,
   });
 
-  bool get hasActivity => equipment.isNotEmpty || interventions.isNotEmpty;
+  bool get hasActivity => equipment.isNotEmpty || interventions.isNotEmpty || installations.isNotEmpty || livraisons.isNotEmpty;
 }
 
 class EquipmentReportItem {
@@ -58,34 +67,35 @@ class EquipmentReportItem {
   final String serial;
   final DateTime? installDate;
 
-  EquipmentReportItem({
-    required this.name,
-    required this.marque,
-    required this.serial,
-    this.installDate,
-  });
+  EquipmentReportItem({required this.name, required this.marque, required this.serial, this.installDate});
 }
 
 class InterventionReportItem {
   final DateTime date;
   final String technician;
-  final String managerName;
   final String type;
-  final String summary;
   final String status;
   final String diagnostic;
-  final String workDone;
 
-  InterventionReportItem({
-    required this.date,
-    required this.technician,
-    required this.managerName,
-    required this.type,
-    required this.summary,
-    required this.status,
-    required this.diagnostic,
-    required this.workDone,
-  });
+  InterventionReportItem({required this.date, required this.technician, required this.type, required this.status, required this.diagnostic});
+}
+
+class InstallationReportItem {
+  final DateTime date;
+  final String code;
+  final String status;
+  final String technicians;
+
+  InstallationReportItem({required this.date, required this.code, required this.status, required this.technicians});
+}
+
+class LivraisonReportItem {
+  final DateTime date;
+  final String code;
+  final String status;
+  final String recipient;
+
+  LivraisonReportItem({required this.date, required this.code, required this.status, required this.recipient});
 }
 
 // -----------------------------------------------------------------------------
@@ -101,81 +111,127 @@ class ClientReportService {
     required DateTimeRange dateRange,
   }) async {
     try {
-      print("🚀 STARTING REPORT GENERATION for $clientName");
+      print("🚀 STARTING PREMIUM REPORT GENERATION for $clientName");
 
       // 1. Fetch All Stores
-      final storesSnapshot = await _firestore
-          .collection('clients')
-          .doc(clientId)
-          .collection('stores')
-          .get();
+      final storesSnapshot = await _firestore.collection('clients').doc(clientId).collection('stores').get();
 
-      // 2. Fetch Interventions
-      final interventionsSnapshot = await _firestore
-          .collection('interventions')
-          .where('clientId', isEqualTo: clientId)
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange.start))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(dateRange.end))
-          .orderBy('createdAt', descending: true)
-          .get();
+      // 2. Fetch Interventions, Installations, Livraisons concurrently
+      final startTimestamp = Timestamp.fromDate(dateRange.start);
+      final endTimestamp = Timestamp.fromDate(dateRange.end);
 
-      print("🛠️ Found ${interventionsSnapshot.docs.length} interventions.");
+      final futures = await Future.wait([
+        _firestore.collection('interventions')
+            .where('clientId', isEqualTo: clientId)
+            .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
+            .where('createdAt', isLessThanOrEqualTo: endTimestamp).get(),
 
+        _firestore.collection('installations')
+            .where('clientId', isEqualTo: clientId)
+            .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
+            .where('createdAt', isLessThanOrEqualTo: endTimestamp).get(),
+
+        _firestore.collection('livraisons')
+            .where('clientId', isEqualTo: clientId)
+            .where('createdAt', isGreaterThanOrEqualTo: startTimestamp)
+            .where('createdAt', isLessThanOrEqualTo: endTimestamp).get(),
+      ]);
+
+      final interventionsDocs = futures[0].docs;
+      final installationsDocs = futures[1].docs;
+      final livraisonsDocs = futures[2].docs;
+
+      // Grouping Maps
       final Map<String, List<InterventionReportItem>> interventionsByStore = {};
+      final Map<String, List<InstallationReportItem>> installationsByStore = {};
+      final Map<String, List<LivraisonReportItem>> livraisonsByStore = {};
 
-      // ✅ NEW: Aggregation Maps
       final Map<String, int> statsByMonth = {};
-      final Map<String, int> statsByType = {};
+      final Map<String, int> statsByType = {}; // Tracks all activity types
 
-      for (var doc in interventionsSnapshot.docs) {
+      // Process Interventions
+      for (var doc in interventionsDocs) {
         final data = doc.data();
-        final String? sId = data['storeId'];
-
+        final sId = data['storeId'];
         if (sId == null) continue;
 
-        if (!interventionsByStore.containsKey(sId)) {
-          interventionsByStore[sId] = [];
-        }
+        DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+        statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
+        statsByType['Interventions'] = (statsByType['Interventions'] ?? 0) + 1;
 
-        DateTime date = DateTime.now();
-        if (data['createdAt'] != null && data['createdAt'] is Timestamp) {
-          date = (data['createdAt'] as Timestamp).toDate();
-        }
-
-        // ✅ AGGREGATION LOGIC
-        // 1. By Month (e.g., "Oct 2025")
-        final String monthKey = DateFormat('MMM yyyy', 'fr_FR').format(date);
-        statsByMonth[monthKey] = (statsByMonth[monthKey] ?? 0) + 1;
-
-        // 2. By Type (e.g., "Maintenance")
-        final String typeKey = data['interventionType'] ?? 'Autre';
-        statsByType[typeKey] = (statsByType[typeKey] ?? 0) + 1;
-
-        interventionsByStore[sId]!.add(
-          InterventionReportItem(
-            date: date,
-            technician: data['createdByName'] ?? 'Technicien',
-            managerName: data['managerName'] ?? 'Non signé',
-            type: typeKey,
-            summary: data['requestDescription'] ?? '',
-            status: data['status'] ?? 'Terminé',
-            diagnostic: data['diagnostic'] ?? '',
-            workDone: data['workDone'] ?? '',
-          ),
-        );
+        interventionsByStore.putIfAbsent(sId, () => []).add(InterventionReportItem(
+          date: date,
+          technician: data['createdByName'] ?? 'Inconnu',
+          type: data['interventionType'] ?? 'Autre',
+          status: data['status'] ?? 'Terminé',
+          diagnostic: data['diagnostic'] ?? '-',
+        ));
       }
 
-      // 3. Parallel Fetch of Equipment
+      // Process Installations
+      for (var doc in installationsDocs) {
+        final data = doc.data();
+        final sId = data['storeId'];
+        if (sId == null) continue;
+
+        DateTime date = (data['installationDate'] as Timestamp?)?.toDate() ?? (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+        statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
+        statsByType['Installations'] = (statsByType['Installations'] ?? 0) + 1;
+
+        // --- ✅ FIXED TECHNICIAN PARSING LOGIC ---
+        String techs = 'Non assigné';
+
+        // 1. Try to get the real names if they are saved directly
+        if (data['effectiveTechnicians'] is List && (data['effectiveTechnicians'] as List).isNotEmpty) {
+          techs = (data['effectiveTechnicians'] as List).join(', ');
+        } else if (data['assignedTechnicianNames'] is List && (data['assignedTechnicianNames'] as List).isNotEmpty) {
+          techs = (data['assignedTechnicianNames'] as List).join(', ');
+        }
+        // 2. Otherwise safely parse the assignedTechnicians array
+        else if (data['assignedTechnicians'] is List) {
+          List techList = data['assignedTechnicians'];
+          if (techList.isNotEmpty) {
+            techs = techList.map((t) {
+              if (t is Map) return t['displayName'] ?? 'Inconnu';
+              if (t is String) return 'Tech (Assigné)'; // Fallback if it's just a raw UID String
+              return '';
+            }).where((s) => s.isNotEmpty).join(', ');
+          }
+        }
+        // ----------------------------------------
+
+        installationsByStore.putIfAbsent(sId, () => []).add(InstallationReportItem(
+          date: date,
+          code: data['installationCode'] ?? 'INST-XXX',
+          status: data['status'] ?? 'À Planifier',
+          technicians: techs,
+        ));
+      }
+
+      // Process Livraisons
+      for (var doc in livraisonsDocs) {
+        final data = doc.data();
+        final sId = data['storeId'];
+        if (sId == null) continue;
+
+        DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+        statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] = (statsByMonth[DateFormat('MMM yyyy', 'fr_FR').format(date)] ?? 0) + 1;
+        statsByType['Livraisons'] = (statsByType['Livraisons'] ?? 0) + 1;
+
+        livraisonsByStore.putIfAbsent(sId, () => []).add(LivraisonReportItem(
+          date: date,
+          code: data['bonLivraisonCode'] ?? 'BL-XXX',
+          status: data['status'] ?? 'En Cours',
+          recipient: data['recipientName'] ?? 'Non spécifié',
+        ));
+      }
+
+      // 3. Parallel Fetch of Equipment for Stores
       List<Future<StoreReportData>> storeFutures = storesSnapshot.docs.map((doc) async {
         final data = doc.data();
         final String storeId = doc.id;
-        final String name = data['name'] ?? 'Magasin Inconnu';
-        final String location = data['location'] ?? '';
 
-        final equipmentSnapshot = await doc.reference
-            .collection('materiel_installe')
-            .get();
-
+        final equipmentSnapshot = await doc.reference.collection('materiel_installe').get();
         final equipmentList = equipmentSnapshot.docs.map((eDoc) {
           final eData = eDoc.data();
           return EquipmentReportItem(
@@ -186,29 +242,30 @@ class ClientReportService {
           );
         }).toList();
 
-        final storeInterventions = interventionsByStore[storeId] ?? [];
-
         return StoreReportData(
           id: storeId,
-          name: name,
-          location: location,
+          name: data['name'] ?? 'Magasin Inconnu',
+          location: data['location'] ?? '',
           equipment: equipmentList,
-          interventions: storeInterventions,
+          interventions: interventionsByStore[storeId] ?? [],
+          installations: installationsByStore[storeId] ?? [],
+          livraisons: livraisonsByStore[storeId] ?? [],
         );
       }).toList();
 
       final List<StoreReportData> allStoresData = await Future.wait(storeFutures);
 
-      // 4. Calculate Stats & Sort
-      final List<StoreReportData> sortedByIssues = List.from(allStoresData);
-      sortedByIssues.sort((a, b) => b.interventions.length.compareTo(a.interventions.length));
+      // Sort Stores by total activity volume
+      allStoresData.sort((a, b) {
+        int aVol = a.interventions.length + a.installations.length + a.livraisons.length;
+        int bVol = b.interventions.length + b.installations.length + b.livraisons.length;
+        return bVol.compareTo(aVol); // Descending
+      });
 
-      final top3 = sortedByIssues.take(3).where((s) => s.interventions.isNotEmpty).toList();
+      final top3 = allStoresData.take(3).where((s) => s.hasActivity).toList();
 
+      // Sort alphabetically for final display
       allStoresData.sort((a, b) => a.name.compareTo(b.name));
-
-      int totalInterventions = interventionsSnapshot.docs.length;
-      int totalEquipment = allStoresData.fold(0, (sum, store) => sum + store.equipment.length);
 
       return ClientReportData(
         clientName: clientName,
@@ -216,15 +273,16 @@ class ClientReportService {
         endDate: dateRange.end,
         stores: allStoresData,
         topProblematicStores: top3,
-        totalInterventions: totalInterventions,
-        totalEquipment: totalEquipment,
-        // ✅ PASS DATA TO MODEL
-        interventionsByMonth: statsByMonth,
-        interventionsByType: statsByType,
+        totalInterventions: interventionsDocs.length,
+        totalInstallations: installationsDocs.length,
+        totalLivraisons: livraisonsDocs.length,
+        totalEquipment: allStoresData.fold(0, (sum, store) => sum + store.equipment.length),
+        activityByMonth: statsByMonth,
+        activityByType: statsByType,
       );
 
     } catch (e) {
-      print("❌ Error generating Client Report Data: $e");
+      print("❌ Error generating Premium Report Data: $e");
       rethrow;
     }
   }

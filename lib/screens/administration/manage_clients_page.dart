@@ -8,6 +8,7 @@ import 'package:boitex_info_app/screens/administration/manage_stores_page.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
 import 'dart:async';
+import 'package:intl/intl.dart';
 
 // ✅ IMPORTS FOR REPORT GENERATION
 import 'package:printing/printing.dart';
@@ -304,6 +305,7 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         ),
       );
 
+      // 1. Fetch Data
       final reportService = ClientReportService();
       final reportData = await reportService.fetchReportData(
         clientId: clientId,
@@ -311,20 +313,30 @@ class _ManageClientsPageState extends State<ManageClientsPage>
         dateRange: dateRange,
       );
 
+      print("✅ Data fetched successfully! Generating PDF bytes...");
+
+      // 2. Generate PDF Bytes
       final pdfService = ClientReportPdfService();
       final pdfBytes = await pdfService.generateReport(reportData);
 
+      print("✅ PDF bytes generated: ${pdfBytes.length} bytes.");
+
+      // 3. Close the loading indicator
       if (mounted) Navigator.pop(context);
 
-      await Printing.layoutPdf(
-        onLayout: (format) async => pdfBytes,
-        name:
-        'Rapport_${clientName}_${DateTime.now().millisecondsSinceEpoch}.pdf',
+      // 4. SHARE the PDF instead of trying to Print it (Fixes Android silent crash)
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: 'Rapport_${clientName.replaceAll(' ', '_')}_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf',
       );
+
+      print("✅ PDF shared/opened successfully!");
+
     } catch (e) {
       if (mounted && Navigator.canPop(context)) {
         Navigator.pop(context);
       }
+      print("❌ PDF Generation Error: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Erreur lors de la génération: $e"),
