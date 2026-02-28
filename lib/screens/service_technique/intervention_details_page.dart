@@ -42,6 +42,9 @@ import 'package:boitex_info_app/screens/administration/product_scanner_page.dart
 // ✅ IMPORT THE DRAFT SERVICE
 import 'package:boitex_info_app/services/intervention_draft_service.dart';
 
+// ✅ IMPORT STORE EQUIPMENT PAGE FOR NAVIGATION
+import 'package:boitex_info_app/screens/administration/store_equipment_page.dart';
+
 // ----------------------------------------------------------------------
 // Data model
 // ----------------------------------------------------------------------
@@ -2861,6 +2864,13 @@ L'équipe BOITEX INFO'''
   // ----------------------------------------------------------------------
   Widget _buildSummaryCard(Map<String, dynamic> data, DateTime createdAt) {
     final String? clientPhone = data['clientPhone'];
+
+    // Extract variables needed for navigation
+    final String? clientId = data['clientId'];
+    final String? storeId = data['storeId'];
+    final String storeName = data['storeName'] ?? 'Magasin inconnu';
+    final String clientName = data['clientName'] ?? 'Client inconnu';
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -2879,9 +2889,46 @@ L'équipe BOITEX INFO'''
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'Client: ${data['clientName'] ?? 'N/A'} - Magasin: ${data['storeName'] ?? 'N/A'}',
-                        style: const TextStyle(color: Colors.black54),
+                      // ✅ UPGRADED: Clickable Store Name
+                      GestureDetector(
+                        onTap: () {
+                          if (clientId != null && storeId != null && clientId.isNotEmpty && storeId.isNotEmpty) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => StoreEquipmentPage(
+                                  clientId: clientId,
+                                  storeId: storeId,
+                                  storeName: storeName,
+                                ),
+                              ),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Les informations du magasin sont incomplètes."),
+                                backgroundColor: Colors.redAccent,
+                              ),
+                            );
+                          }
+                        },
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.storefront_outlined, size: 18, color: Color(0xFF667EEA)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                '$clientName - $storeName',
+                                style: const TextStyle(
+                                  color: Color(0xFF667EEA),
+                                  fontWeight: FontWeight.w600,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -2896,7 +2943,7 @@ L'équipe BOITEX INFO'''
                   const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 12),
             Text(
               'Date de création: ${DateFormat('dd MMMM yyyy à HH:mm', 'fr_FR').format(createdAt)}',
               style: const TextStyle(color: Colors.black54),

@@ -350,11 +350,11 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     List<Map<String, dynamic>> history = [];
 
     try {
-      // 1. Fetch Interventions (Only 'Terminé')
+      // 1. Fetch Interventions (Only 'Terminé' or 'Clôturé')
       final interventions = await FirebaseFirestore.instance
           .collection('interventions')
           .where('storeId', isEqualTo: widget.storeId)
-          .where('status', isEqualTo: 'Terminé')
+          .where('status', whereIn: ['Terminé', 'Clôturé', 'Facturé'])
           .get();
 
       for (var doc in interventions.docs) {
@@ -525,7 +525,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
   Widget _buildKPICard(String title, String value, IconData icon, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -533,6 +533,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: color, size: 24),
             const SizedBox(height: 8),
@@ -545,133 +546,131 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
+  // ✅ SMART LAYOUT - NO TRANSFORM.TRANSLATE OVERFLOWS
   Widget _buildHeroHeader() {
     return SliverToBoxAdapter(
       child: Container(
         color: const Color(0xFFF8FAFC),
         child: Column(
           children: [
-            // Profile overlapping section - ⬇️ MOVED DOWN (offset changed from -40 to -20)
-            Transform.translate(
-              offset: const Offset(0, -20),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        // 📸 CLICKABLE LOGO IMAGE
-                        GestureDetector(
-                          onTap: () {
-                            if (_localLogoUrl != null) {
-                              Navigator.push(context, MaterialPageRoute(
-                                  builder: (_) => ImageGalleryPage(imageUrls: [_localLogoUrl!], initialIndex: 0)
-                              ));
-                            }
-                          },
-                          child: Container(
-                            height: 85,
-                            width: 85,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                              border: Border.all(color: Colors.white, width: 4),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))],
-                              image: _localLogoUrl != null ? DecorationImage(image: NetworkImage(_localLogoUrl!), fit: BoxFit.cover) : null,
-                            ),
-                            child: _localLogoUrl == null ? const Icon(Icons.storefront, size: 40, color: Colors.grey) : null,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // 📸 CLICKABLE LOGO IMAGE
+                      GestureDetector(
+                        onTap: () {
+                          if (_localLogoUrl != null) {
+                            Navigator.push(context, MaterialPageRoute(
+                                builder: (_) => ImageGalleryPage(imageUrls: [_localLogoUrl!], initialIndex: 0)
+                            ));
+                          }
+                        },
+                        child: Container(
+                          height: 85,
+                          width: 85,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                            border: Border.all(color: Colors.white, width: 4),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))],
+                            image: _localLogoUrl != null ? DecorationImage(image: NetworkImage(_localLogoUrl!), fit: BoxFit.cover) : null,
                           ),
-                        ),
-                        // Edit Logo Button
-                        Positioned(
-                          bottom: 0,
-                          right: -4,
-                          child: GestureDetector(
-                            onTap: () => _pickAndUploadImage(isCover: false),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1E293B),
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 8.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(widget.storeName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)), maxLines: 2, overflow: TextOverflow.ellipsis),
-                            Row(
-                              children: [
-                                Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
-                                const SizedBox(width: 6),
-                                const Text("Actif", style: TextStyle(fontSize: 13, color: Colors.green, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                          ],
+                          child: _localLogoUrl == null ? const Icon(Icons.storefront, size: 40, color: Colors.grey) : null,
                         ),
                       ),
+                      // Edit Logo Button
+                      Positioned(
+                        bottom: 0,
+                        right: -4,
+                        child: GestureDetector(
+                          onTap: () => _pickAndUploadImage(isCover: false),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.storeName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)), maxLines: 2, overflow: TextOverflow.ellipsis),
+                          Row(
+                            children: [
+                              Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
+                              const SizedBox(width: 6),
+                              const Text("Actif", style: TextStyle(fontSize: 13, color: Colors.green, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-            // Quick Actions - ⬇️ MOVED DOWN (offset changed to -5)
-            Transform.translate(
-              offset: const Offset(0, -5),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildActionCircle(Icons.phone_outlined, "Appeler", () {}),
-                  _buildActionCircle(Icons.map_outlined, "Itinéraire", () {}),
-                  _buildActionCircle(Icons.edit_outlined, "Éditer", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStorePage(clientId: widget.clientId, storeId: widget.storeId)))),
-                  _buildActionCircle(Icons.add_box_outlined, "Ajouter", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStoreEquipmentPage(clientId: widget.clientId, storeId: widget.storeId)))),
+                  ),
                 ],
               ),
             ),
-            // Live KPI Cards - ⬇️ MOVED DOWN (offset changed to +10)
-            Transform.translate(
-              offset: const Offset(0, 10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('clients').doc(widget.clientId).collection('stores').doc(widget.storeId).collection('materiel_installe').snapshots(),
-                  builder: (context, snapshot) {
-                    int total = 0;
-                    int validWarranty = 0;
-                    if (snapshot.hasData) {
-                      total = snapshot.data!.docs.length;
-                      for (var doc in snapshot.data!.docs) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        final warranty = _getWarranty(data);
-                        if (warranty != null && warranty.isValid) validWarranty++;
-                      }
+
+            const SizedBox(height: 24),
+
+            // Quick Actions
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildActionCircle(Icons.phone_outlined, "Appeler", () {}),
+                _buildActionCircle(Icons.map_outlined, "Itinéraire", () {}),
+                _buildActionCircle(Icons.edit_outlined, "Éditer", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStorePage(clientId: widget.clientId, storeId: widget.storeId)))),
+                _buildActionCircle(Icons.add_box_outlined, "Ajouter", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStoreEquipmentPage(clientId: widget.clientId, storeId: widget.storeId)))),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Live KPI Cards
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('clients').doc(widget.clientId).collection('stores').doc(widget.storeId).collection('materiel_installe').snapshots(),
+                builder: (context, snapshot) {
+                  int total = 0;
+                  int validWarranty = 0;
+                  if (snapshot.hasData) {
+                    total = snapshot.data!.docs.length;
+                    for (var doc in snapshot.data!.docs) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final warranty = _getWarranty(data);
+                      if (warranty != null && warranty.isValid) validWarranty++;
                     }
-                    String warrantyRate = total == 0 ? "0%" : "${((validWarranty / total) * 100).toStringAsFixed(0)}%";
-                    return Row(
-                      children: [
-                        _buildKPICard("Total Équipements", total.toString(), Icons.inventory_2_outlined, const Color(0xFF667EEA)),
-                        const SizedBox(width: 12),
-                        _buildKPICard("Taux de Garantie", warrantyRate, Icons.verified_user_outlined, Colors.green),
-                        const SizedBox(width: 12),
-                        _buildKPICard("Dernière Visite", "Récemment", Icons.history, Colors.orange),
-                      ],
-                    );
-                  },
-                ),
+                  }
+                  String warrantyRate = total == 0 ? "0%" : "${((validWarranty / total) * 100).toStringAsFixed(0)}%";
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildKPICard("Total Équipements", total.toString(), Icons.inventory_2_outlined, const Color(0xFF667EEA)),
+                      const SizedBox(width: 12),
+                      _buildKPICard("Taux de Garantie", warrantyRate, Icons.verified_user_outlined, Colors.green),
+                      const SizedBox(width: 12),
+                      _buildKPICard("Dernière Visite", "Récemment", Icons.history, Colors.orange),
+                    ],
+                  );
+                },
               ),
             ),
-            const SizedBox(height: 32), // ✅ Added extra padding to compensate for shifts
+            const SizedBox(height: 32),
           ],
         ),
       ),
@@ -851,171 +850,175 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
   }
 
   Widget _buildEquipmentTab() {
-    return Column(
-      children: [
-        Container(
-          color: const Color(0xFFF8FAFC),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: "Rechercher un S/N ou modèle...",
-                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Container(
+            color: const Color(0xFFF8FAFC),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: "Rechercher un S/N ou modèle...",
+                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: ['Tous', 'Sous Garantie', 'Expirée'].map((filter) {
-                    final isSelected = _selectedFilter == filter;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8.0),
-                      child: ChoiceChip(
-                        label: Text(filter, style: TextStyle(color: isSelected ? Colors.white : Colors.grey.shade700, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                        selected: isSelected,
-                        selectedColor: const Color(0xFF667EEA),
-                        backgroundColor: Colors.white,
-                        side: BorderSide(color: isSelected ? const Color(0xFF667EEA) : Colors.grey.shade300),
-                        onSelected: (val) => setState(() => _selectedFilter = filter),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              )
-            ],
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: ['Tous', 'Sous Garantie', 'Expirée'].map((filter) {
+                      final isSelected = _selectedFilter == filter;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: ChoiceChip(
+                          label: Text(filter, style: TextStyle(color: isSelected ? Colors.white : Colors.grey.shade700, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                          selected: isSelected,
+                          selectedColor: const Color(0xFF667EEA),
+                          backgroundColor: Colors.white,
+                          side: BorderSide(color: isSelected ? const Color(0xFF667EEA) : Colors.grey.shade300),
+                          onSelected: (val) => setState(() => _selectedFilter = filter),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                )
+              ],
+            ),
           ),
         ),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('clients').doc(widget.clientId).collection('stores').doc(widget.storeId).collection('materiel_installe').snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return _buildEmptyState("Aucun équipement installé", Icons.inventory_2_outlined);
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance.collection('clients').doc(widget.clientId).collection('stores').doc(widget.storeId).collection('materiel_installe').snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return SliverFillRemaining(child: _buildEmptyState("Aucun équipement installé", Icons.inventory_2_outlined));
 
-              var docs = snapshot.data!.docs.where((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final serial = (data['serialNumber'] ?? '').toString().toLowerCase();
-                final name = (data['name'] ?? data['nom'] ?? '').toString().toLowerCase();
+            var docs = snapshot.data!.docs.where((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              final serial = (data['serialNumber'] ?? '').toString().toLowerCase();
+              final name = (data['name'] ?? data['nom'] ?? '').toString().toLowerCase();
 
-                if (_searchQuery.isNotEmpty && !serial.contains(_searchQuery) && !name.contains(_searchQuery)) return false;
-                if (_selectedFilter != 'Tous') {
-                  final warranty = _getWarranty(data);
-                  if (_selectedFilter == 'Sous Garantie' && (warranty == null || !warranty.isValid)) return false;
-                  if (_selectedFilter == 'Expirée' && (warranty != null && warranty.isValid)) return false;
-                }
-                return true;
-              }).toList();
+              if (_searchQuery.isNotEmpty && !serial.contains(_searchQuery) && !name.contains(_searchQuery)) return false;
+              if (_selectedFilter != 'Tous') {
+                final warranty = _getWarranty(data);
+                if (_selectedFilter == 'Sous Garantie' && (warranty == null || !warranty.isValid)) return false;
+                if (_selectedFilter == 'Expirée' && (warranty != null && warranty.isValid)) return false;
+              }
+              return true;
+            }).toList();
 
-              docs.sort((a, b) {
-                final Timestamp? tA = (a.data() as Map)['installDate'] ?? (a.data() as Map)['createdAt'];
-                final Timestamp? tB = (b.data() as Map)['installDate'] ?? (b.data() as Map)['createdAt'];
-                if (tA == null) return 1;
-                if (tB == null) return -1;
-                return tB.compareTo(tA);
-              });
+            docs.sort((a, b) {
+              final Timestamp? tA = (a.data() as Map)['installDate'] ?? (a.data() as Map)['createdAt'];
+              final Timestamp? tB = (b.data() as Map)['installDate'] ?? (b.data() as Map)['createdAt'];
+              if (tA == null) return 1;
+              if (tB == null) return -1;
+              return tB.compareTo(tA);
+            });
 
-              if (docs.isEmpty) return _buildEmptyState("Aucun résultat pour cette recherche.", Icons.search_off);
+            if (docs.isEmpty) return SliverFillRemaining(child: _buildEmptyState("Aucun résultat pour cette recherche.", Icons.search_off));
 
-              return ListView.builder(
-                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 80),
-                itemCount: docs.length,
-                itemBuilder: (context, index) {
-                  final data = docs[index].data() as Map<String, dynamic>;
-                  final id = docs[index].id;
-                  final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
-                  final Timestamp? installDate = (data['installDate'] ?? data['installationDate']) as Timestamp?;
-                  final String? imageUrl = data['image'];
-                  final warranty = _getWarranty(data);
+            return SliverPadding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 80),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final id = docs[index].id;
+                    final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
+                    final Timestamp? installDate = (data['installDate'] ?? data['installationDate']) as Timestamp?;
+                    final String? imageUrl = data['image'];
+                    final warranty = _getWarranty(data);
 
-                  return Slidable(
-                    key: ValueKey(id),
-                    endActionPane: ActionPane(
-                      motion: const ScrollMotion(),
-                      children: [
-                        SlidableAction(
-                          onPressed: (_) => _deleteEquipment(id),
-                          backgroundColor: Colors.redAccent,
-                          foregroundColor: Colors.white,
-                          icon: Icons.delete,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ],
-                    ),
-                    child: GestureDetector(
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoreEquipmentDetailsPage(clientId: widget.clientId, storeId: widget.storeId, equipmentId: id))),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.grey.shade100),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 65,
-                              height: 65,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F9),
-                                borderRadius: BorderRadius.circular(12),
-                                image: imageUrl != null ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover) : null,
+                    return Slidable(
+                      key: ValueKey(id),
+                      endActionPane: ActionPane(
+                        motion: const ScrollMotion(),
+                        children: [
+                          SlidableAction(
+                            onPressed: (_) => _deleteEquipment(id),
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white,
+                            icon: Icons.delete,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ],
+                      ),
+                      child: GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoreEquipmentDetailsPage(clientId: widget.clientId, storeId: widget.storeId, equipmentId: id))),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.grey.shade100),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 65,
+                                height: 65,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(12),
+                                  image: imageUrl != null ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover) : null,
+                                ),
+                                child: imageUrl == null ? const Icon(Icons.router_outlined, color: Colors.blueGrey, size: 28) : null,
                               ),
-                              child: imageUrl == null ? const Icon(Icons.router_outlined, color: Colors.blueGrey, size: 28) : null,
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  FutureBuilder<String>(
-                                      future: _resolveProductName(data),
-                                      initialData: data['nom'] ?? data['name'] ?? 'Chargement...',
-                                      builder: (context, nameSnapshot) {
-                                        return Text(
-                                          nameSnapshot.data ?? 'Équipement',
-                                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF1E293B)),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        );
-                                      }),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.qr_code, size: 14, color: Colors.grey),
-                                      const SizedBox(width: 4),
-                                      Text(serial, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(installDate != null ? DateFormat('dd/MM/yyyy').format(installDate.toDate()) : 'Date inconnue', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                                      _buildPremiumWarrantyBadge(warranty),
-                                    ],
-                                  )
-                                ],
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    FutureBuilder<String>(
+                                        future: _resolveProductName(data),
+                                        initialData: data['nom'] ?? data['name'] ?? 'Chargement...',
+                                        builder: (context, nameSnapshot) {
+                                          return Text(
+                                            nameSnapshot.data ?? 'Équipement',
+                                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF1E293B)),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          );
+                                        }),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.qr_code, size: 14, color: Colors.grey),
+                                        const SizedBox(width: 4),
+                                        Text(serial, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(installDate != null ? DateFormat('dd/MM/yyyy').format(installDate.toDate()) : 'Date inconnue', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                                        _buildPremiumWarrantyBadge(warranty),
+                                      ],
+                                    )
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
+                    );
+                  },
+                  childCount: docs.length,
+                ),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -1041,6 +1044,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
+  // ✅ FULLY REWRITTEN - NO EXPANSION TILE, NO OVERFLOWS
   Widget _buildHistoryTab() {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _fetchStoreHistory(),
@@ -1086,168 +1090,13 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
                   border: Border.all(color: Colors.grey.shade200),
                   boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
                 ),
-                child: Theme(
-                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                  child: ExpansionTile(
-                    tilePadding: const EdgeInsets.all(16),
-                    title: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                item['type'],
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: item['color']),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(formattedDate, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(item['code'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                        if (techs.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: techs.map((t) => Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.person, size: 12, color: Colors.grey),
-                                  const SizedBox(width: 4),
-                                  Text(t, style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
-                                ],
-                              ),
-                            )).toList(),
-                          )
-                        ]
-                      ],
-                    ),
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Divider(),
-
-                            if (item['primaryDesc'] != null) ...[
-                              const SizedBox(height: 8),
-                              Text(item['primaryDescTitle'] ?? 'Détail', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                              const SizedBox(height: 4),
-                              Text(item['primaryDesc'], style: const TextStyle(fontSize: 14, color: Color(0xFF475569))),
-                            ],
-
-                            if (item['secondaryDesc'] != null) ...[
-                              const SizedBox(height: 12),
-                              Text(item['secondaryDescTitle'] ?? 'Info', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                              const SizedBox(height: 4),
-                              Text(item['secondaryDesc'], style: const TextStyle(fontSize: 14, color: Color(0xFF475569))),
-                            ],
-
-                            if (item['extraInfo'] != null) ...[
-                              const SizedBox(height: 12),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-                                child: Text(item['extraInfo'], style: TextStyle(fontSize: 13, color: Colors.blue.shade700, fontWeight: FontWeight.w600)),
-                              ),
-                            ],
-
-                            // Attachments Row
-                            if (mediaUrls.isNotEmpty || signatureUrl != null) ...[
-                              const SizedBox(height: 16),
-                              const Text('Pièces Jointes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                children: [
-                                  for (var url in mediaUrls)
-                                    GestureDetector(
-                                      onTap: () => launchUrl(Uri.parse(url)),
-                                      child: Container(
-                                        height: 50,
-                                        width: 50,
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.shade200,
-                                          borderRadius: BorderRadius.circular(8),
-                                          image: url.contains('.mp4') ? null : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
-                                        ),
-                                        child: url.contains('.mp4') ? const Icon(Icons.play_circle_fill, color: Colors.black45) : null,
-                                      ),
-                                    ),
-                                  if (signatureUrl != null)
-                                    GestureDetector(
-                                      onTap: () => launchUrl(Uri.parse(signatureUrl)),
-                                      child: Container(
-                                        height: 50,
-                                        width: 50,
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.shade100,
-                                          border: Border.all(color: Colors.grey.shade300),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: const Center(child: Icon(Icons.draw, color: Colors.teal)),
-                                      ),
-                                    ),
-                                ],
-                              )
-                            ],
-
-                            // ✅ Navigation Button
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                                label: const Text("Voir la Fiche Complète", style: TextStyle(fontWeight: FontWeight.bold)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: item['color'].withOpacity(0.1),
-                                  foregroundColor: item['color'],
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                ),
-                                onPressed: () {
-                                  if (item['type'] == 'Intervention') {
-                                    Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (_) => InterventionDetailsPage(interventionDoc: item['doc']))
-                                    );
-                                  } else if (item['type'] == 'Installation') {
-                                    Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (_) => InstallationDetailsPage(installationDoc: item['doc'], userRole: UserRoles.admin))
-                                    );
-                                  } else if (item['type'] == 'Livraison') {
-                                    Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (_) => LivraisonDetailsPage(livraisonId: item['id']))
-                                    );
-                                  } else if (item['type'] == 'SAV') {
-                                    Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (_) => SavTicketDetailsPage(ticket: item['ticket']))
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-
-                          ],
-                        ),
-                      )
-                    ],
-                  ),
+                // ✅ Using the robust custom widget here!
+                child: _ExpandableHistoryCard(
+                  item: item,
+                  formattedDate: formattedDate,
+                  techs: techs,
+                  mediaUrls: mediaUrls,
+                  signatureUrl: signatureUrl,
                 ),
               ),
             );
@@ -1283,9 +1132,8 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
           body: NestedScrollView(
             headerSliverBuilder: (context, innerBoxIsScrolled) {
               return [
-                // 📸 HEIGHT INCREASED for Cover & Clickable Wrap added
                 SliverAppBar(
-                  expandedHeight: 160.0, // ✅ Increased from 140 to give cover more space
+                  expandedHeight: 160.0,
                   pinned: true,
                   elevation: 0,
                   backgroundColor: const Color(0xFF667EEA),
@@ -1436,5 +1284,219 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
     return false;
+  }
+}
+
+// ==============================================================================
+// 🚀 NEW: CUSTOM EXPANDABLE HISTORY CARD (Replaces Flawed ExpansionTile)
+// ==============================================================================
+class _ExpandableHistoryCard extends StatefulWidget {
+  final Map<String, dynamic> item;
+  final String formattedDate;
+  final List<String> techs;
+  final List<String> mediaUrls;
+  final String? signatureUrl;
+
+  const _ExpandableHistoryCard({
+    required this.item,
+    required this.formattedDate,
+    required this.techs,
+    required this.mediaUrls,
+    this.signatureUrl,
+  });
+
+  @override
+  State<_ExpandableHistoryCard> createState() => _ExpandableHistoryCardState();
+}
+
+class _ExpandableHistoryCardState extends State<_ExpandableHistoryCard> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min, // Crucial to prevent internal overflow
+      children: [
+        // --- Always Visible Header ---
+        InkWell(
+          onTap: () => setState(() => _isExpanded = !_isExpanded),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              widget.item['type'],
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: widget.item['color']),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(widget.formattedDate, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(widget.item['code'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                      if (widget.techs.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: widget.techs.map((t) => Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.person, size: 12, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Text(t, style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                          )).toList(),
+                        )
+                      ]
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.grey),
+              ],
+            ),
+          ),
+        ),
+
+        // --- Expandable Content Body ---
+        AnimatedCrossFade(
+          firstChild: const SizedBox(width: double.infinity, height: 0),
+          secondChild: Padding(
+            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Divider(),
+
+                if (widget.item['primaryDesc'] != null) ...[
+                  const SizedBox(height: 8),
+                  Text(widget.item['primaryDescTitle'] ?? 'Détail', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 4),
+                  Text(widget.item['primaryDesc'], style: const TextStyle(fontSize: 14, color: Color(0xFF475569))),
+                ],
+
+                if (widget.item['secondaryDesc'] != null) ...[
+                  const SizedBox(height: 12),
+                  Text(widget.item['secondaryDescTitle'] ?? 'Info', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 4),
+                  Text(widget.item['secondaryDesc'], style: const TextStyle(fontSize: 14, color: Color(0xFF475569))),
+                ],
+
+                if (widget.item['extraInfo'] != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: Text(widget.item['extraInfo'], style: TextStyle(fontSize: 13, color: Colors.blue.shade700, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+
+                // Attachments Row
+                if (widget.mediaUrls.isNotEmpty || widget.signatureUrl != null) ...[
+                  const SizedBox(height: 16),
+                  const Text('Pièces Jointes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (var url in widget.mediaUrls)
+                        GestureDetector(
+                          onTap: () => launchUrl(Uri.parse(url)),
+                          child: Container(
+                            height: 50,
+                            width: 50,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(8),
+                              image: url.contains('.mp4') ? null : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
+                            ),
+                            child: url.contains('.mp4') ? const Icon(Icons.play_circle_fill, color: Colors.black45) : null,
+                          ),
+                        ),
+                      if (widget.signatureUrl != null)
+                        GestureDetector(
+                          onTap: () => launchUrl(Uri.parse(widget.signatureUrl!)),
+                          child: Container(
+                            height: 50,
+                            width: 50,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              border: Border.all(color: Colors.grey.shade300),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Center(child: Icon(Icons.draw, color: Colors.teal)),
+                          ),
+                        ),
+                    ],
+                  )
+                ],
+
+                // Navigation Button
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                    label: const Text("Voir la Fiche Complète", style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: widget.item['color'].withOpacity(0.1),
+                      foregroundColor: widget.item['color'],
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () {
+                      if (widget.item['type'] == 'Intervention') {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => InterventionDetailsPage(interventionDoc: widget.item['doc']))
+                        );
+                      } else if (widget.item['type'] == 'Installation') {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => InstallationDetailsPage(installationDoc: widget.item['doc'], userRole: UserRoles.admin))
+                        );
+                      } else if (widget.item['type'] == 'Livraison') {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => LivraisonDetailsPage(livraisonId: widget.item['id']))
+                        );
+                      } else if (widget.item['type'] == 'SAV') {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => SavTicketDetailsPage(ticket: widget.item['ticket']))
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          crossFadeState: _isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 250),
+        ),
+      ],
+    );
   }
 }

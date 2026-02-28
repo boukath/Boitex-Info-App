@@ -431,72 +431,207 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
     }
   }
 
-  void _showTicketInfoSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24))),
-        padding: const EdgeInsets.only(left: 24, right: 24, top: 16, bottom: 40),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
-              const SizedBox(height: 24),
-              const Text('Détails Initiaux', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87, letterSpacing: -0.5)),
-              const SizedBox(height: 24),
-              _buildInfoSheetRow(Icons.business_rounded, 'Client', _currentTicket.clientName),
-              if (_currentTicket.storeName != null)
-                _buildInfoSheetRow(Icons.storefront_rounded, 'Magasin', _currentTicket.storeName!),
-              _buildInfoSheetRow(Icons.tag_rounded, 'N° de Série', _currentTicket.serialNumber),
-              _buildInfoSheetRow(Icons.engineering_rounded, 'Techniciens (Retrait)', _currentTicket.pickupTechnicianNames.isNotEmpty ? _currentTicket.pickupTechnicianNames.join(', ') : 'Non assigné'),
-              _buildInfoSheetRow(Icons.person_outline_rounded, 'Créé par', _currentTicket.createdBy),
-              _buildInfoSheetRow(Icons.calendar_today_rounded, 'Date de création', DateFormat('dd MMM yyyy, HH:mm').format(_currentTicket.createdAt)),
-              const Divider(height: 32),
-              Text('Description du Problème', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade800, fontSize: 13)),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange.shade100)),
-                child: Text(_currentTicket.problemDescription, style: TextStyle(color: Colors.orange.shade900, height: 1.5, fontSize: 14)),
-              ),
-            ],
+  // ===========================================================================
+  // PREMIUM CARD UI WIDGETS
+  // ===========================================================================
+
+  Widget _buildPremiumSavInfoCard(SavTicket ticket) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
+        ],
+        border: Border.all(color: Colors.grey.shade100, width: 1.5),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -20,
+              top: -20,
+              child: Icon(
+                Icons.support_agent_rounded,
+                size: 140,
+                color: Colors.blue.withOpacity(0.04),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(
+                          Icons.confirmation_number_rounded,
+                          color: Colors.blue.shade700,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Ticket #${ticket.savCode}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 18,
+                                letterSpacing: 0.5,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              "Créé le: ${DateFormat('dd MMM yyyy, HH:mm').format(ticket.createdAt)}",
+                              style: TextStyle(
+                                color: Colors.grey.shade500,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      _buildStatusBadge(ticket.status),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Divider(height: 1, color: Colors.grey.shade200, thickness: 1.5),
+                  const SizedBox(height: 20),
+
+                  _buildInfoRow(
+                    icon: Icons.store_mall_directory_rounded,
+                    label: "Client / Magasin",
+                    value: ticket.storeName != null
+                        ? "${ticket.clientName} - ${ticket.storeName}"
+                        : ticket.clientName,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildInfoRow(
+                    icon: Icons.devices_other_rounded,
+                    label: "Produit concerné",
+                    value: ticket.productName,
+                  ),
+                  if (ticket.serialNumber.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _buildInfoRow(
+                      icon: Icons.tag_rounded,
+                      label: "N° de Série",
+                      value: ticket.serialNumber,
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildInfoRow(
+                    icon: Icons.report_problem_rounded,
+                    label: "Motif / Problème",
+                    value: ticket.problemDescription,
+                    isAlert: true,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoSheetRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: Colors.grey.shade100, shape: BoxShape.circle),
-            child: Icon(icon, size: 18, color: Colors.grey.shade600),
+  Widget _buildInfoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    bool isAlert = false,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 22,
+          color: isAlert ? Colors.red.shade400 : Colors.grey.shade400,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 11,
+                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: TextStyle(
+                  color: isAlert ? Colors.red.shade700 : Colors.black87,
+                  fontSize: 15,
+                  fontWeight: isAlert ? FontWeight.w600 : FontWeight.w500,
+                  height: 1.4,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-                const SizedBox(height: 2),
-                Text(value, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w600, fontSize: 14)),
-              ],
-            ),
-          ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    Color bgColor = Colors.grey.shade100;
+    Color textColor = Colors.grey.shade700;
+
+    if (status.toLowerCase().contains("en réparation") || status.toLowerCase().contains("en diagnostic")) {
+      bgColor = Colors.orange.shade50;
+      textColor = Colors.orange.shade700;
+    } else if (status.toLowerCase().contains("terminé") || status.toLowerCase().contains("retourné")) {
+      bgColor = Colors.green.shade50;
+      textColor = Colors.green.shade700;
+    } else if (status.toLowerCase().contains("irréparable")) {
+      bgColor = Colors.red.shade50;
+      textColor = Colors.red.shade700;
+    } else if (status.toLowerCase().contains("nouveau")) {
+      bgColor = Colors.blue.shade50;
+      textColor = Colors.blue.shade700;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+        ),
       ),
     );
   }
+
 
   // ===========================================================================
   // 2026 UI ARCHITECTURE
@@ -514,6 +649,11 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
               child: CustomScrollView(
                 slivers: [
                   _buildPatientHeader(),
+
+                  // ✅ ADDED: The Premium Card just below the header
+                  SliverToBoxAdapter(
+                    child: _buildPremiumSavInfoCard(_currentTicket),
+                  ),
 
                   StreamBuilder<List<SavJournalEntry>>(
                     stream: _journalStream,
@@ -616,7 +756,7 @@ class _SavTicketDetailsPageState extends State<SavTicketDetailsPage> {
       ),
       iconTheme: const IconThemeData(color: Colors.black87),
       actions: [
-        IconButton(icon: const Icon(Icons.info_outline_rounded), tooltip: 'Détails du Ticket', onPressed: _showTicketInfoSheet),
+        // ✅ REMOVED: The old info button is gone
         IconButton(icon: const Icon(Icons.description_outlined), tooltip: 'Télécharger la Décharge', onPressed: () => _downloadPdf('deposit')),
         if (_currentTicket.status == "Retourné")
           IconButton(icon: const Icon(Icons.assignment_return_outlined), tooltip: 'Télécharger le Bon de Restitution', onPressed: () => _downloadPdf('return')),

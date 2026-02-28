@@ -8,6 +8,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:boitex_info_app/screens/service_technique/add_intervention_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_history_clients_page.dart';
+import 'package:boitex_info_app/screens/administration/store_equipment_page.dart'; // ✅ Added Store Equipment Page Import
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
@@ -548,40 +549,66 @@ class _InterventionListPageState extends State<InterventionListPage> {
 
                             const SizedBox(height: 12),
 
-                            Row(
-                              children: [
-                                StoreLogoFetcher(
-                                  clientId: clientId,
-                                  storeId: storeId,
-                                  fallback: Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(color: themeBg, shape: BoxShape.circle),
-                                    child: Icon(Icons.store_mall_directory_rounded, size: 20, color: themeColor),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        storeName,
-                                        style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                            // ✅ Wrapped the Store Row with a GestureDetector for navigation
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                if (clientId != null && storeId != null && clientId.isNotEmpty && storeId.isNotEmpty) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => StoreEquipmentPage(
+                                        clientId: clientId,
+                                        storeId: storeId,
+                                        storeName: storeName,
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        "$clientName • $interventionCode",
-                                        style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Les informations du magasin sont incomplètes."),
+                                      backgroundColor: Colors.redAccent,
+                                    ),
+                                  );
+                                }
+                              },
+                              child: Row(
+                                children: [
+                                  StoreLogoFetcher(
+                                    clientId: clientId,
+                                    storeId: storeId,
+                                    fallback: Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(color: themeBg, shape: BoxShape.circle),
+                                      child: Icon(Icons.store_mall_directory_rounded, size: 20, color: themeColor),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          storeName,
+                                          style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          "$clientName • $interventionCode",
+                                          style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400, size: 20),
+                                ],
+                              ),
                             ),
 
                             const SizedBox(height: 16),
