@@ -31,6 +31,9 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 // ✅ Import Image Gallery for Full Screen Images
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 
+// ✅ NEW: Import the PDF Export Service
+import 'package:boitex_info_app/services/store_pdf_export_service.dart';
+
 class StoreEquipmentPage extends StatefulWidget {
   final String clientId;
   final String storeId;
@@ -627,7 +630,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
             const SizedBox(height: 24),
 
-            // Quick Actions
+            // Quick Actions (✅ ADDED PDF BUTTON HERE)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -635,6 +638,15 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
                 _buildActionCircle(Icons.map_outlined, "Itinéraire", () {}),
                 _buildActionCircle(Icons.edit_outlined, "Éditer", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStorePage(clientId: widget.clientId, storeId: widget.storeId)))),
                 _buildActionCircle(Icons.add_box_outlined, "Ajouter", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStoreEquipmentPage(clientId: widget.clientId, storeId: widget.storeId)))),
+                _buildActionCircle(Icons.picture_as_pdf, "Dossier", () {
+                  StorePdfExportService.generateAndShareStoreDashboard(
+                    context: context,
+                    clientId: widget.clientId,
+                    storeId: widget.storeId,
+                    storeName: widget.storeName,
+                    logoUrl: _localLogoUrl,
+                  );
+                }),
               ],
             ),
 
