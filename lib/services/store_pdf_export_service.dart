@@ -113,7 +113,6 @@ class StorePdfExportService {
                     pw.SizedBox(height: 60),
                     pw.Container(
                       padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      // ✅ FIXED: Using PdfColor(1, 1, 1, 0.2) instead of PdfColors.white.withOpacity(0.2)
                       decoration: const pw.BoxDecoration(color: PdfColor(1.0, 1.0, 1.0, 0.2), borderRadius: pw.BorderRadius.all(pw.Radius.circular(30))),
                       child: pw.Text("Généré le ${DateFormat('dd MMMM yyyy à HH:mm').format(DateTime.now())}", style: const pw.TextStyle(color: PdfColors.white, fontSize: 14)),
                     )
@@ -183,10 +182,30 @@ class StorePdfExportService {
               _buildEquipmentTable(equipmentDocs.docs),
               pw.SizedBox(height: 32),
 
-              // 4. HISTORY TIMELINE SECTION
-              pw.Text("Historique des Opérations (${history.length})", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: secondaryColor)),
+              // 4. SYNTHÈSE DES OPÉRATIONS (Categorized Tables)
+              pw.Text("Synthèse des Opérations (${history.length})", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: secondaryColor)),
               pw.SizedBox(height: 12),
-              ...history.map((h) => _buildHistoryRow(h)).toList(),
+
+              if (history.any((h) => h['type'] == 'Livraison')) ...[
+                pw.Text("Livraisons", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.green)),
+                pw.SizedBox(height: 6),
+                _buildCategorizedTable(history.where((h) => h['type'] == 'Livraison').toList(), ['Date', 'Code BL', 'Détails', 'Statut'], hasTechnicians: false),
+                pw.SizedBox(height: 20),
+              ],
+
+              if (history.any((h) => h['type'] == 'Installation')) ...[
+                pw.Text("Installations", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.teal)),
+                pw.SizedBox(height: 6),
+                _buildCategorizedTable(history.where((h) => h['type'] == 'Installation').toList(), ['Date', 'Code', 'Techniciens', 'Détails', 'Statut'], hasTechnicians: true),
+                pw.SizedBox(height: 20),
+              ],
+
+              if (history.any((h) => h['type'] == 'Intervention' || h['type'] == 'SAV')) ...[
+                pw.Text("Interventions & SAV", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.orange)),
+                pw.SizedBox(height: 6),
+                _buildCategorizedTable(history.where((h) => h['type'] == 'Intervention' || h['type'] == 'SAV').toList(), ['Date', 'Type & Code', 'Techniciens', 'Diagnostic / Problème', 'Statut'], hasTechnicians: true),
+                pw.SizedBox(height: 20),
+              ],
             ];
           },
         ),
@@ -247,7 +266,6 @@ class StorePdfExportService {
       decoration: pw.BoxDecoration(
         color: lightGray,
         borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
-        // ✅ FIXED: Directly passing red, green, blue values to set 0.5 opacity manually
         border: pw.Border.all(color: PdfColor(color.red, color.green, color.blue, 0.5), width: 2),
       ),
       child: pw.Column(
@@ -288,60 +306,44 @@ class StorePdfExportService {
     );
   }
 
-  static pw.Widget _buildHistoryRow(Map<String, dynamic> item) {
-    final dateTs = item['date'] as Timestamp?;
-    final dateStr = dateTs != null ? DateFormat('dd/MM/yyyy').format(dateTs.toDate()) : '-';
-    PdfColor typeColor = primaryColor;
+  static pw.Widget _buildCategorizedTable(List<Map<String, dynamic>> items, List<String> headers, {required bool hasTechnicians}) {
+    return pw.Table.fromTextArray(
+      headers: headers,
+      columnWidths: hasTechnicians
+          ? { 0: const pw.FixedColumnWidth(60), 1: const pw.FixedColumnWidth(70), 2: const pw.FixedColumnWidth(80), 3: const pw.FlexColumnWidth(2), 4: const pw.FixedColumnWidth(60) }
+          : { 0: const pw.FixedColumnWidth(60), 1: const pw.FixedColumnWidth(70), 2: const pw.FlexColumnWidth(2), 3: const pw.FixedColumnWidth(60) },
+      data: items.map((i) {
+        final dateTs = i['date'] as Timestamp?;
+        final dateStr = dateTs != null ? DateFormat('dd/MM/yyyy').format(dateTs.toDate()) : '-';
+        final tech = i['technicians'] != null ? (i['technicians'] as List).join(', ') : 'N/A';
+        final details = _clean(i['primaryDesc'] ?? 'Aucun détail');
+        final status = _clean(i['status'] ?? 'Terminé');
 
-    if (item['type'] == 'Livraison') typeColor = PdfColors.green;
-    if (item['type'] == 'SAV') typeColor = PdfColors.orange;
-    if (item['type'] == 'Installation') typeColor = PdfColors.teal;
+        String codeCell = i['code'] ?? '-';
+        if (i['type'] == 'SAV' || i['type'] == 'Intervention') {
+          codeCell = "${i['type']}\n$codeCell"; // Show Type above the Code for clarity
+        }
 
-    return pw.Container(
-      margin: const pw.EdgeInsets.only(bottom: 12),
-      padding: const pw.EdgeInsets.all(12),
-      decoration: pw.BoxDecoration(
-        color: PdfColors.white,
-        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-        border: pw.Border.all(color: PdfColors.grey300),
-      ),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Container(
-            width: 80,
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(dateStr, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12, color: secondaryColor)),
-                pw.SizedBox(height: 4),
-                pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  // ✅ FIXED: Passing red, green, blue values for 0.2 opacity manually
-                  decoration: pw.BoxDecoration(color: PdfColor(typeColor.red, typeColor.green, typeColor.blue, 0.2), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
-                  child: pw.Text(item['type'], style: pw.TextStyle(fontSize: 9, color: typeColor, fontWeight: pw.FontWeight.bold)),
-                ),
-              ],
-            ),
-          ),
-          pw.SizedBox(width: 16),
-          pw.Expanded(
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(item['code'] ?? '-', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-                pw.SizedBox(height: 4),
-                pw.Text(item['primaryDesc'] ?? 'Aucun détail fourni', style: const pw.TextStyle(fontSize: 11, color: textGray)),
-                if (item['technicians'] != null && (item['technicians'] as List).isNotEmpty) ...[
-                  pw.SizedBox(height: 4),
-                  pw.Text("Intervenants: ${(item['technicians'] as List).join(', ')}", style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600, fontStyle: pw.FontStyle.italic)),
-                ]
-              ],
-            ),
-          ),
-        ],
-      ),
+        if (hasTechnicians) {
+          return [dateStr, codeCell, tech, details, status];
+        } else {
+          return [dateStr, codeCell, details, status];
+        }
+      }).toList(),
+      headerStyle: pw.TextStyle(color: textGray, fontSize: 9, fontWeight: pw.FontWeight.bold),
+      headerDecoration: const pw.BoxDecoration(color: lightGray),
+      cellStyle: const pw.TextStyle(fontSize: 8),
+      cellPadding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+      border: const pw.TableBorder(horizontalInside: pw.BorderSide(color: lightGray, width: 0.5)),
     );
+  }
+
+  static String _clean(String text) {
+    return text
+        .replaceAll('\u200B', '') // Zero-width space
+        .replaceAll('\u200C', '') // Zero-width non-joiner
+        .replaceAll('\u200D', '') // Zero-width joiner
+        .replaceAll('\uFEFF', ''); // Byte order mark
   }
 
   // --- DATA FETCHING HELPERS (Mirrored from your UI) ---
@@ -380,19 +382,27 @@ class StorePdfExportService {
     try {
       final interventions = await FirebaseFirestore.instance.collection('interventions').where('storeId', isEqualTo: storeId).get();
       for (var doc in interventions.docs) {
-        history.add({'type': 'Intervention', 'code': doc['interventionCode'] ?? 'N/A', 'date': doc['scheduledAt'] ?? doc['createdAt'], 'primaryDesc': doc['diagnostic'], 'technicians': doc['assignedTechnicians']});
+        history.add({'type': 'Intervention', 'code': doc['interventionCode'] ?? 'N/A', 'date': doc['scheduledAt'] ?? doc['createdAt'], 'primaryDesc': doc['diagnostic'], 'technicians': doc['assignedTechnicians'], 'status': doc['status']});
       }
       final installations = await FirebaseFirestore.instance.collection('installations').where('storeId', isEqualTo: storeId).get();
       for (var doc in installations.docs) {
-        history.add({'type': 'Installation', 'code': doc['installationCode'] ?? 'N/A', 'date': doc['completedAt'] ?? doc['createdAt'], 'primaryDesc': doc['initialRequest'], 'technicians': doc['assignedTechnicianNames']});
+        String prodDesc = doc['initialRequest'] ?? 'Aucun détail';
+        if (doc.data().containsKey('orderedProducts')) {
+          prodDesc = '${(doc['orderedProducts'] as List).length} produit(s) installé(s)\n$prodDesc';
+        }
+        history.add({'type': 'Installation', 'code': doc['installationCode'] ?? 'N/A', 'date': doc['completedAt'] ?? doc['createdAt'], 'primaryDesc': prodDesc, 'technicians': doc['assignedTechnicianNames'], 'status': doc['status']});
       }
       final livraisons = await FirebaseFirestore.instance.collection('livraisons').where('storeId', isEqualTo: storeId).get();
       for (var doc in livraisons.docs) {
-        history.add({'type': 'Livraison', 'code': doc['bonLivraisonCode'] ?? 'N/A', 'date': doc['completedAt'] ?? doc['createdAt'], 'primaryDesc': 'Livraison effectuée.'});
+        String prodDesc = 'Livraison effectuée.';
+        if (doc.data().containsKey('products')) {
+          prodDesc = '${(doc['products'] as List).length} référence(s) livrée(s).';
+        }
+        history.add({'type': 'Livraison', 'code': doc['bonLivraisonCode'] ?? 'N/A', 'date': doc['completedAt'] ?? doc['createdAt'], 'primaryDesc': prodDesc, 'status': doc['status']});
       }
       final savs = await FirebaseFirestore.instance.collection('sav_tickets').where('storeId', isEqualTo: storeId).get();
       for (var doc in savs.docs) {
-        history.add({'type': 'SAV', 'code': doc['savCode'] ?? 'N/A', 'date': doc['pickupDate'] ?? doc['createdAt'], 'primaryDesc': doc['problemDescription'], 'technicians': doc['pickupTechnicianNames']});
+        history.add({'type': 'SAV', 'code': doc['savCode'] ?? 'N/A', 'date': doc['pickupDate'] ?? doc['createdAt'], 'primaryDesc': doc['problemDescription'], 'technicians': doc['pickupTechnicianNames'], 'status': doc['status']});
       }
 
       history.sort((a, b) {

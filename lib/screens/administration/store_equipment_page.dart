@@ -64,6 +64,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
   bool _isUploading = false;
   String? _localLogoUrl;
   String? _localCoverUrl;
+  Map<String, dynamic>? _storeData;
   StreamSubscription<DocumentSnapshot>? _storeSubscription;
   final String _getB2UploadUrlCloudFunctionUrl = 'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
@@ -92,6 +93,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
         setState(() {
           _localLogoUrl = data['logoUrl'] ?? widget.logoUrl;
           _localCoverUrl = data['coverUrl'];
+          _storeData = data;
         });
       }
     });
@@ -636,7 +638,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
               children: [
                 _buildActionCircle(Icons.phone_outlined, "Appeler", () {}),
                 _buildActionCircle(Icons.map_outlined, "Itinéraire", () {}),
-                _buildActionCircle(Icons.edit_outlined, "Éditer", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStorePage(clientId: widget.clientId, storeId: widget.storeId)))),
+                _buildActionCircle(Icons.edit_outlined, "Éditer", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStorePage(clientId: widget.clientId, storeId: widget.storeId, initialData: _storeData)))),
                 _buildActionCircle(Icons.add_box_outlined, "Ajouter", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStoreEquipmentPage(clientId: widget.clientId, storeId: widget.storeId)))),
                 _buildActionCircle(Icons.picture_as_pdf, "Dossier", () {
                   StorePdfExportService.generateAndShareStoreDashboard(
@@ -912,6 +914,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
             if (snapshot.connectionState == ConnectionState.waiting) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return SliverFillRemaining(child: _buildEmptyState("Aucun équipement installé", Icons.inventory_2_outlined));
 
+            // 1. Filter and Sort
             var docs = snapshot.data!.docs.where((doc) {
               final data = doc.data() as Map<String, dynamic>;
               final serial = (data['serialNumber'] ?? '').toString().toLowerCase();
@@ -936,97 +939,39 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
             if (docs.isEmpty) return SliverFillRemaining(child: _buildEmptyState("Aucun résultat pour cette recherche.", Icons.search_off));
 
+            // 2. Group by Product
+            Map<String, List<QueryDocumentSnapshot>> groupedEquipment = {};
+            for (var doc in docs) {
+              final data = doc.data() as Map<String, dynamic>;
+              // Group by Product ID if available, otherwise fallback to Name
+              String key = data['productId']?.toString() ?? data['nom']?.toString() ?? data['name']?.toString() ?? 'Inconnu';
+              if (!groupedEquipment.containsKey(key)) {
+                groupedEquipment[key] = [];
+              }
+              groupedEquipment[key]!.add(doc);
+            }
+
+            final groupKeys = groupedEquipment.keys.toList();
+
+            // 3. Render Grouped List
             return SliverPadding(
               padding: const EdgeInsets.only(left: 16, right: 16, bottom: 80),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                       (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final id = docs[index].id;
-                    final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
-                    final Timestamp? installDate = (data['installDate'] ?? data['installationDate']) as Timestamp?;
-                    final String? imageUrl = data['image'];
-                    final warranty = _getWarranty(data);
+                    final key = groupKeys[index];
+                    final groupDocs = groupedEquipment[key]!;
 
-                    return Slidable(
-                      key: ValueKey(id),
-                      endActionPane: ActionPane(
-                        motion: const ScrollMotion(),
-                        children: [
-                          SlidableAction(
-                            onPressed: (_) => _deleteEquipment(id),
-                            backgroundColor: Colors.redAccent,
-                            foregroundColor: Colors.white,
-                            icon: Icons.delete,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ],
-                      ),
-                      child: GestureDetector(
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoreEquipmentDetailsPage(clientId: widget.clientId, storeId: widget.storeId, equipmentId: id))),
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.grey.shade100),
-                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 65,
-                                height: 65,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(12),
-                                  image: imageUrl != null ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover) : null,
-                                ),
-                                child: imageUrl == null ? const Icon(Icons.router_outlined, color: Colors.blueGrey, size: 28) : null,
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    FutureBuilder<String>(
-                                        future: _resolveProductName(data),
-                                        initialData: data['nom'] ?? data['name'] ?? 'Chargement...',
-                                        builder: (context, nameSnapshot) {
-                                          return Text(
-                                            nameSnapshot.data ?? 'Équipement',
-                                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF1E293B)),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          );
-                                        }),
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.qr_code, size: 14, color: Colors.grey),
-                                        const SizedBox(width: 4),
-                                        Text(serial, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(installDate != null ? DateFormat('dd/MM/yyyy').format(installDate.toDate()) : 'Date inconnue', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-                                        _buildPremiumWarrantyBadge(warranty),
-                                      ],
-                                    )
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    return _GroupedEquipmentCard(
+                      docs: groupDocs,
+                      clientId: widget.clientId,
+                      storeId: widget.storeId,
+                      resolveNameFuture: _resolveProductName(groupDocs.first.data() as Map<String, dynamic>),
+                      getWarranty: _getWarranty,
+                      onDelete: _deleteEquipment,
                     );
                   },
-                  childCount: docs.length,
+                  childCount: groupKeys.length,
                 ),
               ),
             );
@@ -1509,6 +1454,218 @@ class _ExpandableHistoryCardState extends State<_ExpandableHistoryCard> {
           duration: const Duration(milliseconds: 250),
         ),
       ],
+    );
+  }
+}
+// ==============================================================================
+// 🚀 NEW: CUSTOM GROUPED EQUIPMENT CARD
+// ==============================================================================
+class _GroupedEquipmentCard extends StatefulWidget {
+  final List<QueryDocumentSnapshot> docs;
+  final String clientId;
+  final String storeId;
+  final Future<String> resolveNameFuture;
+  final EquipmentWarranty? Function(Map<String, dynamic>) getWarranty;
+  final Function(String) onDelete;
+
+  const _GroupedEquipmentCard({
+    Key? key,
+    required this.docs,
+    required this.clientId,
+    required this.storeId,
+    required this.resolveNameFuture,
+    required this.getWarranty,
+    required this.onDelete,
+  }) : super(key: key);
+
+  @override
+  State<_GroupedEquipmentCard> createState() => _GroupedEquipmentCardState();
+}
+
+class _GroupedEquipmentCardState extends State<_GroupedEquipmentCard> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final firstData = widget.docs.first.data() as Map<String, dynamic>;
+    final String? imageUrl = firstData['image'];
+
+    // Calculate warranty stats
+    int validWarrantyCount = 0;
+    for (var doc in widget.docs) {
+      final warranty = widget.getWarranty(doc.data() as Map<String, dynamic>);
+      if (warranty != null && warranty.isValid) validWarrantyCount++;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // HEADER (Product Summary)
+          InkWell(
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 55,
+                    height: 55,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(10),
+                      image: imageUrl != null ? DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover) : null,
+                    ),
+                    child: imageUrl == null ? const Icon(Icons.router_outlined, color: Colors.blueGrey, size: 24) : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        FutureBuilder<String>(
+                            future: widget.resolveNameFuture,
+                            initialData: firstData['nom'] ?? firstData['name'] ?? 'Chargement...',
+                            builder: (context, nameSnapshot) {
+                              return Text(
+                                nameSnapshot.data ?? 'Équipement',
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF1E293B)),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              );
+                            }
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF667EEA).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '${widget.docs.length} Installé(s)',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF667EEA)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            if (validWarrantyCount > 0)
+                              Text('$validWarrantyCount Sous Garantie', style: const TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w600)),
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+                  Icon(_isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.grey),
+                ],
+              ),
+            ),
+          ),
+
+          // EXPANDED LIST OF ITEMS (Serial numbers)
+          AnimatedCrossFade(
+            firstChild: const SizedBox(width: double.infinity, height: 0),
+            secondChild: Column(
+              children: widget.docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final id = doc.id;
+                final String serial = data['serialNumber'] ?? data['serial'] ?? 'S/N Inconnu';
+                final Timestamp? installDate = (data['installDate'] ?? data['installationDate']) as Timestamp?;
+                final warranty = widget.getWarranty(data);
+
+                return Column(
+                  children: [
+                    const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF1F5F9)),
+                    Slidable(
+                      key: ValueKey(id),
+                      endActionPane: ActionPane(
+                        motion: const ScrollMotion(),
+                        children: [
+                          SlidableAction(
+                            onPressed: (_) => widget.onDelete(id),
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white,
+                            icon: Icons.delete,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ],
+                      ),
+                      child: InkWell(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoreEquipmentDetailsPage(clientId: widget.clientId, storeId: widget.storeId, equipmentId: id))),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.qr_code, size: 14, color: Colors.grey),
+                                        const SizedBox(width: 6),
+                                        Text(serial, style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Color(0xFF1E293B), fontWeight: FontWeight.w600)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      installDate != null ? 'Installé le ${DateFormat('dd/MM/yyyy').format(installDate.toDate())}' : 'Date d\'installation inconnue',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              _buildPremiumWarrantyBadge(warranty),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+            crossFadeState: _isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 250),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPremiumWarrantyBadge(EquipmentWarranty? warranty) {
+    if (warranty == null) return const SizedBox.shrink();
+    Color color = Colors.redAccent;
+    String text = "Expirée";
+    if (warranty.isValid) {
+      if (warranty.isExpiringSoon) {
+        color = Colors.orange;
+        text = "Bientôt";
+      } else {
+        color = Colors.green;
+        text = "Garantie";
+      }
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+      child: Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
 }
