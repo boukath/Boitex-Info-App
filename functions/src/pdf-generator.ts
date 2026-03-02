@@ -35,13 +35,22 @@ contentWidth: 495.28
 };
 
 /**
-* Helper: Fetch Image Buffer safely
+* 🚀 Helper: Fetch Image Buffer safely with 10MB Callable Protection
 */
 async function fetchImage(url: string): Promise<Buffer | null> {
   if (!url || typeof url !== 'string' || !url.startsWith("http")) return null;
   try {
     const response = await axios.get(url, { responseType: "arraybuffer", timeout: 10000 });
-    return Buffer.from(response.data);
+    const buffer = Buffer.from(response.data);
+
+    // 🛑 FIREBASE CALLABLE 10MB LIMIT SHIELD
+    // If an image is larger than 2.5MB, it will bloat the PDF and crash the 10MB limit.
+    if (buffer.length > 2.5 * 1024 * 1024) {
+      logger.warn(`Skipping image ${url} - Size (${(buffer.length / 1024 / 1024).toFixed(2)} MB) is too large and will crash the PDF.`);
+      return null;
+    }
+
+    return buffer;
   } catch (error) {
     logger.warn(`Could not load image at ${url}`);
     return null;
@@ -65,6 +74,16 @@ function formatDate(dateObj: any, includeTime = false): string {
     ...(includeTime && { hour: "2-digit", minute: "2-digit" })
   };
   return d.toLocaleDateString("fr-FR", opts);
+}
+
+/**
+ * 🚀 HELPER: Sanitize Text for PDFKit
+ * Removes invisible zero-width characters that crash standard PDF fonts.
+ */
+function sanitizeText(text: any): string {
+  if (!text || typeof text !== 'string') return "";
+  // Replaces zero-width spaces, non-joiners, and invisible separators with a normal space
+  return text.replace(/[\u200B-\u200D\uFEFF\u2028\u2029]/g, ' ').trim();
 }
 
 /**
@@ -371,7 +390,9 @@ function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
     doc.moveDown(0.5);
     doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary);
 
-    doc.text(entry.workDone || "Aucune description.", contentX, doc.y, {
+    // ✅ CLEAN THE TEXT BEFORE DRAWING
+    const safeEntryWorkDone = sanitizeText(entry.workDone) || "Aucune description.";
+    doc.text(safeEntryWorkDone, contentX, doc.y, {
       width: contentWidth,
       lineGap: 4,
       align: 'left'
@@ -401,8 +422,11 @@ function _drawSimpleDiagnostic(doc: PDFKit.PDFDocument, data: any) {
   doc.x = LAYOUT.margin;
   doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("DIAGNOSTIC / PANNE SIGNALÉE", LAYOUT.margin, doc.y);
   doc.moveDown(0.5);
+
+  // ✅ CLEAN THE TEXT BEFORE DRAWING
+  const safeDiagnostic = sanitizeText(data.diagnostic) || "Aucun diagnostic spécifié.";
   doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
-     .text(data.diagnostic || "Aucun diagnostic spécifié.", LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
+     .text(safeDiagnostic, LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
 
   doc.moveDown(1.5);
 
@@ -410,8 +434,11 @@ function _drawSimpleDiagnostic(doc: PDFKit.PDFDocument, data: any) {
   doc.x = LAYOUT.margin;
   doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("TRAVAUX EFFECTUÉS", LAYOUT.margin, doc.y);
   doc.moveDown(0.5);
+
+  // ✅ CLEAN THE TEXT BEFORE DRAWING
+  const safeWorkDone = sanitizeText(data.workDone) || "Aucun travail spécifié.";
   doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
-     .text(data.workDone || "Aucun travail spécifié.", LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
+     .text(safeWorkDone, LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
 
   doc.moveDown(2);
 }

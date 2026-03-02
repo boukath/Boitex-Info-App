@@ -149,6 +149,7 @@ export const onInterventionTermine = onDocumentUpdated(
     document: "interventions/{interventionId}",
     region: "europe-west1", // Matching your project's region
     secrets: [smtpHost, smtpPort, smtpUser, smtpPassword],
+    memory: "1GiB"
   },
   async (event) => {
     // --- 3. Get the data before and after the change ---

@@ -113,7 +113,7 @@ async (request) => {
  * Called from the intervention details page in the app.
  */
 export const exportInterventionPdf = onCall(
-  { secrets: [/* Add SMTP/B2 secrets if pdf-generator needs them */], region: "europe-west1" },
+  { secrets: [], region: "europe-west1", memory: "1GiB" },
   async (request) => {
     const interventionId = request.data.interventionId as string;
 
