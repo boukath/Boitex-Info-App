@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ PREMIUM UI ADDITION
 
 // ✅ Global Search Page
 import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
@@ -80,16 +81,17 @@ class AppUser {
 }
 
 // ----------------------------------------------------------------------
-// 🎨 THEME CONSTANTS (2026 Vibe)
+// 🎨 THEME CONSTANTS (4K Premium 2026 Vibe)
 // ----------------------------------------------------------------------
 const Color kPrimaryColor = Color(0xFF10B981); // Emerald 500
 const Color kPrimaryDark = Color(0xFF047857); // Emerald 700
+const Color kProjectColor = Color(0xFF4F46E5); // Indigo for Projects
 const Color kClientSupplyColor = Color(0xFFF59E0B); // Amber 500
-const Color kBackgroundColor = Color(0xFFF1F5F9); // Slate 100
+const Color kBackgroundColor = Color(0xFFF5F7FA); // Modern Slate 50
 const Color kSurfaceColor = Colors.white;
 const Color kTextPrimary = Color(0xFF1E293B); // Slate 800
 const Color kTextSecondary = Color(0xFF64748B); // Slate 500
-const double kRadius = 16.0;
+const double kRadius = 24.0; // Premium 24px radius
 
 class AddInstallationPage extends StatefulWidget {
   final String userRole;
@@ -131,6 +133,10 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   List<AppUser> _allTechnicians = [];
   List<AppUser> _selectedTechnicians = [];
 
+  // ✅ NEW: Project Linking State
+  String? _selectedProjectId;
+  String? _selectedProjectName;
+
   // GPS State
   double? _parsedLat;
   double? _parsedLng;
@@ -150,7 +156,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   String? _existingFileUrl;
 
   static const String _b2UploadCredentialUrl =
-      "https://europe-west1-your-firebase-project.cloudfunctions.net/b2GetUploadCredentials";
+      "https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl"; // Updated to real endpoint format generally used
 
   @override
   void initState() {
@@ -171,6 +177,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     _clientPhoneController.text = data['clientPhone'] ?? '';
     _clientEmailController.text = data['clientEmail'] ?? '';
     _contactNameController.text = data['contactName'] ?? '';
+
+    // Load Project Link if exists
+    if (data['projectId'] != null) {
+      _selectedProjectId = data['projectId'];
+      _selectedProjectName = data['clientName'] ?? 'Projet Lié'; // Approximation fallback
+    }
 
     if (data['clientId'] != null) {
       _selectedClient = Client(id: data['clientId'], name: data['clientName'] ?? '');
@@ -237,7 +249,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   // ----------------------------------------------------------------------
-  // ⚙️ LOGIC METHODS
+  // ⚙️ LOGIC METHODS (PRESERVED)
   // ----------------------------------------------------------------------
 
   Future<void> _extractCoordinatesFromLink() async {
@@ -267,12 +279,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           _parsedLat = double.parse(match.group(2)!);
           _parsedLng = double.parse(match.group(3)!);
         });
-        if (mounted) _showSnack("✅ Coordonnées extraites !", Colors.green);
+        if (mounted) _showSnack("✅ Coordonnées extraites !", kPrimaryColor);
       } else {
         if (mounted) _showSnack("❌ Impossible de trouver les coordonnées.", Colors.orange);
       }
     } catch (e) {
-      if (mounted) _showSnack("Erreur lors de l'analyse : $e", Colors.red);
+      if (mounted) _showSnack("Erreur lors de l'analyse : $e", Colors.redAccent);
     } finally {
       if (mounted) setState(() => _isResolvingLink = false);
     }
@@ -381,7 +393,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         Uri.parse(uploadUrl),
         headers: {
           'Authorization': authorizationToken,
-          'X-Bz-File-Name': fileName,
+          'X-Bz-File-Name': Uri.encodeComponent(fileName),
           'Content-Type': fileMimeType,
           'X-Bz-Content-Sha1': sha1Hash,
         },
@@ -390,12 +402,14 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
       if (uploadResponse.statusCode == 200) {
         final uploadData = jsonDecode(uploadResponse.body);
-        return uploadData['fileId'] != null ? "https://f005.backblazeb2.com/file/boitex-bucket/${fileName}" : null;
+        final downloadUrlPrefix = authData['downloadUrlPrefix'] as String;
+        final encodedPath = (uploadData['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return downloadUrlPrefix + encodedPath;
       } else {
         throw Exception('B2 Upload failed');
       }
     } catch (e) {
-      if (mounted) _showSnack('Échec de l\'envoi du fichier: $e', Colors.red);
+      if (mounted) _showSnack('Échec de l\'envoi du fichier: $e', Colors.redAccent);
       return null;
     } finally {
       if (mounted) setState(() => _isUploadingFile = false);
@@ -431,10 +445,79 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     _showSnack("${newProduct.quantity}x ${newProduct.productName} ajouté!", kPrimaryColor);
   }
 
+  // ✅ PROJECT LINKING HELPER
+  Future<void> _showProjectSelector() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('projects')
+        .where('status', whereIn: ['Nouvelle Demande', 'En Cours d\'Évaluation', 'Évaluation Terminée', 'Finalisation de la Commande', 'À Planifier'])
+        .get();
+
+    final projects = snapshot.docs;
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: Column(
+            children: [
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 20),
+              Text('Lier à un Projet Existant', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: kTextPrimary)),
+              const SizedBox(height: 16),
+              Expanded(
+                child: projects.isEmpty
+                    ? Center(child: Text("Aucun projet actif trouvé.", style: GoogleFonts.inter(color: kTextSecondary)))
+                    : ListView.builder(
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: projects.length,
+                  itemBuilder: (context, index) {
+                    final doc = projects[index];
+                    final data = doc.data();
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: kBackgroundColor,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(color: kProjectColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                          child: const Icon(Icons.rocket_launch_rounded, color: kProjectColor, size: 20),
+                        ),
+                        title: Text(data['clientName'] ?? 'Projet Inconnu', style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: kTextPrimary)),
+                        subtitle: Text(data['status'] ?? '', style: GoogleFonts.inter(color: kTextSecondary, fontSize: 13)),
+                        onTap: () {
+                          setState(() {
+                            _selectedProjectId = doc.id;
+                            _selectedProjectName = data['clientName'];
+                          });
+                          Navigator.pop(context);
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _saveInstallation() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedClient == null || _selectedStore == null) {
-      _showSnack('Veuillez choisir un client et un magasin', Colors.red);
+      _showSnack('Veuillez choisir un client et un magasin', Colors.redAccent);
       return;
     }
     if (_gpsLinkController.text.trim().isNotEmpty && _parsedLat == null) {
@@ -444,7 +527,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     setState(() => _isLoading = true);
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showSnack('Erreur: Utilisateur non trouvé', Colors.red);
+      _showSnack('Erreur: Utilisateur non trouvé', Colors.redAccent);
       setState(() => _isLoading = false);
       return;
     }
@@ -494,17 +577,15 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         'serialNumbers': List<String>.filled(p['quantity'] as int, ''),
       }).toList();
 
-      final techniciansToSave = _selectedTechnicians.map((user) => {'uid': user.uid, 'displayName': user.displayName}).toList();
+      final techniciansToSave = _selectedTechnicians.map((u) => {'uid': u.uid, 'displayName': u.displayName}).toList();
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         String? installationCode;
 
-        // If editing, preserve the existing code (whether it's a placeholder or a real code)
         if (_isEditing) {
           final existingData = widget.installationToEdit!.data() as Map<String, dynamic>;
           installationCode = existingData['installationCode'] ?? 'Brouillon';
         } else {
-          // New installations get a placeholder. The real one is generated on finish.
           installationCode = 'En attente de clôture';
         }
 
@@ -534,6 +615,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           'assignedTechnicians': techniciansToSave,
           'orderedProducts': enrichedProducts,
           'systems': systems,
+          'projectId': _selectedProjectId, // ✅ Linked Project ID
           'updatedAt': FieldValue.serverTimestamp(),
         };
 
@@ -545,18 +627,30 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           dataToSave['mediaUrls'] = [];
           dataToSave['technicalEvaluation'] = [];
           dataToSave['itEvaluation'] = [];
+
           transaction.set(installationRef, dataToSave);
+
+          // ✅ MAGIC HAPPENS HERE: Update linked project status
+          if (_selectedProjectId != null) {
+            final projectRef = FirebaseFirestore.instance.collection('projects').doc(_selectedProjectId);
+            transaction.update(projectRef, {
+              'status': 'Transféré à l\'Installation',
+              'installations': {
+                'installationId': installationRef.id,
+              }
+            });
+          }
         } else {
           transaction.update(installationRef, dataToSave);
         }
       });
 
       if (mounted) {
-        _showSnack(_isEditing ? 'Modification enregistrée!' : 'Installation créée!', Colors.green);
+        _showSnack(_isEditing ? 'Modification enregistrée!' : 'Installation créée!', kPrimaryColor);
         Navigator.of(context).pop();
       }
     } catch (e) {
-      if (mounted) _showSnack('Erreur: $e', Colors.red);
+      if (mounted) _showSnack('Erreur: $e', Colors.redAccent);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -564,7 +658,12 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color, behavior: SnackBarBehavior.floating),
+      SnackBar(
+        content: Text(message, style: GoogleFonts.inter()),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 
@@ -591,30 +690,46 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     _newStoreNameController.clear();
     _newStoreLocationController.clear();
 
-    // Custom dialog needed for 2 fields
     await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text("Ajouter Magasin"),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+          title: Text("Ajouter Magasin", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: _newStoreNameController, decoration: InputDecoration(labelText: "Nom")),
-              TextField(controller: _newStoreLocationController, decoration: InputDecoration(labelText: "Ville")),
+              TextField(
+                controller: _newStoreNameController,
+                decoration: _inputDecoration("Nom", Icons.storefront_rounded),
+                style: GoogleFonts.inter(),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _newStoreLocationController,
+                decoration: _inputDecoration("Ville", Icons.location_city_rounded),
+                style: GoogleFonts.inter(),
+              ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text("Annuler")),
-            ElevatedButton(onPressed: () async {
-              if(_newStoreNameController.text.isEmpty) return;
-              await FirebaseFirestore.instance.collection('clients').doc(_selectedClient!.id).collection('stores').add({
-                'name': _newStoreNameController.text.trim(),
-                'location': _newStoreLocationController.text.trim(),
-                'createdAt': Timestamp.now(),
-              });
-              await _fetchStores(_selectedClient!.id);
-              Navigator.pop(ctx);
-            }, child: Text("Enregistrer")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text("Annuler", style: GoogleFonts.inter(color: kTextSecondary))),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+                onPressed: () async {
+                  if(_newStoreNameController.text.isEmpty) return;
+                  await FirebaseFirestore.instance.collection('clients').doc(_selectedClient!.id).collection('stores').add({
+                    'name': _newStoreNameController.text.trim(),
+                    'location': _newStoreLocationController.text.trim(),
+                    'createdAt': Timestamp.now(),
+                  });
+                  await _fetchStores(_selectedClient!.id);
+                  Navigator.pop(ctx);
+                }, child: Text("Enregistrer", style: GoogleFonts.inter(fontWeight: FontWeight.w600))),
           ],
         )
     );
@@ -626,17 +741,18 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
-        title: Text(title, style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
         content: Form(
           key: formKey,
           child: TextFormField(
             controller: controller,
-            decoration: InputDecoration(labelText: label, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+            style: GoogleFonts.inter(),
+            decoration: _inputDecoration(label, Icons.edit_rounded),
             validator: (v) => v!.isEmpty ? 'Requis' : null,
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('Annuler', style: GoogleFonts.inter(color: kTextSecondary))),
           ElevatedButton(
             onPressed: () async {
               if (formKey.currentState!.validate()) {
@@ -646,9 +762,10 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: kPrimaryColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
             ),
-            child: const Text('Enregistrer', style: TextStyle(color: Colors.white)),
+            child: Text('Enregistrer', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -665,46 +782,55 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       backgroundColor: kBackgroundColor,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: kSurfaceColor,
         foregroundColor: kTextPrimary,
+        centerTitle: true,
         title: Text(
           _isEditing ? 'Modifier Installation' : 'Nouvelle Installation',
-          style: const TextStyle(fontWeight: FontWeight.w700),
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 18),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(color: Colors.black.withOpacity(0.05), height: 1),
         ),
         actions: [
           if (_isLoading)
-            const Padding(padding: EdgeInsets.only(right: 16), child: Center(child: CircularProgressIndicator())),
+            const Padding(padding: EdgeInsets.only(right: 16), child: Center(child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)))),
         ],
       ),
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.all(20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildSectionTitle("Informations Client", Icons.business),
+              // ✅ PREMIUM PROJECT LINKER
+              if (!_isEditing) _buildProjectLinker(),
+
+              _buildSectionTitle("Informations Client", Icons.business_rounded),
               _buildClientCard(),
 
               const SizedBox(height: 24),
-              _buildSectionTitle("Localisation & Site", Icons.map_outlined),
+              _buildSectionTitle("Localisation & Site", Icons.map_rounded),
               _buildLocationCard(),
 
               const SizedBox(height: 24),
-              _buildSectionTitle("Détails de l'Intervention", Icons.assignment_outlined),
+              _buildSectionTitle("Détails de l'Intervention", Icons.assignment_rounded),
               _buildDetailsCard(),
 
               const SizedBox(height: 24),
-              _buildSectionTitle("Équipe Technique", Icons.engineering_outlined),
+              _buildSectionTitle("Équipe Technique", Icons.engineering_rounded),
               _buildTechnicianCard(),
 
               const SizedBox(height: 24),
-              _buildSectionTitle("Inventaire Matériel", Icons.inventory_2_outlined),
+              _buildSectionTitle("Inventaire Matériel", Icons.inventory_2_rounded),
               _buildProductList(),
 
               const SizedBox(height: 40),
               _buildSaveButton(),
-              const SizedBox(height: 40),
+              const SizedBox(height: 60), // Extra scroll space
             ],
           ),
         ),
@@ -714,14 +840,70 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
   // --- WIDGETS ---
 
+  // ✅ NEW: Premium Project Linker UI
+  Widget _buildProjectLinker() {
+    final bool isLinked = _selectedProjectId != null;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 32),
+      decoration: BoxDecoration(
+        color: isLinked ? kProjectColor.withOpacity(0.05) : kSurfaceColor,
+        borderRadius: BorderRadius.circular(kRadius),
+        border: Border.all(color: isLinked ? kProjectColor.withOpacity(0.3) : Colors.black.withOpacity(0.05)),
+        boxShadow: isLinked ? [] : [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: InkWell(
+        onTap: _showProjectSelector,
+        borderRadius: BorderRadius.circular(kRadius),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isLinked ? kProjectColor.withOpacity(0.1) : Colors.grey.shade100,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.rocket_launch_rounded, color: isLinked ? kProjectColor : kTextSecondary, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Lier à un Projet (Recommandé)', style: GoogleFonts.inter(color: kTextSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 4),
+                    Text(isLinked ? _selectedProjectName ?? 'Projet Lié' : 'Sélectionner le projet source',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: isLinked ? kProjectColor : kTextPrimary)),
+                  ],
+                ),
+              ),
+              if (isLinked)
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.redAccent),
+                  onPressed: () => setState(() {
+                    _selectedProjectId = null;
+                    _selectedProjectName = null;
+                  }),
+                )
+              else
+                const Icon(Icons.chevron_right_rounded, color: Colors.grey)
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionTitle(String title, IconData icon) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12, left: 4),
+      padding: const EdgeInsets.only(bottom: 12, left: 8),
       child: Row(
         children: [
-          Icon(icon, color: kPrimaryColor, size: 22),
-          const SizedBox(width: 8),
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextPrimary)),
+          Icon(icon, color: kPrimaryColor, size: 20),
+          const SizedBox(width: 10),
+          Text(title, style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: kTextPrimary)),
         ],
       ),
     );
@@ -733,7 +915,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          // ✅ MODERN CUSTOM SELECTOR (No DropdownMenu)
           _buildModernSelect<Client>(
             label: "Client",
             hint: "Rechercher un client...",
@@ -743,7 +924,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             onSelected: (c) {
               setState(() {
                 _selectedClient = c;
-                // Update controller just in case, though UI doesn't depend on it anymore
                 _clientSearchController.text = c.name;
                 _fetchStores(c.id);
               });
@@ -752,9 +932,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             itemLabel: (c) => c.name,
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
-          // ✅ MODERN CUSTOM SELECTOR (Store)
           _buildModernSelect<Store>(
             label: "Magasin",
             hint: "Sélectionner un magasin...",
@@ -778,7 +957,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     );
   }
 
-  // ✅ NEW: Sleek Input that triggers a Modal Bottom Sheet
   Widget _buildModernSelect<T>({
     required String label,
     required String hint,
@@ -797,7 +975,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           children: [
             Expanded(
               child: GestureDetector(
-                // ✅ TRIGGER THE SHEET
                 onTap: (enabled && !isLoading) ? () {
                   _showSearchableBottomSheet(
                     title: "Sélectionner $label",
@@ -807,27 +984,27 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   );
                 } : null,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
                   decoration: BoxDecoration(
                     color: enabled ? Colors.grey.shade50 : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.transparent),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.black.withOpacity(0.04)),
                   ),
                   child: Row(
                     children: [
                       Icon(
-                          label == "Client" ? Icons.business : Icons.store,
+                          label == "Client" ? Icons.business_rounded : Icons.storefront_rounded,
                           color: enabled ? kTextSecondary : Colors.grey.shade400,
-                          size: 22
+                          size: 20
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: Text(
-                          selectedItem != null ? itemLabel(selectedItem!) : hint,
-                          style: TextStyle(
+                          selectedItem != null ? itemLabel(selectedItem) : hint,
+                          style: GoogleFonts.inter(
                               color: selectedItem != null ? kTextPrimary : kTextSecondary,
                               fontWeight: selectedItem != null ? FontWeight.w600 : FontWeight.normal,
-                              fontSize: 16
+                              fontSize: 15
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -843,17 +1020,16 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
               ),
             ),
             const SizedBox(width: 12),
-            // Add Button
             InkWell(
               onTap: enabled ? onAdd : null,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
               child: Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   color: enabled ? kPrimaryColor.withOpacity(0.1) : Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(Icons.add_rounded, color: enabled ? kPrimaryColor : Colors.grey),
+                child: Icon(Icons.add_rounded, color: enabled ? kPrimaryColor : Colors.grey, size: 22),
               ),
             )
           ],
@@ -862,7 +1038,6 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
     );
   }
 
-  // ✅ NEW: The Premium Search Modal
   Future<void> _showSearchableBottomSheet<T>({
     required String title,
     required List<T> items,
@@ -874,7 +1049,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         isScrollControlled: true,
         backgroundColor: Colors.white,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         builder: (context) {
           return _SearchableListSheet<T>(
@@ -895,22 +1070,21 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          // Status Banner
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               color: hasGps ? Colors.green.shade50 : Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: hasGps ? Colors.green.shade200 : Colors.orange.shade200),
             ),
             child: Row(
               children: [
-                Icon(hasGps ? Icons.check_circle : Icons.warning_amber_rounded, color: hasGps ? Colors.green : Colors.orange),
+                Icon(hasGps ? Icons.check_circle_rounded : Icons.warning_amber_rounded, color: hasGps ? Colors.green : Colors.orange, size: 22),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     hasGps ? "Position GPS Synchronisée" : "Position GPS manquante",
-                    style: TextStyle(fontWeight: FontWeight.bold, color: hasGps ? Colors.green.shade800 : Colors.orange.shade800),
+                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: hasGps ? Colors.green.shade800 : Colors.orange.shade800, fontSize: 14),
                   ),
                 ),
               ],
@@ -918,15 +1092,16 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           ),
 
           if (!hasGps || _parsedLat != null) ...[
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
+            Divider(color: Colors.black.withOpacity(0.04)),
+            const SizedBox(height: 20),
             Row(
               children: [
                 Expanded(
                   child: TextFormField(
                     controller: _gpsLinkController,
-                    decoration: _inputDecoration("Lien Google Maps", Icons.link).copyWith(
+                    style: GoogleFonts.inter(),
+                    decoration: _inputDecoration("Lien Google Maps", Icons.link_rounded).copyWith(
                         hintText: "https://goo.gl/maps/..."
                     ),
                   ),
@@ -936,19 +1111,20 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                   onPressed: _isResolvingLink ? null : _extractCoordinatesFromLink,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blueAccent,
-                    padding: const EdgeInsets.all(14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isResolvingLink
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Icon(Icons.search, color: Colors.white),
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.search_rounded, color: Colors.white, size: 22),
                 ),
               ],
             ),
             if (_parsedLat != null)
               Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text("📍 $_parsedLat, $_parsedLng", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                padding: const EdgeInsets.only(top: 12.0, left: 4),
+                child: Text("📍 $_parsedLat, $_parsedLng", style: GoogleFonts.inter(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 13)),
               ),
           ],
         ],
@@ -964,41 +1140,46 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
         children: [
           Row(
             children: [
-              Expanded(child: _buildTextField(_clientPhoneController, "Téléphone", Icons.phone)),
+              Expanded(child: _buildTextField(_clientPhoneController, "Téléphone", Icons.phone_rounded)),
               const SizedBox(width: 16),
-              Expanded(child: _buildTextField(_clientEmailController, "Email", Icons.email)),
+              Expanded(child: _buildTextField(_clientEmailController, "Email", Icons.alternate_email_rounded)),
             ],
           ),
           const SizedBox(height: 16),
-          _buildTextField(_contactNameController, "Contact sur site", Icons.person_pin),
+          _buildTextField(_contactNameController, "Contact sur site", Icons.person_pin_circle_rounded),
           const SizedBox(height: 16),
 
-          // File Picker Zone
           InkWell(
             onTap: _isUploadingFile ? null : _pickFile,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+              padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
-                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.black.withOpacity(0.05)),
+                borderRadius: BorderRadius.circular(16),
                 color: Colors.grey.shade50,
               ),
               child: Row(
                 children: [
                   Icon(
-                      _pickedFile != null ? Icons.file_present : Icons.attach_file,
-                      color: kTextSecondary
+                      _pickedFile != null ? Icons.file_present_rounded : Icons.attach_file_rounded,
+                      color: _pickedFile != null ? kPrimaryColor : kTextSecondary,
+                      size: 22
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: Text(
                       _pickedFile != null ? _pickedFileName! : (_existingFileUrl != null ? "Fichier existant (Modifier)" : "Joindre un fichier (PDF/Image)"),
-                      style: TextStyle(color: _pickedFile != null ? kPrimaryColor : kTextSecondary, fontWeight: FontWeight.w500),
+                      style: GoogleFonts.inter(color: _pickedFile != null ? kPrimaryColor : kTextSecondary, fontWeight: FontWeight.w500, fontSize: 14),
                     ),
                   ),
                   if (_pickedFile != null)
-                    IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => setState(() { _pickedFile = null; _pickedFileName = null; }))
+                    IconButton(
+                        icon: const Icon(Icons.close_rounded, color: Colors.redAccent, size: 20),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () => setState(() { _pickedFile = null; _pickedFileName = null; })
+                    )
                 ],
               ),
             ),
@@ -1008,7 +1189,8 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
           TextFormField(
             controller: _requestController,
             maxLines: 4,
-            decoration: _inputDecoration("Description de la demande", Icons.description).copyWith(
+            style: GoogleFonts.inter(height: 1.5),
+            decoration: _inputDecoration("Description de la demande", Icons.description_rounded).copyWith(
               alignLabelWithHint: true,
             ),
             validator: (v) => v!.isEmpty ? 'Description requise' : null,
@@ -1021,19 +1203,21 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   Widget _buildTechnicianCard() {
     return Container(
       decoration: _cardDecoration(),
-      padding: const EdgeInsets.all(10), // Tighter padding for list
+      padding: const EdgeInsets.all(8),
       child: MultiSelectDialogField<AppUser>(
         items: _allTechnicians.map((u) => MultiSelectItem(u, u.displayName)).toList(),
         initialValue: _selectedTechnicians,
-        title: const Text("Techniciens"),
-        buttonText: Text("Assigner à...", style: TextStyle(color: kTextSecondary, fontSize: 16)),
+        title: Text("Techniciens", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        buttonText: Text("Assigner à...", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 15)),
+        buttonIcon: const Icon(Icons.group_add_rounded, color: kTextSecondary),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.transparent),
         ),
         chipDisplay: MultiSelectChipDisplay(
           chipColor: kPrimaryColor.withOpacity(0.1),
-          textStyle: TextStyle(color: kPrimaryDark, fontWeight: FontWeight.bold),
+          textStyle: GoogleFonts.inter(color: kPrimaryDark, fontWeight: FontWeight.bold, fontSize: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         onConfirm: (results) => setState(() => _selectedTechnicians = results),
       ),
@@ -1056,41 +1240,41 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
               return Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  color: kSurfaceColor,
+                  borderRadius: BorderRadius.circular(20),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 4)),
+                    BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
                   ],
-                  border: Border.all(color: color.withOpacity(0.3), width: 1),
+                  border: Border.all(color: color.withOpacity(0.2), width: 1),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: color.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(isClient ? Icons.person : Icons.inventory_2, color: color),
+                        child: Icon(isClient ? Icons.person_rounded : Icons.inventory_2_rounded, color: color, size: 22),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(product.productName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            Text(product.productName, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: kTextPrimary)),
                             const SizedBox(height: 4),
-                            Text("Ref: ${product.partNumber}", style: TextStyle(color: kTextSecondary, fontSize: 13)),
-                            const SizedBox(height: 4),
+                            Text("Ref: ${product.partNumber}", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 13)),
+                            const SizedBox(height: 6),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
                                   color: color.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(6)
+                                  borderRadius: BorderRadius.circular(8)
                               ),
-                              child: Text(isClient ? "Fourniture Client" : "Stock Boitex", style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
+                              child: Text(isClient ? "Fourniture Client" : "Stock Boitex", style: GoogleFonts.inter(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
                             )
                           ],
                         ),
@@ -1100,19 +1284,24 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
                         children: [
                           Row(
                             children: [
-                              Text("Qté: ", style: TextStyle(color: kTextSecondary)),
-                              Text("${product.quantity}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                              Text("Qté: ", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 13)),
+                              Text("${product.quantity}", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18, color: kTextPrimary)),
                             ],
                           ),
-                          Switch(
-                            value: product.isClientSupply,
-                            activeColor: kClientSupplyColor,
-                            onChanged: (val) => setState(() => product.isClientSupply = val),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 24,
+                            child: Switch(
+                              value: product.isClientSupply,
+                              activeColor: kClientSupplyColor,
+                              onChanged: (val) => setState(() => product.isClientSupply = val),
+                            ),
                           ),
                         ],
                       ),
+                      const SizedBox(width: 8),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                        icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
                         onPressed: () => setState(() => _selectedProducts.removeAt(index)),
                       )
                     ],
@@ -1122,26 +1311,25 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
             },
           ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
 
-        // Add Button
         InkWell(
           onTap: _openGlobalProductSearch,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 16),
+            padding: const EdgeInsets.symmetric(vertical: 20),
             decoration: BoxDecoration(
-              border: Border.all(color: kPrimaryColor, width: 1, style: BorderStyle.solid), // Dashed effect simulated with solid for now
-              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: kPrimaryColor.withOpacity(0.5), width: 1.5),
+              borderRadius: BorderRadius.circular(20),
               color: kPrimaryColor.withOpacity(0.05),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.add_circle_outline, color: kPrimaryColor),
-                const SizedBox(width: 8),
-                Text("Ajouter un Produit", style: TextStyle(color: kPrimaryColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                const Icon(Icons.add_circle_outline_rounded, color: kPrimaryColor, size: 24),
+                const SizedBox(width: 10),
+                Text("Ajouter un Produit", style: GoogleFonts.inter(color: kPrimaryColor, fontWeight: FontWeight.bold, fontSize: 16)),
               ],
             ),
           ),
@@ -1151,21 +1339,24 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   }
 
   Widget _buildSaveButton() {
-    return ElevatedButton(
-      onPressed: (_isLoading || _isUploadingFile) ? null : _saveInstallation,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: kPrimaryColor,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        elevation: 4,
-        shadowColor: kPrimaryColor.withOpacity(0.4),
-      ),
-      child: (_isLoading || _isUploadingFile)
-          ? const CircularProgressIndicator(color: Colors.white)
-          : Text(
-        _isEditing ? "Enregistrer les modifications" : "Créer l'installation",
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: (_isLoading || _isUploadingFile) ? null : _saveInstallation,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: kPrimaryColor,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 0,
+          shadowColor: kPrimaryColor.withOpacity(0.4),
+        ),
+        child: (_isLoading || _isUploadingFile)
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+            : Text(
+          _isEditing ? "Enregistrer les modifications" : "Créer l'installation",
+          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
@@ -1174,10 +1365,10 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
 
   BoxDecoration _cardDecoration() {
     return BoxDecoration(
-      color: Colors.white,
+      color: kSurfaceColor,
       borderRadius: BorderRadius.circular(kRadius),
       boxShadow: [
-        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5)),
+        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 8)),
       ],
     );
   }
@@ -1185,6 +1376,7 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
   Widget _buildTextField(TextEditingController controller, String label, IconData icon) {
     return TextFormField(
       controller: controller,
+      style: GoogleFonts.inter(),
       decoration: _inputDecoration(label, icon),
     );
   }
@@ -1195,17 +1387,17 @@ class _AddInstallationPageState extends State<AddInstallationPage> {
       prefixIcon: Icon(icon, color: kTextSecondary, size: 20),
       filled: true,
       fillColor: Colors.grey.shade50,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: kPrimaryColor, width: 1.5)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      labelStyle: TextStyle(color: kTextSecondary),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: kPrimaryColor, width: 2)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      labelStyle: GoogleFonts.inter(color: kTextSecondary),
     );
   }
 }
 
 // ----------------------------------------------------------------------
-// 🔎 SEARCHABLE SHEET WIDGET (Internal Use)
+// 🔎 SEARCHABLE SHEET WIDGET (Premium Restyle)
 // ----------------------------------------------------------------------
 
 class _SearchableListSheet<T> extends StatefulWidget {
@@ -1237,46 +1429,49 @@ class _SearchableListSheetState<T> extends State<_SearchableListSheet<T>> {
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.7, // 70% height
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       child: Column(
         children: [
           // Handle Bar
           Container(
             width: 40,
             height: 4,
-            margin: const EdgeInsets.only(bottom: 20),
+            margin: const EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
           ),
-          Text(widget.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kTextPrimary)),
-          const SizedBox(height: 20),
+          Text(widget.title, style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: kTextPrimary)),
+          const SizedBox(height: 24),
 
           // Search Bar
           TextField(
             onChanged: (val) => setState(() => _searchQuery = val),
+            style: GoogleFonts.inter(),
             decoration: InputDecoration(
               hintText: "Rechercher...",
-              prefixIcon: const Icon(Icons.search, color: kTextSecondary),
+              hintStyle: GoogleFonts.inter(color: kTextSecondary),
+              prefixIcon: const Icon(Icons.search_rounded, color: kTextSecondary),
               filled: true,
-              fillColor: Colors.grey.shade100,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              fillColor: kBackgroundColor,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           // List
           Expanded(
             child: filteredItems.isEmpty
-                ? Center(child: Text("Aucun résultat", style: TextStyle(color: kTextSecondary)))
+                ? Center(child: Text("Aucun résultat", style: GoogleFonts.inter(color: kTextSecondary)))
                 : ListView.separated(
+              physics: const BouncingScrollPhysics(),
               itemCount: filteredItems.length,
-              separatorBuilder: (_,__) => const Divider(height: 1),
+              separatorBuilder: (_,__) => Divider(height: 1, color: Colors.black.withOpacity(0.05)),
               itemBuilder: (context, index) {
                 final item = filteredItems[index];
                 return ListTile(
-                  title: Text(widget.itemLabel(item), style: const TextStyle(fontWeight: FontWeight.w500)),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  title: Text(widget.itemLabel(item), style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: kTextPrimary)),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   onTap: () {
                     widget.onSelected(item);
                     Navigator.pop(context);

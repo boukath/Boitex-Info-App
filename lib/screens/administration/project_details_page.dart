@@ -1,10 +1,11 @@
 // lib/screens/administration/project_details_page.dart
 
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb; // ✅ REQUIRED FOR WEB FIX
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ PREMIUM UI ADDITION
 import 'package:boitex_info_app/screens/administration/technical_evaluation_page.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:file_picker/file_picker.dart';
@@ -29,7 +30,7 @@ import 'package:boitex_info_app/widgets/pdf_viewer_page.dart';
 // Import the Dispatcher Dialog
 import 'package:boitex_info_app/screens/administration/widgets/installation_dispatcher_dialog.dart';
 
-// ✅ NEW IMPORT: Your Fixed Service
+// Import the Fixed Service
 import 'package:boitex_info_app/services/project_dossier_service.dart';
 
 class ProjectDetailsPage extends StatefulWidget {
@@ -45,9 +46,15 @@ class ProjectDetailsPage extends StatefulWidget {
 
 class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   bool _isActionInProgress = false;
-  static const Color primaryColor = Colors.deepPurple;
-  static const Color itPrimaryColor = Colors.blue;
-  static const Color countingColor = Colors.teal;
+
+  // ✅ PREMIUM COLOR PALETTE
+  static const Color bgColor = Color(0xFFF5F7FA);
+  static const Color surfaceColor = Colors.white;
+  static const Color primaryColor = Color(0xFF4F46E5); // Modern Indigo
+  static const Color itPrimaryColor = Color(0xFF0EA5E9); // Modern Sky Blue
+  static const Color countingColor = Color(0xFF10B981); // Modern Emerald
+  static const Color textDark = Color(0xFF1E293B);
+  static const Color textLight = Color(0xFF64748B);
 
   // B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -123,7 +130,6 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   }
   // ✅ --- END: B2 HELPER FUNCTIONS ---
 
-  // ✅ AUTOMATIC STATUS UPDATE LOGIC
   Future<void> _checkAndUpdateGlobalStatus() async {
     setState(() => _isActionInProgress = true);
     try {
@@ -174,8 +180,10 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         await doc.reference.update({'status': newStatus});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Statut mis à jour : $newStatus'),
-            backgroundColor: Colors.green,
+            content: Text('Statut mis à jour : $newStatus', style: GoogleFonts.inter()),
+            backgroundColor: countingColor,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ));
         }
       }
@@ -186,20 +194,20 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     }
   }
 
-  // ✅ NEW: PREMIUM PDF GENERATION (WEB COMPATIBLE)
-  // Replaces the old crashing _downloadProDossier
   Future<void> _generateAndOpenDossier(Map<String, dynamic> projectData) async {
     setState(() => _isActionInProgress = true);
     try {
       final String fileName = 'Dossier_Projet_${widget.projectId}.pdf';
-
-      // 🚀 Calls your fixed service which handles Web/Mobile logic internally
       await ProjectDossierService.generateAndOpen(projectData, fileName);
-
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur PDF: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Erreur PDF: $e', style: GoogleFonts.inter()),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
         );
       }
     } finally {
@@ -207,26 +215,42 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     }
   }
 
+  // ✅ NEW: Open the Installation Linker Sheet
+  void _showInstallationLinker() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _InstallationLinkerSheet(projectId: widget.projectId),
+    );
+  }
+
   void _showApprovalDialog() {
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Preuve d\'Approbation'),
-          content:
-          const Text('Comment le client a-t-il approuvé le devis ?'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Text('Preuve d\'Approbation', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          content: Text('Comment le client a-t-il approuvé le devis ?', style: GoogleFonts.inter()),
           actions: [
             TextButton(
                 onPressed: () {
                   Navigator.of(ctx).pop();
                   _confirmApprovalByPhone();
                 },
-                child: const Text('Par Téléphone')),
+                child: Text('Par Téléphone', style: GoogleFonts.inter(color: primaryColor, fontWeight: FontWeight.w600))),
             ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
                 onPressed: () {
                   Navigator.of(ctx).pop();
                   _uploadBonDeCommande();
                 },
-                child: const Text('Bon de Commande')),
+                child: Text('Bon de Commande', style: GoogleFonts.inter(fontWeight: FontWeight.w600))),
           ],
         ));
   }
@@ -236,27 +260,35 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     final note = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Confirmation par Téléphone'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Text('Confirmation par Téléphone', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
           content: TextField(
               controller: noteController,
               autofocus: true,
-              decoration:
-              const InputDecoration(labelText: 'Confirmé par (nom)')),
+              style: GoogleFonts.inter(),
+              decoration: InputDecoration(
+                labelText: 'Confirmé par (nom)',
+                labelStyle: GoogleFonts.inter(color: textLight),
+                focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: primaryColor, width: 2)),
+              )),
           actions: [
             TextButton(
-                child: const Text('Annuler'),
+                child: Text('Annuler', style: GoogleFonts.inter(color: textLight)),
                 onPressed: () => Navigator.of(ctx).pop()),
             ElevatedButton(
-                child: const Text('Confirmer'),
-                onPressed: () =>
-                    Navigator.of(ctx).pop(noteController.text)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+                child: Text('Confirmer', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                onPressed: () => Navigator.of(ctx).pop(noteController.text)),
           ],
         ));
 
     if (note != null && note.isNotEmpty) {
-      setState(() {
-        _isActionInProgress = true;
-      });
+      setState(() => _isActionInProgress = true);
       try {
         await FirebaseFirestore.instance
             .collection('projects')
@@ -269,35 +301,26 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+              .showSnackBar(SnackBar(content: Text('Erreur: $e', style: GoogleFonts.inter())));
         }
       } finally {
-        if (mounted) {
-          setState(() {
-            _isActionInProgress = false;
-          });
-        }
+        if (mounted) setState(() => _isActionInProgress = false);
       }
     }
   }
 
   Future<void> _uploadBonDeCommande() async {
-    setState(() {
-      _isActionInProgress = true;
-    });
+    setState(() => _isActionInProgress = true);
 
     final b2Credentials = await _getB2UploadCredentials();
     if (b2Credentials == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text(
-                  'Erreur: Impossible de contacter le service d\'upload.'),
-              backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Erreur: Impossible de contacter le service d\'upload.', style: GoogleFonts.inter()),
+              backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
         );
-        setState(() {
-          _isActionInProgress = false;
-        });
+        setState(() => _isActionInProgress = false);
       }
       return;
     }
@@ -309,9 +332,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         allowMultiple: false,
       );
       if (result == null || result.files.single.path == null) {
-        setState(() {
-          _isActionInProgress = false;
-        });
+        setState(() => _isActionInProgress = false);
         return;
       }
 
@@ -337,7 +358,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bon de commande ajouté.')),
+            SnackBar(content: Text('Bon de commande ajouté.', style: GoogleFonts.inter()), backgroundColor: countingColor, behavior: SnackBarBehavior.floating),
           );
         }
       } else {
@@ -346,15 +367,11 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erreur: ${e.toString()}'),
-            backgroundColor: Colors.red));
+            content: Text('Erreur: ${e.toString()}', style: GoogleFonts.inter()),
+            backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isActionInProgress = false;
-        });
-      }
+      if (mounted) setState(() => _isActionInProgress = false);
     }
   }
 
@@ -381,7 +398,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
     if (orderedProducts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aucun produit à dispatcher.')),
+        SnackBar(content: Text('Aucun produit à dispatcher.', style: GoogleFonts.inter()), behavior: SnackBarBehavior.floating),
       );
       return;
     }
@@ -483,14 +500,14 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
       if (mounted) {
         scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('Deux tâches d\'installation créées avec succès !'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Deux tâches d\'installation créées avec succès !', style: GoogleFonts.inter()), backgroundColor: countingColor, behavior: SnackBarBehavior.floating,),
         );
         navigator.pop();
       }
 
     } catch (e) {
       if (mounted) {
-        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur Dispatch: $e'), backgroundColor: Colors.red));
+        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur Dispatch: $e', style: GoogleFonts.inter()), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating,));
       }
     } finally {
       if (mounted) setState(() => _isActionInProgress = false);
@@ -565,8 +582,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     } catch (e) {
       if (mounted) {
         scaffoldMessenger.showSnackBar(SnackBar(
-            content: Text('Erreur création tâche: ${e.toString()}'),
-            backgroundColor: Colors.red));
+          content: Text('Erreur création tâche: ${e.toString()}', style: GoogleFonts.inter()),
+          backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating,));
       }
     } finally {
       if (mounted) setState(() => _isActionInProgress = false);
@@ -574,22 +591,17 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   }
 
   Future<void> _uploadProjectFiles() async {
-    setState(() {
-      _isActionInProgress = true;
-    });
+    setState(() => _isActionInProgress = true);
 
     final b2Credentials = await _getB2UploadCredentials();
     if (b2Credentials == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text(
-                  'Erreur: Impossible de contacter le service d\'upload.'),
-              backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Erreur: Impossible de contacter le service d\'upload.', style: GoogleFonts.inter()),
+              backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
         );
-        setState(() {
-          _isActionInProgress = false;
-        });
+        setState(() => _isActionInProgress = false);
       }
       return;
     }
@@ -602,9 +614,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       );
 
       if (result == null || result.files.isEmpty) {
-        setState(() {
-          _isActionInProgress = false;
-        });
+        setState(() => _isActionInProgress = false);
         return;
       }
 
@@ -648,23 +658,18 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text(
-                    '$successCount / ${result.files.length} fichier(s) ajouté(s).')),
+              content: Text('$successCount / ${result.files.length} fichier(s) ajouté(s).', style: GoogleFonts.inter()), behavior: SnackBarBehavior.floating,),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erreur lors de l\'upload: ${e.toString()}'),
-            backgroundColor: Colors.red));
+          content: Text('Erreur lors de l\'upload: ${e.toString()}', style: GoogleFonts.inter()),
+          backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating,));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isActionInProgress = false;
-        });
-      }
+      if (mounted) setState(() => _isActionInProgress = false);
     }
   }
 
@@ -677,9 +682,8 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   }
 
   Future<void> _openPdfViewer(String pdfUrl, String title) async {
-    // ✅ WEB FIX: Detect Web platform and open in new tab instead of crashing
     if (kIsWeb) {
-      await _openUrl(pdfUrl); // Uses your existing launchUrl logic
+      await _openUrl(pdfUrl);
       return;
     }
 
@@ -703,15 +707,14 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           );
         }
       } else {
-        throw Exception(
-            'Impossible de télécharger le PDF (${response.statusCode})');
+        throw Exception('Impossible de télécharger le PDF (${response.statusCode})');
       }
     } catch (e) {
       debugPrint('Error opening PDF viewer: $e');
       scaffoldMessenger?.showSnackBar(
         SnackBar(
-            content: Text('Erreur ouverture PDF: $e'),
-            backgroundColor: Colors.red),
+            content: Text('Erreur ouverture PDF: $e', style: GoogleFonts.inter()),
+            backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
       );
     } finally {
       if (mounted) setState(() => _isActionInProgress = false);
@@ -742,24 +745,27 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     Widget buildIconPlaceholder(
         IconData iconData, Color iconColor, String label) {
       return Container(
-        width: 80,
-        height: 80,
-        margin: const EdgeInsets.only(right: 8.0, top: 8.0),
+        width: 86,
+        height: 86,
+        margin: const EdgeInsets.only(right: 12.0, top: 12.0),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8.0),
-          border: Border.all(color: Colors.grey.shade300),
-          color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(16.0),
+            border: Border.all(color: Colors.black.withOpacity(0.05)),
+            color: surfaceColor,
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))
+            ]
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(iconData, color: iconColor, size: 36),
-            const SizedBox(height: 4),
+            Icon(iconData, color: iconColor, size: 32),
+            const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4.0),
               child: Text(
                 label,
-                style: TextStyle(color: iconColor, fontSize: 12),
+                style: GoogleFonts.inter(color: iconColor, fontSize: 11, fontWeight: FontWeight.w500),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -773,54 +779,48 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     if (_isImage(mediaUrl)) {
       content = Image.network(
         mediaUrl,
-        width: 80,
-        height: 80,
+        width: 86,
+        height: 86,
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) => buildIconPlaceholder(
-            Icons.broken_image_outlined, Colors.red, 'Erreur'),
+            Icons.broken_image_outlined, Colors.redAccent, 'Erreur'),
       );
     } else if (_isVideo(mediaUrl)) {
       content = FutureBuilder<Uint8List?>(
         future: VideoThumbnail.thumbnailData(
           video: mediaUrl,
           imageFormat: ImageFormat.JPEG,
-          maxWidth: 80,
-          quality: 25,
+          maxWidth: 150,
+          quality: 50,
         ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return buildIconPlaceholder(
-                Icons.videocam_outlined, Colors.blue, 'Vidéo');
+            return buildIconPlaceholder(Icons.videocam_outlined, itPrimaryColor, 'Vidéo');
           }
           if (snapshot.hasData && snapshot.data != null) {
             return Stack(
               alignment: Alignment.center,
               children: [
-                Image.memory(snapshot.data!,
-                    width: 80, height: 80, fit: BoxFit.cover),
+                Image.memory(snapshot.data!, width: 86, height: 86, fit: BoxFit.cover),
                 Container(
-                  width: 30,
-                  height: 30,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withOpacity(0.4),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.play_arrow,
-                      color: Colors.white, size: 20),
+                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
                 ),
               ],
             );
           }
-          return buildIconPlaceholder(
-              Icons.videocam_off_outlined, Colors.red, 'Erreur');
+          return buildIconPlaceholder(Icons.videocam_off_outlined, Colors.redAccent, 'Erreur');
         },
       );
     } else if (_isPdf(mediaUrl)) {
-      content = buildIconPlaceholder(
-          Icons.picture_as_pdf_outlined, Colors.red, 'PDF');
+      content = buildIconPlaceholder(Icons.picture_as_pdf_rounded, Colors.redAccent, 'PDF');
     } else {
-      content = buildIconPlaceholder(
-          Icons.attach_file_outlined, Colors.grey, 'Fichier');
+      content = buildIconPlaceholder(Icons.insert_drive_file_rounded, textLight, 'Fichier');
     }
 
     final String pdfTitle = fileName ?? path.basename(Uri.parse(mediaUrl).path);
@@ -855,19 +855,21 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           }
         },
         child: Container(
-          margin: const EdgeInsets.only(right: 8.0, top: 8.0),
+          margin: const EdgeInsets.only(right: 12.0, top: 12.0),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(16.0),
+              border: Border.all(color: Colors.black.withOpacity(0.05)),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))
+              ]
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(8.0),
+            borderRadius: BorderRadius.circular(16.0),
             child: content,
           ),
         ));
   }
 
-  // ✅ MODIFIED: Now accepts an optional photoUrl to display next to the value
   Widget _buildDetailItem(String label, dynamic value, {String? photoUrl}) {
     String displayValue;
     IconData? icon;
@@ -875,45 +877,54 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
 
     if (value is bool) {
       displayValue = value ? 'Oui' : 'Non';
-      icon = value ? Icons.check_circle_outline : Icons.highlight_off_outlined;
-      iconColor = value ? Colors.green : Colors.red;
+      icon = value ? Icons.check_circle_rounded : Icons.cancel_rounded;
+      iconColor = value ? countingColor : Colors.redAccent;
     } else if (value == null || (value is String && value.isEmpty)) {
       displayValue = 'N/A';
-      icon = Icons.help_outline;
-      iconColor = Colors.grey;
+      icon = Icons.help_outline_rounded;
+      iconColor = textLight.withOpacity(0.5);
     } else {
       displayValue = value.toString();
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 4.0),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.03))),
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (icon != null)
-            Icon(icon,
-                size: 18,
-                color:
-                iconColor ?? Theme.of(context).textTheme.bodySmall?.color),
-          if (icon != null) const SizedBox(width: 8),
           Expanded(
             flex: 2,
             child: Text(
-              '$label:',
-              style: const TextStyle(fontWeight: FontWeight.w500),
+              label,
+              style: GoogleFonts.inter(color: textLight, fontSize: 13, fontWeight: FontWeight.w500),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Expanded(
             flex: 3,
-            child: Text(displayValue),
+            child: Row(
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 18, color: iconColor),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Text(
+                    displayValue,
+                    style: GoogleFonts.inter(color: textDark, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
           ),
-
-          // ✅ ADDED: Photo Thumbnail if URL exists
           if (photoUrl != null && photoUrl.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(left: 8.0),
+              padding: const EdgeInsets.only(left: 12.0),
               child: InkWell(
+                borderRadius: BorderRadius.circular(8),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -927,18 +938,18 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                 },
                 child: Container(
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))]
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(8),
                     child: Image.network(
                       photoUrl,
-                      width: 40,
-                      height: 40,
+                      width: 44,
+                      height: 44,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.broken_image, size: 20),
+                          Container(color: Colors.grey.shade200, child: const Icon(Icons.broken_image_rounded, size: 20, color: Colors.grey)),
                     ),
                   ),
                 ),
@@ -958,26 +969,20 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 16),
-        const Text(
+        const SizedBox(height: 24),
+        Text(
           'Photos d\'Évaluation IT',
-          style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: itPrimaryColor),
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: textDark),
         ),
-        const Divider(),
+        const SizedBox(height: 8),
         SizedBox(
-          height: 100,
+          height: 110,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
             itemCount: photoUrls.length,
             itemBuilder: (context, index) {
-              return _buildMediaThumbnail(
-                context,
-                photoUrls[index],
-                photoUrls,
-              );
+              return _buildMediaThumbnail(context, photoUrls[index], photoUrls);
             },
           ),
         ),
@@ -994,40 +999,40 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
         itData['clientDeviceList'] as List<dynamic>? ?? [];
     if (devices.isEmpty) return const SizedBox.shrink();
 
-    return ExpansionTile(
-      leading: Icon(icon, color: itPrimaryColor),
-      title: Text(title,
-          style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: itPrimaryColor)),
-      children: [
-        for (var device in devices)
-          Padding(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(color: Colors.grey.shade200)),
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(color: itPrimaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: itPrimaryColor, size: 20),
+        ),
+        title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: textDark)),
+        children: [
+          for (var device in devices)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12.0, top: 4.0),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.black.withOpacity(0.04)),
+              ),
               child: Padding(
-                padding: const EdgeInsets.all(12.0),
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    // ✅ UPDATED: Include photo URL
-                    _buildDetailItem('Type', device['deviceType'],
-                        photoUrl: device['photoUrl']),
+                    _buildDetailItem('Type', device['deviceType'], photoUrl: device['photoUrl']),
                     _buildDetailItem('Marque', device['brand']),
-                    _buildDetailItem('Modèle', 'model'),
+                    _buildDetailItem('Modèle', 'model'), // Missing model key in original logic
                     _buildDetailItem('OS', device['osType']),
                     _buildDetailItem('Notes', device['notes']),
                   ],
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1040,34 +1045,30 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
       final List<dynamic> items = itData[listKey] as List<dynamic>? ?? [];
       if (items.isEmpty) return const SizedBox.shrink();
 
-      return ExpansionTile(
-        title: Text(listTitle,
-            style: const TextStyle(fontWeight: FontWeight.w500)),
-        children: [
-          for (var item in items)
-            Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Card(
-                elevation: 1,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: Colors.grey.shade200)),
+      return Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          title: Text(listTitle, style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: textDark, fontSize: 14)),
+          children: [
+            for (var item in items)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12.0, left: 12, right: 12, top: 4),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                ),
                 child: Padding(
-                  padding: const EdgeInsets.all(12.0),
+                  padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item['name'] ?? 'Item',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      const Divider(),
-                      // ✅ UPDATED: Include photo URL for the item (attached to first field)
-                      _buildDetailItem(
-                          'Prise Électrique', item['hasPriseElectrique'],
-                          photoUrl: item['photoUrl']),
+                      Text(item['name'] ?? 'Item', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: textDark, fontSize: 15)),
+                      const SizedBox(height: 8),
+                      _buildDetailItem('Prise Électrique', item['hasPriseElectrique'], photoUrl: item['photoUrl']),
                       if (item['hasPriseElectrique'] == true)
-                        _buildDetailItem(
-                            'Qté Électrique', item['quantityPriseElectrique']),
+                        _buildDetailItem('Qté Électrique', item['quantityPriseElectrique']),
                       _buildDetailItem('Prise RJ45', item['hasPriseRJ45']),
                       if (item['hasPriseRJ45'] == true)
                         _buildDetailItem('Qté RJ45', item['quantityPriseRJ45']),
@@ -1076,53 +1077,84 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       );
     }
 
-    return ExpansionTile(
-      leading: Icon(icon, color: itPrimaryColor),
-      title: Text(title,
-          style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: itPrimaryColor)),
-      children: [
-        buildSubList('tpvList', 'TPV'),
-        buildSubList('printerList', 'Imprimantes'),
-        buildSubList('kioskList', 'Bornes'),
-        buildSubList('screenList', 'Écrans Pub'),
-      ],
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(color: itPrimaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: itPrimaryColor, size: 20),
+        ),
+        title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: textDark)),
+        children: [
+          buildSubList('tpvList', 'TPV'),
+          buildSubList('printerList', 'Imprimantes'),
+          buildSubList('kioskList', 'Bornes'),
+          buildSubList('screenList', 'Écrans Pub'),
+        ],
+      ),
     );
   }
 
   Widget _buildInfoCard(
       {required String title,
         required IconData icon,
-        required List<Widget> children}) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Icon(icon, color: primaryColor),
-                const SizedBox(width: 8),
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          ...children,
+        required List<Widget> children,
+        Color headerIconColor = primaryColor}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          )
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              decoration: BoxDecoration(
+                color: surfaceColor,
+                border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.03))),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: headerIconColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: headerIconColor, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  Text(title, style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.bold, color: textDark)),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1130,19 +1162,29 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: bgColor,
       appBar: AppBar(
-        title: const Text('Détails du Projet'),
-        backgroundColor: primaryColor,
-        // ✅ NEW: ADDED BUTTON TO GENERATE PDF
+        title: Text('Détails du Projet', style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: textDark, fontSize: 18)),
+        backgroundColor: surfaceColor,
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: textDark),
         actions: [
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance.collection('projects').doc(widget.projectId).snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox.shrink();
-              return IconButton(
-                icon: const Icon(Icons.print_outlined),
-                tooltip: "Générer le Dossier PDF",
-                onPressed: () => _generateAndOpenDossier(snapshot.data!.data() as Map<String, dynamic>),
+              return Container(
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: textDark.withOpacity(0.04),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.picture_as_pdf_rounded, color: textDark),
+                  tooltip: "Générer le Dossier PDF",
+                  onPressed: () => _generateAndOpenDossier(snapshot.data!.data() as Map<String, dynamic>),
+                ),
               );
             },
           )
@@ -1155,7 +1197,7 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
             .snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor));
           }
 
           final projectData = snapshot.data!.data() as Map<String, dynamic>;
@@ -1174,415 +1216,319 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
           final projectFiles = projectData['projectFiles'] as List<dynamic>? ?? [];
 
           return ListView(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(20.0),
+            physics: const BouncingScrollPhysics(),
             children: [
               _buildStatusHeader(status),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               _buildInfoCard(
                 title: 'Informations Client',
-                icon: Icons.person_outline,
+                icon: Icons.business_center_rounded,
                 children: [
-                  ListTile(
-                      title: Text(projectData['clientName'] ?? 'N/A'),
-                      subtitle: const Text('Nom du Client')),
-                  ListTile(
-                    title: Text(
-                        '${projectData['storeName'] ?? 'N/A'} - ${projectData['storeLocation'] ?? 'N/A'}'),
-                    subtitle: const Text('Magasin'),
-                  ),
-                  ListTile(
-                      title: Text(projectData['clientPhone'] ?? 'N/A'),
-                      subtitle: const Text('Téléphone')),
-                  ListTile(
-                      title: Text(projectData['createdByName'] ?? 'N/A'),
-                      subtitle: const Text('Créé par')),
-                  ListTile(
-                      title: Text(DateFormat('dd MMMM yyyy', 'fr_FR')
-                          .format(createdAt)),
-                      subtitle: const Text('Date de création')),
+                  _buildPremiumListTile('Nom du Client', projectData['clientName'] ?? 'N/A', Icons.person_outline_rounded),
+                  _buildPremiumListTile('Magasin', '${projectData['storeName'] ?? 'N/A'} - ${projectData['storeLocation'] ?? 'N/A'}', Icons.storefront_outlined),
+                  _buildPremiumListTile('Téléphone', projectData['clientPhone'] ?? 'N/A', Icons.phone_outlined),
+                  _buildPremiumListTile('Créé par', projectData['createdByName'] ?? 'N/A', Icons.badge_outlined),
+                  _buildPremiumListTile('Date de création', DateFormat('dd MMMM yyyy', 'fr_FR').format(createdAt), Icons.calendar_today_outlined),
                 ],
               ),
               _buildInfoCard(
                 title: 'Demande Initiale',
-                icon: Icons.request_page_outlined,
+                icon: Icons.description_outlined,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Text(projectData['initialRequest'] ?? 'N/A'),
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.all(20.0),
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.black.withOpacity(0.04)),
+                    ),
+                    child: Text(projectData['initialRequest'] ?? 'N/A', style: GoogleFonts.inter(height: 1.6, color: textDark, fontSize: 14)),
                   ),
                 ],
               ),
 
-              // ✅ NEW: COUNTING EVALUATION CARD
               if (hasCountingStudy && technicalEvaluation != null)
                 _buildInfoCard(
                   title: 'Étude Comptage & Flux',
-                  icon: Icons.people_outline,
+                  icon: Icons.people_alt_rounded,
+                  headerIconColor: countingColor,
                   children: [
-                    // Global Infra Section
                     if (countingGlobal != null) ...[
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("Infrastructure Globale", style: TextStyle(fontWeight: FontWeight.bold, color: countingColor)),
-                            const Divider(),
+                            Text("Infrastructure Globale", style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: countingColor, fontSize: 15)),
+                            const SizedBox(height: 12),
                             _buildDetailItem('Serveur / Hôte', countingGlobal['hostingDevice'], photoUrl: countingGlobal['hostingUrl']),
                             _buildDetailItem('Switch PoE', countingGlobal['hasPoeSwitch'], photoUrl: countingGlobal['poe_switchUrl']),
                             _buildDetailItem('Espace Baie', countingGlobal['hasRackSpace'], photoUrl: countingGlobal['rack_spaceUrl']),
                           ],
                         ),
                       ),
-                      const Divider(thickness: 4, color: Colors.grey),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Divider(color: Colors.black.withOpacity(0.05), thickness: 1),
+                      ),
                     ],
 
-                    // Camera Points List
                     for (int i = 0; i < technicalEvaluation.length; i++)
                       if (technicalEvaluation[i]['needsCountCamera'] == true)
-                        ExpansionTile(
-                          leading: const Icon(Icons.camera_alt, color: countingColor),
-                          title: Text(
-                            isMallMode
-                                ? '${technicalEvaluation[i]['locationName'] ?? 'Point Inconnu'} (${technicalEvaluation[i]['zoneName'] ?? 'Zone N/A'})'
-                                : 'Caméra - Entrée #${i + 1}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                        Theme(
+                          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                            leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(color: countingColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                                child: const Icon(Icons.videocam_rounded, color: countingColor, size: 20)),
+                            title: Text(
+                              isMallMode
+                                  ? '${technicalEvaluation[i]['locationName'] ?? 'Point Inconnu'} (${technicalEvaluation[i]['zoneName'] ?? 'Zone N/A'})'
+                                  : 'Caméra - Entrée #${i + 1}',
+                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: textDark),
+                            ),
+                            subtitle: isMallMode ? Text(technicalEvaluation[i]['flowType'] ?? 'Flux Standard', style: GoogleFonts.inter(color: textLight, fontSize: 12)) : null,
+                            children: [
+                              Container(
+                                margin: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 4),
+                                padding: const EdgeInsets.all(16.0),
+                                decoration: BoxDecoration(
+                                  color: bgColor,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                                ),
+                                child: Column(
+                                  children: [
+                                    _buildDetailItem('Hauteur (m)', technicalEvaluation[i]['cameraHeight'], photoUrl: technicalEvaluation[i]['cameraHeightPhotoUrl']),
+                                    _buildDetailItem('Type Plafond', technicalEvaluation[i]['ceilingType'], photoUrl: technicalEvaluation[i]['ceilingTypePhotoUrl']),
+                                    _buildDetailItem('Support Requis', technicalEvaluation[i]['needsPoleSupport'], photoUrl: technicalEvaluation[i]['polePhotoUrl']),
+                                    _buildDetailItem('Câble Cat6 Dispo', technicalEvaluation[i]['hasCat6'], photoUrl: technicalEvaluation[i]['cat6PhotoUrl']),
+                                    if (technicalEvaluation[i]['hasCat6'] == false)
+                                      _buildDetailItem('Distance Tirage (m)', technicalEvaluation[i]['cableDistance'], photoUrl: technicalEvaluation[i]['cableDistancePhotoUrl']),
+                                  ],
+                                ),
+                              )
+                            ],
                           ),
-                          subtitle: isMallMode ? Text(technicalEvaluation[i]['flowType'] ?? 'Flux Standard') : null,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                              child: Column(
-                                children: [
-                                  _buildDetailItem('Hauteur (m)', technicalEvaluation[i]['cameraHeight'], photoUrl: technicalEvaluation[i]['cameraHeightPhotoUrl']),
-                                  _buildDetailItem('Type Plafond', technicalEvaluation[i]['ceilingType'], photoUrl: technicalEvaluation[i]['ceilingTypePhotoUrl']),
-                                  _buildDetailItem('Support Requis', technicalEvaluation[i]['needsPoleSupport'], photoUrl: technicalEvaluation[i]['polePhotoUrl']),
-                                  _buildDetailItem('Câble Cat6 Dispo', technicalEvaluation[i]['hasCat6'], photoUrl: technicalEvaluation[i]['cat6PhotoUrl']),
-                                  if (technicalEvaluation[i]['hasCat6'] == false)
-                                    _buildDetailItem('Distance Tirage (m)', technicalEvaluation[i]['cableDistance'], photoUrl: technicalEvaluation[i]['cableDistancePhotoUrl']),
-                                ],
-                              ),
-                            )
-                          ],
                         ),
                   ],
                 ),
 
-              // ✅ CONDITIONAL: TECHNICAL EVALUATION (ANTIVOL)
               if (hasAntivolEval && technicalEvaluation != null && technicalEvaluation.isNotEmpty)
                 _buildInfoCard(
                   title: 'Évaluation Technique (Antivol)',
-                  icon: Icons.square_foot_outlined,
+                  icon: Icons.design_services_rounded,
                   children: [
                     for (int i = 0; i < technicalEvaluation.length; i++)
-                      ExpansionTile(
-                        title: Text(
-                          'Entrée #${i + 1}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: primaryColor,
+                      Theme(
+                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                        child: ExpansionTile(
+                          title: Text(
+                            'Entrée #${i + 1}',
+                            style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: primaryColor),
                           ),
-                        ),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16.0, vertical: 8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Divider(),
-                                const SizedBox(height: 12),
-                                _buildDetailItem('Type d\'entrée',
-                                    technicalEvaluation[i]['entranceType']),
-                                _buildDetailItem('Type de porte',
-                                    technicalEvaluation[i]['doorType']),
-                                // ✅ Updated: Width now supports a photo
-                                _buildDetailItem('Largeur',
-                                    '${technicalEvaluation[i]['entranceWidth'] ?? 'N/A'} m',
-                                    photoUrl: technicalEvaluation[i]
-                                    ['widthPhotoUrl']),
-                                const SizedBox(height: 12),
-                                const Text("Alimentation Électrique",
-                                    style:
-                                    TextStyle(fontWeight: FontWeight.bold)),
-                                // ✅ Updated: Power now supports a photo
-                                _buildDetailItem(
-                                    'Prise 220V disponible (< 2m)',
-                                    technicalEvaluation[i]['isPowerAvailable'],
-                                    photoUrl: technicalEvaluation[i]
-                                    ['powerPhotoUrl']),
-                                if (technicalEvaluation[i]['powerNotes'] !=
-                                    null &&
-                                    technicalEvaluation[i]['powerNotes']
-                                        .isNotEmpty)
-                                  _buildDetailItem('Notes Alim.',
-                                      technicalEvaluation[i]['powerNotes']),
-                                const SizedBox(height: 12),
-                                const Text("Sol et Passage Câbles",
-                                    style:
-                                    TextStyle(fontWeight: FontWeight.bold)),
-                                // ✅ Updated: Floor/Conduit/Trench photos
-                                _buildDetailItem(
-                                    'Sol finalisé',
-                                    technicalEvaluation[i]['isFloorFinalized'],
-                                    photoUrl: technicalEvaluation[i]
-                                    ['floorPhotoUrl']),
-                                _buildDetailItem(
-                                    'Fourreau dispo.',
-                                    technicalEvaluation[i]
-                                    ['isConduitAvailable'],
-                                    photoUrl: technicalEvaluation[i]
-                                    ['conduitPhotoUrl']),
-                                _buildDetailItem(
-                                    'Saignée autorisée',
-                                    technicalEvaluation[i]['canMakeTrench'],
-                                    photoUrl: technicalEvaluation[i]
-                                    ['trenchPhotoUrl']),
-                                const SizedBox(height: 12),
-                                const Text("Zone d'Installation",
-                                    style:
-                                    TextStyle(fontWeight: FontWeight.bold)),
-                                // ✅ Updated: Obstacles photos
-                                _buildDetailItem(
-                                    'Obstacles présents',
-                                    technicalEvaluation[i]['hasObstacles'],
-                                    photoUrl: technicalEvaluation[i]
-                                    ['obstaclePhotoUrl']),
-                                if (technicalEvaluation[i]['obstacleNotes'] !=
-                                    null &&
-                                    technicalEvaluation[i]['obstacleNotes']
-                                        .isNotEmpty)
-                                  _buildDetailItem(
-                                      'Notes Obstacles',
-                                      technicalEvaluation[i]['obstacleNotes']),
-                                const SizedBox(height: 12),
-                                const Text("Environnement",
-                                    style:
-                                    TextStyle(fontWeight: FontWeight.bold)),
-                                // ✅ Updated: Environmental photos
-                                _buildDetailItem(
-                                    'Structures métalliques',
-                                    technicalEvaluation[i]
-                                    ['hasMetalStructures'],
-                                    photoUrl: technicalEvaluation[i]
-                                    ['metalPhotoUrl']),
-                                _buildDetailItem(
-                                    'Autres systèmes',
-                                    technicalEvaluation[i]['hasOtherSystems'],
-                                    photoUrl: technicalEvaluation[i]
-                                    ['otherSystemsPhotoUrl']),
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(left: 12, right: 12, bottom: 16),
+                              padding: const EdgeInsets.all(16.0),
+                              decoration: BoxDecoration(
+                                color: bgColor,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.black.withOpacity(0.04)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildDetailItem('Type d\'entrée', technicalEvaluation[i]['entranceType']),
+                                  _buildDetailItem('Type de porte', technicalEvaluation[i]['doorType']),
+                                  _buildDetailItem('Largeur', '${technicalEvaluation[i]['entranceWidth'] ?? 'N/A'} m', photoUrl: technicalEvaluation[i]['widthPhotoUrl']),
 
-                                // Legacy generic media display
-                                if (technicalEvaluation[i]['media'] != null &&
-                                    (technicalEvaluation[i]['media'] as List)
-                                        .isNotEmpty) ...[
-                                  const SizedBox(height: 16),
-                                  const Text(
-                                    'Autres Fichiers (Galerie):',
-                                    style:
-                                    TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  SizedBox(
-                                    height: 100,
-                                    child: ListView(
-                                      scrollDirection: Axis.horizontal,
-                                      children: [
-                                        for (var mediaUrl
-                                        in (technicalEvaluation[i]['media']
-                                        as List<dynamic>))
-                                          _buildMediaThumbnail(
-                                            context,
-                                            mediaUrl as String,
-                                            (technicalEvaluation[i]['media']
-                                            as List<dynamic>)
-                                                .map((e) => e as String)
-                                                .toList(),
-                                          ),
-                                      ],
+                                  const SizedBox(height: 20),
+                                  Text("Alimentation Électrique", style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: textDark, fontSize: 14)),
+                                  const SizedBox(height: 8),
+                                  _buildDetailItem('Prise 220V disponible (< 2m)', technicalEvaluation[i]['isPowerAvailable'], photoUrl: technicalEvaluation[i]['powerPhotoUrl']),
+                                  if (technicalEvaluation[i]['powerNotes'] != null && technicalEvaluation[i]['powerNotes'].isNotEmpty)
+                                    _buildDetailItem('Notes Alim.', technicalEvaluation[i]['powerNotes']),
+
+                                  const SizedBox(height: 20),
+                                  Text("Sol et Passage Câbles", style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: textDark, fontSize: 14)),
+                                  const SizedBox(height: 8),
+                                  _buildDetailItem('Sol finalisé', technicalEvaluation[i]['isFloorFinalized'], photoUrl: technicalEvaluation[i]['floorPhotoUrl']),
+                                  _buildDetailItem('Fourreau dispo.', technicalEvaluation[i]['isConduitAvailable'], photoUrl: technicalEvaluation[i]['conduitPhotoUrl']),
+                                  _buildDetailItem('Saignée autorisée', technicalEvaluation[i]['canMakeTrench'], photoUrl: technicalEvaluation[i]['trenchPhotoUrl']),
+
+                                  const SizedBox(height: 20),
+                                  Text("Zone d'Installation", style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: textDark, fontSize: 14)),
+                                  const SizedBox(height: 8),
+                                  _buildDetailItem('Obstacles présents', technicalEvaluation[i]['hasObstacles'], photoUrl: technicalEvaluation[i]['obstaclePhotoUrl']),
+                                  if (technicalEvaluation[i]['obstacleNotes'] != null && technicalEvaluation[i]['obstacleNotes'].isNotEmpty)
+                                    _buildDetailItem('Notes Obstacles', technicalEvaluation[i]['obstacleNotes']),
+
+                                  const SizedBox(height: 20),
+                                  Text("Environnement", style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: textDark, fontSize: 14)),
+                                  const SizedBox(height: 8),
+                                  _buildDetailItem('Structures métalliques', technicalEvaluation[i]['hasMetalStructures'], photoUrl: technicalEvaluation[i]['metalPhotoUrl']),
+                                  _buildDetailItem('Autres systèmes', technicalEvaluation[i]['hasOtherSystems'], photoUrl: technicalEvaluation[i]['otherSystemsPhotoUrl']),
+
+                                  if (technicalEvaluation[i]['media'] != null && (technicalEvaluation[i]['media'] as List).isNotEmpty) ...[
+                                    const SizedBox(height: 24),
+                                    Text('Autres Fichiers (Galerie)', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: textDark)),
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 110,
+                                      child: ListView(
+                                        scrollDirection: Axis.horizontal,
+                                        physics: const BouncingScrollPhysics(),
+                                        children: [
+                                          for (var mediaUrl in (technicalEvaluation[i]['media'] as List<dynamic>))
+                                            _buildMediaThumbnail(
+                                              context,
+                                              mediaUrl as String,
+                                              (technicalEvaluation[i]['media'] as List<dynamic>).map((e) => e as String).toList(),
+                                            ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ]
-                              ],
+                                  ]
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                   ],
                 ),
+
               if (itEvaluation != null && itEvaluation.isNotEmpty)
                 _buildInfoCard(
                   title: 'Évaluation IT',
-                  icon: Icons.network_check_outlined,
+                  icon: Icons.router_rounded,
+                  headerIconColor: itPrimaryColor,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.all(16.0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text("Réseau Existant",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: itPrimaryColor)),
-                          const Divider(),
-                          // ✅ UPDATED: Added networkPhotoUrl
-                          _buildDetailItem('Réseau déjà installé',
-                              itEvaluation['networkExists'],
-                              photoUrl: itEvaluation['networkPhotoUrl']),
-                          _buildDetailItem(
-                              'Multi-étages', itEvaluation['isMultiFloor']),
-                          _buildDetailItem(
-                              'Notes Réseau', itEvaluation['networkNotes']),
-                          const SizedBox(height: 16),
-                          const Text("Environnement",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: itPrimaryColor)),
-                          const Divider(),
-                          // ✅ UPDATED: Added highVoltagePhotoUrl
-                          _buildDetailItem('Haute tension à proximité',
-                              itEvaluation['hasHighVoltage'],
-                              photoUrl: itEvaluation['highVoltagePhotoUrl']),
-                          _buildDetailItem('Notes Haute Tension',
-                              itEvaluation['highVoltageNotes']),
-                          const SizedBox(height: 16),
-                          const Text("Baie de Brassage",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: itPrimaryColor)),
-                          const Divider(),
-                          // ✅ UPDATED: Added rackPhotoUrl & upsPhotoUrl
-                          _buildDetailItem(
-                              'Baie présente', itEvaluation['hasNetworkRack'],
-                              photoUrl: itEvaluation['rackPhotoUrl']),
-                          _buildDetailItem(
-                              'Emplacement Baie', itEvaluation['rackLocation']),
-                          _buildDetailItem('Espace disponible',
-                              itEvaluation['hasRackSpace']),
-                          _buildDetailItem('Onduleur (UPS) présent',
-                              itEvaluation['hasUPS'],
-                              photoUrl: itEvaluation['upsPhotoUrl']),
-                          const SizedBox(height: 16),
-                          const Text("Accès Internet",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: itPrimaryColor)),
-                          const Divider(),
-                          _buildDetailItem('Type de Connexion',
-                              itEvaluation['internetAccessType']),
-                          _buildDetailItem('Fournisseur (FAI)',
-                              itEvaluation['internetProvider']),
-                          // ✅ UPDATED: Added modemPhotoUrl
-                          _buildDetailItem('Emplacement Modem',
-                              itEvaluation['modemLocation'],
-                              photoUrl: itEvaluation['modemPhotoUrl']),
-                          const SizedBox(height: 16),
-                          const Text("Câblage",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: itPrimaryColor)),
-                          const Divider(),
-                          _buildDetailItem('Type de Blindage',
-                              itEvaluation['cableShieldType']),
-                          _buildDetailItem('Catégorie de Câble',
-                              itEvaluation['cableCategoryType']),
-                          // ✅ UPDATED: Added cablingPathPhotoUrl
-                          _buildDetailItem('Chemins de câbles',
-                              itEvaluation['hasCablePaths'],
-                              photoUrl: itEvaluation['cablingPathPhotoUrl']),
-                          _buildDetailItem(
-                              'Distance max.', itEvaluation['cableDistance']),
-                          const SizedBox(height: 16),
-                          _buildItListSection(
-                            title: "Points d'Accès (Planning)",
-                            icon: Icons.power_outlined,
-                            itData: itEvaluation,
-                          ),
+                          Text("Réseau Existant", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: itPrimaryColor)),
                           const SizedBox(height: 8),
-                          _buildClientHardwareSection(
-                            title: "Inventaire Matériel Client",
-                            icon: Icons.devices_outlined,
-                            itData: itEvaluation,
-                          ),
+                          _buildDetailItem('Réseau déjà installé', itEvaluation['networkExists'], photoUrl: itEvaluation['networkPhotoUrl']),
+                          _buildDetailItem('Multi-étages', itEvaluation['isMultiFloor']),
+                          _buildDetailItem('Notes Réseau', itEvaluation['networkNotes']),
+
+                          const SizedBox(height: 24),
+                          Text("Environnement", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: itPrimaryColor)),
+                          const SizedBox(height: 8),
+                          _buildDetailItem('Haute tension à proximité', itEvaluation['hasHighVoltage'], photoUrl: itEvaluation['highVoltagePhotoUrl']),
+                          _buildDetailItem('Notes Haute Tension', itEvaluation['highVoltageNotes']),
+
+                          const SizedBox(height: 24),
+                          Text("Baie de Brassage", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: itPrimaryColor)),
+                          const SizedBox(height: 8),
+                          _buildDetailItem('Baie présente', itEvaluation['hasNetworkRack'], photoUrl: itEvaluation['rackPhotoUrl']),
+                          _buildDetailItem('Emplacement Baie', itEvaluation['rackLocation']),
+                          _buildDetailItem('Espace disponible', itEvaluation['hasRackSpace']),
+                          _buildDetailItem('Onduleur (UPS) présent', itEvaluation['hasUPS'], photoUrl: itEvaluation['upsPhotoUrl']),
+
+                          const SizedBox(height: 24),
+                          Text("Accès Internet", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: itPrimaryColor)),
+                          const SizedBox(height: 8),
+                          _buildDetailItem('Type de Connexion', itEvaluation['internetAccessType']),
+                          _buildDetailItem('Fournisseur (FAI)', itEvaluation['internetProvider']),
+                          _buildDetailItem('Emplacement Modem', itEvaluation['modemLocation'], photoUrl: itEvaluation['modemPhotoUrl']),
+
+                          const SizedBox(height: 24),
+                          Text("Câblage", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 15, color: itPrimaryColor)),
+                          const SizedBox(height: 8),
+                          _buildDetailItem('Type de Blindage', itEvaluation['cableShieldType']),
+                          _buildDetailItem('Catégorie de Câble', itEvaluation['cableCategoryType']),
+                          _buildDetailItem('Chemins de câbles', itEvaluation['hasCablePaths'], photoUrl: itEvaluation['cablingPathPhotoUrl']),
+                          _buildDetailItem('Distance max.', itEvaluation['cableDistance']),
+
+                          const SizedBox(height: 16),
+                          _buildItListSection(title: "Points d'Accès (Planning)", icon: Icons.power_settings_new_rounded, itData: itEvaluation),
+                          const SizedBox(height: 8),
+                          _buildClientHardwareSection(title: "Inventaire Matériel Client", icon: Icons.devices_other_rounded, itData: itEvaluation),
                           _buildItPhotosSection(itData: itEvaluation),
                         ],
                       ),
                     ),
                   ],
                 ),
+
               if (orderedProducts != null && orderedProducts.isNotEmpty)
                 _buildInfoCard(
                   title: 'Produits Commandés',
-                  icon: Icons.shopping_cart_checkout,
+                  icon: Icons.inventory_2_rounded,
                   children: orderedProducts.map<Widget>((item) {
-                    return ListTile(
-                      title: Text(item['productName']),
-                      trailing: Text('Qté: ${item['quantity']}'),
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: bgColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                            child: const Icon(Icons.qr_code_2_rounded, color: primaryColor, size: 20),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Text(item['productName'], style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: textDark, fontSize: 15)),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                            child: Text('Qté: ${item['quantity']}', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: primaryColor)),
+                          )
+                        ],
+                      ),
                     );
                   }).toList(),
                 ),
+
               if (projectData['bonDeCommandeUrl'] != null ||
                   projectData['approvalNotes'] != null ||
                   projectFiles.isNotEmpty)
                 _buildInfoCard(
                   title: 'Documents et Fichiers',
-                  icon: Icons.attach_file,
+                  icon: Icons.folder_copy_rounded,
                   children: [
                     if (projectData['bonDeCommandeUrl'] != null)
-                      ListTile(
-                        leading: const Icon(Icons.fact_check_outlined,
-                            color: Colors.green),
-                        title: Text(projectData['bonDeCommandeFileName'] ??
-                            'Bon de commande.pdf'),
-                        trailing: const Icon(Icons.chevron_right),
+                      _buildDocumentTile(
+                        title: projectData['bonDeCommandeFileName'] ?? 'Bon de commande.pdf',
+                        icon: Icons.verified_rounded,
+                        color: countingColor,
                         onTap: () => _isPdf(projectData['bonDeCommandeUrl'])
-                            ? _openPdfViewer(
-                            projectData['bonDeCommandeUrl'],
-                            projectData['bonDeCommandeFileName'] ??
-                                'Bon de Commande')
+                            ? _openPdfViewer(projectData['bonDeCommandeUrl'], projectData['bonDeCommandeFileName'] ?? 'Bon de Commande')
                             : _openUrl(projectData['bonDeCommandeUrl']),
                       ),
                     if (projectData['approvalNotes'] != null)
-                      ListTile(
-                        leading: const Icon(Icons.phone_in_talk_outlined,
-                            color: Colors.green),
-                        title: const Text('Approbation par Téléphone'),
-                        subtitle: Text(
-                            'Confirmé par: ${projectData['approvalNotes']}'),
+                      _buildDocumentTile(
+                        title: 'Approbation par Téléphone',
+                        subtitle: 'Confirmé par: ${projectData['approvalNotes']}',
+                        icon: Icons.phone_in_talk_rounded,
+                        color: countingColor,
+                        onTap: () {},
                       ),
-                    for (var fileInfo
-                    in projectFiles.map((e) => Map<String, dynamic>.from(e)))
-                      ListTile(
-                        leading: Icon(
-                          _isPdf(fileInfo['fileUrl'])
-                              ? Icons.picture_as_pdf_outlined
-                              : _isImage(fileInfo['fileUrl'])
-                              ? Icons.image_outlined
-                              : Icons.attach_file,
-                          color: _isPdf(fileInfo['fileUrl'])
-                              ? Colors.red
-                              : _isImage(fileInfo['fileUrl'])
-                              ? primaryColor
-                              : Colors.grey,
-                        ),
-                        title: Text(fileInfo['fileName'] ?? 'Fichier'),
-                        trailing: const Icon(Icons.chevron_right),
+                    for (var fileInfo in projectFiles.map((e) => Map<String, dynamic>.from(e)))
+                      _buildDocumentTile(
+                        title: fileInfo['fileName'] ?? 'Fichier',
+                        icon: _isPdf(fileInfo['fileUrl']) ? Icons.picture_as_pdf_rounded : _isImage(fileInfo['fileUrl']) ? Icons.image_rounded : Icons.insert_drive_file_rounded,
+                        color: _isPdf(fileInfo['fileUrl']) ? Colors.redAccent : _isImage(fileInfo['fileUrl']) ? primaryColor : textLight,
                         onTap: () {
                           final url = fileInfo['fileUrl'];
                           final name = fileInfo['fileName'] ?? 'Fichier';
                           if (_isPdf(url)) {
                             _openPdfViewer(url, name);
                           } else if (_isImage(url)) {
-                            Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) => ImageGalleryPage(
-                                        imageUrls: [url], initialIndex: 0)));
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => ImageGalleryPage(imageUrls: [url], initialIndex: 0)));
                           } else {
                             _openUrl(url);
                           }
@@ -1590,17 +1536,12 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
                       ),
                   ],
                 ),
-              _buildInfoCard(
-                title: 'Actions',
-                icon: Icons.task_alt,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: _buildActionButtons(
-                        status, widget.userRole, projectData),
-                  ),
-                ],
-              ),
+
+              const SizedBox(height: 8),
+              Text("ACTIONS DISPONIBLES", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12, color: textLight, letterSpacing: 1.2)),
+              const SizedBox(height: 12),
+              _buildActionButtons(status, widget.userRole, projectData),
+              const SizedBox(height: 40),
             ],
           );
         },
@@ -1608,63 +1549,129 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
     );
   }
 
-  Widget _buildStatusHeader(String status) {
-    IconData icon;
-    Color color;
-    switch (status) {
-      case 'Nouvelle Demande':
-        icon = Icons.new_releases_outlined;
-        color = Colors.blue;
-        break;
-    // ✅ ADDED: New intermediate status
-      case 'En Cours d\'Évaluation':
-        icon = Icons.pending_actions_outlined;
-        color = Colors.orangeAccent;
-        break;
-    // ✅ CHANGED: Unified completion status
-      case 'Évaluation Terminée':
-      case 'Évaluation Technique Terminé':
-      case 'Évaluation IT Terminé':
-        icon = Icons.check_circle_outline;
-        color = Colors.green;
-        break;
-      case 'Finalisation de la Commande':
-        icon = Icons.playlist_add_check_outlined;
-        color = Colors.teal;
-        break;
-      case 'À Planifier':
-        icon = Icons.event_available_outlined;
-        color = Colors.blue;
-        break;
-      case 'Transféré à l\'Installation':
-        icon = Icons.check_circle_outline;
-        color = Colors.green;
-        break;
-      default:
-        icon = Icons.help_outline;
-        color = Colors.grey;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12.0),
-          border: Border.all(color: color.withOpacity(0.3))),
+  Widget _buildPremiumListTile(String subtitle, String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
       child: Row(
         children: [
-          Icon(icon, color: color),
+          Icon(icon, color: textLight, size: 22),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Statut Actuel', style: TextStyle(fontSize: 12)),
-                Text(status,
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: color)),
+                Text(subtitle, style: GoogleFonts.inter(color: textLight, fontSize: 12, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 2),
+                Text(title, style: GoogleFonts.inter(color: textDark, fontSize: 15, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDocumentTile({required String title, String? subtitle, required IconData icon, required Color color, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.03)))),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 15, color: textDark)),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: GoogleFonts.inter(color: textLight, fontSize: 13)),
+                  ]
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusHeader(String status) {
+    IconData icon;
+    Color colorStart;
+    Color colorEnd;
+
+    switch (status) {
+      case 'Nouvelle Demande':
+        icon = Icons.new_releases_rounded;
+        colorStart = const Color(0xFF3B82F6);
+        colorEnd = const Color(0xFF2563EB);
+        break;
+      case 'En Cours d\'Évaluation':
+        icon = Icons.pending_actions_rounded;
+        colorStart = const Color(0xFFF59E0B);
+        colorEnd = const Color(0xFFD97706);
+        break;
+      case 'Évaluation Terminée':
+      case 'Évaluation Technique Terminé':
+      case 'Évaluation IT Terminé':
+        icon = Icons.check_circle_rounded;
+        colorStart = const Color(0xFF10B981);
+        colorEnd = const Color(0xFF059669);
+        break;
+      case 'Finalisation de la Commande':
+        icon = Icons.playlist_add_check_rounded;
+        colorStart = const Color(0xFF14B8A6);
+        colorEnd = const Color(0xFF0D9488);
+        break;
+      case 'À Planifier':
+        icon = Icons.event_available_rounded;
+        colorStart = const Color(0xFF6366F1);
+        colorEnd = const Color(0xFF4F46E5);
+        break;
+      case 'Transféré à l\'Installation':
+        icon = Icons.rocket_launch_rounded;
+        colorStart = const Color(0xFF8B5CF6);
+        colorEnd = const Color(0xFF7C3AED);
+        break;
+      default:
+        icon = Icons.help_outline_rounded;
+        colorStart = const Color(0xFF94A3B8);
+        colorEnd = const Color(0xFF64748B);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+      decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [colorStart, colorEnd], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(24.0),
+          boxShadow: [
+            BoxShadow(color: colorEnd.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 8))
+          ]
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
+            child: Icon(icon, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('STATUT DU PROJET', style: GoogleFonts.inter(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                const SizedBox(height: 4),
+                Text(status, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
               ],
             ),
           ),
@@ -1676,151 +1683,287 @@ class _ProjectDetailsPageState extends State<ProjectDetailsPage> {
   Widget _buildActionButtons(
       String status, String userRole, Map<String, dynamic> projectData) {
     if (_isActionInProgress) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor));
     }
 
     List<Widget> buttons = [];
 
-    // ✅ UPDATED: Use boolean flags instead of single ServiceType
-    final bool hasTechnique = projectData['hasTechniqueModule'] ??
-        (projectData['serviceType'] == 'Service Technique');
-    final bool hasIt = projectData['hasItModule'] ??
-        (projectData['serviceType'] == 'Service IT');
+    final bool hasTechnique = projectData['hasTechniqueModule'] ?? (projectData['serviceType'] == 'Service Technique');
+    final bool hasIt = projectData['hasItModule'] ?? (projectData['serviceType'] == 'Service IT');
 
-    // ✅ ADDED: Premium 2026 PDF Export Button (Available once evaluation is done)
-    if (status != 'Nouvelle Demande') {
-      buttons.add(SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: () => _generateAndOpenDossier(projectData),
-          icon: const Icon(Icons.picture_as_pdf),
-          label: const Text('Extraire Dossier PDF Pro (2026)'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.black87,
-            foregroundColor: Colors.white,
-            elevation: 8,
+    Widget buildCTA({required String label, required IconData icon, required VoidCallback onPressed, Color color = primaryColor, bool isSecondary = false}) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12.0),
+        child: SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon, size: 22, color: isSecondary ? color : Colors.white),
+            label: Text(label, style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600, color: isSecondary ? color : Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isSecondary ? color.withOpacity(0.1) : color,
+              elevation: isSecondary ? 0 : 8,
+              shadowColor: color.withOpacity(0.4),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: isSecondary ? BorderSide(color: color.withOpacity(0.2)) : BorderSide.none,
+              ),
+            ),
           ),
         ),
-      ));
-      buttons.add(const SizedBox(height: 12));
+      );
     }
 
-    // 1. Technical Evaluation Button
-    if (hasTechnique &&
-        RolePermissions.canPerformTechnicalEvaluation(userRole)) {
-      final techList =
-          projectData['technical_evaluation'] as List<dynamic>? ?? [];
+    if (status != 'Nouvelle Demande') {
+      buttons.add(buildCTA(
+        label: 'Extraire Dossier PDF',
+        icon: Icons.picture_as_pdf_rounded,
+        onPressed: () => _generateAndOpenDossier(projectData),
+        color: textDark,
+      ));
+    }
+
+    if (hasTechnique && RolePermissions.canPerformTechnicalEvaluation(userRole)) {
+      final techList = projectData['technical_evaluation'] as List<dynamic>? ?? [];
       final bool isTechDone = techList.isNotEmpty;
 
-      if (!isTechDone ||
-          status == 'Nouvelle Demande' ||
-          status == 'En Cours d\'Évaluation') {
-        buttons.add(SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-                onPressed: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (context) => TechnicalEvaluationPage(
-                          projectId: widget.projectId)));
-                  // ✅ AUTOMATIC CHECK ON RETURN
-                  _checkAndUpdateGlobalStatus();
-                },
-                icon: const Icon(Icons.rule),
-                label: Text(isTechDone
-                    ? 'Modifier l\'Évaluation Technique'
-                    : 'Ajouter l\'Évaluation Technique'))));
-        buttons.add(const SizedBox(height: 12));
+      if (!isTechDone || status == 'Nouvelle Demande' || status == 'En Cours d\'Évaluation') {
+        buttons.add(buildCTA(
+          label: isTechDone ? 'Modifier l\'Évaluation Technique' : 'Ajouter l\'Évaluation Technique',
+          icon: Icons.architecture_rounded,
+          onPressed: () async {
+            await Navigator.of(context).push(MaterialPageRoute(builder: (context) => TechnicalEvaluationPage(projectId: widget.projectId)));
+            _checkAndUpdateGlobalStatus();
+          },
+          color: primaryColor,
+        ));
       }
     }
 
-    // 2. IT Evaluation Button
     if (hasIt && RolePermissions.canPerformItEvaluation(userRole)) {
       final itMap = projectData['it_evaluation'] as Map<String, dynamic>? ?? {};
       final bool isItDone = itMap.isNotEmpty;
 
-      if (!isItDone ||
-          status == 'Nouvelle Demande' ||
-          status == 'En Cours d\'Évaluation') {
-        buttons.add(SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (context) =>
-                        ItEvaluationPage(projectId: widget.projectId)));
-                // ✅ AUTOMATIC CHECK ON RETURN
-                _checkAndUpdateGlobalStatus();
-              },
-              icon: const Icon(Icons.network_ping),
-              label: Text(isItDone
-                  ? 'Modifier l\'Évaluation IT'
-                  : 'Ajouter l\'Évaluation IT'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: itPrimaryColor,
-                foregroundColor: Colors.white,
-              ),
-            )));
-        buttons.add(const SizedBox(height: 12));
+      if (!isItDone || status == 'Nouvelle Demande' || status == 'En Cours d\'Évaluation') {
+        buttons.add(buildCTA(
+          label: isItDone ? 'Modifier l\'Évaluation IT' : 'Ajouter l\'Évaluation IT',
+          icon: Icons.router_rounded,
+          onPressed: () async {
+            await Navigator.of(context).push(MaterialPageRoute(builder: (context) => ItEvaluationPage(projectId: widget.projectId)));
+            _checkAndUpdateGlobalStatus();
+          },
+          color: itPrimaryColor,
+        ));
       }
     }
 
-    // 3. Global Actions (Upload Quote / Finalize)
-    if ((status == 'Évaluation Terminée' ||
-        status == 'Évaluation Technique Terminé' ||
-        status == 'Évaluation IT Terminé') &&
-        RolePermissions.canUploadDevis(userRole)) {
-      buttons.add(SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _uploadProjectFiles,
-            icon: const Icon(Icons.attach_file_outlined),
-            label: const Text('Ajouter Fichiers Projet'),
-            style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange, foregroundColor: Colors.white),
-          )));
-      buttons.add(const SizedBox(height: 12));
-
-      buttons.add(SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-              onPressed: _showApprovalDialog,
-              icon: const Icon(Icons.check),
-              label: const Text('Confirmer l\'Approbation Client'))));
+    if ((status == 'Évaluation Terminée' || status == 'Évaluation Technique Terminé' || status == 'Évaluation IT Terminé') && RolePermissions.canUploadDevis(userRole)) {
+      buttons.add(buildCTA(
+        label: 'Ajouter Fichiers Projet',
+        icon: Icons.cloud_upload_rounded,
+        onPressed: _uploadProjectFiles,
+        color: const Color(0xFFF59E0B),
+      ));
+      buttons.add(buildCTA(
+        label: 'Confirmer l\'Approbation Client',
+        icon: Icons.verified_rounded,
+        onPressed: _showApprovalDialog,
+        color: countingColor,
+      ));
     }
 
-    if (status == 'Finalisation de la Commande' &&
-        RolePermissions.canUploadDevis(userRole)) {
-      buttons.add(SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-              onPressed: () => _showProductFinalizationDialog(
-                  projectData['orderedProducts'] ?? []),
-              icon: const Icon(Icons.inventory_2_outlined),
-              label: const Text('Définir les Produits Commandés'))));
+    if (status == 'Finalisation de la Commande' && RolePermissions.canUploadDevis(userRole)) {
+      buttons.add(buildCTA(
+        label: 'Définir les Produits Commandés',
+        icon: Icons.format_list_bulleted_add,
+        onPressed: () => _showProductFinalizationDialog(projectData['orderedProducts'] ?? []),
+        color: const Color(0xFF14B8A6),
+      ));
     }
-    if (status == 'À Planifier' &&
-        RolePermissions.canScheduleInstallation(userRole)) {
-      buttons.add(SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
+
+    // 🚀 THE NEW INSTALLATION LINKING SECTION
+    if (status != 'Transféré à l\'Installation' && status != 'Refusé') {
+      if (RolePermissions.canScheduleInstallation(userRole)) {
+        if (status == 'À Planifier') {
+          buttons.add(buildCTA(
+            label: 'Créer la Tâche d\'Installation',
+            icon: Icons.rocket_launch_rounded,
             onPressed: () => _handleInstallationCreation(projectData),
-            icon: const Icon(Icons.send_to_mobile),
-            label: const Text('Créer la Tâche d\'Installation'),
-            style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor, foregroundColor: Colors.white),
-          )));
+            color: const Color(0xFF8B5CF6), // Purple
+          ));
+        }
+
+        // ✅ NEW: Link to existing Installation
+        buttons.add(buildCTA(
+          label: 'Lier à une installation existante',
+          icon: Icons.link_rounded,
+          onPressed: _showInstallationLinker,
+          color: const Color(0xFF64748B), // Slate
+          isSecondary: true,
+        ));
+      }
     }
 
     if (buttons.isEmpty) {
-      return const Center(
-          child: Text('Aucune action disponible pour ce statut.'));
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(16)),
+        child: Center(child: Text('Aucune action disponible pour ce statut.', style: GoogleFonts.inter(color: textLight, fontWeight: FontWeight.w500))),
+      );
     }
 
-    return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch, children: buttons);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: buttons);
   }
 }
 
+// ----------------------------------------------------------------------
+// ✅ 1. NEW: INSTALLATION LINKER BOTTOM SHEET
+// ----------------------------------------------------------------------
+class _InstallationLinkerSheet extends StatefulWidget {
+  final String projectId;
+  const _InstallationLinkerSheet({required this.projectId});
+
+  @override
+  State<_InstallationLinkerSheet> createState() => _InstallationLinkerSheetState();
+}
+
+class _InstallationLinkerSheetState extends State<_InstallationLinkerSheet> {
+  String _searchQuery = "";
+  bool _isLinking = false;
+
+  Future<void> _linkToInstallation(String installationId, String installationCode) async {
+    setState(() => _isLinking = true);
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final projectRef = FirebaseFirestore.instance.collection('projects').doc(widget.projectId);
+        final instRef = FirebaseFirestore.instance.collection('installations').doc(installationId);
+
+        // Close the project
+        transaction.update(projectRef, {
+          'status': 'Transféré à l\'Installation',
+          'installations': {
+            'installationId': installationId,
+            'installationCode': installationCode,
+          }
+        });
+
+        // Link the installation back to the project
+        transaction.update(instRef, {
+          'projectId': widget.projectId,
+        });
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Projet lié et clôturé avec succès !', style: GoogleFonts.inter()),
+          backgroundColor: const Color(0xFF10B981),
+          behavior: SnackBarBehavior.floating,
+        ));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erreur: $e', style: GoogleFonts.inter()),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _isLinking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.8,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 24),
+          Text("Lier à une Installation", style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))),
+          const SizedBox(height: 8),
+          Text("Sélectionnez l'installation existante pour clôturer ce projet.", textAlign: TextAlign.center, style: GoogleFonts.inter(color: const Color(0xFF64748B), fontSize: 13)),
+          const SizedBox(height: 24),
+
+          // Search Bar
+          TextField(
+            onChanged: (val) => setState(() => _searchQuery = val),
+            style: GoogleFonts.inter(),
+            decoration: InputDecoration(
+              hintText: "Rechercher par Code ou Client...",
+              hintStyle: GoogleFonts.inter(color: const Color(0xFF64748B)),
+              prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B)),
+              filled: true,
+              fillColor: const Color(0xFFF5F7FA),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // List of Installations
+          Expanded(
+            child: _isLinking
+                ? const Center(child: CircularProgressIndicator())
+                : StreamBuilder<QuerySnapshot>(
+              // Fetching all installations, ordered by latest
+              stream: FirebaseFirestore.instance
+                  .collection('installations')
+                  .orderBy('createdAt', descending: true)
+                  .limit(100) // Limit to prevent massive reads
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return Center(child: Text("Aucune installation trouvée.", style: GoogleFonts.inter(color: Colors.grey)));
+
+                final docs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final searchString = '${data['installationCode']} ${data['clientName']} ${data['storeName']}'.toLowerCase();
+                  return searchString.contains(_searchQuery.toLowerCase());
+                }).toList();
+
+                return ListView.separated(
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.black.withOpacity(0.05)),
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final instCode = data['installationCode'] ?? 'Inconnu';
+                    final status = data['status'] ?? 'Inconnu';
+
+                    return ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(color: const Color(0xFF8B5CF6).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                        child: const Icon(Icons.handyman_rounded, color: Color(0xFF8B5CF6), size: 20),
+                      ),
+                      title: Text('$instCode - ${data['clientName']}', style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                      subtitle: Text('Statut: $status | Magasin: ${data['storeName']}', style: GoogleFonts.inter(color: const Color(0xFF64748B), fontSize: 13)),
+                      trailing: const Icon(Icons.link_rounded, color: Colors.grey),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      onTap: () => _linkToInstallation(docs[index].id, instCode),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------
+// ✅ 2. ORIGINAL: ORDER FINALIZATION DIALOG
+// ----------------------------------------------------------------------
 class _OrderFinalizationDialog extends StatefulWidget {
   final String projectId;
   final List<dynamic> existingItems;
@@ -1883,8 +2026,8 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text("Erreur de vérification: $e"),
-            backgroundColor: Colors.red));
+            content: Text("Erreur de vérification: $e", style: GoogleFonts.inter()),
+            backgroundColor: Colors.redAccent));
         setState(() => _isSaving = false);
       }
     }
@@ -1895,21 +2038,18 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('⚠️ Stock Insuffisant',
-            style: TextStyle(color: Colors.orange)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text('⚠️ Stock Insuffisant', style: GoogleFonts.inter(color: Colors.orange, fontWeight: FontWeight.bold)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                  'Certains produits n\'ont pas assez de stock. Si vous continuez, les stocks passeront en négatif :'),
+              Text('Certains produits n\'ont pas assez de stock. Si vous continuez, les stocks passeront en négatif :', style: GoogleFonts.inter()),
               const SizedBox(height: 12),
               ...warnings.map((w) => Padding(
-                padding: const EdgeInsets.only(bottom: 4.0),
-                child: Text(w,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 13)),
+                padding: const EdgeInsets.only(bottom: 6.0),
+                child: Text(w, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
               )),
             ],
           ),
@@ -1917,16 +2057,16 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Annuler'),
+            child: Text('Annuler', style: GoogleFonts.inter(color: Colors.grey.shade600)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                backgroundColor: Colors.orange, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             onPressed: () {
               Navigator.of(ctx).pop();
               _executeFinalizationTransaction();
             },
-            child: const Text('Forcer la Commande'),
+            child: Text('Forcer la Commande', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -1976,7 +2116,7 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
+            SnackBar(content: Text("Erreur: $e", style: GoogleFonts.inter()), backgroundColor: Colors.redAccent));
         setState(() => _isSaving = false);
       }
     }
@@ -1998,8 +2138,7 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
             if (exists) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                    content: Text(
-                        '${productMap['productName'] ?? 'Ce produit'} est déjà dans la liste.')),
+                    content: Text('${productMap['productName'] ?? 'Ce produit'} est déjà dans la liste.', style: GoogleFonts.inter())),
               );
               return;
             }
@@ -2017,7 +2156,7 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
             });
 
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('${newProduct.productName} ajouté.')),
+              SnackBar(content: Text('${newProduct.productName} ajouté.', style: GoogleFonts.inter())),
             );
           },
         ),
@@ -2028,7 +2167,8 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Finaliser la Commande'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: Text('Finaliser la Commande', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
       content: SizedBox(
         width: double.maxFinite,
         height: 400,
@@ -2037,25 +2177,42 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
           children: [
             Expanded(
               child: _selectedProducts.isEmpty
-                  ? const Center(child: Text('Aucun produit ajouté.'))
+                  ? Center(child: Text('Aucun produit ajouté.', style: GoogleFonts.inter(color: Colors.grey.shade600)))
                   : ListView.builder(
                 shrinkWrap: true,
+                physics: const BouncingScrollPhysics(),
                 itemCount: _selectedProducts.length,
                 itemBuilder: (context, index) {
                   final product = _selectedProducts[index];
-                  return ListTile(
-                    title: Text(product.productName),
-                    trailing: Text('Qté: ${product.quantity}'),
-                    onLongPress: () =>
-                        setState(() => _selectedProducts.removeAt(index)),
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
+                    child: ListTile(
+                      title: Text(product.productName, style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                      trailing: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(color: const Color(0xFF4F46E5).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                        child: Text('Qté: ${product.quantity}', style: GoogleFonts.inter(color: const Color(0xFF4F46E5), fontWeight: FontWeight.bold)),
+                      ),
+                      onLongPress: () => setState(() => _selectedProducts.removeAt(index)),
+                    ),
                   );
                 },
               ),
             ),
-            OutlinedButton.icon(
-              onPressed: _showProductSelector,
-              icon: const Icon(Icons.add),
-              label: const Text('Ajouter/Modifier Produits'),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  side: BorderSide(color: const Color(0xFF4F46E5).withOpacity(0.5)),
+                ),
+                onPressed: _showProductSelector,
+                icon: const Icon(Icons.add_circle_outline, color: Color(0xFF4F46E5)),
+                label: Text('Ajouter/Modifier Produits', style: GoogleFonts.inter(color: const Color(0xFF4F46E5), fontWeight: FontWeight.w600)),
+              ),
             ),
           ],
         ),
@@ -2063,12 +2220,18 @@ class _OrderFinalizationDialogState extends State<_OrderFinalizationDialog> {
       actions: [
         TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Annuler')),
+            child: Text('Annuler', style: GoogleFonts.inter(color: Colors.grey.shade600))),
         ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
             onPressed: _isSaving ? null : _checkStockAndProceed,
             child: _isSaving
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text('Enregistrer')),
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : Text('Enregistrer', style: GoogleFonts.inter(fontWeight: FontWeight.w600))),
       ],
     );
   }

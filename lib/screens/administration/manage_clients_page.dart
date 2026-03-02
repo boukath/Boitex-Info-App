@@ -1,18 +1,26 @@
 // lib/screens/administration/manage_clients_page.dart
 
+import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 import 'package:boitex_info_app/screens/administration/add_client_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_stores_page.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'dart:ui';
-import 'dart:async';
-import 'package:intl/intl.dart';
-
 import 'package:printing/printing.dart';
 import 'package:boitex_info_app/services/client_report_service.dart';
 import 'package:boitex_info_app/services/client_report_pdf_service.dart';
+import 'package:boitex_info_app/screens/administration/client_details_page.dart';
+
+// 🎨 --- 2026 PREMIUM APPLE COLORS & CONSTANTS --- 🎨
+const kTextDark = Color(0xFF1D1D1F);
+const kTextSecondary = Color(0xFF86868B);
+const kAppleBlue = Color(0xFF007AFF);
+const kAppleRed = Color(0xFFFF3B30);
+const kGlassBorder = Color(0x33FFFFFF);
+const double kRadius = 24.0;
 
 class ManageClientsPage extends StatefulWidget {
   final String userRole;
@@ -22,209 +30,98 @@ class ManageClientsPage extends StatefulWidget {
   State<ManageClientsPage> createState() => _ManageClientsPageState();
 }
 
-// 🎨 --- DESIGN CONSTANTS --- 🎨
-const kPrimaryColor = Color(0xFF7B61FF);
-const kAccentColor = Color(0xFF00B4D8);
-const kErrorColor = Color(0xFFFF6F91);
-const kBackgroundColorTop = Color(0xFFE8E1FF);
-const kBackgroundColorBottom = Color(0xFFFBEAFF);
-const kTextPrimary = Color(0xFF1E1E2A);
-const kTextSecondary = Color(0xFF7A7A8C);
-const kCardColor = Color.fromRGBO(255, 255, 255, 0.85);
-
-class _ManageClientsPageState extends State<ManageClientsPage>
-    with SingleTickerProviderStateMixin {
-
-  final List<String> _selectedServices = [];
-  late TabController _tabController;
-
-  // --- ADVANCED SEARCH START ---
-  final TextEditingController _clientSearchController = TextEditingController();
-  final TextEditingController _storeSearchController = TextEditingController();
-  final FocusNode _clientFocusNode = FocusNode();
-  final FocusNode _storeFocusNode = FocusNode();
-
-  String _clientSearchQuery = '';
-  String _storeSearchQuery = '';
-  List<String> _clientSearchTokens = [];
-  List<String> _storeSearchTokens = [];
-
-  Timer? _clientDebounce;
-  Timer? _storeDebounce;
-
-  bool _isClientFocused = false;
-  bool _isStoreFocused = false;
-  // --- ADVANCED SEARCH END ---
+class _ManageClientsPageState extends State<ManageClientsPage> with SingleTickerProviderStateMixin {
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchTimer;
+  String _searchQuery = '';
+  bool _isSearching = false;
+  List<Map<String, dynamic>> _searchResults = [];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.indexIsChanging) {
-        setState(() {});
-      }
-    });
-
-    _clientSearchController.addListener(_onClientSearchChanged);
-    _storeSearchController.addListener(_onStoreSearchChanged);
-    _clientFocusNode.addListener(() {
-      setState(() => _isClientFocused = _clientFocusNode.hasFocus);
-    });
-    _storeFocusNode.addListener(() {
-      setState(() => _isStoreFocused = _storeFocusNode.hasFocus);
-    });
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
-    _clientSearchController.removeListener(_onClientSearchChanged);
-    _storeSearchController.removeListener(_onStoreSearchChanged);
-    _clientSearchController.dispose();
-    _storeSearchController.dispose();
-    _clientFocusNode.dispose();
-    _storeFocusNode.dispose();
-    _clientDebounce?.cancel();
-    _storeDebounce?.cancel();
-    _tabController.dispose();
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _searchTimer?.cancel();
     super.dispose();
   }
 
-  void _onClientSearchChanged() {
-    if (_clientDebounce?.isActive ?? false) _clientDebounce!.cancel();
-    _clientDebounce = Timer(const Duration(milliseconds: 300), () {
-      final query = _clientSearchController.text;
-      final normalizedQuery = _normalize(query);
+  // ---------------------------------------------------------------------------
+  // ⚙️ LOGIC METHODS
+  // ---------------------------------------------------------------------------
+
+  void _onSearchChanged() {
+    if (_searchTimer?.isActive ?? false) _searchTimer!.cancel();
+    _searchTimer = Timer(const Duration(milliseconds: 500), () {
       setState(() {
-        _clientSearchQuery = query;
-        _clientSearchTokens = normalizedQuery.split(' ').where((t) => t.isNotEmpty).toList();
+        _searchQuery = _searchController.text.trim();
+        if (_searchQuery.isNotEmpty) {
+          _performSearch();
+        } else {
+          _isSearching = false;
+          _searchResults.clear();
+        }
       });
     });
   }
 
-  void _onStoreSearchChanged() {
-    if (_storeDebounce?.isActive ?? false) _storeDebounce!.cancel();
-    _storeDebounce = Timer(const Duration(milliseconds: 300), () {
-      final query = _storeSearchController.text;
-      final normalizedQuery = _normalize(query);
-      setState(() {
-        _storeSearchQuery = query;
-        _storeSearchTokens = normalizedQuery.split(' ').where((t) => t.isNotEmpty).toList();
-      });
-    });
-  }
+  Future<void> _performSearch() async {
+    setState(() { _isSearching = true; });
+    try {
+      final queryStr = _searchQuery.toLowerCase();
+      final snapshot = await FirebaseFirestore.instance.collection('clients').get();
 
-  Color _getAvatarColor(String text) {
-    return Colors.primaries[text.hashCode % Colors.primaries.length].shade300;
-  }
+      final results = snapshot.docs.where((doc) {
+        final data = doc.data();
+        final name = (data['name'] ?? '').toString().toLowerCase();
+        List<dynamic> keywords = data['search_keywords'] ?? [];
+        bool matchesKeyword = keywords.any((k) => k.toString().toLowerCase().contains(queryStr));
 
-  bool _matchesClient(Map data) {
-    if (data['status'] == 'archived') return false;
+        return name.contains(queryStr) || matchesKeyword;
+      }).map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
 
-    final services = List<String>.from(data['services'] ?? []);
-    final matchesService = _selectedServices.isEmpty ||
-        services.any((s) => _selectedServices.contains(s));
-
-    if (!matchesService) return false;
-
-    if (_clientSearchTokens.isEmpty) return true;
-
-    final name = data['name'] as String? ?? '';
-    final searchable = [
-      _normalize(name),
-      services.map(_normalize).join(' '),
-    ].join(' ');
-
-    return _clientSearchTokens.every((token) => searchable.contains(token));
-  }
-
-  bool _matchesStore(Map data) {
-    if (data['status'] == 'archived') return false;
-
-    if (_storeSearchTokens.isEmpty) return true;
-
-    final name = data['name'] as String? ?? '';
-    final location = data['location'] as String? ?? '';
-
-    final searchable = [
-      _normalize(name),
-      _normalize(location),
-    ].join(' ');
-
-    return _storeSearchTokens.every((token) => searchable.contains(token));
-  }
-
-  Future<void> _archiveClient(BuildContext context, DocumentSnapshot doc) async {
-    final data = doc.data() as Map<String, dynamic>;
-    final clientName = data['name'] ?? 'ce client';
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Archiver le client ?"),
-        content: Text(
-            "Êtes-vous sûr de vouloir archiver '$clientName' ?\n\n"
-                "Il disparaîtra de la liste, mais l'historique et les magasins seront conservés."
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler")),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.orange),
-            child: const Text("Archiver"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      await doc.reference.update({
-        'status': 'archived',
-        'archivedAt': FieldValue.serverTimestamp(),
-      });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Client '$clientName' archivé."), backgroundColor: Colors.orange),
-        );
+        setState(() {
+          _searchResults = results;
+          _isSearching = false;
+        });
       }
+    } catch (e) {
+      debugPrint('Error searching clients: $e');
+      if (mounted) setState(() { _isSearching = false; });
     }
   }
 
-  Future<void> _deleteClient(BuildContext context, DocumentSnapshot doc) async {
-    final data = doc.data() as Map<String, dynamic>;
-    final clientName = data['name'] ?? 'ce client';
-
-    final confirm = await showDialog<bool>(
+  Future<void> _deleteClient(String clientId) async {
+    final bool? confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Supprimer DÉFINITIVEMENT ?"),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.warning_amber_rounded, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              Text(
-                "Vous allez supprimer '$clientName'.",
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                "⚠️ ATTENTION : Cela supprimera aussi l'accès à tous les magasins et équipements associés. Cette action est irréversible.",
-                style: TextStyle(fontSize: 13, color: Colors.black87),
-              ),
-            ],
-          ),
-        ),
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white.withOpacity(0.9),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: Text('Supprimer ce client ?', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kTextDark)),
+        content: Text('Cette action supprimera définitivement le client et tous ses magasins. Cette action est irréversible.', style: GoogleFonts.inter(color: kTextDark)),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("Annuler")
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Annuler', style: GoogleFonts.inter(color: kTextSecondary, fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("SUPPRIMER", style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kAppleRed,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('Supprimer', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -232,166 +129,447 @@ class _ManageClientsPageState extends State<ManageClientsPage>
 
     if (confirm == true) {
       try {
-        await doc.reference.delete();
+        await FirebaseFirestore.instance.collection('clients').doc(clientId).delete();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Client supprimé définitivement."),
-              backgroundColor: Colors.red,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Client supprimé avec succès', style: GoogleFonts.inter()),
+            backgroundColor: kTextDark,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ));
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Erreur: $e', style: GoogleFonts.inter()),
+            backgroundColor: kAppleRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ));
         }
       }
     }
   }
 
-  // ✅ UPDATED REPORT GENERATION LOGIC TO ACCEPT LIST OF STORES
-  Future<void> _handleGenerateReport(String clientId, String clientName) async {
-    try {
-      final result = await showDialog<Map<String, dynamic>>(
-        context: context,
-        builder: (context) => ReportFilterDialog(clientId: clientId),
-      );
-
-      if (result == null) return;
-
-      final DateTimeRange dateRange = result['dateRange'];
-      final List<String> storeIds = result['storeIds']; // ✅ Received as List<String>
-      final List<String> activityTypes = result['activityTypes'];
-
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(color: kPrimaryColor),
+  Future<void> _renameClient(String clientId, String currentName) async {
+    final TextEditingController nameController = TextEditingController(text: currentName);
+    final String? newName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white.withOpacity(0.95),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: Text('Renommer le client', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kTextDark)),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w500),
+          decoration: InputDecoration(
+            labelText: 'Nouveau nom',
+            labelStyle: GoogleFonts.inter(color: kTextSecondary),
+            filled: true,
+            fillColor: Colors.black.withOpacity(0.05),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: kAppleBlue, width: 2)),
+          ),
         ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Annuler', style: GoogleFonts.inter(color: kTextSecondary, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kAppleBlue,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            onPressed: () => Navigator.of(context).pop(nameController.text.trim()),
+            child: Text('Enregistrer', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
 
-      final reportService = ClientReportService();
-      final reportData = await reportService.fetchReportData(
-        clientId: clientId,
-        clientName: clientName,
-        dateRange: dateRange,
-        storeIds: storeIds, // ✅ Passed correctly
-        activityTypes: activityTypes,
-      );
-
-      print("✅ Data fetched successfully! Generating PDF bytes...");
-
-      final pdfService = ClientReportPdfService();
-      final pdfBytes = await pdfService.generateReport(reportData);
-
-      if (mounted) Navigator.pop(context);
-
-      await Printing.sharePdf(
-        bytes: pdfBytes,
-        filename: 'Rapport_${clientName.replaceAll(' ', '_')}_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf',
-      );
-
-    } catch (e) {
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.pop(context);
+    if (newName != null && newName.isNotEmpty && newName != currentName) {
+      try {
+        await FirebaseFirestore.instance.collection('clients').doc(clientId).update({'name': newName});
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Client renommé avec succès', style: GoogleFonts.inter()),
+            backgroundColor: const Color(0xFF34C759),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Erreur lors du renommage: $e', style: GoogleFonts.inter()),
+            backgroundColor: kAppleRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ));
+        }
       }
-      print("❌ PDF Generation Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur lors de la génération: $e"),
-          backgroundColor: kErrorColor,
-        ),
-      );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    const availableServices = ['Service Technique', 'Service IT'];
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final bool isWide = constraints.maxWidth > 700;
-
-        return Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [kBackgroundColorTop, kBackgroundColorBottom],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
+  Future<void> _generateClientReport(String clientId, String clientName, Map<String, dynamic> config) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.8),
+            borderRadius: BorderRadius.circular(kRadius),
           ),
-          child: Scaffold(
-            backgroundColor: Colors.transparent,
-            floatingActionButton: _buildAnimatedFab(),
-            body: SafeArea(
-              child: GestureDetector(
-                onTap: () {
-                  _clientFocusNode.unfocus();
-                  _storeFocusNode.unfocus();
-                },
-                child: Column(
-                  children: [
-                    _buildHeader(),
-                    _buildTabBar(),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: kAppleBlue),
+              const SizedBox(height: 20),
+              Text("Génération du rapport en cours...", style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kTextDark)),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      DateTime now = DateTime.now();
+      DateTime start;
+      if (config['dateRange'] == '7_days') {
+        start = now.subtract(const Duration(days: 7));
+      } else if (config['dateRange'] == '30_days') {
+        start = now.subtract(const Duration(days: 30));
+      } else {
+        start = DateTime(2000);
+      }
+      DateTimeRange range = DateTimeRange(start: start, end: now);
+
+      final reportData = await ClientReportService().fetchReportData(
+        clientId: clientId,
+        clientName: clientName,
+        dateRange: range,
+        storeIds: config['storeIds'],
+        activityTypes: config['activityTypes'],
+      );
+
+      final pdfBytes = await ClientReportPdfService().generateReport(reportData);
+
+      if (mounted) {
+        Navigator.pop(context);
+        await Printing.layoutPdf(
+          onLayout: (format) async => pdfBytes,
+          name: 'Rapport_Activite_$clientName.pdf',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Erreur: $e", style: GoogleFonts.inter()),
+          backgroundColor: kAppleRed,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ));
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🪄 MODERN APPLE IOS BOTTOM SHEET
+  // ---------------------------------------------------------------------------
+  Future<Map<String, dynamic>?> _showReportConfigurationDialog(String clientId) async {
+    bool selectAllStores = true;
+    List<String> selectedStoreIds = [];
+    String dateRange = '30_days';
+    Map<String, bool> activityTypes = {
+      'Interventions': true,
+      'Installations': true,
+      'Livraisons': true,
+      'SAV': true,
+    };
+
+    return showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+            builder: (context, setStateSheet) {
+              return Container(
+                height: MediaQuery.of(context).size.height * 0.85,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+                ),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildClientTab(availableServices, isWide),
-                          _buildStoreTab(isWide),
+                          Center(
+                            child: Container(
+                              width: 40, height: 5,
+                              decoration: BoxDecoration(color: Colors.black.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          Text("Configuration du Rapport", style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.bold, color: kTextDark, letterSpacing: -0.5)),
+                          const SizedBox(height: 8),
+                          Text("Sélectionnez les filtres pour générer l'export PDF.", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 14)),
+                          const SizedBox(height: 24),
+
+                          Expanded(
+                            child: ListView(
+                              physics: const BouncingScrollPhysics(),
+                              children: [
+                                Text("PÉRIODE", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: kTextSecondary, letterSpacing: 1.2)),
+                                const SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.black.withOpacity(0.05))),
+                                  child: Column(
+                                    children: [
+                                      RadioListTile<String>(
+                                        value: '7_days', groupValue: dateRange,
+                                        activeColor: kAppleBlue,
+                                        title: Text("7 derniers jours", style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                                        onChanged: (v) => setStateSheet(() => dateRange = v!),
+                                      ),
+                                      Divider(height: 1, color: Colors.black.withOpacity(0.05), indent: 20),
+                                      RadioListTile<String>(
+                                        value: '30_days', groupValue: dateRange,
+                                        activeColor: kAppleBlue,
+                                        title: Text("30 derniers jours", style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                                        onChanged: (v) => setStateSheet(() => dateRange = v!),
+                                      ),
+                                      Divider(height: 1, color: Colors.black.withOpacity(0.05), indent: 20),
+                                      RadioListTile<String>(
+                                        value: 'all_time', groupValue: dateRange,
+                                        activeColor: kAppleBlue,
+                                        title: Text("Toute l'histoire", style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                                        onChanged: (v) => setStateSheet(() => dateRange = v!),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 24),
+
+                                Text("MAGASINS", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: kTextSecondary, letterSpacing: 1.2)),
+                                const SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.black.withOpacity(0.05))),
+                                  child: Column(
+                                    children: [
+                                      SwitchListTile.adaptive(
+                                        activeColor: const Color(0xFF34C759),
+                                        title: Text("Tous les magasins", style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: kTextDark)),
+                                        value: selectAllStores,
+                                        onChanged: (val) {
+                                          setStateSheet(() {
+                                            selectAllStores = val;
+                                            if (val) selectedStoreIds.clear();
+                                          });
+                                        },
+                                      ),
+                                      if (!selectAllStores) ...[
+                                        Divider(height: 1, color: Colors.black.withOpacity(0.05)),
+                                        SizedBox(
+                                          height: 200,
+                                          child: StreamBuilder<QuerySnapshot>(
+                                            stream: FirebaseFirestore.instance.collection('clients').doc(clientId).collection('stores').orderBy('name').snapshots(),
+                                            builder: (context, snapshot) {
+                                              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator.adaptive());
+                                              final stores = snapshot.data!.docs;
+                                              if (stores.isEmpty) return Center(child: Text("Aucun magasin trouvé.", style: GoogleFonts.inter(color: kTextSecondary)));
+                                              return ListView.builder(
+                                                itemCount: stores.length,
+                                                itemBuilder: (context, index) {
+                                                  final store = stores[index];
+                                                  final name = store['name'] ?? 'Inconnu';
+                                                  final isChecked = selectedStoreIds.contains(store.id);
+                                                  return CheckboxListTile(
+                                                    activeColor: kAppleBlue,
+                                                    title: Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                                                    value: isChecked,
+                                                    onChanged: (val) {
+                                                      setStateSheet(() {
+                                                        if (val == true) selectedStoreIds.add(store.id);
+                                                        else selectedStoreIds.remove(store.id);
+                                                      });
+                                                    },
+                                                  );
+                                                },
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ]
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 24),
+
+                                Text("ACTIVITÉS À INCLURE", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: kTextSecondary, letterSpacing: 1.2)),
+                                const SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.black.withOpacity(0.05))),
+                                  child: Column(
+                                    children: activityTypes.keys.map((key) {
+                                      return Column(
+                                        children: [
+                                          SwitchListTile.adaptive(
+                                            activeColor: const Color(0xFF34C759),
+                                            title: Text(key, style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                                            value: activityTypes[key]!,
+                                            onChanged: (val) => setStateSheet(() => activityTypes[key] = val),
+                                          ),
+                                          if (key != activityTypes.keys.last) Divider(height: 1, color: Colors.black.withOpacity(0.05), indent: 20),
+                                        ],
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Action Buttons
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  ),
+                                  child: Text("Annuler", style: GoogleFonts.inter(color: kTextSecondary, fontWeight: FontWeight.bold, fontSize: 16)),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                flex: 2,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kTextDark,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    elevation: 0,
+                                  ),
+                                  onPressed: () {
+                                    final selectedActivities = activityTypes.entries.where((e) => e.value).map((e) => e.key).toList();
+                                    if (selectedActivities.isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                        content: Text("Veuillez sélectionner au moins une activité.", style: GoogleFonts.inter()),
+                                        behavior: SnackBarBehavior.floating,
+                                      ));
+                                      return;
+                                    }
+                                    Navigator.pop(context, {
+                                      'dateRange': dateRange,
+                                      'storeIds': selectAllStores ? <String>[] : selectedStoreIds,
+                                      'activityTypes': selectedActivities,
+                                    });
+                                  },
+                                  child: Text("Générer le PDF", style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
                         ],
                       ),
                     ),
+                  ),
+                ),
+              );
+            }
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🎨 COLORFUL MESH BACKGROUND & GLASSMORPHIC UI
+  // ---------------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        title: Text('Gestion des Clients', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: kTextDark, fontSize: 20, letterSpacing: -0.5)),
+        iconTheme: const IconThemeData(color: kTextDark),
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(color: Colors.white.withOpacity(0.4)),
+          ),
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AddClientPage()));
+        },
+        backgroundColor: kTextDark,
+        elevation: 10,
+        icon: const Icon(Icons.add_rounded, color: Colors.white),
+        label: Text('Nouveau Client', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: -0.2)),
+      ),
+      body: Stack(
+        children: [
+          // 1. Colourful Mesh Gradient Background
+          Positioned.fill(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  stops: [0.0, 0.4, 0.8, 1.0],
+                  colors: [
+                    Color(0xFFE0C3FC), // Soft Lilac
+                    Color(0xFFE8F1F5), // White-ish Blue
+                    Color(0xFF8EC5FC), // Sky Blue
+                    Color(0xFFFEE1E8), // Soft Pink
                   ],
                 ),
               ),
             ),
           ),
-        );
-      },
-    );
-  }
 
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(20.0),
-      child: Row(
-        children: [
-          InkWell(
-            onTap: () => Navigator.of(context).pop(),
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: kCardColor,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
-                ],
-              ),
-              child: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: kTextPrimary,
-                size: 20,
-              ),
+          // 2. Extra Blur layer for the "frosted" global effect
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+              child: Container(color: Colors.white.withOpacity(0.2)),
             ),
           ),
-          const SizedBox(width: 16),
-          Text(
-            'Clients & Magasins',
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-              color: kTextPrimary,
+
+          // 3. Main Content
+          SafeArea(
+            child: Column(
+              children: [
+                _buildGlassSearchBar(),
+                Expanded(
+                  child: _isSearching
+                      ? const Center(child: CircularProgressIndicator.adaptive())
+                      : (_searchQuery.isNotEmpty ? _buildSearchResults() : _buildNormalList()),
+                ),
+              ],
             ),
           ),
         ],
@@ -399,439 +577,232 @@ class _ManageClientsPageState extends State<ManageClientsPage>
     );
   }
 
-  Widget _buildTabBar() {
+  Widget _buildGlassSearchBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
       child: Container(
-        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: kCardColor,
+          color: Colors.white.withOpacity(0.6),
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: kPrimaryColor.withOpacity(0.05),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
-            )
-          ],
+          border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 8))],
         ),
-        child: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: kTextSecondary,
-          labelStyle: GoogleFonts.poppins(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-          ),
-          unselectedLabelStyle: GoogleFonts.poppins(
-            fontWeight: FontWeight.w500,
-            fontSize: 14,
-          ),
-          indicator: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [kPrimaryColor, Color(0xFFA08FFF)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: kPrimaryColor.withOpacity(0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              )
-            ],
-          ),
-          tabs: const [
-            Tab(text: 'Clients'),
-            Tab(text: 'Magasins'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAdvancedSearchBar({
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    required String hintText,
-    required IconData icon,
-    required bool isFocused,
-  }) {
-    return AnimatedScale(
-      scale: isFocused ? 1.02 : 1.0,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          color: kCardColor,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: isFocused
-                  ? kPrimaryColor.withOpacity(0.15)
-                  : kPrimaryColor.withOpacity(0.05),
-              blurRadius: isFocused ? 25 : 15,
-              offset: Offset(0, isFocused ? 8 : 5),
-            ),
-          ],
-        ),
-        child: TextField(
-          controller: controller,
-          focusNode: focusNode,
-          style: GoogleFonts.poppins(color: kTextPrimary),
-          decoration: InputDecoration(
-            hintText: hintText,
-            hintStyle:
-            GoogleFonts.poppins(color: kTextSecondary.withOpacity(0.7)),
-            prefixIcon: Container(
-              margin: const EdgeInsets.all(6),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [kPrimaryColor, kAccentColor],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: kPrimaryColor.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  )
-                ],
-              ),
-              child: Icon(icon, color: Colors.white, size: 22),
-            ),
-            suffixIcon: controller.text.isNotEmpty
-                ? IconButton(
-              icon:
-              const Icon(Icons.close_rounded, color: kTextSecondary),
-              onPressed: () {
-                controller.clear();
-              },
-              splashRadius: 20,
-              tooltip: 'Effacer',
-            )
-                : null,
-            border: InputBorder.none,
-            contentPadding:
-            const EdgeInsets.symmetric(vertical: 22, horizontal: 10),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildClientTab(List<String> availableServices, bool isWide) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          child: _buildAdvancedSearchBar(
-            controller: _clientSearchController,
-            focusNode: _clientFocusNode,
-            hintText: 'Rechercher un client ou service...',
-            icon: Icons.search_rounded,
-            isFocused: _isClientFocused,
-          ),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 40,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            children: availableServices.map((svc) {
-              final selected = _selectedServices.contains(svc);
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: FilterChip(
-                  label: Text(svc),
-                  labelStyle: GoogleFonts.poppins(
-                    color: selected ? kPrimaryColor : kTextSecondary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  selected: selected,
-                  onSelected: (on) {
-                    setState(() {
-                      if (on)
-                        _selectedServices.add(svc);
-                      else
-                        _selectedServices.remove(svc);
-                    });
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: TextField(
+              controller: _searchController,
+              style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w500, fontSize: 16),
+              decoration: InputDecoration(
+                hintText: 'Rechercher un client...',
+                hintStyle: GoogleFonts.inter(color: kTextSecondary),
+                prefixIcon: const Icon(Icons.search_rounded, color: kTextSecondary),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.cancel_rounded, color: kTextSecondary, size: 20),
+                  onPressed: () {
+                    _searchController.clear();
+                    FocusScope.of(context).unfocus();
                   },
-                  backgroundColor: kCardColor,
-                  selectedColor: kPrimaryColor.withOpacity(0.2),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(
-                      color: selected
-                          ? kPrimaryColor
-                          : kTextSecondary.withOpacity(0.2),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('clients')
-                .orderBy('name')
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                    child: CircularProgressIndicator(color: kPrimaryColor));
-              }
-              final docs = snapshot.data?.docs.where((d) {
-                final data = d.data() as Map<String, dynamic>;
-                return _matchesClient(data);
-              }).toList() ?? [];
-
-              if (docs.isEmpty) {
-                return _buildNoResultsCard();
-              }
-
-              return AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: isWide
-                    ? _buildClientGrid(docs)
-                    : _buildClientList(docs),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildClientList(List<QueryDocumentSnapshot> docs) {
-    return ListView.builder(
-      key: const ValueKey('client_list'),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-      itemCount: docs.length,
-      itemBuilder: (context, i) {
-        final doc = docs[i];
-        final data = doc.data() as Map<String, dynamic>;
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Slidable(
-            key: Key(doc.id),
-            startActionPane: ActionPane(
-              motion: const ScrollMotion(),
-              children: [
-                SlidableAction(
-                  onPressed: (context) => _deleteClient(context, doc),
-                  backgroundColor: Colors.red.shade100,
-                  foregroundColor: Colors.red.shade900,
-                  icon: Icons.delete_forever,
-                  label: 'Supprimer',
-                  borderRadius: BorderRadius.circular(24),
-                ),
-              ],
-            ),
-            endActionPane: ActionPane(
-              motion: const ScrollMotion(),
-              children: [
-                SlidableAction(
-                  onPressed: (context) => _archiveClient(context, doc),
-                  backgroundColor: Colors.orange.shade100,
-                  foregroundColor: Colors.orange.shade900,
-                  icon: Icons.archive,
-                  label: 'Archiver',
-                  borderRadius: BorderRadius.circular(24),
-                ),
-              ],
-            ),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: 1.0),
-              duration: Duration(milliseconds: 400 + (i * 50)),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, child) {
-                return Transform.translate(
-                  offset: Offset(0, 30 * (1 - value)),
-                  child: Opacity(opacity: value, child: child),
-                );
-              },
-              child: _buildClientCard(doc, data),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildClientGrid(List<QueryDocumentSnapshot> docs) {
-    return GridView.builder(
-      key: const ValueKey('client_grid'),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 3.5,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-      ),
-      itemCount: docs.length,
-      itemBuilder: (context, i) {
-        final doc = docs[i];
-        final data = doc.data() as Map<String, dynamic>;
-
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: 1.0),
-          duration: Duration(milliseconds: 400 + (i * 50)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Transform.scale(
-              scale: 0.9 + (0.1 * value),
-              child: Opacity(opacity: value, child: child),
-            );
-          },
-          child: _buildClientCard(doc, data),
-        );
-      },
-    );
-  }
-
-  Widget _buildClientCard(DocumentSnapshot doc, Map<String, dynamic> data) {
-    final name = data['name'] as String? ?? '';
-    final services = List<String>.from(data['services'] ?? []);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: kCardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: kPrimaryColor.withOpacity(0.07),
-            blurRadius: 20,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      ManageStoresPage(clientId: doc.id, clientName: name),
-                ),
+                )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 16),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNormalList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('clients').orderBy('name').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return Center(child: Text('Erreur: ${snapshot.error}'));
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator.adaptive());
+
+        final clients = snapshot.data!.docs;
+        if (clients.isEmpty) return Center(child: Text("Aucun client trouvé.", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16)));
+
+        return ListView.builder(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 100), // Space for FAB
+          itemCount: clients.length,
+          itemBuilder: (context, index) {
+            final doc = clients[index];
+            final data = doc.data() as Map<String, dynamic>;
+            return _buildGlassClientCard(doc.id, data['name'] ?? 'Inconnu', data);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSearchResults() {
+    if (_searchResults.isEmpty) {
+      return Center(child: Text("Aucun client trouvé pour '$_searchQuery'.", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16)));
+    }
+    return ListView.builder(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 100),
+      itemCount: _searchResults.length,
+      itemBuilder: (context, index) {
+        final clientMap = _searchResults[index];
+        return _buildGlassClientCard(clientMap['id'], clientMap['name'], clientMap);
+      },
+    );
+  }
+
+  // 💎 THE 2026 PREMIUM GLASS CARD
+  Widget _buildGlassClientCard(String clientId, String clientName, Map<String, dynamic> clientData) {
+    final int hash = clientName.hashCode;
+    final Color color1 = HSLColor.fromAHSL(1.0, (hash % 360).toDouble(), 0.7, 0.6).toColor();
+    final Color color2 = HSLColor.fromAHSL(1.0, ((hash + 40) % 360).toDouble(), 0.8, 0.5).toColor();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0, left: 20, right: 20),
+      child: Slidable(
+        key: ValueKey(clientId),
+        endActionPane: ActionPane(
+          motion: const StretchMotion(),
+          extentRatio: 0.5,
+          children: [
+            SlidableAction(
+              onPressed: (context) => _renameClient(clientId, clientName),
+              backgroundColor: kAppleBlue.withOpacity(0.9),
+              foregroundColor: Colors.white,
+              icon: Icons.edit_rounded,
+              label: 'Modifier',
+              borderRadius: const BorderRadius.horizontal(left: Radius.circular(kRadius)),
+            ),
+            SlidableAction(
+              onPressed: (context) => _deleteClient(clientId),
+              backgroundColor: kAppleRed.withOpacity(0.9),
+              foregroundColor: Colors.white,
+              icon: Icons.delete_outline_rounded,
+              label: 'Supprimer',
+              borderRadius: const BorderRadius.horizontal(right: Radius.circular(kRadius)),
+            ),
+          ],
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.6),
+            borderRadius: BorderRadius.circular(kRadius),
+            border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 8))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(kRadius),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
-                child: Row(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: _getAvatarColor(name).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: CircleAvatar(
-                        backgroundColor: _getAvatarColor(name),
-                        child: Text(
-                          name.isNotEmpty ? name[0].toUpperCase() : '?',
-                          style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildHighlightText(
-                            name,
-                            _clientSearchQuery,
-                            GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600,
-                              color: kTextPrimary,
-                              fontSize: 16,
-                            ),
-                            GoogleFonts.poppins(
-                              fontWeight: FontWeight.w700,
-                              color: kPrimaryColor,
-                              fontSize: 16,
-                              backgroundColor: kPrimaryColor.withOpacity(0.15),
-                            ),
-                          ),
-
-                          if (data['nif'] != null || data['rc'] != null)
-                            Padding(
-                              padding:
-                              const EdgeInsets.only(top: 2.0, bottom: 2.0),
-                              child: Text(
-                                "NIF: ${data['nif'] ?? '-'} | RC: ${data['rc'] ?? '-'}",
-                                style: GoogleFonts.poppins(
-                                  color: kTextSecondary,
-                                  fontSize: 11,
-                                  fontStyle: FontStyle.italic,
+                    // ✅ NEW: TOP ROW IS NOW CLICKABLE TO VIEW FULL CLIENT DETAILS
+                    InkWell(
+                      onTap: () {
+                        // Open the new breathtaking Client Details Hub
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (context) => ClientDetailsPage(clientId: clientId),
+                        ));
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 54, height: 54,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(colors: [color1, color2], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                                boxShadow: [BoxShadow(color: color2.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4))],
+                              ),
+                              child: Center(
+                                child: Text(
+                                  clientName.isNotEmpty ? clientName[0].toUpperCase() : '?',
+                                  style: GoogleFonts.inter(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-
-                          if (services.isNotEmpty)
-                            Text(
-                              'Services: ${services.join(', ')}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.poppins(
-                                color: kTextSecondary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(clientName, style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: kTextDark, letterSpacing: -0.3)),
+                                  const SizedBox(height: 4),
+                                  Text("ID: ${clientId.substring(0, 8).toUpperCase()}", style: GoogleFonts.inter(fontSize: 12, color: kTextSecondary, fontWeight: FontWeight.w500)),
+                                ],
                               ),
                             ),
-                        ],
+                            // Small indicator showing it's clickable
+                            const Icon(Icons.chevron_right_rounded, color: kTextSecondary, size: 20),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.picture_as_pdf_rounded,
-                              color: kPrimaryColor),
-                          tooltip: "Générer Rapport Global",
-                          onPressed: () => _handleGenerateReport(doc.id, name),
-                        ),
 
-                        IconButton(
-                          icon: Icon(Icons.edit_outlined,
-                              color: kAccentColor.withOpacity(0.8)),
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => AddClientPage(
-                                clientId: doc.id,
-                                initialData: data,
+                    const SizedBox(height: 16),
+                    Divider(height: 1, color: Colors.black.withOpacity(0.05)),
+                    const SizedBox(height: 16),
+
+                    // BOTTOM ROW: Action Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                                builder: (context) => ManageStoresPage(clientId: clientId, clientName: clientName))),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.03),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.storefront_rounded, size: 18, color: kTextDark),
+                                  const SizedBox(width: 8),
+                                  Text("Magasins", style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: kTextDark, fontSize: 14)),
+                                ],
                               ),
                             ),
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: kPrimaryColor.withOpacity(0.1),
-                            shape: BoxShape.circle,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final config = await _showReportConfigurationDialog(clientId);
+                              if (config != null) {
+                                _generateClientReport(clientId, clientName, config);
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                color: kAppleBlue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.insert_chart_rounded, size: 18, color: kAppleBlue),
+                                  const SizedBox(width: 8),
+                                  Text("Rapport", style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: kAppleBlue, fontSize: 14)),
+                                ],
+                              ),
+                            ),
                           ),
-                          child: const Icon(Icons.arrow_forward_ios,
-                              size: 14, color: kPrimaryColor),
                         ),
                       ],
                     ),
@@ -842,595 +813,6 @@ class _ManageClientsPageState extends State<ManageClientsPage>
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildStoreTab(bool isWide) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          child: _buildAdvancedSearchBar(
-            controller: _storeSearchController,
-            focusNode: _storeFocusNode,
-            hintText: 'Rechercher un magasin ou lieu...',
-            icon: Icons.storefront_rounded,
-            isFocused: _isStoreFocused,
-          ),
-        ),
-        const SizedBox(height: 20),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collectionGroup('stores')
-                .orderBy('name')
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                    child: CircularProgressIndicator(color: kPrimaryColor));
-              }
-              final docs = snapshot.data?.docs.where((d) {
-                final data = d.data() as Map<String, dynamic>;
-                return _matchesStore(data);
-              }).toList() ?? [];
-
-              if (docs.isEmpty) {
-                return _buildNoResultsCard();
-              }
-
-              return AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: isWide
-                    ? _buildStoreGrid(docs)
-                    : _buildStoreList(docs),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStoreList(List<QueryDocumentSnapshot> docs) {
-    return ListView.builder(
-      key: const ValueKey('store_list'),
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-      itemCount: docs.length,
-      itemBuilder: (context, i) {
-        final doc = docs[i];
-        final data = doc.data() as Map<String, dynamic>;
-
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: 1.0),
-          duration: Duration(milliseconds: 400 + (i * 50)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Transform.translate(
-              offset: Offset(0, 30 * (1 - value)),
-              child: Opacity(opacity: value, child: child),
-            );
-          },
-          child: _buildStoreCard(doc, data),
-        );
-      },
-    );
-  }
-
-  Widget _buildStoreGrid(List<QueryDocumentSnapshot> docs) {
-    return GridView.builder(
-      key: const ValueKey('store_grid'),
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 3.5,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-      ),
-      itemCount: docs.length,
-      itemBuilder: (context, i) {
-        final doc = docs[i];
-        final data = doc.data() as Map<String, dynamic>;
-
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: 1.0),
-          duration: Duration(milliseconds: 400 + (i * 50)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Transform.scale(
-              scale: 0.9 + (0.1 * value),
-              child: Opacity(opacity: value, child: child),
-            );
-          },
-          child: _buildStoreCard(doc, data),
-        );
-      },
-    );
-  }
-
-  Widget _buildStoreCard(DocumentSnapshot doc, Map<String, dynamic> data) {
-    final name = data['name'] as String? ?? '';
-    final location = data['location'] as String? ?? '';
-    final clientId = doc.reference.parent.parent?.id;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: kCardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: kPrimaryColor.withOpacity(0.07),
-            blurRadius: 20,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: clientId != null
-                  ? () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ManageStoresPage(
-                    clientId: clientId,
-                    clientName: '',
-                  ),
-                ),
-              )
-                  : null,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: _getAvatarColor(name).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: CircleAvatar(
-                        backgroundColor: _getAvatarColor(name),
-                        child: Text(
-                          name.isNotEmpty ? name[0].toUpperCase() : '?',
-                          style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildHighlightText(
-                            name,
-                            _storeSearchQuery,
-                            GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600,
-                              color: kTextPrimary,
-                              fontSize: 16,
-                            ),
-                            GoogleFonts.poppins(
-                              fontWeight: FontWeight.w700,
-                              color: kPrimaryColor,
-                              fontSize: 16,
-                              backgroundColor: kPrimaryColor.withOpacity(0.15),
-                            ),
-                          ),
-                          if (location.isNotEmpty)
-                            _buildHighlightText(
-                              'Lieu: $location',
-                              _storeSearchQuery,
-                              GoogleFonts.poppins(
-                                color: kTextSecondary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              GoogleFonts.poppins(
-                                color: kPrimaryColor.withOpacity(0.9),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                backgroundColor: kPrimaryColor.withOpacity(0.1),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (clientId != null)
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: kPrimaryColor.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.arrow_forward_ios,
-                            size: 14, color: kPrimaryColor),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAnimatedFab() {
-    return AnimatedSlide(
-      duration: const Duration(milliseconds: 300),
-      offset: _tabController.index == 0 ? Offset.zero : const Offset(0, 2),
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 300),
-        opacity: _tabController.index == 0 ? 1.0 : 0.0,
-        child: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              colors: [kPrimaryColor, kAccentColor],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: kPrimaryColor.withOpacity(0.4),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              )
-            ],
-          ),
-          child: FloatingActionButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const AddClientPage()),
-            ),
-            tooltip: 'Ajouter un client',
-            backgroundColor: Colors.transparent,
-            foregroundColor: Colors.white,
-            elevation: 0,
-            child: const Icon(Icons.add_rounded, size: 30),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNoResultsCard() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: kCardColor,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: kPrimaryColor.withOpacity(0.07),
-              blurRadius: 20,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.search_off_rounded,
-              size: 48,
-              color: kPrimaryColor.withOpacity(0.7),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Aucun résultat',
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: kTextPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Essayez de modifier vos termes de recherche.',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
-                color: kTextSecondary,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _normalize(String s) {
-    const diacritics =
-        'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
-    const nonDiacritics =
-        'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeCcIIIIiiiiUUUUuuuuuyNn';
-
-    String normalized = s;
-    for (int i = 0; i < diacritics.length; i++) {
-      normalized = normalized.replaceAll(diacritics[i], nonDiacritics[i]);
-    }
-    return normalized.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
-  }
-
-  Widget _buildHighlightText(
-      String text,
-      String query,
-      TextStyle defaultStyle,
-      TextStyle highlightStyle,
-      ) {
-    if (query.isEmpty) {
-      return Text(text,
-          style: defaultStyle, maxLines: 1, overflow: TextOverflow.ellipsis);
-    }
-
-    final normalizedText = _normalize(text);
-    final queryTokens =
-    _normalize(query).split(' ').where((t) => t.isNotEmpty).toList();
-
-    if (queryTokens.isEmpty) {
-      return Text(text,
-          style: defaultStyle, maxLines: 1, overflow: TextOverflow.ellipsis);
-    }
-
-    List<TextSpan> spans = [];
-    int start = 0;
-
-    List<List<int>> allMatches = [];
-    for (final token in queryTokens) {
-      int index = normalizedText.indexOf(token, 0);
-      while (index != -1) {
-        allMatches.add([index, index + token.length]);
-        index = normalizedText.indexOf(token, index + 1);
-      }
-    }
-
-    if (allMatches.isEmpty) {
-      return Text(text,
-          style: defaultStyle, maxLines: 1, overflow: TextOverflow.ellipsis);
-    }
-
-    allMatches.sort((a, b) => a[0].compareTo(b[0]));
-    List<List<int>> mergedMatches = [];
-    if (allMatches.isNotEmpty) {
-      mergedMatches.add(allMatches[0]);
-      for (var i = 1; i < allMatches.length; i++) {
-        List<int> current = allMatches[i];
-        List<int> last = mergedMatches.last;
-        if (current[0] <= last[1]) {
-          last[1] = current[1] > last[1] ? current[1] : last[1];
-        } else {
-          mergedMatches.add(current);
-        }
-      }
-    }
-
-    for (final match in mergedMatches) {
-      if (match[0] > start) {
-        spans.add(TextSpan(
-            text: text.substring(start, match[0]), style: defaultStyle));
-      }
-      final int end = match[1] < text.length ? match[1] : text.length;
-      if (match[0] < end) {
-        spans.add(TextSpan(
-            text: text.substring(match[0], end), style: highlightStyle));
-      }
-      start = end;
-    }
-    if (start < text.length) {
-      spans.add(TextSpan(text: text.substring(start), style: defaultStyle));
-    }
-
-    return RichText(
-      text: TextSpan(children: spans),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
-}
-
-// -----------------------------------------------------------------------------
-// 🎛️ REPORT FILTER DIALOG
-// -----------------------------------------------------------------------------
-class ReportFilterDialog extends StatefulWidget {
-  final String clientId;
-  const ReportFilterDialog({super.key, required this.clientId});
-
-  @override
-  State<ReportFilterDialog> createState() => _ReportFilterDialogState();
-}
-
-class _ReportFilterDialogState extends State<ReportFilterDialog> {
-  DateTimeRange _dateRange = DateTimeRange(
-    start: DateTime.now().subtract(const Duration(days: 30)),
-    end: DateTime.now(),
-  );
-
-  // Multi-select Stores state
-  bool _selectAllStores = true;
-  List<String> _selectedStoreIds = [];
-  List<Map<String, dynamic>> _stores = [];
-  bool _isLoadingStores = true;
-
-  final Map<String, bool> _activityTypes = {
-    'Interventions': true,
-    'Installations': true,
-    'Livraisons': true,
-  };
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchStores();
-  }
-
-  Future<void> _fetchStores() async {
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('clients')
-          .doc(widget.clientId)
-          .collection('stores')
-          .where('status', isNotEqualTo: 'archived')
-          .get();
-      setState(() {
-        // Sort stores alphabetically for easier reading
-        _stores = snap.docs.map((d) => {'id': d.id, 'name': d.data()['name'] ?? 'Magasin'}).toList();
-        _stores.sort((a, b) => a['name'].compareTo(b['name']));
-        _isLoadingStores = false;
-      });
-    } catch (e) {
-      setState(() => _isLoadingStores = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      backgroundColor: kCardColor,
-      title: Text("Configurer le Rapport", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: kPrimaryColor)),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 1. DATE RANGE
-              Text("Période", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
-              const SizedBox(height: 8),
-              InkWell(
-                onTap: () async {
-                  final picked = await showDateRangePicker(
-                    context: context,
-                    initialDateRange: _dateRange,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime.now(),
-                    builder: (context, child) => Theme(
-                      data: Theme.of(context).copyWith(
-                        colorScheme: const ColorScheme.light(primary: kPrimaryColor),
-                      ),
-                      child: child!,
-                    ),
-                  );
-                  if (picked != null) setState(() => _dateRange = picked);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(10)),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calendar_month, color: kPrimaryColor, size: 20),
-                      const SizedBox(width: 8),
-                      Text("${DateFormat('dd/MM/yy').format(_dateRange.start)} - ${DateFormat('dd/MM/yy').format(_dateRange.end)}", style: GoogleFonts.poppins()),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // 2. MULTI-SELECT STORES
-              Text("Magasins", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
-              const SizedBox(height: 8),
-              _isLoadingStores
-                  ? const LinearProgressIndicator(color: kPrimaryColor)
-                  : Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                constraints: const BoxConstraints(maxHeight: 200), // Makes list scrollable
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    CheckboxListTile(
-                      title: Text("Tous les magasins", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13, color: kPrimaryColor)),
-                      value: _selectAllStores,
-                      activeColor: kPrimaryColor,
-                      dense: true,
-                      onChanged: (val) {
-                        setState(() {
-                          _selectAllStores = true;
-                          _selectedStoreIds.clear(); // Clear individual selections
-                        });
-                      },
-                    ),
-                    const Divider(height: 1),
-                    ..._stores.map((s) {
-                      return CheckboxListTile(
-                        title: Text(s['name'], style: GoogleFonts.poppins(fontSize: 13)),
-                        value: !_selectAllStores && _selectedStoreIds.contains(s['id']),
-                        activeColor: kPrimaryColor,
-                        dense: true,
-                        onChanged: (val) {
-                          setState(() {
-                            _selectAllStores = false;
-                            if (val == true) {
-                              _selectedStoreIds.add(s['id']);
-                            } else {
-                              _selectedStoreIds.remove(s['id']);
-                              // If unselected everything, revert to "All"
-                              if (_selectedStoreIds.isEmpty) _selectAllStores = true;
-                            }
-                          });
-                        },
-                      );
-                    }),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // 3. ACTIVITY TYPES
-              Text("Activités à inclure", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
-              const SizedBox(height: 8),
-              ..._activityTypes.keys.map((key) {
-                return CheckboxListTile(
-                  title: Text(key, style: GoogleFonts.poppins(fontSize: 13)),
-                  value: _activityTypes[key],
-                  activeColor: kPrimaryColor,
-                  dense: true,
-                  visualDensity: VisualDensity.compact,
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  onChanged: (val) {
-                    setState(() => _activityTypes[key] = val ?? true);
-                  },
-                );
-              }),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: Text("Annuler", style: GoogleFonts.poppins(color: kTextSecondary))),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: kPrimaryColor, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-          onPressed: () {
-            final selectedActivities = _activityTypes.entries.where((e) => e.value).map((e) => e.key).toList();
-            if (selectedActivities.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Veuillez sélectionner au moins une activité.")));
-              return;
-            }
-            Navigator.pop(context, {
-              'dateRange': _dateRange,
-              // If "All Stores" is checked, we pass an empty list which the service knows means "fetch everything"
-              'storeIds': _selectAllStores ? <String>[] : _selectedStoreIds,
-              'activityTypes': selectedActivities,
-            });
-          },
-          child: Text("Générer", style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
-        ),
-      ],
     );
   }
 }

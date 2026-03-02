@@ -1,9 +1,21 @@
 // lib/screens/administration/add_client_page.dart
 
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// ✅ NEW: Import the search utility we just created
+import 'package:google_fonts/google_fonts.dart';
+
 import 'package:boitex_info_app/utils/search_utils.dart';
+
+// 🎨 --- 2026 PREMIUM APPLE COLORS & CONSTANTS --- 🎨
+const Color kBgColor = Color(0xFFF2F2F7); // iOS System Background
+const Color kSurfaceColor = Colors.white;
+const Color kTextDark = Color(0xFF1D1D1F);
+const Color kTextSecondary = Color(0xFF86868B);
+const Color kAppleBlue = Color(0xFF007AFF);
+const Color kAppleRed = Color(0xFFFF3B30);
+const Color kAppleGreen = Color(0xFF34C759);
+const double kRadius = 24.0;
 
 // ✅ ContactInfo Model
 class ContactInfo {
@@ -11,7 +23,6 @@ class ContactInfo {
   String label; // Ex: 'Facturation', 'Technique', 'Principal'
   String value; // Le numéro ou l'adresse e-mail
 
-  // Unique ID for list management
   final String id;
 
   ContactInfo({
@@ -24,11 +35,11 @@ class ContactInfo {
   IconData get icon {
     switch (type) {
       case 'E-mail':
-        return Icons.email;
+        return Icons.email_rounded;
       case 'Fax':
-        return Icons.fax_outlined;
+        return Icons.fax_rounded;
       default:
-        return Icons.phone;
+        return Icons.phone_rounded;
     }
   }
 
@@ -72,8 +83,7 @@ class _AddClientPageState extends State<AddClientPage> {
   // Basic Info Controllers
   final _nameController = TextEditingController();
   final _addressController = TextEditingController();
-
-  // ✅ NEW: Controller for Associated Brands (Smart Search)
+  final _mapsLinkController = TextEditingController(); // ✅ NEW MAPS LINK
   final _brandsController = TextEditingController();
 
   // Controllers for Business Identifiers
@@ -90,9 +100,6 @@ class _AddClientPageState extends State<AddClientPage> {
 
   bool _isLoading = false;
   bool get _isEditMode => widget.clientId != null;
-
-  // Colors
-  final Color primaryColor = const Color(0xFF1976D2);
 
   @override
   void initState() {
@@ -117,7 +124,8 @@ class _AddClientPageState extends State<AddClientPage> {
   void dispose() {
     _nameController.dispose();
     _addressController.dispose();
-    _brandsController.dispose(); // ✅ Dispose new controller
+    _mapsLinkController.dispose();
+    _brandsController.dispose();
     _rcController.dispose();
     _artController.dispose();
     _fiscController.dispose();
@@ -126,12 +134,12 @@ class _AddClientPageState extends State<AddClientPage> {
 
   void _populateData(Map<String, dynamic> data) {
     _nameController.text = data['name'] ?? '';
-    _addressController.text = data['location'] ?? '';
+    _addressController.text = data['location'] ?? data['address'] ?? '';
+    _mapsLinkController.text = data['mapsLink'] ?? ''; // ✅ Load maps link
     _rcController.text = data['rc'] ?? '';
     _artController.text = data['art'] ?? '';
     _fiscController.text = data['nif'] ?? '';
 
-    // ✅ NEW: Populate Brands (List -> String)
     if (data['brands'] != null) {
       final List<dynamic> brands = data['brands'];
       _brandsController.text = brands.join(', ');
@@ -158,18 +166,14 @@ class _AddClientPageState extends State<AddClientPage> {
   Future<void> _loadClientData() async {
     setState(() => _isLoading = true);
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('clients')
-          .doc(widget.clientId)
-          .get();
-
+      final doc = await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).get();
       if (doc.exists) {
         _populateData(doc.data()!);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e', style: GoogleFonts.inter())));
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -185,7 +189,6 @@ class _AddClientPageState extends State<AddClientPage> {
     });
   }
 
-  /// ✅ Slug Generator (Preserved)
   String _generateSlug(String input) {
     String slug = input.trim().toLowerCase();
     const withDia = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÿÑñ';
@@ -202,7 +205,6 @@ class _AddClientPageState extends State<AddClientPage> {
     return slug;
   }
 
-  // 🔥 UPDATED SUBMIT LOGIC FOR SMART SEARCH 🔥
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -214,35 +216,27 @@ class _AddClientPageState extends State<AddClientPage> {
           .map((entry) => entry.key)
           .toList();
 
-      // 1. Parse Brands from text input ("Zara, Bershka" -> ["Zara", "Bershka"])
       List<String> brandsList = _brandsController.text
           .split(',')
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
           .toList();
 
-      // 2. Prepare terms for the Generator
-      // We want the Client Name AND all Brands to be searchable
       List<String> termsToIndex = [
-        _nameController.text.trim(), // "Azadea"
-        ...brandsList,               // "Zara", "Bershka"...
+        _nameController.text.trim(),
+        ...brandsList,
       ];
 
-      // 3. Generate the "Pro" Keywords Array 🧠
-      // Uses the new utility function you created in Step 1
       final searchKeywords = generateSearchKeywords(termsToIndex);
-
       final slug = _generateSlug(_nameController.text);
 
       final clientData = {
         'name': _nameController.text.trim(),
         'location': _addressController.text.trim(),
+        'mapsLink': _mapsLinkController.text.trim(), // ✅ Save Maps Link
         'services': selectedServices,
-
-        // ✅ NEW: Save Brands & Enhanced Keywords
         'brands': brandsList,
         'search_keywords': searchKeywords,
-
         'rc': _rcController.text.trim(),
         'art': _artController.text.trim(),
         'nif': _fiscController.text.trim(),
@@ -252,16 +246,10 @@ class _AddClientPageState extends State<AddClientPage> {
       };
 
       if (_isEditMode) {
-        // Edit Mode: Update existing doc (ID does not change)
-        await FirebaseFirestore.instance
-            .collection('clients')
-            .doc(widget.clientId)
-            .update(clientData);
+        await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).update(clientData);
       } else {
-        // ✅ ADD Mode: "Hybrid" Duplicate Check
         if (slug.isEmpty) throw "Le nom de l'entreprise est invalide.";
 
-        // 1️⃣ CHECK NEW SYSTEM (ID Collision)
         final docRef = FirebaseFirestore.instance.collection('clients').doc(slug);
         final docSnapshot = await docRef.get();
 
@@ -269,276 +257,354 @@ class _AddClientPageState extends State<AddClientPage> {
           throw "Ce client existe déjà ! (ID: $slug).\nVeuillez vérifier la liste.";
         }
 
-        // 2️⃣ CHECK OLD SYSTEM (Field Collision)
-        final legacyCheck = await FirebaseFirestore.instance
-            .collection('clients')
-            .where('slug', isEqualTo: slug)
-            .limit(1)
-            .get();
+        final legacyCheck = await FirebaseFirestore.instance.collection('clients').where('slug', isEqualTo: slug).limit(1).get();
 
         if (legacyCheck.docs.isNotEmpty) {
           final oldId = legacyCheck.docs.first.id;
           throw "Ce client existe déjà dans l'ancien système !\n(ID: $oldId)";
         }
 
-        // 3️⃣ CREATE (Safe to proceed)
         clientData['createdAt'] = FieldValue.serverTimestamp();
         await docRef.set(clientData);
       }
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur: $e'),
-          backgroundColor: Colors.redAccent,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e', style: GoogleFonts.inter()),
+            backgroundColor: kAppleRed,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 🎨 APPLE / IOS UI BUILDERS
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: kBgColor,
       appBar: AppBar(
-        title: Text(_isEditMode ? 'Modifier Client' : 'Ajouter Client'),
-        backgroundColor: primaryColor,
         elevation: 0,
+        backgroundColor: kBgColor,
+        iconTheme: const IconThemeData(color: kTextDark),
+        centerTitle: true,
+        title: Text(
+          _isEditMode ? 'Modifier Client' : 'Nouveau Client',
+          style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w700, fontSize: 17),
+        ),
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: primaryColor))
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSectionTitle('Informations Générales'),
-              const SizedBox(height: 16),
-
-              // Name Input
-              TextFormField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Nom de l\'entreprise / Client',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.business),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  helperText: "Sera utilisé pour vérifier les doublons.",
+          ? const Center(child: CircularProgressIndicator(color: kAppleBlue))
+          : Form(
+        key: _formKey,
+        child: ListView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          children: [
+            _buildSectionHeader("Identité"),
+            _buildSettingsGroup(
+              children: [
+                _buildPremiumTextField(
+                  controller: _nameController,
+                  label: "Nom de l'entreprise",
+                  icon: Icons.business_rounded,
+                  isFirst: true,
+                  validator: (value) => value!.isEmpty ? 'Requis' : null,
                 ),
-                validator: (value) => value!.isEmpty ? 'Veuillez entrer un nom' : null,
-              ),
-
-              // ✅ NEW: Brands Input (Smart Search)
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _brandsController,
-                decoration: InputDecoration(
-                  labelText: 'Marques associées (séparées par virgule)',
-                  hintText: 'ex: Zara, Bershka, Pull&Bear',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.sell), // Tag icon
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  helperText: "Permet de trouver ce client en cherchant ses marques.",
+                _buildPremiumTextField(
+                  controller: _brandsController,
+                  label: "Marques (Zara, Bershka...)",
+                  icon: Icons.sell_rounded,
+                  isLast: true,
                 ),
-                maxLines: 2, // Give it a bit more space
-              ),
+              ],
+            ),
 
-              const SizedBox(height: 16),
-
-              // Address Input
-              TextFormField(
-                controller: _addressController,
-                decoration: InputDecoration(
-                  labelText: 'Adresse / Localisation',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.map),
-                  filled: true,
-                  fillColor: Colors.grey[100],
+            const SizedBox(height: 24),
+            _buildSectionHeader("Siège Social & Localisation"),
+            _buildSettingsGroup(
+              children: [
+                _buildPremiumTextField(
+                  controller: _addressController,
+                  label: "Adresse Textuelle",
+                  icon: Icons.map_rounded,
+                  isFirst: true,
                 ),
-              ),
-
-              const SizedBox(height: 24),
-              _buildSectionTitle('Informations Fiscales & Légales'),
-              const SizedBox(height: 16),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _rcController,
-                      decoration: InputDecoration(
-                        labelText: 'N° RC',
-                        hintText: 'Registre de Commerce',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.confirmation_number_outlined),
-                        filled: true,
-                        fillColor: Colors.grey[100],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _artController,
-                      decoration: InputDecoration(
-                        labelText: 'N° ART',
-                        hintText: 'Article d\'Imposition',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.numbers),
-                        filled: true,
-                        fillColor: Colors.grey[100],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _fiscController,
-                decoration: InputDecoration(
-                  labelText: 'N° FISC (NIF)',
-                  hintText: 'Numéro d\'Identification Fiscale',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.account_balance),
-                  filled: true,
-                  fillColor: Colors.grey[100],
+                _buildPremiumTextField(
+                  controller: _mapsLinkController,
+                  label: "Lien Google Maps (URL)",
+                  icon: Icons.location_on_rounded,
+                  isLast: true,
+                  keyboardType: TextInputType.url,
                 ),
-                keyboardType: TextInputType.number,
-              ),
+              ],
+            ),
 
-              const SizedBox(height: 24),
-              Row(
+            const SizedBox(height: 24),
+            _buildSectionHeader("Informations Légales"),
+            _buildSettingsGroup(
+              children: [
+                _buildPremiumTextField(
+                  controller: _rcController,
+                  label: "N° RC",
+                  icon: Icons.confirmation_number_rounded,
+                  isFirst: true,
+                ),
+                _buildPremiumTextField(
+                  controller: _artController,
+                  label: "N° ART",
+                  icon: Icons.numbers_rounded,
+                ),
+                _buildPremiumTextField(
+                  controller: _fiscController,
+                  label: "N° FISC (NIF)",
+                  icon: Icons.account_balance_rounded,
+                  isLast: true,
+                  keyboardType: TextInputType.number,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            _buildSectionHeader("Services Concernés"),
+            _buildSettingsGroup(
+              children: [
+                _buildToggleRow(
+                  title: "Service Technique",
+                  icon: Icons.engineering_rounded,
+                  iconColor: const Color(0xFF4F46E5), // Indigo
+                  value: _services['Service Technique']!,
+                  onChanged: (val) => setState(() => _services['Service Technique'] = val),
+                  isFirst: true,
+                ),
+                _buildToggleRow(
+                  title: "Service IT",
+                  icon: Icons.router_rounded,
+                  iconColor: const Color(0xFF0EA5E9), // Sky Blue
+                  value: _services['Service IT']!,
+                  onChanged: (val) => setState(() => _services['Service IT'] = val),
+                  isLast: true,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8, top: 8),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildSectionTitle('Contacts'),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle, color: Colors.green),
-                    onPressed: _addContact,
-                    tooltip: 'Ajouter un contact',
-                  ),
+                  Text("CONTACTS", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: kTextSecondary, letterSpacing: 1.2)),
+                  GestureDetector(
+                    onTap: _addContact,
+                    child: Text("Ajouter", style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: kAppleBlue)),
+                  )
                 ],
               ),
-              const SizedBox(height: 8),
-              if (_contacts.isEmpty)
-                const Text('Aucun contact ajouté.', style: TextStyle(color: Colors.grey)),
-              ..._contacts.asMap().entries.map((entry) {
-                int index = entry.key;
-                ContactInfo contact = entry.value;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: DropdownButtonFormField<String>(
-                                value: contact.type,
-                                decoration: const InputDecoration(
-                                  labelText: 'Type',
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                ),
-                                items: ['Téléphone', 'E-mail', 'Fax', 'Autre']
-                                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                                    .toList(),
-                                onChanged: (val) => setState(() => contact.type = val!),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 3,
-                              child: TextFormField(
-                                initialValue: contact.label,
-                                decoration: const InputDecoration(
-                                  labelText: 'Libellé (ex: DG, Compta)',
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                                ),
-                                onChanged: (val) => contact.label = val,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _removeContact(index),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          initialValue: contact.value,
-                          decoration: InputDecoration(
-                            labelText: contact.type == 'E-mail' ? 'Adresse E-mail' : 'Numéro / Valeur',
-                            prefixIcon: Icon(contact.type == 'E-mail' ? Icons.email : Icons.phone),
-                            border: const OutlineInputBorder(),
-                          ),
-                          keyboardType: contact.type == 'E-mail' ? TextInputType.emailAddress : TextInputType.phone,
-                          onChanged: (val) => contact.value = val,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
+            ),
 
-              const SizedBox(height: 24),
-              _buildSectionTitle('Services Concernés'),
-              CheckboxListTile(
-                title: const Text('Service Technique'),
-                value: _services['Service Technique'],
-                onChanged: (bool? value) {
-                  setState(() { _services['Service Technique'] = value!; });
-                },
+            if (_contacts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Text("Aucun contact ajouté.", style: GoogleFonts.inter(color: kTextSecondary, fontStyle: FontStyle.italic)),
               ),
-              CheckboxListTile(
-                title: const Text('Service IT'),
-                value: _services['Service IT'],
-                onChanged: (bool? value) {
-                  setState(() { _services['Service IT'] = value!; });
-                },
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: Icon(_isEditMode ? Icons.save : Icons.add),
-                  onPressed: _isLoading ? null : _submitForm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                  ),
-                  label: _isLoading
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                      : Text(_isEditMode ? 'Enregistrer les Modifications' : 'Ajouter le Client'),
+
+            ..._contacts.asMap().entries.map((entry) {
+              int index = entry.key;
+              ContactInfo contact = entry.value;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: kSurfaceColor,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
                 ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: _buildContactDropdown(contact),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 3,
+                            child: TextFormField(
+                              initialValue: contact.label,
+                              style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                              decoration: InputDecoration(
+                                hintText: 'Poste (ex: DG)',
+                                hintStyle: GoogleFonts.inter(color: kTextSecondary),
+                                border: InputBorder.none,
+                              ),
+                              onChanged: (val) => contact.label = val,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: kAppleRed),
+                            onPressed: () => _removeContact(index),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                      Divider(height: 1, color: Colors.black.withOpacity(0.05)),
+                      TextFormField(
+                        initialValue: contact.value,
+                        style: GoogleFonts.inter(),
+                        decoration: InputDecoration(
+                          hintText: contact.type == 'E-mail' ? 'Adresse E-mail' : 'Numéro de téléphone',
+                          hintStyle: GoogleFonts.inter(color: kTextSecondary),
+                          prefixIcon: Icon(contact.icon, color: kTextSecondary, size: 20),
+                          border: InputBorder.none,
+                        ),
+                        keyboardType: contact.type == 'E-mail' ? TextInputType.emailAddress : TextInputType.phone,
+                        onChanged: (val) => contact.value = val,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+
+            const SizedBox(height: 40),
+            SizedBox(
+              width: double.infinity,
+              height: 60,
+              child: ElevatedButton(
+                onPressed: _submitForm,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kTextDark,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+                child: Text(_isEditMode ? 'Enregistrer les modifications' : 'Ajouter le client', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 60),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-        color: primaryColor,
+  // --- WIDGET HELPERS ---
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, bottom: 8, top: 8),
+      child: Text(
+        title.toUpperCase(),
+        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: kTextSecondary, letterSpacing: 1.2),
+      ),
+    );
+  }
+
+  Widget _buildSettingsGroup({required List<Widget> children}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: kSurfaceColor,
+        borderRadius: BorderRadius.circular(kRadius),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(children: children),
+    );
+  }
+
+  Widget _buildPremiumTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool isFirst = false,
+    bool isLast = false,
+    TextInputType keyboardType = TextInputType.text,
+    String? Function(String?)? validator,
+  }) {
+    return Column(
+      children: [
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w500),
+          validator: validator,
+          decoration: InputDecoration(
+            hintText: label,
+            hintStyle: GoogleFonts.inter(color: kTextSecondary),
+            prefixIcon: Icon(icon, color: kTextSecondary, size: 22),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          ),
+        ),
+        if (!isLast) Divider(height: 1, color: Colors.black.withOpacity(0.05), indent: 50),
+      ],
+    );
+  }
+
+  Widget _buildToggleRow({
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    required bool value,
+    required Function(bool) onChanged,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                child: Icon(icon, color: iconColor, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text(title, style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600, color: kTextDark))),
+              Switch.adaptive(
+                value: value,
+                activeColor: iconColor,
+                onChanged: onChanged,
+              ),
+            ],
+          ),
+        ),
+        if (!isLast) Divider(height: 1, color: Colors.black.withOpacity(0.05), indent: 60),
+      ],
+    );
+  }
+
+  Widget _buildContactDropdown(ContactInfo contact) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: kBgColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: contact.type,
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kTextSecondary, size: 16),
+          items: ['Téléphone', 'E-mail', 'Fax', 'Autre']
+              .map((t) => DropdownMenuItem(value: t, child: Text(t, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500))))
+              .toList(),
+          onChanged: (val) => setState(() => contact.type = val!),
+        ),
       ),
     );
   }

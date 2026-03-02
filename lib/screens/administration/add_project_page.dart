@@ -3,8 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_fonts/google_fonts.dart'; // ✅ PREMIUM UI ADDITION
 
-// Reusable data models for dropdowns
+// ----------------------------------------------------------------------
+// 📦 LOCAL DATA MODELS
+// ----------------------------------------------------------------------
+
 class Client {
   final String id;
   final String name;
@@ -12,7 +16,6 @@ class Client {
 
   @override
   bool operator ==(Object other) => other is Client && other.id == id;
-
   @override
   int get hashCode => id.hashCode;
 }
@@ -25,10 +28,20 @@ class Store {
 
   @override
   bool operator ==(Object other) => other is Store && other.id == id;
-
   @override
   int get hashCode => id.hashCode;
 }
+
+// ----------------------------------------------------------------------
+// 🎨 THEME CONSTANTS (4K Premium 2026 Vibe)
+// ----------------------------------------------------------------------
+const Color kPrimaryColor = Color(0xFF4F46E5); // Indigo 600
+const Color kPrimaryDark = Color(0xFF3730A3); // Indigo 800
+const Color kBackgroundColor = Color(0xFFF5F7FA); // Modern Slate 50
+const Color kSurfaceColor = Colors.white;
+const Color kTextPrimary = Color(0xFF1E293B); // Slate 800
+const Color kTextSecondary = Color(0xFF64748B); // Slate 500
+const double kRadius = 24.0; // Premium 24px radius
 
 class AddProjectPage extends StatefulWidget {
   const AddProjectPage({super.key});
@@ -39,23 +52,32 @@ class AddProjectPage extends StatefulWidget {
 
 class _AddProjectPageState extends State<AddProjectPage> {
   final _formKey = GlobalKey<FormState>();
+
+  // Controllers
   final _requestController = TextEditingController();
   final _clientPhoneController = TextEditingController();
   final _clientSearchController = TextEditingController();
   final _storeSearchController = TextEditingController();
 
-  bool _isLoading = false;
+  // Controllers for Add Dialogs
+  final _newClientNameController = TextEditingController();
+  final _newStoreNameController = TextEditingController();
+  final _newStoreLocationController = TextEditingController();
 
-  // ✅ CHANGED: Replaced single selection with boolean flags
+  // Data State
+  Client? _selectedClient;
+  Store? _selectedStore;
+  List<Client> _clients = [];
+  List<Store> _stores = [];
+
+  // Project specific state
   bool _hasTechniqueModule = false;
   bool _hasItModule = false;
 
-  List<Client> _clients = [];
-  Client? _selectedClient;
-  List<Store> _stores = [];
-  Store? _selectedStore;
-  bool _isLoadingClients = true;
-  bool _isLoadingStores = false;
+  // UI State
+  bool _isLoading = false;
+  bool _isFetchingClients = false;
+  bool _isFetchingStores = false;
 
   @override
   void initState() {
@@ -69,36 +91,37 @@ class _AddProjectPageState extends State<AddProjectPage> {
     _clientPhoneController.dispose();
     _clientSearchController.dispose();
     _storeSearchController.dispose();
+    _newClientNameController.dispose();
+    _newStoreNameController.dispose();
+    _newStoreLocationController.dispose();
     super.dispose();
   }
 
+  // ----------------------------------------------------------------------
+  // ⚙️ LOGIC METHODS (PRESERVED)
+  // ----------------------------------------------------------------------
+
   Future<void> _fetchClients() async {
+    setState(() => _isFetchingClients = true);
     try {
       final snapshot = await FirebaseFirestore.instance.collection('clients').orderBy('name').get();
-      final clients = snapshot.docs.map((doc) {
-        return Client(id: doc.id, name: doc.data()['name']);
+      _clients = snapshot.docs.map((doc) {
+        return Client(id: doc.id, name: doc.data()['name'] ?? 'N/A');
       }).toList();
-
-      if (mounted) {
-        setState(() {
-          _clients = clients;
-          _isLoadingClients = false;
-        });
-      }
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoadingClients = false);
-      }
+      debugPrint('Error fetching clients: $e');
+    } finally {
+      if (mounted) setState(() => _isFetchingClients = false);
     }
   }
 
   Future<void> _fetchStores(String clientId) async {
     setState(() {
-      _isLoadingStores = true;
-      _stores = [];
+      _isFetchingStores = true;
       _selectedStore = null;
+      _storeSearchController.clear();
+      _stores = [];
     });
-
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('clients')
@@ -106,498 +129,656 @@ class _AddProjectPageState extends State<AddProjectPage> {
           .collection('stores')
           .orderBy('name')
           .get();
-
-      final stores = snapshot.docs.map((doc) {
+      _stores = snapshot.docs.map((doc) {
         final data = doc.data();
-        return Store(id: doc.id, name: data['name'], location: data['location']);
+        return Store(
+          id: doc.id,
+          name: data['name'] ?? 'N/A',
+          location: data['location'] ?? 'N/A',
+        );
       }).toList();
-
-      if (mounted) {
-        setState(() {
-          _stores = stores;
-          _isLoadingStores = false;
-        });
-      }
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoadingStores = false);
-      }
-    }
-  }
-
-  // ✅ NEW: Dialog to add a new client
-  Future<void> _showAddClientDialog() async {
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final result = await showDialog<Client>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Client'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nom du Client *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Téléphone (Optionnel)',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.phone,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  // Save to Firestore
-                  final docRef = await FirebaseFirestore.instance.collection('clients').add({
-                    'name': nameController.text.trim(),
-                    'phone': phoneController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'project_quick_add',
-                  });
-
-                  final newClient = Client(
-                    id: docRef.id,
-                    name: nameController.text.trim(),
-                  );
-
-                  Navigator.pop(context, newClient);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null) {
-      setState(() {
-        _clients.add(result);
-        _selectedClient = result;
-        _clientSearchController.text = result.name;
-      });
-      _fetchStores(result.id);
-    }
-  }
-
-  // ✅ NEW: Dialog to add a new store
-  Future<void> _showAddStoreDialog() async {
-    if (_selectedClient == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez d\'abord sélectionner un client')),
-      );
-      return;
-    }
-
-    final nameController = TextEditingController();
-    final locationController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final result = await showDialog<Store>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un Nouveau Magasin'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nom du Magasin *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: locationController,
-                decoration: const InputDecoration(
-                  labelText: 'Emplacement *',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                value == null || value.trim().isEmpty ? 'Requis' : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  // Save to Firestore under client's stores subcollection
-                  final docRef = await FirebaseFirestore.instance
-                      .collection('clients')
-                      .doc(_selectedClient!.id)
-                      .collection('stores')
-                      .add({
-                    'name': nameController.text.trim(),
-                    'location': locationController.text.trim(),
-                    'createdAt': Timestamp.now(),
-                    'createdVia': 'project_quick_add',
-                  });
-
-                  final newStore = Store(
-                    id: docRef.id,
-                    name: nameController.text.trim(),
-                    location: locationController.text.trim(),
-                  );
-
-                  Navigator.pop(context, newStore);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null) {
-      setState(() {
-        _stores.add(result);
-        _selectedStore = result;
-        _storeSearchController.text = '${result.name} - ${result.location}';
-      });
+      debugPrint('Error fetching stores: $e');
+    } finally {
+      if (mounted) setState(() => _isFetchingStores = false);
     }
   }
 
   Future<void> _saveProject() async {
-    FocusScope.of(context).unfocus();
+    if (!_formKey.currentState!.validate()) return;
 
-    // ✅ VALIDATION: Ensure at least one service is selected
-    if (!_hasTechniqueModule && !_hasItModule) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Veuillez sélectionner au moins un type de service (Technique ou IT).'),
-            backgroundColor: Colors.orange
-        ),
-      );
+    if (_selectedClient == null || _selectedStore == null) {
+      _showSnack('Veuillez sélectionner un client et un magasin.', Colors.redAccent);
       return;
     }
 
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
+    if (!_hasTechniqueModule && !_hasItModule) {
+      _showSnack('Veuillez sélectionner au moins un module (Technique ou IT).', Colors.redAccent);
+      return;
+    }
 
+    setState(() => _isLoading = true);
+
+    try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        setState(() => _isLoading = false);
-        return;
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user?.uid).get();
+      final createdByName = userDoc.data()?['displayName'] ?? 'N/A';
+
+      String serviceType = '';
+      if (_hasTechniqueModule && _hasItModule) {
+        serviceType = 'Service Technique & IT';
+      } else if (_hasTechniqueModule) {
+        serviceType = 'Service Technique';
+      } else if (_hasItModule) {
+        serviceType = 'Service IT';
       }
 
-      try {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
+      await FirebaseFirestore.instance.collection('projects').add({
+        'clientName': _selectedClient!.name,
+        'clientId': _selectedClient!.id,
+        'storeName': _selectedStore!.name,
+        'storeId': _selectedStore!.id,
+        'storeLocation': _selectedStore!.location,
+        'hasTechniqueModule': _hasTechniqueModule,
+        'hasItModule': _hasItModule,
+        'serviceType': serviceType,
+        'initialRequest': _requestController.text.trim(),
+        'clientPhone': _clientPhoneController.text.trim(),
+        'status': 'Nouvelle Demande',
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdByUid': user?.uid,
+        'createdByName': createdByName,
+      });
 
-        // ✅ Determine a string for backward compatibility with existing lists
-        // Note: This helps the project appear in at least one list until the list pages are updated.
-        String legacyServiceType = 'Service Technique';
-        if (_hasItModule && !_hasTechniqueModule) {
-          legacyServiceType = 'Service IT';
-        }
-        // If both are true, it defaults to 'Service Technique' for the legacy field,
-        // but the new boolean flags will be the source of truth for the updated details page.
-
-        await FirebaseFirestore.instance.collection('projects').add({
-          // ✅ UPDATED: Save boolean flags for modules
-          'hasTechniqueModule': _hasTechniqueModule,
-          'hasItModule': _hasItModule,
-          'serviceType': legacyServiceType, // Kept for backward compatibility
-
-          'clientId': _selectedClient!.id,
-          'clientName': _selectedClient!.name,
-          'clientPhone': _clientPhoneController.text.trim(),
-          'storeId': _selectedStore!.id,
-          'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
-          'initialRequest': _requestController.text.trim(),
-          'status': 'Nouvelle Demande',
-          'createdAt': Timestamp.now(),
-          'createdByUid': user.uid,
-          'createdByName': creatorName,
-        });
-
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red),
-          );
-          setState(() => _isLoading = false);
-        }
+      if (mounted) {
+        _showSnack('Projet créé avec succès!', kPrimaryColor);
+        Navigator.of(context).pop();
       }
+    } catch (e) {
+      if (mounted) {
+        _showSnack('Erreur lors de la création: $e', Colors.redAccent);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  void _showSnack(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.inter()),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  // --- Add Dialogs ---
+
+  Future<void> _showAddClientDialog() async {
+    _newClientNameController.clear();
+    await _showGenericDialog("Ajouter un Client", "Nom du Client", _newClientNameController, () async {
+      final docRef = await FirebaseFirestore.instance.collection('clients').add({
+        'name': _newClientNameController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      final newClient = Client(id: docRef.id, name: _newClientNameController.text.trim());
+      await _fetchClients();
+      setState(() {
+        _selectedClient = newClient;
+        _clientSearchController.text = newClient.name;
+        _fetchStores(newClient.id);
+      });
+    });
+  }
+
+  Future<void> _showAddStoreDialog() async {
+    if (_selectedClient == null) return;
+    _newStoreNameController.clear();
+    _newStoreLocationController.clear();
+
+    await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+          title: Text("Ajouter Magasin", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _newStoreNameController,
+                decoration: _inputDecoration("Nom du Magasin", Icons.storefront_rounded),
+                style: GoogleFonts.inter(),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _newStoreLocationController,
+                decoration: _inputDecoration("Ville / Localisation", Icons.location_city_rounded),
+                style: GoogleFonts.inter(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text("Annuler", style: GoogleFonts.inter(color: kTextSecondary))),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+                onPressed: () async {
+                  if(_newStoreNameController.text.isEmpty) return;
+                  await FirebaseFirestore.instance.collection('clients').doc(_selectedClient!.id).collection('stores').add({
+                    'name': _newStoreNameController.text.trim(),
+                    'location': _newStoreLocationController.text.trim(),
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+                  await _fetchStores(_selectedClient!.id);
+                  Navigator.pop(ctx);
+                }, child: Text("Enregistrer", style: GoogleFonts.inter(fontWeight: FontWeight.w600))),
+          ],
+        )
+    );
+  }
+
+  Future<void> _showGenericDialog(String title, String label, TextEditingController controller, Function onSave) async {
+    final formKey = GlobalKey<FormState>();
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
+        title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            style: GoogleFonts.inter(),
+            decoration: _inputDecoration(label, Icons.edit_rounded),
+            validator: (v) => v!.isEmpty ? 'Requis' : null,
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('Annuler', style: GoogleFonts.inter(color: kTextSecondary))),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                await onSave();
+                Navigator.of(ctx).pop();
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kPrimaryColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: Text('Enregistrer', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // 🖥️ UI BUILDER
+  // ----------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    const Color primaryColor = Colors.deepPurple;
-    final OutlineInputBorder focusedBorder = OutlineInputBorder(
-      borderSide: const BorderSide(color: primaryColor, width: 2.0),
-      borderRadius: BorderRadius.circular(12.0),
-    );
-    final OutlineInputBorder defaultBorder = OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.grey.shade300),
-      borderRadius: BorderRadius.circular(12.0),
-    );
-
     return Scaffold(
+      backgroundColor: kBackgroundColor,
       appBar: AppBar(
-        title: const Text('Créer un Nouveau Projet'),
-        backgroundColor: primaryColor,
+        elevation: 0,
+        backgroundColor: kSurfaceColor,
+        foregroundColor: kTextPrimary,
+        centerTitle: true,
+        title: Text(
+          'Créer un Projet',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 18),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(color: Colors.black.withOpacity(0.05), height: 1),
+        ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ✅ UPDATED: Replaced Dropdown with Multi-Select Checkboxes
-                const Text(
-                  'Services Requis *',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor
+      body: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildSectionTitle("Informations Client", Icons.business_rounded),
+              _buildClientCard(),
+
+              const SizedBox(height: 24),
+              _buildSectionTitle("Modules du Projet", Icons.extension_rounded),
+              _buildModulesCard(),
+
+              const SizedBox(height: 24),
+              _buildSectionTitle("Détails de la Demande", Icons.assignment_rounded),
+              _buildDetailsCard(),
+
+              const SizedBox(height: 40),
+              _buildSaveButton(),
+              const SizedBox(height: 60), // Extra scroll space
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- WIDGETS ---
+
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: kPrimaryColor, size: 20),
+          const SizedBox(width: 10),
+          Text(title, style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: kTextPrimary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientCard() {
+    return Container(
+      decoration: _cardDecoration(),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          _buildModernSelect<Client>(
+            label: "Client",
+            hint: "Rechercher un client...",
+            items: _clients,
+            selectedItem: _selectedClient,
+            isLoading: _isFetchingClients,
+            onSelected: (c) {
+              setState(() {
+                _selectedClient = c;
+                _clientSearchController.text = c.name;
+                _fetchStores(c.id);
+              });
+            },
+            onAdd: _showAddClientDialog,
+            itemLabel: (c) => c.name,
+          ),
+
+          const SizedBox(height: 20),
+
+          _buildModernSelect<Store>(
+            label: "Magasin",
+            hint: "Sélectionner un magasin...",
+            items: _stores,
+            selectedItem: _selectedStore,
+            isLoading: _isFetchingStores,
+            enabled: _selectedClient != null,
+            onSelected: (s) {
+              setState(() {
+                _selectedStore = s;
+                _storeSearchController.text = '${s.name} (${s.location})';
+              });
+            },
+            onAdd: _showAddStoreDialog,
+            itemLabel: (s) => "${s.name} (${s.location})",
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernSelect<T>({
+    required String label,
+    required String hint,
+    required List<T> items,
+    required T? selectedItem,
+    required Function(T) onSelected,
+    required Function() onAdd,
+    required String Function(T) itemLabel,
+    bool isLoading = false,
+    bool enabled = true,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: (enabled && !isLoading) ? () {
+                  _showSearchableBottomSheet(
+                    title: "Sélectionner $label",
+                    items: items,
+                    itemLabel: itemLabel,
+                    onSelected: onSelected,
+                  );
+                } : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                  decoration: BoxDecoration(
+                    color: enabled ? Colors.grey.shade50 : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.black.withOpacity(0.04)),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  child: Column(
+                  child: Row(
                     children: [
-                      CheckboxListTile(
-                        title: const Text('Service Technique'),
-                        subtitle: const Text('Installation, Câblage, Portiques...'),
-                        value: _hasTechniqueModule,
-                        activeColor: primaryColor,
-                        onChanged: (val) {
-                          setState(() => _hasTechniqueModule = val ?? false);
-                        },
+                      Icon(
+                          label == "Client" ? Icons.business_rounded : Icons.storefront_rounded,
+                          color: enabled ? kTextSecondary : Colors.grey.shade400,
+                          size: 20
                       ),
-                      const Divider(height: 1),
-                      CheckboxListTile(
-                        title: const Text('Service IT'),
-                        subtitle: const Text('Réseau, Serveurs, Baies...'),
-                        value: _hasItModule,
-                        activeColor: Colors.blue, // Differentiate visually
-                        onChanged: (val) {
-                          setState(() => _hasItModule = val ?? false);
-                        },
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          selectedItem != null ? itemLabel(selectedItem) : hint,
+                          style: GoogleFonts.inter(
+                              color: selectedItem != null ? kTextPrimary : kTextSecondary,
+                              fontWeight: selectedItem != null ? FontWeight.w600 : FontWeight.normal,
+                              fontSize: 15
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      if (isLoading)
+                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      else
+                        Icon(Icons.keyboard_arrow_down_rounded, color: enabled ? kTextSecondary : Colors.grey.shade300),
                     ],
                   ),
                 ),
-
-                const SizedBox(height: 20),
-
-                // Client Autocomplete with Add Button
-                Row(
-                  children: [
-                    Expanded(
-                      child: _isLoadingClients
-                          ? const Center(child: CircularProgressIndicator())
-                          : Autocomplete<Client>(
-                        optionsBuilder: (textEditingValue) {
-                          if (textEditingValue.text.isEmpty) {
-                            return _clients;
-                          }
-                          return _clients.where((client) =>
-                              client.name.toLowerCase().contains(textEditingValue.text.toLowerCase()));
-                        },
-                        displayStringForOption: (client) => client.name,
-                        onSelected: (client) {
-                          setState(() => _selectedClient = client);
-                          _fetchStores(client.id);
-                        },
-                        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                          _clientSearchController.text = controller.text;
-                          return TextFormField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            decoration: InputDecoration(
-                              labelText: 'Nom du Client',
-                              enabledBorder: defaultBorder,
-                              focusedBorder: focusedBorder,
-                              floatingLabelStyle: const TextStyle(color: primaryColor),
-                              suffixIcon: const Icon(Icons.arrow_drop_down),
-                            ),
-                            validator: (value) =>
-                            _selectedClient == null ? 'Veuillez sélectionner un client' : null,
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      onPressed: _showAddClientDialog,
-                      icon: const Icon(Icons.add),
-                      tooltip: 'Ajouter un nouveau client',
-                      style: IconButton.styleFrom(
-                        backgroundColor: primaryColor,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            InkWell(
+              onTap: enabled ? onAdd : null,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: enabled ? kPrimaryColor.withOpacity(0.1) : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(16),
                 ),
+                child: Icon(Icons.add_rounded, color: enabled ? kPrimaryColor : Colors.grey, size: 22),
+              ),
+            )
+          ],
+        ),
+      ],
+    );
+  }
 
-                const SizedBox(height: 20),
+  Future<void> _showSearchableBottomSheet<T>({
+    required String title,
+    required List<T> items,
+    required String Function(T) itemLabel,
+    required Function(T) onSelected,
+  }) {
+    return showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (context) {
+          return _SearchableListSheet<T>(
+              title: title,
+              items: items,
+              itemLabel: itemLabel,
+              onSelected: onSelected
+          );
+        }
+    );
+  }
 
-                // Store Autocomplete with Add Button
-                Row(
-                  children: [
-                    Expanded(
-                      child: _isLoadingStores
-                          ? const Padding(
-                        padding: EdgeInsets.all(8.0),
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                          : Autocomplete<Store>(
-                        optionsBuilder: (textEditingValue) {
-                          if (textEditingValue.text.isEmpty) {
-                            return _stores;
-                          }
-                          return _stores.where((store) =>
-                          store.name.toLowerCase().contains(textEditingValue.text.toLowerCase()) ||
-                              store.location.toLowerCase().contains(textEditingValue.text.toLowerCase()));
-                        },
-                        displayStringForOption: (store) => '${store.name} - ${store.location}',
-                        onSelected: (store) {
-                          setState(() => _selectedStore = store);
-                        },
-                        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                          _storeSearchController.text = controller.text;
-                          return TextFormField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            enabled: _selectedClient != null,
-                            decoration: InputDecoration(
-                              labelText: 'Magasin',
-                              enabledBorder: defaultBorder,
-                              focusedBorder: focusedBorder,
-                              floatingLabelStyle: const TextStyle(color: primaryColor),
-                              suffixIcon: const Icon(Icons.arrow_drop_down),
-                            ),
-                            validator: (value) =>
-                            _selectedStore == null ? 'Veuillez sélectionner un magasin' : null,
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      onPressed: _selectedClient == null ? null : _showAddStoreDialog,
-                      icon: const Icon(Icons.add),
-                      tooltip: 'Ajouter un nouveau magasin',
-                      style: IconButton.styleFrom(
-                        backgroundColor: _selectedClient == null ? Colors.grey : primaryColor,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
+  Widget _buildModulesCard() {
+    return Column(
+      children: [
+        _buildModuleToggle(
+          title: "Service Technique",
+          subtitle: "Antivols, caméras, comptage, etc.",
+          icon: Icons.engineering_rounded,
+          value: _hasTechniqueModule,
+          activeColor: const Color(0xFF4F46E5), // Indigo
+          onChanged: (val) => setState(() => _hasTechniqueModule = val),
+        ),
+        const SizedBox(height: 12),
+        _buildModuleToggle(
+          title: "Service IT",
+          subtitle: "Réseau, TPV, bornes, affichage.",
+          icon: Icons.router_rounded,
+          value: _hasItModule,
+          activeColor: const Color(0xFF0EA5E9), // Sky Blue
+          onChanged: (val) => setState(() => _hasItModule = val),
+        ),
+      ],
+    );
+  }
 
-                const SizedBox(height: 20),
+  Widget _buildModuleToggle({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool value,
+    required Color activeColor,
+    required Function(bool) onChanged,
+  }) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: value ? activeColor.withOpacity(0.05) : kSurfaceColor,
+          borderRadius: BorderRadius.circular(kRadius),
+          border: Border.all(
+            color: value ? activeColor.withOpacity(0.5) : Colors.black.withOpacity(0.05),
+            width: value ? 1.5 : 1,
+          ),
+          boxShadow: value ? [] : [
+            BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: value ? activeColor : Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: value ? Colors.white : kTextSecondary, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: value ? activeColor : kTextPrimary)),
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: GoogleFonts.inter(color: kTextSecondary, fontSize: 13)),
+                ],
+              ),
+            ),
+            Switch(
+              value: value,
+              activeColor: activeColor,
+              onChanged: onChanged,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-                // Phone Number
-                TextFormField(
-                  controller: _clientPhoneController,
-                  decoration: InputDecoration(
-                    labelText: 'Numéro de Téléphone (Contact)',
-                    enabledBorder: defaultBorder,
-                    focusedBorder: focusedBorder,
-                    floatingLabelStyle: const TextStyle(color: primaryColor),
-                  ),
-                  keyboardType: TextInputType.phone,
-                  validator: (value) =>
-                  value == null || value.isEmpty ? 'Veuillez entrer un numéro' : null,
-                ),
+  Widget _buildDetailsCard() {
+    return Container(
+      decoration: _cardDecoration(),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          TextFormField(
+            controller: _clientPhoneController,
+            keyboardType: TextInputType.phone,
+            style: GoogleFonts.inter(),
+            decoration: _inputDecoration("Téléphone du Client (optionnel)", Icons.phone_rounded),
+          ),
+          const SizedBox(height: 20),
+          TextFormField(
+            controller: _requestController,
+            maxLines: 5,
+            style: GoogleFonts.inter(height: 1.5),
+            decoration: _inputDecoration("Description de la Demande", Icons.description_rounded).copyWith(
+              alignLabelWithHint: true,
+            ),
+            validator: (v) => v!.isEmpty ? 'Veuillez décrire la demande' : null,
+          ),
+        ],
+      ),
+    );
+  }
 
-                const SizedBox(height: 20),
+  Widget _buildSaveButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _saveProject,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: kPrimaryColor,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 0,
+          shadowColor: kPrimaryColor.withOpacity(0.4),
+        ),
+        child: _isLoading
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+            : Text(
+          "Créer le Projet",
+          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
 
-                // Description
-                TextFormField(
-                  controller: _requestController,
-                  decoration: InputDecoration(
-                    labelText: 'Description de la Demande (matériel, etc.)',
-                    enabledBorder: defaultBorder,
-                    focusedBorder: focusedBorder,
-                    floatingLabelStyle: const TextStyle(color: primaryColor),
-                    alignLabelWithHint: true,
-                  ),
-                  maxLines: 5,
-                  validator: (value) =>
-                  value == null || value.isEmpty ? 'Veuillez décrire la demande' : null,
-                ),
+  // --- STYLING HELPERS ---
 
-                const SizedBox(height: 32),
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: kSurfaceColor,
+      borderRadius: BorderRadius.circular(kRadius),
+      boxShadow: [
+        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20, offset: const Offset(0, 8)),
+      ],
+    );
+  }
 
-                // Submit Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _saveProject,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16.0),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                    ),
-                    child: _isLoading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text('Créer le Projet'),
-                  ),
-                ),
-              ],
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: kTextSecondary, size: 20),
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: kPrimaryColor, width: 2)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      labelStyle: GoogleFonts.inter(color: kTextSecondary),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------
+// 🔎 SEARCHABLE SHEET WIDGET (Premium Style)
+// ----------------------------------------------------------------------
+
+class _SearchableListSheet<T> extends StatefulWidget {
+  final String title;
+  final List<T> items;
+  final String Function(T) itemLabel;
+  final Function(T) onSelected;
+
+  const _SearchableListSheet({
+    required this.title,
+    required this.items,
+    required this.itemLabel,
+    required this.onSelected,
+  });
+
+  @override
+  State<_SearchableListSheet<T>> createState() => _SearchableListSheetState<T>();
+}
+
+class _SearchableListSheetState<T> extends State<_SearchableListSheet<T>> {
+  String _searchQuery = "";
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredItems = widget.items.where((item) {
+      final label = widget.itemLabel(item).toLowerCase();
+      return label.contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.7, // 70% height
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          // Handle Bar
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+          ),
+          Text(widget.title, style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: kTextPrimary)),
+          const SizedBox(height: 24),
+
+          // Search Bar
+          TextField(
+            onChanged: (val) => setState(() => _searchQuery = val),
+            style: GoogleFonts.inter(),
+            decoration: InputDecoration(
+              hintText: "Rechercher...",
+              hintStyle: GoogleFonts.inter(color: kTextSecondary),
+              prefixIcon: const Icon(Icons.search_rounded, color: kTextSecondary),
+              filled: true,
+              fillColor: kBackgroundColor,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
             ),
           ),
-        ),
+          const SizedBox(height: 16),
+
+          // List
+          Expanded(
+            child: filteredItems.isEmpty
+                ? Center(child: Text("Aucun résultat", style: GoogleFonts.inter(color: kTextSecondary)))
+                : ListView.separated(
+              physics: const BouncingScrollPhysics(),
+              itemCount: filteredItems.length,
+              separatorBuilder: (_,__) => Divider(height: 1, color: Colors.black.withOpacity(0.05)),
+              itemBuilder: (context, index) {
+                final item = filteredItems[index];
+                return ListTile(
+                  title: Text(widget.itemLabel(item), style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: kTextPrimary)),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  onTap: () {
+                    widget.onSelected(item);
+                    Navigator.pop(context);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -7,11 +7,23 @@ import 'package:file_picker/file_picker.dart';
 import 'package:boitex_info_app/models/it_evaluation_data.dart';
 import 'package:flutter/services.dart'; // Needed for number input
 import 'package:path/path.dart' as path;
+import 'package:google_fonts/google_fonts.dart'; // ✅ PREMIUM UI ADDITION
 
-// ✅ ADDED: Imports for Backblaze B2 upload
+// ✅ Imports for Backblaze B2 upload
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+
+// -----------------------------------------------------------------------------
+// 🎨 THEME CONSTANTS (Apple iOS 2026 Vibe - IT Service Edition)
+// -----------------------------------------------------------------------------
+const Color kBgColor = Color(0xFFF2F2F7); // iOS System Background
+const Color kSurfaceColor = Colors.white;
+const Color kPrimaryColor = Color(0xFF0EA5E9); // Modern Sky Blue (IT Service)
+const Color kTextDark = Color(0xFF1C1C1E); // iOS Label Color
+const Color kTextLight = Color(0xFF8E8E93); // iOS Secondary Label
+const Color kBorderColor = Color(0xFFE5E5EA); // iOS Separator
+const double kRadius = 24.0;
 
 class ItEvaluationPage extends StatefulWidget {
   final String projectId;
@@ -25,14 +37,12 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
   // Use our new data model
   final ItEvaluationData _evaluationData = ItEvaluationData();
   bool _isLoading = false;
-  static const Color primaryColor = Colors.blue; // IT Service theme color
-  final OutlineInputBorder defaultBorder = OutlineInputBorder(borderSide: BorderSide(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12.0));
 
-  // ✅ ADDED: B2 Cloud Function URL constant
+  // B2 Cloud Function URL constant
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
-  // ✅ NEW: Local variables for specific question photos
+  // Local variables for specific question photos
   File? networkExistMedia;
   File? highVoltageMedia;
   File? rackMedia;
@@ -40,7 +50,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
   File? modemMedia;
   File? cablingPathMedia;
 
-  // ✅ NEW: Maps to store temporary photos for list items (Key: Index, Value: File)
+  // Maps to store temporary photos for list items (Key: Index, Value: File)
   Map<int, File> tpvPhotos = {};
   Map<int, File> printerPhotos = {};
   Map<int, File> kioskPhotos = {};
@@ -53,7 +63,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     super.dispose();
   }
 
-  // ✅ --- START: Endpoint list helpers ---
+  // --- START: Endpoint list helpers ---
   void _addTpv() {
     setState(() {
       _evaluationData.tpvList.add(EndpointData(name: 'TPV #${_evaluationData.tpvList.length + 1}'));
@@ -102,9 +112,9 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       screenPhotos.remove(index);
     });
   }
-  // ✅ --- END: Endpoint list helpers ---
+  // --- END: Endpoint list helpers ---
 
-  // ✅ --- START: New Client Hardware list helpers ---
+  // --- START: New Client Hardware list helpers ---
   void _addClientDevice() {
     setState(() {
       _evaluationData.clientDeviceList.add(ClientDeviceData());
@@ -117,10 +127,9 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       clientDevicePhotos.remove(index);
     });
   }
-  // ✅ --- END: New Client Hardware list helpers ---
+  // --- END: New Client Hardware list helpers ---
 
-
-  // ✅ --- START: B2 HELPER FUNCTIONS ---
+  // --- START: B2 HELPER FUNCTIONS ---
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
@@ -138,7 +147,6 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     }
   }
 
-  // ✅ MODIFIED: Added subFolder support for organized storage
   Future<String?> _uploadFileToB2(
       File file,
       Map<String, dynamic> b2Creds, {
@@ -150,11 +158,9 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       final sha1Hash = sha1.convert(fileBytes).toString();
       final originalFileName = path.basename(file.path);
 
-      // Organized path structure
       final String folder = subFolder ?? 'general';
-      final String b2FileName = 'it_evaluations/$projectId/$folder/$originalFileName';
+      final String b2FileName = 'it_evaluations/$projectId/$folder/${DateTime.now().millisecondsSinceEpoch}_$originalFileName';
 
-      // Determine mime type
       final String extension = path.extension(file.path).toLowerCase();
       String mimeType = 'b2/x-auto';
       if (extension == '.jpg' || extension == '.jpeg') {
@@ -194,7 +200,6 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     }
   }
 
-  // ✅ NEW: Helper to pick a single photo
   Future<void> _pickSinglePhoto(ValueChanged<File?> onPicked) async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
     if (result != null && result.files.isNotEmpty) {
@@ -202,28 +207,36 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       if (file.lengthSync() <= 50 * 1024 * 1024) {
         onPicked(file);
       } else {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fichier trop lourd (>50Mo)')));
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fichier trop lourd (>50Mo)', style: GoogleFonts.inter())));
       }
     }
   }
 
-  // ✅ NEW: Helper to view photo
   void _openMediaPreview(BuildContext context, File file) {
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AppBar(backgroundColor: Colors.transparent, elevation: 0, leading: const CloseButton(color: Colors.black)),
-            Image.file(file),
+            Align(
+              alignment: Alignment.topRight,
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white, size: 32),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.file(file),
+            ),
           ],
         ),
       ),
     );
   }
 
-  // ✅ EXISTING: Bulk picker for gallery
   Future<void> _pickPhotos() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
@@ -249,7 +262,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       if (rejectedCount > 0 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$rejectedCount image(s) dépassent la limite de 50 Mo.'),
+            content: Text('$rejectedCount image(s) dépassent la limite de 50 Mo.', style: GoogleFonts.inter()),
             backgroundColor: Colors.orange,
           ),
         );
@@ -257,7 +270,6 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     }
   }
 
-  // ✅ CHANGED: Orchestrate Uploads
   Future<void> _saveEvaluation() async {
     setState(() { _isLoading = true; });
 
@@ -265,7 +277,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     if (b2Credentials == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur: Impossible de contacter le service d\'upload.'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erreur: Impossible de contacter le service d\'upload.', style: GoogleFonts.inter()), backgroundColor: Colors.red),
         );
         setState(() { _isLoading = false; });
       }
@@ -273,10 +285,8 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     }
 
     try {
-      // 1. Get base data
       final evaluationMap = _evaluationData.getDataMap();
 
-      // 2. Upload Specific Question Photos
       Future<void> uploadAndSet(File? file, String folder, String key) async {
         if (file != null) {
           String? url = await _uploadFileToB2(file, b2Credentials, projectId: widget.projectId, subFolder: folder);
@@ -291,7 +301,6 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       await uploadAndSet(modemMedia, 'internet', 'modemPhotoUrl');
       await uploadAndSet(cablingPathMedia, 'cabling', 'cablingPathPhotoUrl');
 
-      // 3. Upload List Item Photos
       Future<void> processList(List<dynamic> listMap, Map<int, File> photoMap, String folder) async {
         for (int i = 0; i < listMap.length; i++) {
           if (photoMap.containsKey(i)) {
@@ -307,7 +316,6 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       await processList(evaluationMap['screenList'], screenPhotos, 'endpoints_screens');
       await processList(evaluationMap['clientDeviceList'], clientDevicePhotos, 'client_hardware');
 
-      // 4. Upload Gallery Photos
       final List<String> photoUrls = [];
       for (final file in _evaluationData.photos) {
         final String? downloadUrl = await _uploadFileToB2(
@@ -320,7 +328,6 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
       }
       evaluationMap['photos'] = photoUrls;
 
-      // 5. Save to Firestore
       await FirebaseFirestore.instance.collection('projects').doc(widget.projectId).update({
         'it_evaluation': evaluationMap,
         'status': 'Évaluation IT Terminé',
@@ -330,7 +337,7 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     } catch (e) {
       if(mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Erreur: ${e.toString()}', style: GoogleFonts.inter()), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -338,409 +345,425 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 🎨 APPLE / IOS UI BUILDERS
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: kBgColor,
       appBar: AppBar(
-        title: const Text('Évaluation IT'),
-        backgroundColor: primaryColor,
+        elevation: 0,
+        backgroundColor: kBgColor,
+        iconTheme: const IconThemeData(color: kTextDark),
+        centerTitle: true,
+        title: Text(
+          'Évaluation IT',
+          style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w700, fontSize: 17),
+        ),
       ),
-      body: Column(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: kPrimaryColor))
+          : ListView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         children: [
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16.0),
+          _buildExpansionSection(
+            title: 'Réseau Existant',
+            icon: Icons.network_check_rounded,
+            initiallyExpanded: true,
+            child: Column(
               children: [
-                _buildFormCard(),
+                _buildFormRow(
+                  label: "Un réseau est-il déjà installé ?",
+                  input: _buildPremiumSegmentedControl(["Oui", "Non"], _evaluationData.networkExists == true ? 0 : (_evaluationData.networkExists == false ? 1 : -1), (idx) => setState(() => _evaluationData.networkExists = idx == 0)),
+                  imagePicker: _buildPremiumImagePicker(networkExistMedia, (f) => setState(() => networkExistMedia = f)),
+                ),
+                if (_evaluationData.networkExists == true) ...[
+                  const SizedBox(height: 16),
+                  _buildFormRow(
+                    label: "Installation multi-étages ?",
+                    input: _buildPremiumSegmentedControl(["Oui", "Non"], _evaluationData.isMultiFloor == true ? 0 : (_evaluationData.isMultiFloor == false ? 1 : -1), (idx) => setState(() => _evaluationData.isMultiFloor = idx == 0)),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                _buildPremiumTextField(controller: _evaluationData.networkNotesController, label: "Notes sur le réseau (type, âge...)"),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0,-4))],
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _saveEvaluation,
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0))
+
+          _buildExpansionSection(
+            title: 'Environnement',
+            icon: Icons.warning_amber_rounded,
+            child: Column(
+              children: [
+                _buildFormRow(
+                  label: "Courant haute tension à proximité ?",
+                  input: _buildPremiumSegmentedControl(["Oui", "Non"], _evaluationData.hasHighVoltage == true ? 0 : (_evaluationData.hasHighVoltage == false ? 1 : -1), (idx) => setState(() => _evaluationData.hasHighVoltage = idx == 0)),
+                  imagePicker: _buildPremiumImagePicker(highVoltageMedia, (f) => setState(() => highVoltageMedia = f)),
                 ),
-                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Enregistrer l\'Évaluation IT'),
-              ),
+                const SizedBox(height: 16),
+                _buildPremiumTextField(controller: _evaluationData.highVoltageNotesController, label: "Décrire (moteurs, lignes...)"),
+              ],
             ),
           ),
+
+          _buildExpansionSection(
+            title: 'Baie de Brassage / Local Tech.',
+            icon: Icons.dns_rounded,
+            child: Column(
+              children: [
+                _buildFormRow(
+                  label: "Baie de brassage présente ?",
+                  input: _buildPremiumSegmentedControl(["Oui", "Non"], _evaluationData.hasNetworkRack == true ? 0 : (_evaluationData.hasNetworkRack == false ? 1 : -1), (idx) => setState(() => _evaluationData.hasNetworkRack = idx == 0)),
+                  imagePicker: _buildPremiumImagePicker(rackMedia, (f) => setState(() => rackMedia = f)),
+                ),
+                if (_evaluationData.hasNetworkRack == true) ...[
+                  const SizedBox(height: 16),
+                  _buildPremiumTextField(controller: _evaluationData.rackLocationController, label: "Emplacement de la baie"),
+                  const SizedBox(height: 16),
+                  _buildFormRow(
+                    label: "Espace disponible dans la baie ?",
+                    input: _buildPremiumSegmentedControl(["Oui", "Non"], _evaluationData.hasRackSpace == true ? 0 : (_evaluationData.hasRackSpace == false ? 1 : -1), (idx) => setState(() => _evaluationData.hasRackSpace = idx == 0)),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildFormRow(
+                    label: "Onduleur (UPS) présent ?",
+                    input: _buildPremiumSegmentedControl(["Oui", "Non"], _evaluationData.hasUPS == true ? 0 : (_evaluationData.hasUPS == false ? 1 : -1), (idx) => setState(() => _evaluationData.hasUPS = idx == 0)),
+                    imagePicker: _buildPremiumImagePicker(upsMedia, (f) => setState(() => upsMedia = f)),
+                  ),
+                ]
+              ],
+            ),
+          ),
+
+          _buildExpansionSection(
+            title: 'Accès Internet',
+            icon: Icons.public_rounded,
+            child: Column(
+              children: [
+                _buildPremiumDropdown(
+                  value: _evaluationData.internetAccessType,
+                  items: ['Fibre Optique', 'ADSL', '4G/5G', 'Satellite', 'Aucune'],
+                  hint: 'Type de Connexion',
+                  onChanged: (val) => setState(() => _evaluationData.internetAccessType = val),
+                ),
+                const SizedBox(height: 16),
+                _buildPremiumTextField(controller: _evaluationData.internetProviderController, label: "Fournisseur d'accès (FAI)"),
+                const SizedBox(height: 16),
+                _buildFormRow(
+                  label: "Emplacement du Modem/Routeur",
+                  input: _buildPremiumTextField(controller: _evaluationData.modemLocationController, label: "Ex: Bureau, RDC"),
+                  imagePicker: _buildPremiumImagePicker(modemMedia, (f) => setState(() => modemMedia = f)),
+                ),
+              ],
+            ),
+          ),
+
+          _buildExpansionSection(
+            title: 'Câblage',
+            icon: Icons.settings_ethernet_rounded,
+            child: Column(
+              children: [
+                _buildPremiumDropdown(
+                  value: _evaluationData.cableShieldType,
+                  items: ['UTP', 'FTP', 'STP'],
+                  hint: 'Type de Blindage',
+                  onChanged: (val) => setState(() => _evaluationData.cableShieldType = val),
+                ),
+                const SizedBox(height: 16),
+                _buildPremiumDropdown(
+                  value: _evaluationData.cableCategoryType,
+                  items: ['CAT 5e', 'CAT 6', 'CAT 6a'],
+                  hint: 'Catégorie de Câble',
+                  onChanged: (val) => setState(() => _evaluationData.cableCategoryType = val),
+                ),
+                const SizedBox(height: 16),
+                _buildFormRow(
+                  label: "Chemins de câbles (goulottes) ?",
+                  input: _buildPremiumSegmentedControl(["Oui", "Non"], _evaluationData.hasCablePaths == true ? 0 : (_evaluationData.hasCablePaths == false ? 1 : -1), (idx) => setState(() => _evaluationData.hasCablePaths = idx == 0)),
+                  imagePicker: _buildPremiumImagePicker(cablingPathMedia, (f) => setState(() => cablingPathMedia = f)),
+                ),
+                const SizedBox(height: 16),
+                _buildPremiumTextField(controller: _evaluationData.cableDistanceController, label: "Distance max. estimée (m)", isNumber: true),
+              ],
+            ),
+          ),
+
+          _buildExpansionSection(
+            title: 'Points d\'Accès (Planning)',
+            icon: Icons.power_rounded,
+            child: Column(
+              children: [
+                _buildEndpointList(title: 'TPV', endpointList: _evaluationData.tpvList, photoMap: tpvPhotos, onAddItem: _addTpv, onRemoveItem: _removeTpv),
+                Divider(height: 32, color: kBorderColor),
+                _buildEndpointList(title: 'Imprimante', endpointList: _evaluationData.printerList, photoMap: printerPhotos, onAddItem: _addPrinter, onRemoveItem: _removePrinter),
+                Divider(height: 32, color: kBorderColor),
+                _buildEndpointList(title: 'Borne', endpointList: _evaluationData.kioskList, photoMap: kioskPhotos, onAddItem: _addKiosk, onRemoveItem: _removeKiosk),
+                Divider(height: 32, color: kBorderColor),
+                _buildEndpointList(title: 'Écran Pub', endpointList: _evaluationData.screenList, photoMap: screenPhotos, onAddItem: _addScreen, onRemoveItem: _removeScreen),
+              ],
+            ),
+          ),
+
+          _buildExpansionSection(
+            title: 'Inventaire Matériel Client',
+            icon: Icons.devices_rounded,
+            child: _buildClientHardwareList(),
+          ),
+
+          _buildExpansionSection(
+            title: 'Photos Additionnelles',
+            icon: Icons.photo_library_rounded,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_evaluationData.photos.isNotEmpty)
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: _evaluationData.photos.asMap().entries.map((entry) {
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(entry.value, width: 80, height: 80, fit: BoxFit.cover),
+                          ),
+                          Positioned(
+                            top: -6, right: -6,
+                            child: GestureDetector(
+                              onTap: () => setState(() => _evaluationData.photos.removeAt(entry.key)),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                                child: const Icon(Icons.close, size: 12, color: Colors.white),
+                              ),
+                            ),
+                          )
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: _pickPhotos,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: kBgColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: kBorderColor),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.add_a_photo_rounded, color: kTextLight),
+                        const SizedBox(width: 8),
+                        Text("Ajouter des photos à la galerie", style: GoogleFonts.inter(color: kTextLight, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 40),
+          _buildSaveButton(),
+          const SizedBox(height: 60),
         ],
       ),
     );
   }
 
-  Widget _buildFormCard() {
-    return Card(
-      elevation: 2.0,
-      margin: const EdgeInsets.only(bottom: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text('Relevé Site IT', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: primaryColor)),
-            const Divider(height: 24),
+  // ---------------------------------------------------------------------------
+  // 🛠️ HELPER WIDGETS
+  // ---------------------------------------------------------------------------
 
-            // Section: Réseau Existant
-            _buildExpansionSection(
-              title: 'Réseau Existant',
-              icon: Icons.network_check,
-              child: Column(
-                children: [
-                  _buildYesNoQuestionWithPhoto(
-                    question: 'Un réseau est-il déjà installé ?',
-                    value: _evaluationData.networkExists,
-                    onChanged: (val) => setState(() => _evaluationData.networkExists = val),
-                    file: networkExistMedia,
-                    onPhotoChanged: (f) => setState(() => networkExistMedia = f),
-                  ),
-                  if (_evaluationData.networkExists == true)
-                    _buildYesNoQuestion(
-                      question: 'Installation multi-étages ?',
-                      value: _evaluationData.isMultiFloor,
-                      onChanged: (val) => setState(() => _evaluationData.isMultiFloor = val),
-                    ),
-                  _buildConditionalTextField(
-                    controller: _evaluationData.networkNotesController,
-                    labelText: 'Notes sur le réseau (type, âge...)',
-                  ),
-                ],
-              ),
-            ),
-
-            // Section: Environnement
-            _buildExpansionSection(
-              title: 'Environnement',
-              icon: Icons.warning_amber_rounded,
-              child: Column(
-                children: [
-                  _buildYesNoQuestionWithPhoto(
-                    question: 'Courant haute tension à proximité ?',
-                    value: _evaluationData.hasHighVoltage,
-                    onChanged: (val) => setState(() => _evaluationData.hasHighVoltage = val),
-                    file: highVoltageMedia,
-                    onPhotoChanged: (f) => setState(() => highVoltageMedia = f),
-                  ),
-                  _buildConditionalTextField(
-                      controller: _evaluationData.highVoltageNotesController,
-                      labelText: 'Décrire (moteurs, lignes...)'
-                  ),
-                ],
-              ),
-            ),
-
-            // Section: Baie de Brassage
-            _buildExpansionSection(
-              title: 'Baie de Brassage / Local Tech.',
-              icon: Icons.dns,
-              child: Column(
-                children: [
-                  _buildYesNoQuestionWithPhoto(
-                    question: 'Baie de brassage présente ?',
-                    value: _evaluationData.hasNetworkRack,
-                    onChanged: (val) => setState(() => _evaluationData.hasNetworkRack = val),
-                    file: rackMedia,
-                    onPhotoChanged: (f) => setState(() => rackMedia = f),
-                  ),
-                  if (_evaluationData.hasNetworkRack == true) ...[
-                    _buildConditionalTextField(
-                        controller: _evaluationData.rackLocationController,
-                        labelText: 'Emplacement de la baie'
-                    ),
-                    _buildYesNoQuestion(
-                      question: 'Espace disponible dans la baie ?',
-                      value: _evaluationData.hasRackSpace,
-                      onChanged: (val) => setState(() => _evaluationData.hasRackSpace = val),
-                    ),
-                    _buildYesNoQuestionWithPhoto(
-                      question: 'Onduleur (UPS) présent ?',
-                      value: _evaluationData.hasUPS,
-                      onChanged: (val) => setState(() => _evaluationData.hasUPS = val),
-                      file: upsMedia,
-                      onPhotoChanged: (f) => setState(() => upsMedia = f),
-                    ),
-                  ]
-                ],
-              ),
-            ),
-
-            // Section: Accès Internet
-            _buildExpansionSection(
-              title: 'Accès Internet',
-              icon: Icons.public,
-              child: Column(
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: _evaluationData.internetAccessType,
-                    hint: const Text('Type de Connexion'),
-                    decoration: InputDecoration(border: defaultBorder),
-                    items: ['Fibre Optique', 'ADSL', '4G/5G', 'Satellite', 'Aucune'].map((String value) {
-                      return DropdownMenuItem<String>(value: value, child: Text(value));
-                    }).toList(),
-                    onChanged: (value) => setState(() => _evaluationData.internetAccessType = value),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildConditionalTextField(
-                      controller: _evaluationData.internetProviderController,
-                      labelText: 'Fournisseur d\'accès (FAI)'
-                  ),
-                  // Modem location with photo
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _buildConditionalTextField(
-                            controller: _evaluationData.modemLocationController,
-                            labelText: 'Emplacement du Modem/Routeur'
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildMiniMediaButton(file: modemMedia, onChanged: (f) => setState(() => modemMedia = f)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Section: Câblage
-            _buildExpansionSection(
-              title: 'Câblage',
-              icon: Icons.settings_ethernet,
-              child: Column(
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: _evaluationData.cableShieldType,
-                    hint: const Text('Type de Blindage'),
-                    decoration: InputDecoration(border: defaultBorder),
-                    items: ['UTP', 'FTP', 'STP'].map((String value) {
-                      return DropdownMenuItem<String>(value: value, child: Text(value));
-                    }).toList(),
-                    onChanged: (value) => setState(() => _evaluationData.cableShieldType = value),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: _evaluationData.cableCategoryType,
-                    hint: const Text('Catégorie de Câble'),
-                    decoration: InputDecoration(border: defaultBorder),
-                    items: ['CAT 5e', 'CAT 6', 'CAT 6a'].map((String value) {
-                      return DropdownMenuItem<String>(value: value, child: Text(value));
-                    }).toList(),
-                    onChanged: (value) => setState(() => _evaluationData.cableCategoryType = value),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildYesNoQuestionWithPhoto(
-                    question: 'Chemins de câbles (goulottes) ?',
-                    value: _evaluationData.hasCablePaths,
-                    onChanged: (val) => setState(() => _evaluationData.hasCablePaths = val),
-                    file: cablingPathMedia,
-                    onPhotoChanged: (f) => setState(() => cablingPathMedia = f),
-                  ),
-                  _buildConditionalTextField(
-                      controller: _evaluationData.cableDistanceController,
-                      labelText: 'Distance max. estimée (m)'
-                  ),
-                ],
-              ),
-            ),
-
-            // Section: Endpoints (Planning)
-            _buildExpansionSection(
-              title: 'Points d\'Accès (Planning)',
-              icon: Icons.power,
-              child: Column(
-                children: [
-                  _buildEndpointList(
-                    title: 'TPV',
-                    endpointList: _evaluationData.tpvList,
-                    photoMap: tpvPhotos,
-                    onAddItem: _addTpv,
-                    onRemoveItem: _removeTpv,
-                  ),
-                  const Divider(height: 24),
-                  _buildEndpointList(
-                    title: 'Imprimante',
-                    endpointList: _evaluationData.printerList,
-                    photoMap: printerPhotos,
-                    onAddItem: _addPrinter,
-                    onRemoveItem: _removePrinter,
-                  ),
-                  const Divider(height: 24),
-                  _buildEndpointList(
-                    title: 'Borne',
-                    endpointList: _evaluationData.kioskList,
-                    photoMap: kioskPhotos,
-                    onAddItem: _addKiosk,
-                    onRemoveItem: _removeKiosk,
-                  ),
-                  const Divider(height: 24),
-                  _buildEndpointList(
-                    title: 'Écran Pub',
-                    endpointList: _evaluationData.screenList,
-                    photoMap: screenPhotos,
-                    onAddItem: _addScreen,
-                    onRemoveItem: _removeScreen,
-                  ),
-                ],
-              ),
-            ),
-
-            // Section: Inventaire Matériel Client
-            _buildExpansionSection(
-              title: 'Inventaire Matériel Client',
-              icon: Icons.devices,
-              initiallyExpanded: true,
-              child: _buildClientHardwareList(),
-            ),
-
-            // Section: Photos
-            _buildExpansionSection(
-              title: 'Photos et Notes (Galerie)',
-              icon: Icons.camera_alt_outlined,
-              child: Column(
-                children: [
-                  if (_evaluationData.photos.isNotEmpty)
-                    Container(
-                      height: 100,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _evaluationData.photos.length,
-                        itemBuilder: (context, photoIndex) {
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: Image.file(_evaluationData.photos[photoIndex], width: 100, height: 100, fit: BoxFit.cover),
-                          );
-                        },
-                      ),
-                    ),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _pickPhotos,
-                      icon: const Icon(Icons.add_a_photo_outlined),
-                      label: const Text('Ajouter des Photos'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+  Widget _buildExpansionSection({required String title, required IconData icon, required Widget child, bool initiallyExpanded = false}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: kSurfaceColor,
+        borderRadius: BorderRadius.circular(kRadius),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 15, offset: const Offset(0, 5))],
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: initiallyExpanded,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          leading: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: kPrimaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+            child: Icon(icon, color: kPrimaryColor, size: 22),
+          ),
+          title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: kTextDark)),
+          childrenPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
+          children: [child],
         ),
       ),
     );
   }
 
-  // --- Re-usable Helper Widgets ---
-
-  Widget _buildExpansionSection({
-    required String title,
-    required IconData icon,
-    required Widget child,
-    bool initiallyExpanded = false
-  }) {
-    return ExpansionTile(
-      leading: Icon(icon, color: primaryColor),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-      childrenPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      initiallyExpanded: initiallyExpanded,
-      children: [child],
-    );
-  }
-
-  // ✅ NEW: Widget for Yes/No questions WITH a photo button
-  Widget _buildYesNoQuestionWithPhoto({
-    required String question,
-    required bool? value,
-    required ValueChanged<bool> onChanged,
-    required File? file,
-    required ValueChanged<File?> onPhotoChanged,
-  }) {
+  Widget _buildFormRow({required String label, required Widget input, Widget? imagePicker}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(label, style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: kTextDark, fontSize: 14)),
+        const SizedBox(height: 10),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(question, style: const TextStyle(fontSize: 14))),
-            _buildMiniMediaButton(file: file, onChanged: onPhotoChanged),
+            Expanded(child: input),
+            if (imagePicker != null) ...[
+              const SizedBox(width: 12),
+              imagePicker,
+            ]
           ],
         ),
-        const SizedBox(height: 8),
-        ToggleButtons(
-          isSelected: [value == true, value == false],
-          onPressed: (index) {
-            onChanged(index == 0);
-          },
-          borderRadius: BorderRadius.circular(8),
-          selectedColor: Colors.white,
-          fillColor: primaryColor,
-          children: const [
-            Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Text('Oui')),
-            Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Text('Non')),
-          ],
-        ),
-        const SizedBox(height: 16),
       ],
     );
   }
 
-  Widget _buildYesNoQuestion({required String question, required bool? value, required ValueChanged<bool> onChanged}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(question, style: const TextStyle(fontSize: 14)),
-        const SizedBox(height: 8),
-        ToggleButtons(
-          isSelected: [value == true, value == false],
-          onPressed: (index) {
-            onChanged(index == 0);
-          },
-          borderRadius: BorderRadius.circular(8),
-          selectedColor: Colors.white,
-          fillColor: primaryColor,
-          children: const [
-            Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Text('Oui')),
-            Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Text('Non')),
-          ],
-        ),
-        const SizedBox(height: 16),
-      ],
+  Widget _buildPremiumTextField({required TextEditingController controller, required String label, bool isNumber = false, TextAlign textAlign = TextAlign.start}) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: isNumber ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+      textAlign: textAlign,
+      style: GoogleFonts.inter(color: kTextDark),
+      decoration: InputDecoration(
+        hintText: label,
+        hintStyle: GoogleFonts.inter(color: kTextLight),
+        filled: true,
+        fillColor: kBgColor,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: kPrimaryColor, width: 1.5)),
+      ),
     );
   }
 
-  // ✅ NEW: Mini Photo Button Widget
-  Widget _buildMiniMediaButton({required File? file, required ValueChanged<File?> onChanged}) {
-    if (file != null) {
+  Widget _buildPremiumDropdown({String? value, required List<String> items, required Function(String?) onChanged, String hint = ""}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: kBgColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          hint: Text(hint, style: GoogleFonts.inter(color: kTextLight)),
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kTextLight),
+          items: items.map((i) => DropdownMenuItem(value: i, child: Text(i, style: GoogleFonts.inter(color: kTextDark)))).toList(),
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumSegmentedControl(List<String> options, int selectedIndex, Function(int) onSelected) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: options.asMap().entries.map((entry) {
+          final isSelected = entry.key == selectedIndex;
+          final text = entry.value;
+
+          final isOui = text.toLowerCase() == 'oui';
+          final isNon = text.toLowerCase() == 'non';
+
+          Color activeBgColor = kSurfaceColor;
+          Color activeTextColor = kTextDark;
+          Color shadowColor = Colors.black.withOpacity(0.05);
+          IconData? icon;
+
+          if (isOui) {
+            activeBgColor = const Color(0xFF10B981);
+            activeTextColor = Colors.white;
+            shadowColor = activeBgColor.withOpacity(0.4);
+            icon = Icons.check_circle_outline_rounded;
+          } else if (isNon) {
+            activeBgColor = const Color(0xFFEF4444);
+            activeTextColor = Colors.white;
+            shadowColor = activeBgColor.withOpacity(0.4);
+            icon = Icons.highlight_off_rounded;
+          }
+
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => onSelected(entry.key),
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? activeBgColor : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: isSelected ? [BoxShadow(color: shadowColor, blurRadius: 8, offset: const Offset(0, 4))] : [],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(icon, size: 16, color: isSelected ? activeTextColor : Colors.transparent),
+                      if (isSelected) const SizedBox(width: 6),
+                    ],
+                    AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                      style: GoogleFonts.inter(
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        color: isSelected ? activeTextColor : kTextLight,
+                        fontSize: 14,
+                      ),
+                      child: Text(text),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildPremiumImagePicker(File? currentFile, Function(File?) onChanged) {
+    if (currentFile != null) {
       return GestureDetector(
-        onTap: () => _openMediaPreview(context, file),
+        onTap: () => _openMediaPreview(context, currentFile),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.file(file, width: 48, height: 48, fit: BoxFit.cover),
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 6, offset: const Offset(0, 3))],
+                image: DecorationImage(image: FileImage(currentFile), fit: BoxFit.cover),
+              ),
             ),
             Positioned(
-              top: -8,
-              right: -8,
+              top: -6, right: -6,
               child: GestureDetector(
-                onTap: () => onChanged(null), // Remove photo
+                onTap: () => onChanged(null),
                 child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                  child: const Icon(Icons.close, size: 12, color: Colors.white),
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, size: 10, color: Colors.white),
                 ),
               ),
             ),
@@ -748,32 +771,24 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
         ),
       );
     } else {
-      return IconButton(
-        onPressed: () => _pickSinglePhoto(onChanged),
-        icon: const Icon(Icons.add_a_photo, color: Colors.grey),
-        tooltip: "Ajouter une preuve photo",
+      return InkWell(
+        onTap: () => _pickSinglePhoto(onChanged),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 52, height: 52,
+          decoration: BoxDecoration(
+            color: kBgColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: kBorderColor),
+          ),
+          child: const Icon(Icons.camera_alt_rounded, color: kTextLight, size: 22),
+        ),
       );
     }
   }
 
-  Widget _buildConditionalTextField({required TextEditingController controller, required String labelText}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: TextFormField(
-        controller: controller,
-        decoration: InputDecoration(
-          labelText: labelText,
-          border: defaultBorder,
-          focusedBorder: defaultBorder.copyWith(borderSide: const BorderSide(color: primaryColor)),
-        ),
-        maxLines: 2,
-      ),
-    );
-  }
+  // --- Endpoints Builders ---
 
-  // --- Helper Widgets for Endpoints (Planning) ---
-
-  // ✅ MODIFIED: Accepts photoMap to handle images for items
   Widget _buildEndpointList({
     required String title,
     required List<EndpointData> endpointList,
@@ -784,94 +799,100 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor)),
+        Text(title, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold, color: kTextLight, letterSpacing: 1.1)),
+        const SizedBox(height: 12),
         if (endpointList.isEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            child: Text('Aucun $title ajouté.', style: const TextStyle(color: Colors.grey)),
+            padding: const EdgeInsets.only(bottom: 16.0),
+            child: Text('Aucun $title ajouté.', style: GoogleFonts.inter(color: kTextLight, fontStyle: FontStyle.italic)),
           ),
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: endpointList.length,
           itemBuilder: (context, index) {
-            final item = endpointList[index];
             return _buildEndpointItem(
-              item: item,
+              item: endpointList[index],
               photo: photoMap[index],
               onPhotoChanged: (f) => setState(() => photoMap[index] = f!),
               onRemove: () => onRemoveItem(index),
             );
           },
         ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: onAddItem,
-          icon: const Icon(Icons.add),
-          label: Text('Ajouter $title'),
+        InkWell(
+          onTap: onAddItem,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: kPrimaryColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.add_rounded, color: kPrimaryColor, size: 20),
+                const SizedBox(width: 8),
+                Text('Ajouter $title', style: GoogleFonts.inter(color: kPrimaryColor, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 
-  // ✅ MODIFIED: Adds Photo button to the item card
   Widget _buildEndpointItem({
     required EndpointData item,
     required File? photo,
     required ValueChanged<File?> onPhotoChanged,
     required VoidCallback onRemove,
   }) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: Colors.grey.shade200)
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kBgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withOpacity(0.03)),
       ),
-      margin: const EdgeInsets.only(top: 12),
       child: Column(
         children: [
-          ListTile(
-            title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildMiniMediaButton(file: photo, onChanged: onPhotoChanged),
-                IconButton(
-                  icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
-                  onPressed: onRemove,
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Column(
-              children: [
-                _buildSocketRow(
-                  label: 'Prise Électrique',
-                  value: item.hasPriseElectrique,
-                  controller: item.quantityPriseElectriqueController,
-                  onChanged: (val) => setState(() => item.hasPriseElectrique = val ?? false),
-                ),
-                _buildSocketRow(
-                  label: 'Prise RJ45',
-                  value: item.hasPriseRJ45,
-                  controller: item.quantityPriseRJ45Controller,
-                  onChanged: (val) => setState(() => item.hasPriseRJ45 = val ?? false),
-                ),
-                TextFormField(
-                  controller: item.notesController,
-                  decoration: InputDecoration(
-                    labelText: 'Notes (emplacement, etc.)',
-                    border: defaultBorder,
-                    focusedBorder: defaultBorder.copyWith(borderSide: const BorderSide(color: primaryColor)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(item.name, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: kTextDark)),
+              Row(
+                children: [
+                  _buildPremiumImagePicker(photo, onPhotoChanged),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                    onPressed: onRemove,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
-                  maxLines: 1,
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
+                ],
+              ),
+            ],
           ),
+          const SizedBox(height: 16),
+          _buildSocketRow(
+            label: 'Prise Électrique',
+            value: item.hasPriseElectrique,
+            controller: item.quantityPriseElectriqueController,
+            onChanged: (val) => setState(() => item.hasPriseElectrique = val),
+          ),
+          const SizedBox(height: 12),
+          _buildSocketRow(
+            label: 'Prise RJ45',
+            value: item.hasPriseRJ45,
+            controller: item.quantityPriseRJ45Controller,
+            onChanged: (val) => setState(() => item.hasPriseRJ45 = val),
+          ),
+          const SizedBox(height: 16),
+          _buildPremiumTextField(controller: item.notesController, label: 'Notes (emplacement, etc.)'),
         ],
       ),
     );
@@ -881,53 +902,49 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
     required String label,
     required bool value,
     required TextEditingController controller,
-    required ValueChanged<bool?> onChanged,
+    required ValueChanged<bool> onChanged,
   }) {
     return Row(
       children: [
-        Checkbox(value: value, onChanged: onChanged),
-        Expanded(child: Text(label)),
-        const Text('Qté:'),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 60,
-          child: TextFormField(
-            controller: controller,
-            enabled: value, // Only enable if checkbox is checked
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            textAlign: TextAlign.center,
-            decoration: InputDecoration(
-                border: defaultBorder,
-                contentPadding: const EdgeInsets.symmetric(vertical: 8)
+        Switch(
+          value: value,
+          activeColor: kPrimaryColor,
+          onChanged: onChanged,
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Text(label, style: GoogleFonts.inter(fontWeight: FontWeight.w500, color: kTextDark))),
+        if (value)
+          SizedBox(
+            width: 80,
+            child: _buildPremiumTextField(
+                controller: controller,
+                label: "Qté",
+                isNumber: true,
+                textAlign: TextAlign.center
             ),
           ),
-        ),
       ],
     );
   }
 
+  // --- Client Hardware Builders ---
 
-  // --- Helper Widgets for Client Hardware ---
-
-  /// Builds the whole "Client Hardware" list section
   Widget _buildClientHardwareList() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (_evaluationData.clientDeviceList.isEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            child: Text('Aucun appareil client ajouté.', style: const TextStyle(color: Colors.grey)),
+            padding: const EdgeInsets.only(bottom: 16.0),
+            child: Text('Aucun appareil client ajouté.', style: GoogleFonts.inter(color: kTextLight, fontStyle: FontStyle.italic)),
           ),
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: _evaluationData.clientDeviceList.length,
           itemBuilder: (context, index) {
-            final item = _evaluationData.clientDeviceList[index];
             return _buildClientHardwareItem(
-              item: item,
+              item: _evaluationData.clientDeviceList[index],
               index: index,
               photo: clientDevicePhotos[index],
               onPhotoChanged: (f) => setState(() => clientDevicePhotos[index] = f!),
@@ -935,17 +952,30 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
             );
           },
         ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: _addClientDevice,
-          icon: const Icon(Icons.add),
-          label: const Text('Ajouter un appareil'),
+        InkWell(
+          onTap: _addClientDevice,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: kPrimaryColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: kPrimaryColor.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.add_rounded, color: kPrimaryColor, size: 20),
+                const SizedBox(width: 8),
+                Text('Ajouter un appareil', style: GoogleFonts.inter(color: kPrimaryColor, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 
-  /// Builds the card for a single client device (PC, Printer, etc.)
   Widget _buildClientHardwareItem({
     required ClientDeviceData item,
     required int index,
@@ -955,94 +985,80 @@ class _ItEvaluationPageState extends State<ItEvaluationPage> {
   }) {
     bool showOS = item.deviceType == 'PC' || item.deviceType == 'TPV';
 
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: Colors.grey.shade200)
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kBgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withOpacity(0.03)),
       ),
-      margin: const EdgeInsets.only(top: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Appareil #${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                Row(
-                  children: [
-                    _buildMiniMediaButton(file: photo, onChanged: onPhotoChanged),
-                    IconButton(
-                      icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
-                      onPressed: onRemove,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: item.deviceType,
-              hint: const Text('Type d\'appareil'),
-              decoration: InputDecoration(border: defaultBorder),
-              items: ['PC', 'TPV', 'Imprimante Ticket', 'Imprimante A4', 'Scanner', 'Afficheur Client', 'Autre']
-                  .map((String value) {
-                return DropdownMenuItem<String>(value: value, child: Text(value));
-              }).toList(),
-              onChanged: (value) => setState(() => item.deviceType = value),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: item.brandController,
-                    decoration: InputDecoration(
-                      labelText: 'Marque',
-                      border: defaultBorder,
-                    ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Appareil #${index + 1}', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: kTextDark)),
+              Row(
+                children: [
+                  _buildPremiumImagePicker(photo, onPhotoChanged),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                    onPressed: onRemove,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextFormField(
-                    controller: item.modelController,
-                    decoration: InputDecoration(
-                      labelText: 'Modèle',
-                      border: defaultBorder,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (showOS) ...[
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: item.osType,
-                hint: const Text('Système d\'exploitation (OS)'),
-                decoration: InputDecoration(border: defaultBorder),
-                items: ['Windows 11', 'Windows 10', 'Windows 7/8', 'Android', 'Linux', 'Aucun / N/A']
-                    .map((String value) {
-                  return DropdownMenuItem<String>(value: value, child: Text(value));
-                }).toList(),
-                onChanged: (value) => setState(() => item.osType = value),
+                ],
               ),
             ],
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: item.notesController,
-              decoration: InputDecoration(
-                labelText: 'Notes (RAM, Connexion, etc.)',
-                border: defaultBorder,
-                focusedBorder: defaultBorder.copyWith(borderSide: const BorderSide(color: primaryColor)),
-              ),
-              maxLines: 1,
+          ),
+          const SizedBox(height: 16),
+          _buildPremiumDropdown(
+            value: item.deviceType,
+            items: ['PC', 'TPV', 'Imprimante Ticket', 'Imprimante A4', 'Scanner', 'Afficheur Client', 'Autre'],
+            hint: 'Type d\'appareil',
+            onChanged: (val) => setState(() => item.deviceType = val),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _buildPremiumTextField(controller: item.brandController, label: 'Marque')),
+              const SizedBox(width: 12),
+              Expanded(child: _buildPremiumTextField(controller: item.modelController, label: 'Modèle')),
+            ],
+          ),
+          if (showOS) ...[
+            const SizedBox(height: 12),
+            _buildPremiumDropdown(
+              value: item.osType,
+              items: ['Windows 11', 'Windows 10', 'Windows 7/8', 'Android', 'Linux', 'Aucun / N/A'],
+              hint: 'Système d\'exploitation (OS)',
+              onChanged: (val) => setState(() => item.osType = val),
             ),
           ],
+          const SizedBox(height: 12),
+          _buildPremiumTextField(controller: item.notesController, label: 'Notes (RAM, Connexion, etc.)'),
+        ],
+      ),
+    );
+  }
+
+  // --- Main Button ---
+
+  Widget _buildSaveButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: _saveEvaluation,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: kTextDark, // iOS Style primary black button
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
+        child: Text("Terminer l'évaluation", style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold)),
       ),
     );
   }
