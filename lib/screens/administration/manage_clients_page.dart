@@ -13,12 +13,14 @@ import 'package:printing/printing.dart';
 import 'package:boitex_info_app/services/client_report_service.dart';
 import 'package:boitex_info_app/services/client_report_pdf_service.dart';
 import 'package:boitex_info_app/screens/administration/client_details_page.dart';
+import 'package:boitex_info_app/screens/administration/store_equipment_page.dart';
 
 // 🎨 --- 2026 PREMIUM APPLE COLORS & CONSTANTS --- 🎨
 const kTextDark = Color(0xFF1D1D1F);
 const kTextSecondary = Color(0xFF86868B);
 const kAppleBlue = Color(0xFF007AFF);
 const kAppleRed = Color(0xFFFF3B30);
+const kAppleOrange = Color(0xFFFF9500);
 const kGlassBorder = Color(0x33FFFFFF);
 const double kRadius = 24.0;
 
@@ -36,6 +38,8 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
   String _searchQuery = '';
   bool _isSearching = false;
   List<Map<String, dynamic>> _searchResults = [];
+
+  bool _isStoreMode = false;
 
   @override
   void initState() {
@@ -74,29 +78,52 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
     setState(() { _isSearching = true; });
     try {
       final queryStr = _searchQuery.toLowerCase();
-      final snapshot = await FirebaseFirestore.instance.collection('clients').get();
 
-      final results = snapshot.docs.where((doc) {
-        final data = doc.data();
-        final name = (data['name'] ?? '').toString().toLowerCase();
-        List<dynamic> keywords = data['search_keywords'] ?? [];
-        bool matchesKeyword = keywords.any((k) => k.toString().toLowerCase().contains(queryStr));
+      if (_isStoreMode) {
+        final snapshot = await FirebaseFirestore.instance.collectionGroup('stores').get();
+        final results = snapshot.docs.where((doc) {
+          final data = doc.data();
+          final name = (data['name'] ?? '').toString().toLowerCase();
+          final location = (data['location'] ?? '').toString().toLowerCase();
 
-        return name.contains(queryStr) || matchesKeyword;
-      }).map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
+          return name.contains(queryStr) || location.contains(queryStr);
+        }).map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          data['clientId'] = doc.reference.parent.parent?.id ?? '';
+          return data;
+        }).toList();
 
-      if (mounted) {
-        setState(() {
-          _searchResults = results;
-          _isSearching = false;
-        });
+        if (mounted) {
+          setState(() {
+            _searchResults = results;
+            _isSearching = false;
+          });
+        }
+      } else {
+        final snapshot = await FirebaseFirestore.instance.collection('clients').get();
+        final results = snapshot.docs.where((doc) {
+          final data = doc.data();
+          final name = (data['name'] ?? '').toString().toLowerCase();
+          List<dynamic> keywords = data['search_keywords'] ?? [];
+          bool matchesKeyword = keywords.any((k) => k.toString().toLowerCase().contains(queryStr));
+
+          return name.contains(queryStr) || matchesKeyword;
+        }).map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            _searchResults = results;
+            _isSearching = false;
+          });
+        }
       }
     } catch (e) {
-      debugPrint('Error searching clients: $e');
+      debugPrint('Error searching: $e');
       if (mounted) setState(() { _isSearching = false; });
     }
   }
@@ -281,9 +308,6 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 🪄 MODERN APPLE IOS BOTTOM SHEET
-  // ---------------------------------------------------------------------------
   Future<Map<String, dynamic>?> _showReportConfigurationDialog(String clientId) async {
     bool selectAllStores = true;
     List<String> selectedStoreIds = [];
@@ -443,7 +467,6 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
                             ),
                           ),
 
-                          // Action Buttons
                           const SizedBox(height: 16),
                           Row(
                             children: [
@@ -512,7 +535,7 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: Text('Gestion des Clients', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: kTextDark, fontSize: 20, letterSpacing: -0.5)),
+        title: Text('Gestionnaire Global', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: kTextDark, fontSize: 20, letterSpacing: -0.5)),
         iconTheme: const IconThemeData(color: kTextDark),
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -521,18 +544,21 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AddClientPage()));
-        },
-        backgroundColor: kTextDark,
-        elevation: 10,
-        icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: Text('Nouveau Client', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: -0.2)),
+      floatingActionButton: AnimatedOpacity(
+        duration: const Duration(milliseconds: 300),
+        opacity: _isStoreMode ? 0.0 : 1.0,
+        child: FloatingActionButton.extended(
+          onPressed: _isStoreMode ? null : () {
+            Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AddClientPage()));
+          },
+          backgroundColor: kTextDark,
+          elevation: 10,
+          icon: const Icon(Icons.add_rounded, color: Colors.white),
+          label: Text('Nouveau Client', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: -0.2)),
+        ),
       ),
       body: Stack(
         children: [
-          // 1. Colourful Mesh Gradient Background
           Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
@@ -541,36 +567,132 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
                   end: Alignment.bottomRight,
                   stops: [0.0, 0.4, 0.8, 1.0],
                   colors: [
-                    Color(0xFFE0C3FC), // Soft Lilac
-                    Color(0xFFE8F1F5), // White-ish Blue
-                    Color(0xFF8EC5FC), // Sky Blue
-                    Color(0xFFFEE1E8), // Soft Pink
+                    Color(0xFFE0C3FC),
+                    Color(0xFFE8F1F5),
+                    Color(0xFF8EC5FC),
+                    Color(0xFFFEE1E8),
                   ],
                 ),
               ),
             ),
           ),
-
-          // 2. Extra Blur layer for the "frosted" global effect
           Positioned.fill(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
               child: Container(color: Colors.white.withOpacity(0.2)),
             ),
           ),
-
-          // 3. Main Content
           SafeArea(
             child: Column(
               children: [
+                _buildModeToggle(),
                 _buildGlassSearchBar(),
                 Expanded(
-                  child: _isSearching
-                      ? const Center(child: CircularProgressIndicator.adaptive())
-                      : (_searchQuery.isNotEmpty ? _buildSearchResults() : _buildNormalList()),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 400),
+                    switchInCurve: Curves.easeOutExpo,
+                    switchOutCurve: Curves.easeInExpo,
+                    child: _isSearching
+                        ? const Center(key: ValueKey('loading'), child: CircularProgressIndicator.adaptive())
+                        : (_searchQuery.isNotEmpty
+                        ? _buildSearchResults()
+                        : (_isStoreMode ? _buildNormalStoreList() : _buildNormalClientList())),
+                  ),
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 🌟 PREMIUM APPLE SEGMENTED TOGGLE
+  // ---------------------------------------------------------------------------
+  Widget _buildModeToggle() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      height: 46,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(23),
+        border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Stack(
+        children: [
+          AnimatedAlign(
+            alignment: _isStoreMode ? Alignment.centerRight : Alignment.centerLeft,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutBack,
+            child: FractionallySizedBox(
+              widthFactor: 0.5,
+              child: Container(
+                margin: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8, offset: const Offset(0, 2))],
+                ),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    if (_isStoreMode) {
+                      setState(() {
+                        _isStoreMode = false;
+                        _searchController.clear();
+                        _searchResults.clear();
+                      });
+                    }
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: Center(
+                    child: AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 300),
+                      style: GoogleFonts.inter(
+                        fontWeight: _isStoreMode ? FontWeight.w500 : FontWeight.bold,
+                        color: _isStoreMode ? kTextSecondary : kTextDark,
+                        fontSize: 14,
+                        letterSpacing: -0.2,
+                      ),
+                      child: const Text("Clients"),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    if (!_isStoreMode) {
+                      setState(() {
+                        _isStoreMode = true;
+                        _searchController.clear();
+                        _searchResults.clear();
+                      });
+                    }
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: Center(
+                    child: AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 300),
+                      style: GoogleFonts.inter(
+                        fontWeight: !_isStoreMode ? FontWeight.w500 : FontWeight.bold,
+                        color: !_isStoreMode ? kTextSecondary : kTextDark,
+                        fontSize: 14,
+                        letterSpacing: -0.2,
+                      ),
+                      child: const Text("Magasins"),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -595,7 +717,7 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
               controller: _searchController,
               style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w500, fontSize: 16),
               decoration: InputDecoration(
-                hintText: 'Rechercher un client...',
+                hintText: _isStoreMode ? 'Rechercher un magasin (nom ou lieu)...' : 'Rechercher un client...',
                 hintStyle: GoogleFonts.inter(color: kTextSecondary),
                 prefixIcon: const Icon(Icons.search_rounded, color: kTextSecondary),
                 suffixIcon: _searchQuery.isNotEmpty
@@ -617,8 +739,9 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
     );
   }
 
-  Widget _buildNormalList() {
+  Widget _buildNormalClientList() {
     return StreamBuilder<QuerySnapshot>(
+      key: const ValueKey('clientList'),
       stream: FirebaseFirestore.instance.collection('clients').orderBy('name').snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) return Center(child: Text('Erreur: ${snapshot.error}'));
@@ -629,7 +752,7 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
 
         return ListView.builder(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 100), // Space for FAB
+          padding: const EdgeInsets.only(bottom: 100),
           itemCount: clients.length,
           itemBuilder: (context, index) {
             final doc = clients[index];
@@ -641,22 +764,56 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
     );
   }
 
-  Widget _buildSearchResults() {
-    if (_searchResults.isEmpty) {
-      return Center(child: Text("Aucun client trouvé pour '$_searchQuery'.", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16)));
-    }
-    return ListView.builder(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 100),
-      itemCount: _searchResults.length,
-      itemBuilder: (context, index) {
-        final clientMap = _searchResults[index];
-        return _buildGlassClientCard(clientMap['id'], clientMap['name'], clientMap);
+  Widget _buildNormalStoreList() {
+    return StreamBuilder<QuerySnapshot>(
+      key: const ValueKey('storeList'),
+      stream: FirebaseFirestore.instance.collectionGroup('stores').orderBy('name').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return Center(child: Text('Note: Index may be required for global store sorting.\n${snapshot.error}', textAlign: TextAlign.center));
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator.adaptive());
+
+        final stores = snapshot.data!.docs;
+        if (stores.isEmpty) return Center(child: Text("Aucun magasin trouvé.", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16)));
+
+        return ListView.builder(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 100),
+          itemCount: stores.length,
+          itemBuilder: (context, index) {
+            final doc = stores[index];
+            final data = doc.data() as Map<String, dynamic>;
+            final clientId = doc.reference.parent.parent?.id ?? '';
+            return _buildGlassStoreCard(doc.id, data['name'] ?? 'Magasin Inconnu', clientId, data);
+          },
+        );
       },
     );
   }
 
-  // 💎 THE 2026 PREMIUM GLASS CARD
+  Widget _buildSearchResults() {
+    if (_searchResults.isEmpty) {
+      return Center(child: Text("Aucun résultat pour '$_searchQuery'.", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16)));
+    }
+    return ListView.builder(
+      key: const ValueKey('searchList'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 100),
+      itemCount: _searchResults.length,
+      itemBuilder: (context, index) {
+        final map = _searchResults[index];
+        if (_isStoreMode) {
+          return _buildGlassStoreCard(map['id'], map['name'], map['clientId'], map);
+        } else {
+          return _buildGlassClientCard(map['id'], map['name'], map);
+        }
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 💎 2026 PREMIUM CARDS
+  // ---------------------------------------------------------------------------
+
   Widget _buildGlassClientCard(String clientId, String clientName, Map<String, dynamic> clientData) {
     final int hash = clientName.hashCode;
     final Color color1 = HSLColor.fromAHSL(1.0, (hash % 360).toDouble(), 0.7, 0.6).toColor();
@@ -703,10 +860,8 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    // ✅ NEW: TOP ROW IS NOW CLICKABLE TO VIEW FULL CLIENT DETAILS
                     InkWell(
                       onTap: () {
-                        // Open the new breathtaking Client Details Hub
                         Navigator.of(context).push(MaterialPageRoute(
                           builder: (context) => ClientDetailsPage(clientId: clientId),
                         ));
@@ -741,7 +896,6 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
                                 ],
                               ),
                             ),
-                            // Small indicator showing it's clickable
                             const Icon(Icons.chevron_right_rounded, color: kTextSecondary, size: 20),
                           ],
                         ),
@@ -752,7 +906,6 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
                     Divider(height: 1, color: Colors.black.withOpacity(0.05)),
                     const SizedBox(height: 16),
 
-                    // BOTTOM ROW: Action Buttons
                     Row(
                       children: [
                         Expanded(
@@ -805,6 +958,148 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
                           ),
                         ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ UPGRADED: Store Card now dynamically loads the 'logoUrl' from the database
+  Widget _buildGlassStoreCard(String storeId, String storeName, String clientId, Map<String, dynamic> storeData) {
+    final int hash = storeName.hashCode;
+    final Color color1 = HSLColor.fromAHSL(1.0, ((hash + 100) % 360).toDouble(), 0.75, 0.65).toColor();
+    final Color color2 = HSLColor.fromAHSL(1.0, ((hash + 140) % 360).toDouble(), 0.85, 0.55).toColor();
+
+    final String city = storeData['city'] ?? storeData['ville'] ?? 'Localisation inconnue';
+    final String locationInfo = storeData['location']?.toString().trim() ?? '';
+
+    // Extract the logo URL
+    final String logoUrl = storeData['logoUrl']?.toString().trim() ?? '';
+
+    // The Fallback Widget if logo is missing or fails to load
+    final Widget fallbackIcon = Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [color1, color2], begin: Alignment.topRight, end: Alignment.bottomLeft),
+      ),
+      child: Center(
+        child: Icon(Icons.storefront_rounded, color: Colors.white.withOpacity(0.95), size: 26),
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0, left: 20, right: 20),
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (context) => StoreEquipmentPage(
+              clientId: clientId,
+              storeId: storeId,
+              storeName: storeName,
+            ),
+          ));
+        },
+        borderRadius: BorderRadius.circular(kRadius),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.65),
+            borderRadius: BorderRadius.circular(kRadius),
+            border: Border.all(color: Colors.white.withOpacity(0.9), width: 1.5),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 20, offset: const Offset(0, 8))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(kRadius),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    // ✅ NEW: PREMIUM LOGO AVATAR
+                    Container(
+                      width: 54, height: 54,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        // If there is a logo, give it a clean white background for transparent PNGs
+                        color: logoUrl.isNotEmpty ? Colors.white : null,
+                        border: logoUrl.isNotEmpty ? Border.all(color: Colors.black.withOpacity(0.05), width: 1) : null,
+                        boxShadow: [BoxShadow(color: color2.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
+                      ),
+                      child: ClipOval(
+                        child: logoUrl.isNotEmpty
+                            ? Image.network(
+                          logoUrl,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return const Center(child: CircularProgressIndicator.adaptive());
+                          },
+                          errorBuilder: (context, error, stackTrace) => fallbackIcon,
+                        )
+                            : fallbackIcon,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                flex: 3,
+                                child: Text(
+                                    storeName,
+                                    style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: kTextDark, letterSpacing: -0.3),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis
+                                ),
+                              ),
+                              if (locationInfo.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  flex: 2,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: kAppleBlue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      locationInfo,
+                                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: kAppleBlue),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.location_on_rounded, size: 14, color: kTextSecondary),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(city, style: GoogleFonts.inter(fontSize: 13, color: kTextSecondary, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.04),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_forward_ios_rounded, color: kTextDark, size: 16),
                     ),
                   ],
                 ),

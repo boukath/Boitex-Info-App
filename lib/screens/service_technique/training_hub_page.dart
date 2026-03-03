@@ -1,5 +1,7 @@
+// lib/screens/service_technique/training_hub_page.dart
+
 import 'dart:io';
-import 'dart:ui'; // Required for ImageFilter
+import 'dart:ui';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart'; // For SHA1
@@ -10,6 +12,13 @@ import 'package:boitex_info_app/utils/user_roles.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+// 🎨 --- 2026 PREMIUM APPLE CONSTANTS --- 🎨
+const kTextDark = Color(0xFF1D1D1F);
+const kTextSecondary = Color(0xFF86868B);
+const kAppleBlue = Color(0xFF007AFF);
+const double kRadius = 28.0;
 
 class TrainingHubPage extends StatefulWidget {
   const TrainingHubPage({super.key});
@@ -27,7 +36,7 @@ class _TrainingHubPageState extends State<TrainingHubPage> {
   // State for the Dialog (Image Uploading)
   bool _isUploading = false;
   String? _tempUploadedImageUrl;
-  String _selectedIconName = 'default';
+  final String _selectedIconName = 'default';
 
   // ✅ B2 Configuration (Cloud Function URL)
   final String _getB2UploadUrlCloudFunctionUrl =
@@ -36,261 +45,251 @@ class _TrainingHubPageState extends State<TrainingHubPage> {
   @override
   void initState() {
     super.initState();
-    _fetchUserRole();
+    _checkRole();
   }
 
-  @override
-  void dispose() {
-    _categoryNameController.dispose();
-    super.dispose();
-  }
+  Future<void> _checkRole() async {
+    String? role = await UserRoles.getCurrentUserRole();
+    // Any role that can see the admin card is considered a manager/admin
+    bool isMgr = role != null && RolePermissions.canSeeAdminCard(role);
 
-  Future<void> _fetchUserRole() async {
-    final role = await UserRoles.getCurrentUserRole();
     if (mounted) {
-      setState(() {
-        _isManager = _checkIsManager(role);
-      });
+      setState(() => _isManager = isMgr);
     }
   }
 
-  bool _checkIsManager(String? role) {
-    if (role == null) return false;
-    final managerRoles = <String>{
-      UserRoles.pdg,
-      UserRoles.admin,
-      UserRoles.responsableAdministratif,
-      UserRoles.responsableCommercial,
-      UserRoles.responsableTechnique,
-      UserRoles.responsableIT,
-      UserRoles.chefDeProjet,
-    };
-    return managerRoles.contains(role);
-  }
+  // ---------------------------------------------------------------------------
+  // ⚙️ B2 IMAGE UPLOAD LOGIC
+  // ---------------------------------------------------------------------------
 
-  // ===========================================================================
-  // ☁️ B2 UPLOAD HELPERS
-  // ===========================================================================
+  Future<void> _pickAndUploadImage(StateSetter setStateDialog) async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      imageQuality: 80,
+    );
 
-  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    if (image == null) return;
+
+    setStateDialog(() => _isUploading = true);
+
     try {
-      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
-      if (response.statusCode == 200) {
-        return json.decode(response.body) as Map<String, dynamic>;
+      final bytes = await image.readAsBytes();
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
+      final downloadUrl = await uploadImageToB2(bytes, fileName);
+
+      if (downloadUrl != null) {
+        setStateDialog(() => _tempUploadedImageUrl = downloadUrl);
       } else {
-        debugPrint('Failed to get B2 credentials: ${response.body}');
-        return null;
+        throw Exception("Failed to get download URL from B2");
       }
     } catch (e) {
-      debugPrint('Error calling Cloud Function: $e');
-      return null;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erreur lors de l\'upload : $e', style: GoogleFonts.inter()),
+          backgroundColor: const Color(0xFFFF3B30),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } finally {
+      setStateDialog(() => _isUploading = false);
     }
   }
 
-  Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds) async {
+  Future<String?> uploadImageToB2(List<int> fileBytes, String fileName) async {
     try {
-      final fileBytes = await file.readAsBytes();
-      final sha1Hash = sha1.convert(fileBytes).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final fileName = 'training_logos/${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode != 200) return null;
 
-      String? mimeType;
-      if (fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')) {
-        mimeType = 'image/jpeg';
-      } else if (fileName.toLowerCase().endsWith('.png')) {
-        mimeType = 'image/png';
-      }
+      final data = json.decode(response.body);
+      final uploadUrl = data['uploadUrl'];
+      final authorizationToken = data['authorizationToken'];
 
-      final resp = await http.post(
-        uploadUri,
+      final String sha1Hash = sha1.convert(fileBytes).toString();
+      String mimeType = 'image/jpeg';
+      if (fileName.toLowerCase().endsWith('.png')) mimeType = 'image/png';
+
+      final uploadResponse = await http.post(
+        Uri.parse(uploadUrl),
         headers: {
-          'Authorization': b2Creds['authorizationToken'] as String,
+          'Authorization': authorizationToken,
           'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': mimeType ?? 'b2/x-auto',
+          'Content-Type': mimeType,
           'X-Bz-Content-Sha1': sha1Hash,
-          'Content-Length': fileBytes.length.toString(),
         },
         body: fileBytes,
       );
 
-      if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String)
-            .split('/')
-            .map(Uri.encodeComponent)
-            .join('/');
-        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      if (uploadResponse.statusCode == 200) {
+        return "https://f003.backblazeb2.com/file/boitex-info-files/$fileName";
       } else {
-        debugPrint('Failed to upload to B2: ${resp.body}');
+        debugPrint("B2 Upload Error: ${uploadResponse.body}");
         return null;
       }
     } catch (e) {
-      debugPrint('Error uploading file to B2: $e');
+      debugPrint("Exception during upload: $e");
       return null;
     }
   }
 
-  // ===========================================================================
-  // 📸 IMAGE PICKER LOGIC
-  // ===========================================================================
+  // ---------------------------------------------------------------------------
+  // 💎 PREMIUM GLASS DIALOG (ADD / EDIT CATEGORY)
+  // ---------------------------------------------------------------------------
 
-  Future<void> _pickAndUploadImage(StateSetter setStateDialog) async {
-    final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
-
-    if (image != null) {
-      setStateDialog(() {
-        _isUploading = true;
-      });
-
-      try {
-        final File file = File(image.path);
-
-        // 1. Get B2 Credentials
-        final b2Creds = await _getB2UploadCredentials();
-        if (b2Creds == null) throw Exception("Impossible d'obtenir les clés B2");
-
-        // 2. Upload to B2
-        final String? downloadUrl = await _uploadFileToB2(file, b2Creds);
-
-        if (downloadUrl == null) throw Exception("Échec de l'upload B2");
-
-        setStateDialog(() {
-          _tempUploadedImageUrl = downloadUrl;
-          _isUploading = false;
-        });
-      } catch (e) {
-        setStateDialog(() {
-          _isUploading = false;
-        });
-        if(mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur upload: $e")));
-        }
-      }
-    }
-  }
-
-  // ===========================================================================
-  // ✏️ ADD / EDIT DIALOG
-  // ===========================================================================
-
-  void _showCategoryDialog({_TrainingCategory? existingCategory}) {
-    // Reset or Pre-fill
-    if (existingCategory != null) {
-      _categoryNameController.text = existingCategory.name;
-      _tempUploadedImageUrl = existingCategory.photoUrl;
-      _selectedIconName = 'default';
+  void _showAddOrEditCategoryDialog({DocumentSnapshot? doc}) {
+    if (doc != null) {
+      _categoryNameController.text = doc['name'] ?? '';
+      _tempUploadedImageUrl = doc.data().toString().contains('imageUrl') ? doc['imageUrl'] : null;
     } else {
       _categoryNameController.clear();
       _tempUploadedImageUrl = null;
-      _selectedIconName = 'default';
     }
 
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.4),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            return _buildModernDialog(
-              title: existingCategory == null ? 'Nouvelle Section' : 'Modifier Section',
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 1. IMAGE PICKER AREA
-                  GestureDetector(
-                    onTap: () => _pickAndUploadImage(setStateDialog),
-                    child: Container(
-                      height: 120,
-                      width: 120,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFF00F0FF).withOpacity(0.3)),
-                        image: _tempUploadedImageUrl != null
-                            ? DecorationImage(
-                          image: NetworkImage(_tempUploadedImageUrl!),
-                          fit: BoxFit.cover,
-                        )
-                            : null,
-                      ),
-                      child: _isUploading
-                          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00F0FF)))
-                          : _tempUploadedImageUrl == null
-                          ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(maxWidth: 400),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(32),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 40)],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(32),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.add_a_photo_rounded, color: Colors.white70, size: 30),
-                          const SizedBox(height: 8),
-                          Text("Ajouter Logo", style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+                          // Header
+                          Text(
+                            doc == null ? 'Nouvelle Catégorie' : 'Modifier la Catégorie',
+                            style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: kTextDark, letterSpacing: -0.5),
+                          ),
+                          const SizedBox(height: 24),
+
+                          // Text Field
+                          TextFormField(
+                            controller: _categoryNameController,
+                            style: GoogleFonts.inter(fontSize: 16, color: kTextDark, fontWeight: FontWeight.w500),
+                            decoration: InputDecoration(
+                              labelText: 'Nom de la catégorie',
+                              labelStyle: GoogleFonts.inter(color: kTextSecondary),
+                              filled: true,
+                              fillColor: Colors.black.withOpacity(0.04),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                              prefixIcon: const Icon(Icons.folder_special_rounded, color: kTextSecondary),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Image Upload Area
+                          GestureDetector(
+                            onTap: _isUploading ? null : () => _pickAndUploadImage(setStateDialog),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              height: 140,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.03),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: _tempUploadedImageUrl != null ? kAppleBlue.withOpacity(0.5) : Colors.black.withOpacity(0.1),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(18),
+                                child: _isUploading
+                                    ? const Center(child: CircularProgressIndicator.adaptive())
+                                    : _tempUploadedImageUrl != null
+                                    ? Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.network(_tempUploadedImageUrl!, fit: BoxFit.cover),
+                                    Container(color: Colors.black.withOpacity(0.2)),
+                                    const Center(child: Icon(Icons.edit_rounded, color: Colors.white, size: 32)),
+                                  ],
+                                )
+                                    : Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_photo_alternate_rounded, size: 40, color: kTextSecondary.withOpacity(0.5)),
+                                    const SizedBox(height: 8),
+                                    Text("Ajouter une image", style: GoogleFonts.inter(color: kTextSecondary, fontWeight: FontWeight.w500)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+
+                          // Actions
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  ),
+                                  child: Text("Annuler", style: GoogleFonts.inter(color: kTextSecondary, fontWeight: FontWeight.bold, fontSize: 16)),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kAppleBlue,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    elevation: 0,
+                                  ),
+                                  onPressed: _isUploading
+                                      ? null
+                                      : () async {
+                                    if (_categoryNameController.text.trim().isEmpty) return;
+
+                                    final Map<String, dynamic> data = {
+                                      'name': _categoryNameController.text.trim(),
+                                      'iconName': _selectedIconName, // Kept for backward compatibility
+                                      'colorHex': '0xFF3B82F6', // Default blue hex
+                                    };
+                                    if (_tempUploadedImageUrl != null) {
+                                      data['imageUrl'] = _tempUploadedImageUrl;
+                                    }
+
+                                    if (doc == null) {
+                                      await FirebaseFirestore.instance.collection('training_categories').add(data);
+                                    } else {
+                                      await FirebaseFirestore.instance.collection('training_categories').doc(doc.id).update(data);
+                                    }
+                                    if (context.mounted) Navigator.pop(context);
+                                  },
+                                  child: Text(doc == null ? "Créer" : "Sauvegarder", style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
-                      )
-                          : null,
-                    ),
-                  ),
-
-                  if (_tempUploadedImageUrl != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: TextButton.icon(
-                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 16),
-                        label: const Text("Retirer la photo", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
-                        onPressed: () {
-                          setStateDialog(() {
-                            _tempUploadedImageUrl = null;
-                          });
-                        },
                       ),
                     ),
-
-                  const SizedBox(height: 20),
-
-                  // 2. NAME INPUT
-                  TextField(
-                    controller: _categoryNameController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Nom de la section (ex: Antivol)',
-                      labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-                      filled: true,
-                      fillColor: Colors.white.withOpacity(0.05),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Color(0xFF00F0FF)),
-                      ),
-                      prefixIcon: const Icon(Icons.layers_outlined, color: Colors.white54),
-                    ),
                   ),
-                ],
+                ),
               ),
-              actions: [
-                TextButton(
-                  child: Text('Annuler', style: TextStyle(color: Colors.white.withOpacity(0.6))),
-                  onPressed: () => Navigator.pop(context),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00F0FF),
-                    foregroundColor: Colors.black,
-                    elevation: 10,
-                    shadowColor: const Color(0xFF00F0FF).withOpacity(0.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text(existingCategory == null ? 'Créer' : 'Sauvegarder'),
-                  onPressed: () {
-                    final name = _categoryNameController.text.trim();
-                    if (name.isNotEmpty) {
-                      if (existingCategory == null) {
-                        _addCategory(name, _tempUploadedImageUrl);
-                      } else {
-                        _updateCategory(existingCategory.docId, name, _tempUploadedImageUrl);
-                      }
-                      Navigator.pop(context);
-                    }
-                  },
-                ),
-              ],
             );
           },
         );
@@ -298,428 +297,371 @@ class _TrainingHubPageState extends State<TrainingHubPage> {
     );
   }
 
-  /// 💾 FIRESTORE ACTIONS
-
-  Future<void> _addCategory(String name, String? photoUrl) async {
-    try {
-      await FirebaseFirestore.instance.collection('training_categories').add({
-        'name': name,
-        'iconName': 'default',
-        'colorHex': '#808080',
-        'photoUrl': photoUrl,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-    }
-  }
-
-  Future<void> _updateCategory(String docId, String name, String? photoUrl) async {
-    try {
-      await FirebaseFirestore.instance.collection('training_categories').doc(docId).update({
-        'name': name,
-        'photoUrl': photoUrl,
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur maj: $e')));
-    }
-  }
-
-  Future<void> _deleteCategory(String docId) async {
-    try {
-      await FirebaseFirestore.instance.collection('training_categories').doc(docId).delete();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-    }
-  }
-
-  void _showDeleteConfirmDialog(String docId, String categoryName) {
-    showDialog(
+  Future<void> _deleteCategory(DocumentSnapshot doc) async {
+    final bool? confirm = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return _buildModernDialog(
-          title: 'Supprimer ?',
-          content: Text(
-            'Voulez-vous supprimer "$categoryName" ?\nCette action est irréversible.',
-            style: const TextStyle(color: Colors.white70),
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text('Supprimer ?', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        content: Text('Voulez-vous vraiment supprimer cette catégorie ?', style: GoogleFonts.inter()),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Annuler', style: GoogleFonts.inter(color: kTextSecondary))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF3B30), elevation: 0),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Supprimer', style: GoogleFonts.inter(color: Colors.white)),
           ),
-          actions: [
-            TextButton(
-              child: const Text('Annuler', style: TextStyle(color: Colors.white54)),
-              onPressed: () => Navigator.pop(context),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF2E63),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Supprimer', style: TextStyle(color: Colors.white)),
-              onPressed: () {
-                _deleteCategory(docId);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // Helper UI pour les dialogs
-  Widget _buildModernDialog({required String title, required Widget content, required List<Widget> actions}) {
-    return BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-      child: AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2C).withOpacity(0.95),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: BorderSide(color: Colors.white.withOpacity(0.1)),
-        ),
-        title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-        content: content,
-        actions: actions,
-        actionsPadding: const EdgeInsets.all(16),
+        ],
       ),
     );
+
+    if (confirm == true) {
+      await FirebaseFirestore.instance.collection('training_categories').doc(doc.id).delete();
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // 🎨 MAIN UI
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('TRAINING HUB'),
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        flexibleSpace: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(color: Colors.black.withOpacity(0.2)),
-          ),
-        ),
-        titleTextStyle: const TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 2.0,
-          color: Colors.white,
-        ),
-        actions: [
-          if (_isManager)
-            Padding(
-              padding: const EdgeInsets.only(right: 16.0),
-              child: InkWell(
-                onTap: () => _showCategoryDialog(), // Call Add Dialog
-                borderRadius: BorderRadius.circular(50),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                      color: const Color(0xFF00F0FF).withOpacity(0.2),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF00F0FF).withOpacity(0.5)),
-                      boxShadow: [
-                        BoxShadow(color: const Color(0xFF00F0FF).withOpacity(0.3), blurRadius: 10)
-                      ]
-                  ),
-                  child: const Icon(Icons.add, color: Color(0xFF00F0FF)),
+      backgroundColor: Colors.white,
+      floatingActionButton: _isManager
+          ? FloatingActionButton.extended(
+        onPressed: () => _showAddOrEditCategoryDialog(),
+        backgroundColor: kTextDark,
+        icon: const Icon(Icons.add_rounded, color: Colors.white),
+        label: Text("Catégorie", style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+        elevation: 8,
+      )
+          : null,
+      body: Stack(
+        children: [
+          // ✨ 1. ANIMATED MESH GLASS BACKGROUND
+          Positioned.fill(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  stops: [0.0, 0.4, 0.8, 1.0],
+                  colors: [
+                    Color(0xFFC4E0E5), // Light Cyan
+                    Color(0xFF4CA1AF), // Soft Teal
+                    Color(0xFFD4CCEC), // Soft Lilac
+                    Color(0xFFE8F1F5), // White-ish Blue
+                  ],
                 ),
               ),
             ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          // 🌌 Background
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF0F172A), Color(0xFF000000)],
-              ),
+          ),
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(color: Colors.white.withOpacity(0.4)),
             ),
           ),
 
-          // 💡 Ambient Effects
-          Positioned(
-            top: -100, right: -100,
-            child: Container(
-              width: 300, height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF00F0FF).withOpacity(0.1),
-                boxShadow: [BoxShadow(color: const Color(0xFF00F0FF).withOpacity(0.2), blurRadius: 150)],
-              ),
-            ),
-          ),
+          // ✨ 2. MAIN SLIVER CONTENT
+          CustomScrollView(
+            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+            slivers: [
+              _buildGlassSliverAppBar(),
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('training_categories').orderBy('name').snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SliverFillRemaining(
+                      child: Center(child: CircularProgressIndicator.adaptive()),
+                    );
+                  }
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return SliverFillRemaining(
+                      child: Center(
+                        child: Text("Aucune catégorie disponible.", style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16)),
+                      ),
+                    );
+                  }
 
-          // 📄 List
-          SafeArea(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('training_categories').orderBy('name').snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: Color(0xFF00F0FF)));
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return Center(
-                    child: Text('Aucune section.', style: TextStyle(color: Colors.white.withOpacity(0.4))),
+                  final docs = snapshot.data!.docs;
+
+                  return SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20).copyWith(bottom: 120),
+                    sliver: SliverGrid(
+                      // 🔥 ADAPTIVE WEB & MOBILE GRID
+                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 300,
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                        childAspectRatio: 0.85, // Perfect ratio for large image cards
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                          final doc = docs[index];
+                          return _GlassTrainingCategoryCard(
+                            doc: doc,
+                            index: index,
+                            isManager: _isManager,
+                            onEdit: () => _showAddOrEditCategoryDialog(doc: doc),
+                            onDelete: () => _deleteCategory(doc),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => TrainingSystemsListPage(
+                                    categoryId: doc.id,
+                                    categoryName: doc['name'] ?? 'Catégorie',
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                        childCount: docs.length,
+                      ),
+                    ),
                   );
-                }
-
-                final docs = snapshot.data!.docs;
-
-                return GridView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 20.0,
-                    mainAxisSpacing: 20.0,
-                    childAspectRatio: 0.85, // Taller for photo logic
-                  ),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final data = doc.data() as Map<String, dynamic>;
-
-                    final category = _TrainingCategory(
-                      docId: doc.id,
-                      name: data['name'] ?? 'Sans nom',
-                      icon: _getIconFromName(data['iconName'] ?? 'default'),
-                      color: _getColorFromHex(data['colorHex'] ?? '#808080'),
-                      photoUrl: data['photoUrl'],
-                    );
-
-                    return _CategoryCard(
-                      category: category,
-                      isManager: _isManager,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => TrainingSystemsListPage(
-                              categoryName: category.name,
-                              categoryId: category.docId,
-                            ),
-                          ),
-                        );
-                      },
-                      onDelete: () => _showDeleteConfirmDialog(category.docId, category.name),
-                      onEdit: () => _showCategoryDialog(existingCategory: category),
-                    );
-                  },
-                );
-              },
-            ),
+                },
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+
+  Widget _buildGlassSliverAppBar() {
+    return SliverAppBar(
+      expandedHeight: 120.0,
+      floating: false,
+      pinned: true,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      leading: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.4),
+                border: Border.all(color: Colors.white.withOpacity(0.6)),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: kTextDark, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+        ),
+      ),
+      flexibleSpace: ClipRRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          child: FlexibleSpaceBar(
+            titlePadding: const EdgeInsets.only(left: 20, bottom: 16, right: 20),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.15), shape: BoxShape.circle),
+                  child: const Icon(Icons.school_rounded, color: Colors.blueAccent, size: 16),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  "Hub de Formation",
+                  style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w800, fontSize: 20, letterSpacing: -0.5),
+                ),
+              ],
+            ),
+            background: Container(color: Colors.white.withOpacity(0.2)),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-// 📦 DATA CLASS
-class _TrainingCategory {
-  final String docId;
-  final String name;
-  final IconData icon;
-  final Color color;
-  final String? photoUrl;
-
-  const _TrainingCategory({
-    required this.docId,
-    required this.name,
-    required this.icon,
-    required this.color,
-    this.photoUrl,
-  });
-}
-
-// 💎 HIGH QUALITY CARD COMPONENT
-class _CategoryCard extends StatefulWidget {
-  final _TrainingCategory category;
+// -----------------------------------------------------------------------------
+// ✨ CUSTOM GLASSMORPHIC TRAINING CARD (Hover & Mobile Optimized)
+// -----------------------------------------------------------------------------
+class _GlassTrainingCategoryCard extends StatefulWidget {
+  final DocumentSnapshot doc;
+  final int index;
   final bool isManager;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
   final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
-  const _CategoryCard({
-    required this.category,
+  const _GlassTrainingCategoryCard({
+    required this.doc,
+    required this.index,
     required this.isManager,
     required this.onTap,
-    required this.onDelete,
     required this.onEdit,
+    required this.onDelete,
   });
 
   @override
-  State<_CategoryCard> createState() => _CategoryCardState();
+  State<_GlassTrainingCategoryCard> createState() => _GlassTrainingCategoryCardState();
 }
 
-class _CategoryCardState extends State<_CategoryCard> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(duration: const Duration(milliseconds: 150), vsync: this);
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+class _GlassTrainingCategoryCardState extends State<_GlassTrainingCategoryCard> {
+  bool _isHovered = false;
+  bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
-    // 📸 Has Photo?
-    final bool hasPhoto = widget.category.photoUrl != null && widget.category.photoUrl!.isNotEmpty;
+    final data = widget.doc.data() as Map<String, dynamic>;
+    final String title = data['name'] ?? 'Inconnu';
+    final String? imageUrl = data.containsKey('imageUrl') ? data['imageUrl'] : null;
 
-    return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) => _controller.reverse(),
-      onTapCancel: () => _controller.reverse(),
-      onTap: widget.onTap,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: Stack(
-          children: [
-            // Glass Container
-            Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                // ✅ Dynamic Border color if photo is present
-                border: Border.all(
-                  color: hasPhoto ? const Color(0xFF00F0FF).withOpacity(0.3) : Colors.white.withOpacity(0.1),
-                  width: 1.5,
+    final delay = widget.index * 50;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        if (value == 0 && delay > 0) Future.delayed(Duration(milliseconds: delay));
+        return Transform.translate(
+          offset: Offset(0, 40 * (1 - value)),
+          child: Opacity(opacity: value, child: child),
+        );
+      },
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) => setState(() => _isPressed = false),
+          onTapCancel: () => setState(() => _isPressed = false),
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+            transform: Matrix4.identity()..scale(_isPressed ? 0.95 : (_isHovered ? 1.02 : 1.0)),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(_isHovered ? 0.9 : 0.6),
+              borderRadius: BorderRadius.circular(kRadius),
+              border: Border.all(color: Colors.white.withOpacity(0.9), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(_isHovered ? 0.1 : 0.05),
+                  blurRadius: _isHovered ? 30 : 20,
+                  offset: Offset(0, _isHovered ? 12 : 8),
                 ),
-                color: const Color(0xFF1E1E2C).withOpacity(0.6), // Fallback
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 10)),
-                ],
-                // ✅ Background Image if Photo Exists
-                image: hasPhoto ? DecorationImage(
-                  image: NetworkImage(widget.category.photoUrl!),
-                  fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.4), BlendMode.darken), // Darken for readability
-                ) : null,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: hasPhoto ? 0 : 10, sigmaY: hasPhoto ? 0 : 10),
-                  child: Container(
-                    padding: const EdgeInsets.all(16.0),
-                    decoration: hasPhoto ? null : BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Colors.white.withOpacity(0.1), Colors.white.withOpacity(0.02)],
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // ✨ Icon (Only show if NO Photo)
-                        if (!hasPhoto) ...[
-                          Container(
-                            width: 60, height: 60,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFF00F0FF).withOpacity(0.1),
-                              boxShadow: [
-                                BoxShadow(color: const Color(0xFF00F0FF).withOpacity(0.3), blurRadius: 20),
-                              ],
-                              border: Border.all(color: const Color(0xFF00F0FF).withOpacity(0.3)),
-                            ),
-                            child: Icon(widget.category.icon, size: 28, color: const Color(0xFF00F0FF)),
-                          ),
-                          const Spacer(),
-                        ] else ...[
-                          // If photo, push text to bottom
-                          const Spacer(),
-                        ],
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(kRadius),
+              child: Stack(
+                children: [
+                  // 📷 IMAGE LAYER (Takes up top 65%)
+                  Positioned(
+                    top: 0, left: 0, right: 0, height: 200, // Adjust height based on aspect ratio
+                    child: imageUrl != null && imageUrl.isNotEmpty
+                        ? Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(color: Colors.black.withOpacity(0.05), child: const Center(child: CircularProgressIndicator.adaptive()));
+                      },
+                      errorBuilder: (context, error, stackTrace) => _buildFallbackIcon(),
+                    )
+                        : _buildFallbackIcon(),
+                  ),
 
-                        // Title
-                        Text(
-                          widget.category.name.toUpperCase(),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
-                            color: Colors.white,
-                            shadows: [
-                              Shadow(color: Colors.black.withOpacity(0.8), offset: const Offset(0, 2), blurRadius: 6),
-                              if(hasPhoto) const Shadow(color: Color(0xFF00F0FF), blurRadius: 10), // Neon glow text on photo
+                  // 📝 TEXT LAYER (Frosted Glass at the bottom)
+                  Positioned(
+                    bottom: 0, left: 0, right: 0,
+                    child: ClipRRect(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                        child: Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.8),
+                            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.5))),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: kTextDark, letterSpacing: -0.3),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(color: Colors.black.withOpacity(0.05), shape: BoxShape.circle),
+                                child: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: kTextSecondary),
+                              )
                             ],
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                        if(hasPhoto) const SizedBox(height: 10), // Padding bottom for photo cards
-                      ],
+                      ),
                     ),
                   ),
-                ),
+
+                  // ⚙️ MANAGER CONTROLS
+                  if (widget.isManager)
+                    Positioned(
+                      top: 12, right: 12,
+                      child: Row(
+                        children: [
+                          _buildGlassMiniButton(Icons.edit_rounded, Colors.black87, widget.onEdit),
+                          const SizedBox(width: 8),
+                          _buildGlassMiniButton(Icons.delete_outline_rounded, const Color(0xFFFF3B30), widget.onDelete),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
-
-            // 🛠 MANAGER CONTROLS (Edit & Delete)
-            if (widget.isManager) ...[
-              // Delete (Top Right)
-              Positioned(
-                top: 8, right: 8,
-                child: _buildMiniButton(Icons.close, Colors.redAccent, widget.onDelete),
-              ),
-              // Edit (Top Left)
-              Positioned(
-                top: 8, left: 8,
-                child: _buildMiniButton(Icons.edit_rounded, const Color(0xFF00F0FF), widget.onEdit),
-              ),
-            ]
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMiniButton(IconData icon, Color color, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.5),
-            shape: BoxShape.circle,
-            border: Border.all(color: color.withOpacity(0.5), width: 1),
           ),
-          child: Icon(icon, size: 14, color: color),
         ),
       ),
     );
   }
-}
 
-// --- Utils ---
+  Widget _buildFallbackIcon() {
+    return Container(
+      color: Colors.blueAccent.withOpacity(0.05),
+      child: Center(
+        child: Icon(Icons.menu_book_rounded, size: 48, color: Colors.blueAccent.withOpacity(0.3)),
+      ),
+    );
+  }
 
-IconData _getIconFromName(String iconName) {
-  return Icons.layers_outlined; // Default fallback
-}
-
-Color _getColorFromHex(String hexColor) {
-  hexColor = hexColor.toUpperCase().replaceAll('#', '');
-  if (hexColor.length == 6) hexColor = 'FF$hexColor';
-  try {
-    return Color(int.parse(hexColor, radix: 16));
-  } catch (e) {
-    return const Color(0xFF00F0FF);
+  Widget _buildGlassMiniButton(IconData icon, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.7),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withOpacity(0.8)),
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+        ),
+      ),
+    );
   }
 }

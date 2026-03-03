@@ -1,8 +1,15 @@
 // lib/screens/administration/stock_category_list_page.dart
 
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:boitex_info_app/screens/administration/product_stock_list_page.dart';
+
+// 🎨 --- 2026 PREMIUM APPLE CONSTANTS --- 🎨
+const kTextDark = Color(0xFF1D1D1F);
+const kTextSecondary = Color(0xFF86868B);
+const double kRadius = 28.0;
 
 class StockCategoryListPage extends StatefulWidget {
   final String mainCategory;
@@ -20,7 +27,7 @@ class StockCategoryListPage extends StatefulWidget {
   State<StockCategoryListPage> createState() => _StockCategoryListPageState();
 }
 
-class _StockCategoryListPageState extends State<StockCategoryListPage> with SingleTickerProviderStateMixin {
+class _StockCategoryListPageState extends State<StockCategoryListPage> {
   late Future<List<String>> _categoriesFuture;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
@@ -31,18 +38,15 @@ class _StockCategoryListPageState extends State<StockCategoryListPage> with Sing
     _categoriesFuture = _fetchSubCategories();
   }
 
+  // ⚙️ LOGIC: Fetches categories from Firebase
   Future<List<String>> _fetchSubCategories() async {
-    // 1. Fetch all products in this Main Category
     final snapshot = await FirebaseFirestore.instance
         .collection('produits')
         .where('mainCategory', isEqualTo: widget.mainCategory)
         .get();
 
-    if (snapshot.docs.isEmpty) {
-      return [];
-    }
+    if (snapshot.docs.isEmpty) return [];
 
-    // 2. Extract unique 'categorie' names using a Set
     final categories = <String>{};
     for (var doc in snapshot.docs) {
       final data = doc.data();
@@ -50,17 +54,14 @@ class _StockCategoryListPageState extends State<StockCategoryListPage> with Sing
         categories.add(data['categorie'] as String);
       }
     }
-
-    // 3. Sort alphabetically
     final sortedList = categories.toList();
     sortedList.sort();
     return sortedList;
   }
 
-  // 🧠 SMART ICON ENGINE: Maps text to icons automatically
+  // 🧠 SMART ICON ENGINE (Detects the category type and assigns a premium icon)
   IconData _getIconForSubCategory(String name) {
     final lowerName = name.toLowerCase();
-
     if (lowerName.contains('carte') || lowerName.contains('badge')) return Icons.credit_card_rounded;
     if (lowerName.contains('clou')) return Icons.push_pin_rounded;
     if (lowerName.contains('etiquette') || lowerName.contains('label')) return Icons.label_outline_rounded;
@@ -74,275 +75,416 @@ class _StockCategoryListPageState extends State<StockCategoryListPage> with Sing
     if (lowerName.contains('écran') || lowerName.contains('tpv')) return Icons.monitor_rounded;
     if (lowerName.contains('imprimante')) return Icons.print_rounded;
     if (lowerName.contains('scanner') || lowerName.contains('douchette')) return Icons.qr_code_scanner_rounded;
-
-    return Icons.inventory_2_rounded; // Default fallback for Stock
+    return Icons.inventory_2_rounded; // Default Stock Icon
   }
 
   @override
   Widget build(BuildContext context) {
-    // Premium Off-White Background
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: Column(
-        children: [
-          // ✨ 1. THE PREMIUM HEADER
-          _buildModernHeader(context),
+    // Generate an analogous vibrant color for the mesh gradient based on the passed category color
+    final HSLColor hsl = HSLColor.fromColor(widget.mainCategoryColor);
+    final Color color2 = hsl.withHue((hsl.hue + 50) % 360).withLightness(0.85).toColor();
+    final Color color3 = hsl.withHue((hsl.hue - 30) % 360).withLightness(0.90).toColor();
 
-          // ✨ 2. THE CONTENT GRID
-          Expanded(
-            child: FutureBuilder<List<String>>(
-              future: _categoriesFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(
-                    child: CircularProgressIndicator(color: widget.mainCategoryColor),
-                  );
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('Une erreur est survenue', style: TextStyle(color: Colors.grey.shade600)));
-                }
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.folder_off_outlined, size: 64, color: Colors.grey.shade300),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Aucune sous-catégorie trouvée.',
-                          style: TextStyle(color: Colors.grey.shade500),
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // ✨ 1. THE 2026 ANIMATED MESH GLASS BACKGROUND
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  stops: const [0.0, 0.6, 1.0],
+                  colors: [
+                    widget.mainCategoryColor.withOpacity(0.18),
+                    color2.withOpacity(0.4),
+                    color3.withOpacity(0.3),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Heavy Blur Overlay to blend the colors into frosted glass (VisionOS style)
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(color: Colors.white.withOpacity(0.35)),
+            ),
+          ),
+
+          // ✨ 2. THE SLIVER SCROLL VIEW (Native Apple Scroll Feel)
+          CustomScrollView(
+            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+            slivers: [
+              _buildGlassSliverAppBar(),
+
+              // Search Bar
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+                  child: _buildGlassSearchBar(),
+                ),
+              ),
+
+              // Dynamic Future Grid
+              FutureBuilder<List<String>>(
+                future: _categoriesFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return SliverFillRemaining(
+                      child: Center(child: CircularProgressIndicator(color: widget.mainCategoryColor)),
+                    );
+                  }
+                  if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+                    return SliverFillRemaining(
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.inventory_2_outlined, size: 64, color: Colors.black.withOpacity(0.1)),
+                            const SizedBox(height: 16),
+                            Text('Aucune catégorie de stock.', style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16)),
+                          ],
                         ),
-                      ],
+                      ),
+                    );
+                  }
+
+                  // Local Search Filter
+                  final categories = snapshot.data!
+                      .where((cat) => cat.toLowerCase().contains(_searchQuery.toLowerCase()))
+                      .toList();
+
+                  if (categories.isEmpty) {
+                    return SliverFillRemaining(
+                      child: Center(child: Text("Aucun résultat.", style: GoogleFonts.inter(color: kTextSecondary))),
+                    );
+                  }
+
+                  // ✨ 3. THE RESPONSIVE GLASS GRID
+                  return SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10).copyWith(bottom: 100),
+                    sliver: SliverGrid(
+                      // 🔥 Magic Responsive Grid! Adapts automatically to Web, Tablet, and Mobile
+                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 220, // Max width of a card before it creates a new column
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 0.95, // Elegantly proportioned
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                          return _GlassStockCategoryCard(
+                            categoryName: categories[index],
+                            iconData: _getIconForSubCategory(categories[index]),
+                            color: widget.mainCategoryColor,
+                            index: index,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => ProductStockListPage(
+                                    category: categories[index],
+                                    categoryColor: widget.mainCategoryColor,
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                        childCount: categories.length,
+                      ),
                     ),
                   );
-                }
-
-                // Filter list based on local search
-                final categories = snapshot.data!
-                    .where((cat) => cat.toLowerCase().contains(_searchQuery.toLowerCase()))
-                    .toList();
-
-                if (categories.isEmpty) {
-                  return const Center(child: Text("Aucun résultat pour votre recherche."));
-                }
-
-                return GridView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2, // 📱 2 Columns for that "App Store" look
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 1.1, // Slightly wider than tall
-                  ),
-                  itemCount: categories.length,
-                  itemBuilder: (context, index) {
-                    return _buildAnimatedCategoryCard(
-                      context,
-                      categories[index],
-                      index,
-                      categories.length,
-                    );
-                  },
-                );
-              },
-            ),
+                },
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // ✨ HEADER WIDGET (Modified for Stock Context)
-  Widget _buildModernHeader(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 20,
-        left: 24,
-        right: 24,
-        bottom: 24,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Back Button & Icon
-          Row(
-            children: [
-              IconButton(
+  // ---------------------------------------------------------------------------
+  // 💎 SLIVER APP BAR & HEADER COMPONENTS
+  // ---------------------------------------------------------------------------
+
+  Widget _buildGlassSliverAppBar() {
+    return SliverAppBar(
+      expandedHeight: 140.0,
+      floating: false,
+      pinned: true,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      leading: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.4),
+                border: Border.all(color: Colors.white.withOpacity(0.6)),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: kTextDark, size: 20),
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.grey.shade50,
-                  padding: const EdgeInsets.all(12),
-                ),
-              ),
-              const Spacer(),
-              Hero(
-                tag: 'icon_${widget.mainCategory}',
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: widget.mainCategoryColor.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(widget.mainCategoryIcon, color: widget.mainCategoryColor, size: 24),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Big Title
-          Hero(
-            tag: 'title_${widget.mainCategory}',
-            child: Material(
-              color: Colors.transparent,
-              child: Text(
-                widget.mainCategory, // Display Category Name
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1F2937),
-                  letterSpacing: -0.5,
-                ),
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          // Subtitle specifying context
-          Row(
-            children: [
-              Icon(Icons.inventory_rounded, size: 16, color: widget.mainCategoryColor),
-              const SizedBox(width: 6),
-              Text(
-                "Gestion de Stock", // ✅ Clearly indicates this is STOCK management
-                style: TextStyle(
-                  fontSize: 14,
-                  color: widget.mainCategoryColor,
-                  fontWeight: FontWeight.w600,
+        ),
+      ),
+      flexibleSpace: ClipRRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          child: FlexibleSpaceBar(
+            titlePadding: const EdgeInsets.only(left: 20, bottom: 16, right: 20),
+            title: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.inventory_rounded, size: 10, color: kTextSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      "GESTION DES STOCKS",
+                      style: GoogleFonts.inter(
+                        color: kTextSecondary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // Search Pill
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(16),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Hero(
+                      tag: 'stock_icon_${widget.mainCategory}',
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: widget.mainCategoryColor.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(widget.mainCategoryIcon, color: widget.mainCategoryColor, size: 14),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Hero(
+                        tag: 'stock_title_${widget.mainCategory}',
+                        child: Material(
+                          color: Colors.transparent,
+                          child: Text(
+                            widget.mainCategory,
+                            style: GoogleFonts.inter(
+                              color: kTextDark,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 22,
+                              letterSpacing: -0.5,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (val) => setState(() => _searchQuery = val),
-              decoration: InputDecoration(
-                hintText: "Rechercher...",
-                hintStyle: TextStyle(color: Colors.grey.shade400),
-                prefixIcon: Icon(Icons.search_rounded, color: Colors.grey.shade400),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              ),
-            ),
+            background: Container(color: Colors.white.withOpacity(0.2)),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  // ✨ ANIMATED CARD WIDGET
-  Widget _buildAnimatedCategoryCard(BuildContext context, String categoryName, int index, int total) {
-    // Determine Icon based on name
-    final iconData = _getIconForSubCategory(categoryName);
+  // ✨ PREMIUM SEARCH PILL
+  Widget _buildGlassSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 8))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (val) => setState(() => _searchQuery = val),
+            style: GoogleFonts.inter(color: kTextDark, fontWeight: FontWeight.w500, fontSize: 16),
+            decoration: InputDecoration(
+              hintText: 'Rechercher un stock...',
+              hintStyle: GoogleFonts.inter(color: kTextSecondary),
+              prefixIcon: const Icon(Icons.search_rounded, color: kTextSecondary),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-    // Staggered Animation Calculation
-    final delay = index * 50;
+// -----------------------------------------------------------------------------
+// ✨ CUSTOM GLASSMORPHIC HOVER CARD (Web & Mobile Optimized)
+// -----------------------------------------------------------------------------
+class _GlassStockCategoryCard extends StatefulWidget {
+  final String categoryName;
+  final IconData iconData;
+  final Color color;
+  final int index;
+  final VoidCallback onTap;
+
+  const _GlassStockCategoryCard({
+    required this.categoryName,
+    required this.iconData,
+    required this.color,
+    required this.index,
+    required this.onTap,
+  });
+
+  @override
+  State<_GlassStockCategoryCard> createState() => _GlassStockCategoryCardState();
+}
+
+class _GlassStockCategoryCardState extends State<_GlassStockCategoryCard> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    // Entrance Animation Calculation
+    final delay = widget.index * 50;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
       duration: const Duration(milliseconds: 600),
       curve: Curves.easeOutCubic,
       builder: (context, value, child) {
-        if (value == 0 && delay > 0) {
-          Future.delayed(Duration(milliseconds: delay));
-        }
-
+        if (value == 0 && delay > 0) Future.delayed(Duration(milliseconds: delay));
         return Transform.translate(
-          offset: Offset(0, 50 * (1 - value)), // Slide Up
-          child: Opacity(
-            opacity: value, // Fade In
-            child: child,
-          ),
+          offset: Offset(0, 40 * (1 - value)),
+          child: Opacity(opacity: value, child: child),
         );
       },
-      child: GestureDetector(
-        onTap: () {
-          // ✅ CRITICAL LOGIC: Route to Stock List Page
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => ProductStockListPage(
-                category: categoryName,
-                categoryColor: widget.mainCategoryColor,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) => setState(() => _isPressed = false),
+          onTapCancel: () => setState(() => _isPressed = false),
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            // ✨ Hover/Press Scaling Effect for Web & Mobile
+            transform: Matrix4.identity()..scale(_isPressed ? 0.95 : (_isHovered ? 1.03 : 1.0)),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(_isHovered ? 0.8 : 0.55),
+              borderRadius: BorderRadius.circular(kRadius),
+              border: Border.all(color: Colors.white.withOpacity(0.9), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: widget.color.withOpacity(_isHovered ? 0.15 : 0.05),
+                  blurRadius: _isHovered ? 30 : 20,
+                  offset: Offset(0, _isHovered ? 12 : 8),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(kRadius),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                child: Stack(
+                  children: [
+                    // Subtle background glow based on the specific icon's intent
+                    Positioned(
+                      top: -20, right: -20,
+                      child: Container(
+                        width: 80, height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: widget.color.withOpacity(0.05),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Animated Icon Circle
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            width: _isHovered ? 64 : 56,
+                            height: _isHovered ? 64 : 56,
+                            decoration: BoxDecoration(
+                              color: widget.color.withOpacity(0.1),
+                              shape: BoxShape.circle,
+                              boxShadow: _isHovered
+                                  ? [BoxShadow(color: widget.color.withOpacity(0.3), blurRadius: 15, spreadRadius: 2)]
+                                  : [],
+                            ),
+                            child: Icon(
+                              widget.iconData,
+                              color: widget.color,
+                              size: _isHovered ? 32 : 28,
+                            ),
+                          ),
+                          const Spacer(),
+
+                          // Category Text
+                          Text(
+                            widget.categoryName,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: kTextDark,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              "Gérer le stock",
+                              style: GoogleFonts.inter(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: kTextSecondary,
+                              ),
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          );
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF64748B).withOpacity(0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Icon Circle
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: widget.mainCategoryColor.withOpacity(0.08),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  iconData,
-                  color: widget.mainCategoryColor,
-                  size: 26,
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Text
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  categoryName,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF334155),
-                  ),
-                ),
-              ),
-            ],
           ),
         ),
       ),
