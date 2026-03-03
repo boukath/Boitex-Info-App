@@ -257,7 +257,7 @@ class _AdministrationDashboardPageState
                   color: Colors.white.withOpacity(0.8), size: 14),
               const SizedBox(width: 6),
               Text(
-                "Maintenez pour réorganiser",
+                "Maintenir pour ranger",
                 style: GoogleFonts.poppins(
                     color: Colors.white.withOpacity(0.9), fontSize: 12),
               ),
