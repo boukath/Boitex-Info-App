@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 // ✅ ADDED: To detect Web platform for resizing
 import 'package:flutter/foundation.dart' show kIsWeb;
+// ✅ ADDED: For ImageFilter.blur (Glassmorphism)
+import 'dart:ui';
+// ✅ ADDED: For premium 4K fonts
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
@@ -9,24 +13,13 @@ import 'package:boitex_info_app/screens/service_technique/installation_list_page
 import 'package:boitex_info_app/screens/administration/manage_missions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_list_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
-import 'package:boitex_info_app/screens/service_technique/ready_replacements_list_page.dart';
 
-// ***** START CODE TO ADD *****
-// Import the AnnounceHubPage (This was in your original code)
+// Import the AnnounceHubPage
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
-
-// This is the new import for the evaluations page
+// This is the import for the evaluations page
 import 'package:boitex_info_app/screens/service_technique/pending_evaluations_list.dart';
-
-// ✅✅✅ NEW IMPORT FOR THE JOURNAL PAGE ✅✅✅
-import 'package:boitex_info_app/screens/service_technique/daily_activity_feed_page.dart';
-
-// ===== NOUVEL IMPORT POUR LA PAGE FORMATION =====
+// Import for the Training page
 import 'package:boitex_info_app/screens/service_technique/training_hub_page.dart';
-// ===== FIN DE L'IMPORT =====
-// ***** END CODE TO ADD *****
-
-import 'dart:math' as math;
 
 class ServiceTechniqueDashboardPage extends StatefulWidget {
   final String displayName;
@@ -73,22 +66,19 @@ class _ServiceTechniqueDashboardPageState
 
   @override
   Widget build(BuildContext context) {
-    // ✅ REMOVED: Root StreamBuilder is no longer needed
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
       if (width > 900) {
-        // ✅ REMOVED: evaluationCount
         return _buildWebDashboard(context, width);
       } else {
-        // ✅ REMOVED: evaluationCount
-        return _buildMobileDashboard(context);
+        // ✅ Passed width to mobile dashboard for dynamic adaptability
+        return _buildMobileDashboard(context, width);
       }
     });
   }
 
   // ========================= WEB =========================
 
-  // ✅ REMOVED: evaluationCount parameter
   Widget _buildWebDashboard(BuildContext context, double width) {
     return Scaffold(
       body: Container(
@@ -96,7 +86,6 @@ class _ServiceTechniqueDashboardPageState
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            // Keeping your original gradient colors
             colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
             stops: [0.0, 0.5, 1.0],
           ),
@@ -105,20 +94,20 @@ class _ServiceTechniqueDashboardPageState
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              _buildWebHeader(), // Uses your web header
+              _buildWebHeader(),
               SliverToBoxAdapter(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
                   child: SlideTransition(
                     position: _slideAnimation,
                     child: Padding(
+                      // ✅ FIX: Fixed padding calculation so it never becomes negative when resizing web windows
                       padding: EdgeInsets.symmetric(
-                        horizontal: math.min((width - 1400) / 2, width * 0.1),
+                        horizontal: width > 1200 ? (width - 1200) / 2 : width * 0.05,
                       ),
-                      // ✅ MODIFIED: Removed Row and Stats column
-                      // The Actions Grid now takes all the space
                       child: _buildGlassCard(
-                        child: _buildWebActionsGrid(context),
+                        // ✅ Pass the width down to dynamically calculate grid columns
+                        child: _buildWebActionsGrid(context, width),
                       ),
                     ),
                   ),
@@ -135,10 +124,7 @@ class _ServiceTechniqueDashboardPageState
   Widget _buildWebHeader() {
     return SliverToBoxAdapter(
       child: Container(
-        // ***** START FIXED CODE *****
-        // Typo 'fromLBRB' corrected to 'fromLTRB'
         padding: const EdgeInsets.fromLTRB(40, 20, 40, 32),
-        // ***** END FIXED CODE *****
         child: Row(
           children: [
             _glassIconButton(
@@ -147,7 +133,6 @@ class _ServiceTechniqueDashboardPageState
             ),
             const Spacer(),
             Expanded(
-              // Keeping your user info chip structure
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
@@ -172,9 +157,9 @@ class _ServiceTechniqueDashboardPageState
                             widget.displayName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: GoogleFonts.poppins(
                               fontSize: 20,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: Colors.white,
                               letterSpacing: 0.2,
                             ),
@@ -195,9 +180,9 @@ class _ServiceTechniqueDashboardPageState
                             maxLines: 1,
                             textAlign: TextAlign.right,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
+                            style: GoogleFonts.poppins(
                               fontSize: 18,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w500,
                               color: Colors.white.withOpacity(0.95),
                               letterSpacing: 0.2,
                             ),
@@ -210,12 +195,10 @@ class _ServiceTechniqueDashboardPageState
               ),
             ),
             const Spacer(),
-            // Keeping your original engineering icon button
             _glassIconButton(
               icon: Icons.engineering,
               onTap: () {},
             ),
-            // This is your existing code
             const SizedBox(width: 12),
             _glassIconButton(
               icon: Icons.campaign_outlined,
@@ -228,57 +211,52 @@ class _ServiceTechniqueDashboardPageState
                 );
               },
             ),
-            // This is your existing code
           ],
         ),
       ),
     );
   }
 
-  Widget _buildWebActionsGrid(BuildContext context) {
-    // Keeping your original web actions grid structure
+  Widget _buildWebActionsGrid(BuildContext context, double width) {
+    // ✅ ADAPTABLE GRID FOR WEB: Adjust columns based on actual screen space
+    int crossAxisCount = width > 1100 ? 4 : 3;
+    double aspectRatio = width > 1100 ? 1.3 : 1.2;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Actions Rapides',
-          style: TextStyle(
+          style: GoogleFonts.poppins(
             color: Colors.white,
-            fontSize: 22,
+            fontSize: 24,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.5,
           ),
         ),
         const SizedBox(height: 24),
         GridView.count(
-          crossAxisCount: 4,
+          crossAxisCount: crossAxisCount,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 20,
-          crossAxisSpacing: 20,
-          // ✅ ADAPTED FOR WEB: Changed aspect ratio to 1.3 to fit bigger text/icons better
-          childAspectRatio: 1.3,
-          children:
-          _buildQuickActions(context), // Uses your quick actions builder
+          mainAxisSpacing: 24,
+          crossAxisSpacing: 24,
+          childAspectRatio: aspectRatio,
+          children: _buildQuickActions(context),
         ),
       ],
     );
   }
 
-  // ✅ REMOVED: _buildWebStatsColumn function
-
   // ========================= MOBILE =========================
 
-  // ✅ REMOVED: evaluationCount parameter
-  Widget _buildMobileDashboard(BuildContext context) {
-    // Keeping your original mobile dashboard structure
+  Widget _buildMobileDashboard(BuildContext context, double width) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            // Keeping your original gradient
             colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
             stops: [0.0, 0.5, 1.0],
           ),
@@ -287,7 +265,7 @@ class _ServiceTechniqueDashboardPageState
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              _buildUltraCompactHeader(), // Uses your mobile header
+              _buildUltraCompactHeader(),
               SliverToBoxAdapter(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
@@ -296,10 +274,7 @@ class _ServiceTechniqueDashboardPageState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildGlassCard(
-                            child: _buildActionsGrid(
-                                context)), // Uses your mobile actions grid
-                        // ✅ REMOVED: Stats Section and SizedBox
+                        _buildGlassCard(child: _buildActionsGrid(context, width)),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -314,7 +289,6 @@ class _ServiceTechniqueDashboardPageState
   }
 
   Widget _buildUltraCompactHeader() {
-    // Keeping your original mobile header structure
     return SliverToBoxAdapter(
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
@@ -326,7 +300,6 @@ class _ServiceTechniqueDashboardPageState
             ),
             const SizedBox(width: 12),
             Expanded(
-              // Keeping your user info chip
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
@@ -345,16 +318,15 @@ class _ServiceTechniqueDashboardPageState
                           color: Colors.white.withOpacity(0.3), width: 1.5),
                     ),
                     child: Row(
-                      // Keeping inner structure
                       children: [
                         Expanded(
                             child: Text(
                               widget.displayName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
                                 color: Colors.white,
                                 letterSpacing: 0.2,
                               ),
@@ -374,9 +346,9 @@ class _ServiceTechniqueDashboardPageState
                               maxLines: 1,
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
                                 color: Colors.white.withOpacity(0.95),
                                 letterSpacing: 0.2,
                               ),
@@ -388,12 +360,10 @@ class _ServiceTechniqueDashboardPageState
               ),
             ),
             const SizedBox(width: 12),
-            // Keeping your original engineering icon button
             _glassIconButton(
               icon: Icons.engineering,
               onTap: () {},
             ),
-            // This is your existing code
             const SizedBox(width: 12),
             _glassIconButton(
               icon: Icons.campaign_outlined,
@@ -406,7 +376,6 @@ class _ServiceTechniqueDashboardPageState
                 );
               },
             ),
-            // This is your existing code
           ],
         ),
       ),
@@ -415,10 +384,8 @@ class _ServiceTechniqueDashboardPageState
 
   // ========================= SHARED UI =========================
 
-  // Keeping your original _glassIconButton function
   Widget _glassIconButton(
       {required IconData icon, required VoidCallback onTap, String? tooltip}) {
-    // Added tooltip parameter back
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.2),
@@ -428,12 +395,11 @@ class _ServiceTechniqueDashboardPageState
       child: IconButton(
         icon: Icon(icon, color: Colors.white, size: 20),
         onPressed: onTap,
-        tooltip: tooltip, // Use tooltip parameter
+        tooltip: tooltip,
       ),
     );
   }
 
-  // Keeping your original _buildGlassCard function
   Widget _buildGlassCard({required Widget child}) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -463,36 +429,37 @@ class _ServiceTechniqueDashboardPageState
 
   // ========================= ACTIONS GRID =========================
 
-  // Keeping your original _buildActionsGrid function
-  Widget _buildActionsGrid(BuildContext context) {
+  Widget _buildActionsGrid(BuildContext context, double width) {
+    // ✅ ADAPTABLE GRID FOR MOBILE/TABLET: Adapts columns for smaller screens
+    int crossAxisCount = width > 600 ? 3 : 2;
+    double aspectRatio = width > 600 ? 1.0 : 0.78;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Actions Rapides',
-          style: TextStyle(
+          style: GoogleFonts.poppins(
             color: Colors.white,
-            fontSize: 20,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.5,
           ),
         ),
         const SizedBox(height: 20),
         GridView.count(
-          crossAxisCount: 2,
+          crossAxisCount: crossAxisCount,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          childAspectRatio: 0.90,
-          children:
-          _buildQuickActions(context), // Uses your quick actions builder
+          mainAxisSpacing: 20,
+          crossAxisSpacing: 20,
+          childAspectRatio: aspectRatio,
+          children: _buildQuickActions(context),
         ),
       ],
     );
   }
 
-  // This function is correct and contains the new button
   List<Widget> _buildQuickActions(BuildContext context) {
     final actions = <_ActionData>[
       _ActionData(
@@ -508,7 +475,6 @@ class _ServiceTechniqueDashboardPageState
             ),
           ),
         ),
-        // Stream for pending interventions
         countStream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: 'Service Technique')
@@ -528,7 +494,6 @@ class _ServiceTechniqueDashboardPageState
             ),
           ),
         ),
-        // Stream for pending installations
         countStream: FirebaseFirestore.instance
             .collection('installations')
             .where('serviceType', isEqualTo: 'Service Technique')
@@ -544,29 +509,10 @@ class _ServiceTechniqueDashboardPageState
             builder: (_) => const SavListPage(serviceType: 'Service Technique'),
           ),
         ),
-        // Stream for pending SAV tickets
         countStream: FirebaseFirestore.instance
             .collection('sav_tickets')
             .where('serviceType', isEqualTo: 'Service Technique')
             .where('status', isEqualTo: 'Nouveau')
-            .snapshots(),
-      ),
-      _ActionData(
-        'Remplacements',
-        Icons.inventory_2_rounded,
-        const Color(0xFFEC4899),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const ReadyReplacementsListPage(
-                serviceType: 'Service Technique'),
-          ),
-        ),
-        // Stream for pending replacements
-        countStream: FirebaseFirestore.instance
-            .collection('replacementRequests')
-            .where('serviceType', isEqualTo: 'Service Technique')
-            .where('requestStatus', isEqualTo: 'Prêt pour Technicien')
             .snapshots(),
       ),
       _ActionData(
@@ -579,7 +525,6 @@ class _ServiceTechniqueDashboardPageState
               builder: (_) =>
                   ManageMissionsPage(serviceType: 'Service Technique')),
         ),
-        // Stream for pending missions
         countStream: FirebaseFirestore.instance
             .collection('missions')
             .where('serviceType', isEqualTo: 'Service Technique')
@@ -595,29 +540,23 @@ class _ServiceTechniqueDashboardPageState
               builder: (_) =>
               const LivraisonsHubPage(serviceType: 'Service Technique')),
         ),
-        // Stream for pending livraisons (assumes 'En Attente de Livraison' status)
         countStream: FirebaseFirestore.instance
             .collection('livraisons')
             .where('serviceType', isEqualTo: 'Service Technique')
             .where('status', isEqualTo: 'À Préparer')
             .snapshots(),
       ),
-
-      // ===== NOUVELLE CARTE AJOUTÉE ICI =====
       _ActionData(
-        'Formation', // "Training"
-        Icons.school_rounded, // Icon for learning/school
-        const Color(0xFFEF4444), // A new color (Red)
+        'Formation',
+        Icons.school_rounded,
+        const Color(0xFFEF4444),
             () => Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => const TrainingHubPage(),
           ),
         ),
-        // No stream needed
       ),
-      // ===== FIN DE LA NOUVELLE CARTE =====
-
       _ActionData(
         'Historique',
         Icons.history,
@@ -631,28 +570,12 @@ class _ServiceTechniqueDashboardPageState
             ),
           ),
         ),
-        // No stream needed
       ),
-      // ✅✅✅ NEW BUTTON ADDED HERE ✅✅✅
-      _ActionData(
-        'Journal',
-        Icons.timeline, // A fitting icon for a timeline/log
-        const Color(0xFF6366F1), // A new color (indigo)
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const DailyActivityFeedPage(),
-          ),
-        ),
-        // No stream needed
-      ),
-      // ✅✅✅ END OF NEW BUTTON ✅✅✅
-
-      // ✅ NEW "ÉVALUATIONS" BUTTON
+      // ❌ REMOVED: Journal Card was completely removed here.
       _ActionData(
         'Évaluations',
         Icons.pending_actions_rounded,
-        const Color(0xFFEC4899), // Using pink color
+        const Color(0xFFEC4899),
             () => Navigator.push(
           context,
           MaterialPageRoute(
@@ -660,7 +583,6 @@ class _ServiceTechniqueDashboardPageState
                 PendingEvaluationsListPage(userRole: widget.userRole),
           ),
         ),
-        // Stream for pending evaluations
         countStream: FirebaseFirestore.instance
             .collection('projects')
             .where('status', isEqualTo: 'Nouvelle Demande')
@@ -686,166 +608,219 @@ class _ServiceTechniqueDashboardPageState
           icon: action.icon,
           color: action.color,
           onTap: action.onTap,
-          countStream: action.countStream, // ✅ Pass the stream to the card
+          countStream: action.countStream,
         ),
       );
     }).toList();
   }
-
-// ✅ REMOVED: _buildStatsSection function
-} // End of State Class
+}
 
 // ========================= MODELS & CARDS =========================
 
-// Keeping your original _ActionData class
 class _ActionData {
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  final Stream<QuerySnapshot>? countStream; // ✅ New field
+  final Stream<QuerySnapshot>? countStream;
 
   _ActionData(
       this.label,
       this.icon,
       this.color,
       this.onTap, {
-        this.countStream, // ✅ Made optional in constructor
+        this.countStream,
       });
 }
 
-// Keeping your original _ActionCard widget (with the alignment fix)
+// ✅ APPLE IOS 26 PREMIUM GLASS CARD
 class _ActionCard extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  final Stream<QuerySnapshot>? countStream; // ✅ New field
+  final Stream<QuerySnapshot>? countStream;
 
   const _ActionCard({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
-    this.countStream, // ✅ Added to constructor
+    this.countStream,
   });
 
   @override
   Widget build(BuildContext context) {
-    // StreamBuilder to get the count
+    // ✅ TRUE ADAPTABILITY: We don't just rely on kIsWeb anymore.
+    // We check the exact screen width to ensure perfect scaling regardless of platform!
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isWide = screenWidth > 900;
+
     return StreamBuilder<QuerySnapshot>(
       stream: countStream,
       builder: (context, snapshot) {
         final int count = snapshot.hasData ? snapshot.data!.docs.length : 0;
 
-        // Stack to overlay the badge
         return Stack(
           clipBehavior: Clip.none,
           children: [
-            // The main card
             Container(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withOpacity(0.25),
-                    Colors.white.withOpacity(0.15)
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                    color: Colors.white.withOpacity(0.3), width: 1.5),
+                borderRadius: BorderRadius.circular(32),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10)),
+                    color: color.withOpacity(0.15),
+                    blurRadius: 30,
+                    offset: const Offset(0, 15),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.12),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
                 ],
               ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onTap,
-                  borderRadius: BorderRadius.circular(24),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                                colors: [color, color.withOpacity(0.7)]),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: color.withOpacity(0.4),
-                                  blurRadius: 16,
-                                  offset: const Offset(0, 8)),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(32),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 25.0, sigmaY: 25.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Colors.white.withOpacity(0.25),
+                          Colors.white.withOpacity(0.05),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(32),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.4),
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: onTap,
+                        borderRadius: BorderRadius.circular(32),
+                        splashColor: Colors.white.withOpacity(0.2),
+                        highlightColor: Colors.white.withOpacity(0.1),
+                        child: Padding(
+                          // ✅ ADAPTIVE PADDING based on screen width
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: isWide ? 20 : 12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                // ✅ ADAPTIVE ICON BOX
+                                padding: EdgeInsets.all(isWide ? 18 : 12),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      color.withOpacity(0.9),
+                                      color.withOpacity(0.6),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(22),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.5),
+                                    width: 1.0,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: color.withOpacity(0.5),
+                                      blurRadius: 15,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                    BoxShadow(
+                                      color: Colors.white.withOpacity(0.5),
+                                      blurRadius: 10,
+                                      offset: const Offset(-2, -2),
+                                      spreadRadius: -2,
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  icon,
+                                  color: Colors.white,
+                                  // ✅ ADAPTIVE ICON SIZE
+                                  size: isWide ? 42 : 28,
+                                ),
+                              ),
+
+                              // ✅ ADAPTIVE SPACING
+                              SizedBox(height: isWide ? 16 : 8),
+
+                              Container(
+                                // ✅ ADAPTIVE CONTAINER HEIGHT
+                                height: isWide ? 54.0 : 40.0,
+                                alignment: Alignment.center,
+                                child: Text(
+                                  label,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.poppins(
+                                    // ✅ ADAPTIVE FONT SIZE
+                                    fontSize: isWide ? 16 : 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                    letterSpacing: 0.5,
+                                    height: 1.2,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                          // ✅✅✅ MODIFIED: BIGGER ICON ON WEB
-                          child: Icon(icon,
-                              color: Colors.white, size: kIsWeb ? 48 : 28),
                         ),
-
-                        // ===== START OF FIX =====
-                        // This Container replaces the SizedBox(height: 10) and Text
-                        // to ensure a fixed height for the text area.
-
-                        Container(
-                          // ✅✅✅ MODIFIED: BIGGER CONTAINER HEIGHT ON WEB
-                          height: kIsWeb ? 60.0 : 44.0,
-                          alignment: Alignment
-                              .center, // Center the text (1 or 2 lines)
-                          child: Text(
-                            label,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              // ✅✅✅ MODIFIED: BIGGER FONT ON WEB
-                              fontSize: kIsWeb ? 18 : 13,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                        ),
-                        // ===== END OF FIX =====
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
 
-            // The Badge
             if (count > 0)
               Positioned(
-                top: 8,
-                right: 8,
+                top: -2,
+                right: -2,
                 child: Container(
-                  padding: const EdgeInsets.all(2),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFFF453A), Color(0xFFC40000)],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                        color: Colors.white.withOpacity(0.5), width: 1.5),
+                      color: Colors.white.withOpacity(0.9),
+                      width: 2.0,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withOpacity(0.6),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
                   ),
                   constraints: const BoxConstraints(
-                    minWidth: 22,
-                    minHeight: 22,
+                    minWidth: 28,
+                    minHeight: 28,
                   ),
                   child: Center(
                     child: Text(
                       count.toString(),
-                      style: const TextStyle(
+                      style: GoogleFonts.inter(
                         color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -858,9 +833,3 @@ class _ActionCard extends StatelessWidget {
     );
   }
 }
-
-// ========================= STAT CARDS =========================
-// ✅ REMOVED: All Stat Card widgets
-// (_EvaluationsCard, _InterventionsCard, _InstallationsCard,
-// _SavTicketsCard, _ReadyReplacementsCard, _MissionsCard)
-// and the _buildGlowingCard helper function.

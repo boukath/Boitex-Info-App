@@ -4,6 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // For HapticFeedback
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+// ✅ ADDED: For ImageFilter.blur (Glassmorphism)
+import 'dart:ui';
+// ✅ ADDED: For premium 4K fonts
+import 'package:google_fonts/google_fonts.dart';
+// ✅ ADDED: To detect Web platform easily if needed
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 // SCREEN IMPORTS
 import 'package:boitex_info_app/screens/administration/manage_clients_page.dart';
@@ -12,8 +18,6 @@ import 'package:boitex_info_app/screens/administration/manage_projects_page.dart
 import 'package:boitex_info_app/screens/administration/product_catalog_page.dart';
 import 'package:boitex_info_app/screens/administration/stock_page.dart';
 import 'package:boitex_info_app/screens/administration/manage_missions_page.dart';
-import 'package:boitex_info_app/screens/administration/replacement_requests_hub_page.dart';
-import 'package:boitex_info_app/screens/administration/requisition_approval_page.dart';
 import 'package:boitex_info_app/screens/administration/purchasing_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/billing_hub_page.dart';
 import 'package:boitex_info_app/screens/administration/activity_log_page.dart';
@@ -24,8 +28,6 @@ import 'package:boitex_info_app/screens/administration/analytics_dashboard_page.
 import 'package:boitex_info_app/screens/administration/universal_map_page.dart';
 import 'package:boitex_info_app/screens/administration/portal_requests_list_page.dart';
 import 'package:boitex_info_app/screens/administration/reporting_hub_page.dart';
-
-import 'dart:math' as math;
 
 class AdministrationDashboardPage extends StatefulWidget {
   final String displayName;
@@ -154,16 +156,6 @@ class _AdministrationDashboardPageState
       final width = constraints.maxWidth;
       final isWeb = width > 900;
 
-      final canSeeMgmt = <String>{
-        'PDG',
-        'Admin',
-        'Responsable Administratif',
-        'Responsable Commercial',
-        'Responsable Technique',
-        'Responsable IT',
-        'Chef de Projet',
-      }.contains(widget.userRole);
-
       return Scaffold(
         body: Container(
           decoration: const BoxDecoration(
@@ -186,11 +178,11 @@ class _AdministrationDashboardPageState
                       position: _slideAnimation,
                       child: Padding(
                         padding: EdgeInsets.symmetric(
-                          horizontal: isWeb ? math.min((width - 1400) / 2, width * 0.1) : 0,
+                          horizontal: isWeb ? (width > 1200 ? (width - 1200) / 2 : width * 0.05) : 0,
                         ),
                         child: isWeb
-                            ? _buildWebLayout(context, canSeeMgmt)
-                            : _buildMobileLayout(context, canSeeMgmt),
+                            ? _buildWebLayout(context, width)
+                            : _buildMobileLayout(context, width),
                       ),
                     ),
                   ),
@@ -206,50 +198,21 @@ class _AdministrationDashboardPageState
 
   // ================= LAYOUTS =================
 
-  Widget _buildWebLayout(BuildContext context, bool canSeeMgmt) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Left: Draggable Grid
-        Expanded(
-          flex: 3,
-          child: _buildGlassCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionHeader(),
-                const SizedBox(height: 24),
-                _buildDraggableGrid(context, crossAxisCount: 4),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 24),
-        // Right: Urgent Tasks
-        Expanded(
-          flex: 2,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Tâches Urgentes',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.95),
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildUrgentTasksColumn(canSeeMgmt),
-            ],
-          ),
-        ),
-      ],
+  Widget _buildWebLayout(BuildContext context, double width) {
+    // ✅ REMOVED: Row and Urgent Tasks column. Grid now takes full width gracefully.
+    return _buildGlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(),
+          const SizedBox(height: 24),
+          _buildDraggableGrid(context, width),
+        ],
+      ),
     );
   }
 
-  Widget _buildMobileLayout(BuildContext context, bool canSeeMgmt) {
+  Widget _buildMobileLayout(BuildContext context, double width) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -259,25 +222,11 @@ class _AdministrationDashboardPageState
             children: [
               _buildSectionHeader(),
               const SizedBox(height: 20),
-              _buildDraggableGrid(context, crossAxisCount: 2),
+              _buildDraggableGrid(context, width),
             ],
           ),
         ),
-        const SizedBox(height: 24),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: const Text(
-            'Tâches Urgentes',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _buildUrgentTasksColumn(canSeeMgmt),
+        // ✅ REMOVED: Tâches Urgentes padding and column
       ],
     );
   }
@@ -285,11 +234,11 @@ class _AdministrationDashboardPageState
   Widget _buildSectionHeader() {
     return Row(
       children: [
-        const Text(
+        Text(
           'APPS',
-          style: TextStyle(
+          style: GoogleFonts.poppins(
             color: Colors.white,
-            fontSize: 20,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.5,
           ),
@@ -309,7 +258,7 @@ class _AdministrationDashboardPageState
               const SizedBox(width: 6),
               Text(
                 "Maintenez pour réorganiser",
-                style: TextStyle(
+                style: GoogleFonts.poppins(
                     color: Colors.white.withOpacity(0.9), fontSize: 12),
               ),
             ],
@@ -321,7 +270,7 @@ class _AdministrationDashboardPageState
 
   // ================= DRAG & DROP GRID ENGINE =================
 
-  Widget _buildDraggableGrid(BuildContext context, {required int crossAxisCount}) {
+  Widget _buildDraggableGrid(BuildContext context, double width) {
     if (_isLoadingPrefs) {
       return const Center(child: CircularProgressIndicator(color: Colors.white));
     }
@@ -332,37 +281,54 @@ class _AdministrationDashboardPageState
         .whereType<_ActionData>()
         .toList();
 
+    // ✅ ADAPTIVE GRID SIZING (Updated to accommodate full width without urgent tasks)
+    int crossAxisCount = 2;
+    double childAspectRatio = 0.78; // Mobile Default
+
+    if (width > 1200) {
+      crossAxisCount = 5; // Takes full width perfectly
+      childAspectRatio = 1.1;
+    } else if (width > 900) {
+      crossAxisCount = 4;
+      childAspectRatio = 1.0;
+    } else if (width > 600) {
+      crossAxisCount = 3;
+      childAspectRatio = 0.95; // Tablets
+    }
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: crossAxisCount == 4 ? 1.0 : 0.90,
+        mainAxisSpacing: 20,
+        crossAxisSpacing: 20,
+        childAspectRatio: childAspectRatio,
       ),
       itemCount: displayList.length,
       itemBuilder: (context, index) {
         final action = displayList[index];
-        return _buildDraggableItem(action);
+        return _buildDraggableItem(action, width);
       },
     );
   }
 
-  Widget _buildDraggableItem(_ActionData action) {
+  Widget _buildDraggableItem(_ActionData action, double width) {
+    final bool isWide = width > 900;
+
     return LongPressDraggable<String>(
       data: action.id,
       feedback: Transform.scale(
         scale: 1.1,
         child: SizedBox(
-          width: 140, // Approximate width for feedback
-          height: 140,
-          child: _ActionCard(action: action, isDragging: true),
+          width: isWide ? 160 : 130, // Approximate width for feedback
+          height: isWide ? 150 : 160,
+          child: _ActionCard(action: action, isDragging: true, isWide: isWide),
         ),
       ),
       childWhenDragging: Opacity(
         opacity: 0.3,
-        child: _ActionCard(action: action),
+        child: _ActionCard(action: action, isWide: isWide),
       ),
       onDragStarted: () {
         HapticFeedback.lightImpact();
@@ -387,13 +353,14 @@ class _AdministrationDashboardPageState
             tween: Tween(begin: 0, end: 1),
             builder: (context, value, child) {
               return Transform.scale(
-                scale: 1.0, // Could animate scale on hover
+                scale: 1.0,
                 child: child,
               );
             },
             child: _ActionCard(
               action: action,
               badgeStream: action.badgeStream,
+              isWide: isWide,
             ),
           );
         },
@@ -490,9 +457,9 @@ class _AdministrationDashboardPageState
                 widget.displayName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
                   color: Colors.white,
                   letterSpacing: 0.2,
                 ),
@@ -513,9 +480,9 @@ class _AdministrationDashboardPageState
                 maxLines: 1,
                 textAlign: TextAlign.right,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
                   color: Colors.white.withOpacity(0.95),
                   letterSpacing: 0.2,
                 ),
@@ -569,29 +536,23 @@ class _AdministrationDashboardPageState
     );
   }
 
-  Widget _buildUrgentTasksColumn(bool canSeeMgmt) {
-    final cards = <Widget>[
-      const _ReplacementRequestsCard(),
-      if (canSeeMgmt) const _PendingBillingCard(),
-      if (canSeeMgmt) const _PendingReplacementsCard(),
-      if (canSeeMgmt) const _LivraisonsCard(),
-    ];
-
-    return Column(
-      children: cards.asMap().entries.map((entry) {
-        final index = entry.key;
-        final card = entry.value;
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: card,
-        );
-      }).toList(),
-    );
-  }
-
   // ✅ ACTION MAP
   Map<String, _ActionData> _getAllActionsMap(BuildContext context) {
     return {
+      'facturation': _ActionData(
+        id: 'facturation',
+        label: 'Facturation',
+        icon: Icons.receipt_long_rounded,
+        color: const Color(0xFF0D9488), // Premium Teal color
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const BillingHubPage()),
+        ),
+        badgeStream: FirebaseFirestore.instance
+            .collection('interventions')
+            .where('status', isEqualTo: "Terminé")
+            .snapshots(),
+      ),
       'achats': _ActionData(
         id: 'achats',
         label: 'Achats',
@@ -742,15 +703,18 @@ class _ActionData {
   });
 }
 
+// ✅ APPLE IOS 26 PREMIUM GLASS APP CARDS
 class _ActionCard extends StatelessWidget {
   final _ActionData action;
   final Stream<QuerySnapshot>? badgeStream;
   final bool isDragging;
+  final bool isWide;
 
   const _ActionCard({
     required this.action,
     this.badgeStream,
     this.isDragging = false,
+    this.isWide = false,
   });
 
   @override
@@ -761,69 +725,110 @@ class _ActionCard extends StatelessWidget {
       children: [
         Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withOpacity(isDragging ? 0.35 : 0.25),
-                Colors.white.withOpacity(isDragging ? 0.25 : 0.15)
-              ],
-            ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: isDragging
-                  ? Colors.amber.withOpacity(0.8) // Highlight when dragging
-                  : Colors.white.withOpacity(0.3),
-              width: isDragging ? 2.0 : 1.5,
-            ),
+            borderRadius: BorderRadius.circular(32),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: isDragging ? 30 : 20,
-                  offset: isDragging ? const Offset(0, 15) : const Offset(0, 10)),
+                color: action.color.withOpacity(isDragging ? 0.3 : 0.15),
+                blurRadius: isDragging ? 40 : 30,
+                offset: Offset(0, isDragging ? 20 : 15),
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
             ],
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: action.onTap,
-              borderRadius: BorderRadius.circular(24),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(colors: [
-                          action.color,
-                          action.color.withOpacity(0.7)
-                        ]),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                              color: action.color.withOpacity(0.4),
-                              blurRadius: 16,
-                              offset: const Offset(0, 8)),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(32),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 25.0, sigmaY: 25.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(isDragging ? 0.35 : 0.25),
+                      Colors.white.withOpacity(isDragging ? 0.15 : 0.05),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(32),
+                  border: Border.all(
+                    color: isDragging
+                        ? Colors.amber.withOpacity(0.8) // Highlight on drag
+                        : Colors.white.withOpacity(0.4),
+                    width: isDragging ? 2.0 : 1.2,
+                  ),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: action.onTap,
+                    borderRadius: BorderRadius.circular(32),
+                    splashColor: Colors.white.withOpacity(0.2),
+                    highlightColor: Colors.white.withOpacity(0.1),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 12, vertical: isWide ? 20 : 12),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(isWide ? 18 : 12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  action.color.withOpacity(0.9),
+                                  action.color.withOpacity(0.6),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.5),
+                                width: 1.0,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: action.color.withOpacity(0.5),
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 8),
+                                ),
+                                BoxShadow(
+                                  color: Colors.white.withOpacity(0.5),
+                                  blurRadius: 10,
+                                  offset: const Offset(-2, -2),
+                                  spreadRadius: -2,
+                                ),
+                              ],
+                            ),
+                            child: Icon(action.icon,
+                                color: Colors.white, size: isWide ? 38 : 28),
+                          ),
+                          SizedBox(height: isWide ? 14 : 8),
+                          Container(
+                            height: isWide ? 50.0 : 40.0,
+                            alignment: Alignment.center,
+                            child: Text(
+                              action.label,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.poppins(
+                                fontSize: isWide ? 15 : 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                      child: Icon(action.icon, color: Colors.white, size: 28),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      action.label,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -838,28 +843,43 @@ class _ActionCard extends StatelessWidget {
               }
               final count = snapshot.data!.docs.length;
               return Positioned(
-                top: -5,
-                right: -5,
+                top: -2,
+                right: -2,
                 child: Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFF5252),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFFF453A), Color(0xFFC40000)],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.9),
+                      width: 2.0,
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
+                        color: Colors.red.withOpacity(0.6),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
                       ),
                     ],
                   ),
-                  child: Text(
-                    count > 99 ? '99+' : count.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  child: Center(
+                    child: Text(
+                      count > 99 ? '99+' : count.toString(),
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ),
@@ -869,234 +889,4 @@ class _ActionCard extends StatelessWidget {
       ],
     );
   }
-}
-
-// ======= STAT CARDS (same as before) =======
-
-class _ReplacementRequestsCard extends StatelessWidget {
-  const _ReplacementRequestsCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('replacementRequests')
-          .where('requestStatus', isEqualTo: "En attente d'action")
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Demandes de Remplacement',
-          count: count.toString(),
-          icon: Icons.sync_problem_rounded,
-          gradient: const LinearGradient(
-              colors: [Color(0xFFEF4444), Color(0xFFDC2626)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const ReplacementRequestsHubPage(
-                pageTitle: 'Demandes en Attente',
-                filterStatus: "En attente d'action",
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _PendingBillingCard extends StatelessWidget {
-  const _PendingBillingCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('interventions')
-          .where('status', isEqualTo: "Terminé")
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Facturation en Attente',
-          count: count.toString(),
-          icon: Icons.receipt_long_rounded,
-          gradient: const LinearGradient(
-              colors: [Color(0xFF14B8A6), Color(0xFF0D9488)]),
-          onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const BillingHubPage())),
-        );
-      },
-    );
-  }
-}
-
-class _PendingReplacementsCard extends StatelessWidget {
-  const _PendingReplacementsCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('replacementRequests')
-          .where('requestStatus', isEqualTo: "Approuvé - Produit en stock")
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Remplacements à Préparer',
-          count: count.toString(),
-          icon: Icons.inventory_rounded,
-          gradient: const LinearGradient(
-              colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const ReplacementRequestsHubPage(
-                pageTitle: 'Remplacements à Préparer',
-                filterStatus: "Approuvé - Produit en stock",
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _LivraisonsCard extends StatelessWidget {
-  const _LivraisonsCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('livraisons')
-          .where('status',
-          whereIn: const ["À Préparer", "En Cours de Livraison"])
-          .snapshots(),
-      builder: (ctx, snap) {
-        final count = snap.hasData ? snap.data!.docs.length : 0;
-        return _buildGlowingCard(
-          context: context,
-          title: 'Livraisons Actives',
-          count: count.toString(),
-          icon: Icons.local_shipping_rounded,
-          gradient: const LinearGradient(
-              colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)]),
-          onTap: () => Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const LivraisonsHubPage())),
-        );
-      },
-    );
-  }
-}
-
-// Shared glowing stat card
-Widget _buildGlowingCard({
-  required BuildContext context,
-  required String title,
-  required String count,
-  required IconData icon,
-  required Gradient gradient,
-  VoidCallback? onTap,
-  Widget? customBody,
-}) {
-  final isWeb = MediaQuery.of(context).size.width > 900;
-
-  return Container(
-    margin:
-    isWeb ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 20),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withOpacity(0.2),
-            Colors.white.withOpacity(0.1),
-          ]),
-      borderRadius: BorderRadius.circular(28),
-      border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-      boxShadow: [
-        BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 30,
-            offset: const Offset(0, 15)),
-      ],
-    ),
-    child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(28),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      gradient: gradient,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: gradient.colors.first.withOpacity(0.4),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Icon(icon, color: Colors.white, size: 28),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
-                  if (onTap != null)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(Icons.arrow_forward_ios_rounded,
-                          size: 16, color: Colors.white.withOpacity(0.9)),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              customBody ??
-                  ShaderMask(
-                    shaderCallback: (bounds) => gradient.createShader(bounds),
-                    child: Text(
-                      count,
-                      style: const TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: -1,
-                      ),
-                    ),
-                  ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
 }

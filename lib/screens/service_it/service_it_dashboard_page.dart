@@ -1,9 +1,11 @@
-// lib/screens/service_it/service_it_dashboard_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 // ✅ ADDED: To detect Web platform for resizing
 import 'package:flutter/foundation.dart' show kIsWeb;
+// ✅ ADDED: For ImageFilter.blur (Glassmorphism)
+import 'dart:ui';
+// ✅ ADDED: For premium 4K fonts
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
@@ -11,17 +13,11 @@ import 'package:boitex_info_app/screens/service_technique/installation_list_page
 import 'package:boitex_info_app/screens/administration/manage_missions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_list_page.dart';
 import 'package:boitex_info_app/screens/administration/livraisons_hub_page.dart';
-import 'package:boitex_info_app/screens/service_technique/ready_replacements_list_page.dart';
 
-// ***** START CODE TO ADD *****
-// Import the AnnounceHubPage (already present in your code)
+// Import the AnnounceHubPage
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
 // Import the new IT evaluations list page
 import 'package:boitex_info_app/screens/service_it/pending_it_evaluations_list.dart';
-// ***** END CODE TO ADD *****
-
-// ✅✅✅ NOUVELLE IMPORTATION AJOUTÉE ✅✅✅
-import 'package:boitex_info_app/screens/service_it/it_activity_feed_page.dart';
 
 import 'dart:math' as math;
 
@@ -74,7 +70,8 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
       if (width > 900) {
         return _buildWebDashboard(context, width);
       } else {
-        return _buildMobileDashboard(context);
+        // ✅ Passed width to mobile dashboard for dynamic adaptability
+        return _buildMobileDashboard(context, width);
       }
     });
   }
@@ -97,18 +94,20 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              _buildWebHeader(), // Uses your web header
+              _buildWebHeader(),
               SliverToBoxAdapter(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
                   child: SlideTransition(
                     position: _slideAnimation,
                     child: Padding(
+                      // ✅ FIX: Fixed padding calculation so it never becomes negative when resizing web windows
                       padding: EdgeInsets.symmetric(
-                        horizontal: math.min((width - 1400) / 2, width * 0.1),
+                        horizontal: width > 1200 ? (width - 1200) / 2 : width * 0.05,
                       ),
                       child: _buildGlassCard(
-                        child: _buildWebActionsGrid(context),
+                        // ✅ Pass the width down to dynamically calculate grid columns
+                        child: _buildWebActionsGrid(context, width),
                       ),
                     ),
                   ),
@@ -154,17 +153,18 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                     child: Row(
                       children: [
                         Expanded(
-                            child: Text(
-                              widget.displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: 0.2,
-                              ),
-                            )),
+                          child: Text(
+                            widget.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.poppins(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
                         Container(
                           margin: const EdgeInsets.symmetric(horizontal: 12),
                           width: 6,
@@ -175,18 +175,19 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                           ),
                         ),
                         Expanded(
-                            child: Text(
-                              widget.userRole,
-                              maxLines: 1,
-                              textAlign: TextAlign.right,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white.withOpacity(0.95),
-                                letterSpacing: 0.2,
-                              ),
-                            )),
+                          child: Text(
+                            widget.userRole,
+                            maxLines: 1,
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.poppins(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white.withOpacity(0.95),
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -216,27 +217,31 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
     );
   }
 
-  Widget _buildWebActionsGrid(BuildContext context) {
+  Widget _buildWebActionsGrid(BuildContext context, double width) {
+    // ✅ ADAPTABLE GRID FOR WEB: Adjust columns based on actual screen space
+    int crossAxisCount = width > 1100 ? 4 : 3;
+    double aspectRatio = width > 1100 ? 1.3 : 1.2;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Actions Rapides',
-          style: TextStyle(
+          style: GoogleFonts.poppins(
             color: Colors.white,
-            fontSize: 22,
+            fontSize: 24,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.5,
           ),
         ),
         const SizedBox(height: 24),
         GridView.count(
-          crossAxisCount: 4,
+          crossAxisCount: crossAxisCount,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 20,
-          crossAxisSpacing: 20,
-          childAspectRatio: 1.3,
+          mainAxisSpacing: 24,
+          crossAxisSpacing: 24,
+          childAspectRatio: aspectRatio,
           children: _buildQuickActions(context),
         ),
       ],
@@ -245,7 +250,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   // ========================= MOBILE =========================
 
-  Widget _buildMobileDashboard(BuildContext context) {
+  Widget _buildMobileDashboard(BuildContext context, double width) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -261,7 +266,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              _buildUltraCompactHeader(), // Uses your mobile header
+              _buildUltraCompactHeader(),
               SliverToBoxAdapter(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
@@ -270,8 +275,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildGlassCard(
-                            child: _buildActionsGrid(context)),
+                        _buildGlassCard(child: _buildActionsGrid(context, width)),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -321,10 +325,10 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                               widget.displayName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: GoogleFonts.poppins(
                                 color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
                                 letterSpacing: 0.2,
                               ),
                             )),
@@ -343,10 +347,10 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                               maxLines: 1,
                               textAlign: TextAlign.right,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
+                              style: GoogleFonts.poppins(
                                 color: Colors.white.withOpacity(0.95),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
                                 letterSpacing: 0.2,
                               ),
                             )),
@@ -405,7 +409,10 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.1)],
+          colors: [
+            Colors.white.withOpacity(0.2),
+            Colors.white.withOpacity(0.1)
+          ],
         ),
         borderRadius: BorderRadius.circular(32),
         border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
@@ -423,27 +430,31 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   // ========================= ACTIONS GRID =========================
 
-  Widget _buildActionsGrid(BuildContext context) {
+  Widget _buildActionsGrid(BuildContext context, double width) {
+    // ✅ ADAPTABLE GRID FOR MOBILE/TABLET: Adapts columns for smaller screens
+    int crossAxisCount = width > 600 ? 3 : 2;
+    double aspectRatio = width > 600 ? 1.0 : 0.78;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Actions Rapides',
-          style: TextStyle(
+          style: GoogleFonts.poppins(
             color: Colors.white,
-            fontSize: 20,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.5,
           ),
         ),
         const SizedBox(height: 20),
         GridView.count(
-          crossAxisCount: 2,
+          crossAxisCount: crossAxisCount,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          childAspectRatio: 0.90,
+          mainAxisSpacing: 20,
+          crossAxisSpacing: 20,
+          childAspectRatio: aspectRatio,
           children: _buildQuickActions(context),
         ),
       ],
@@ -471,7 +482,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                 userRole: widget.userRole, serviceType: 'Service IT'),
           ),
         ),
-        // Stream: Service IT + Nouvelle Demande
         countStream: FirebaseFirestore.instance
             .collection('interventions')
             .where('serviceType', isEqualTo: 'Service IT')
@@ -490,7 +500,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                 userRole: widget.userRole, serviceType: 'Service IT'),
           ),
         ),
-        // Stream: Service IT + À Planifier
         countStream: FirebaseFirestore.instance
             .collection('installations')
             .where('serviceType', isEqualTo: 'Service IT')
@@ -507,31 +516,15 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           MaterialPageRoute(
               builder: (_) => const SavListPage(serviceType: 'Service IT')),
         ),
-        // Stream: Service IT + Nouveau
         countStream: FirebaseFirestore.instance
             .collection('sav_tickets')
             .where('serviceType', isEqualTo: 'Service IT')
             .where('status', isEqualTo: 'Nouveau')
             .snapshots(),
       ),
-      // ✅ REMPLACEMENTS
-      _ActionData(
-        'Remplacements',
-        Icons.swap_horiz_rounded,
-        const Color(0xFFEC4899),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) =>
-              const ReadyReplacementsListPage(serviceType: 'Service IT')),
-        ),
-        countStream: FirebaseFirestore.instance
-            .collection('replacementRequests')
-            .where('serviceType', isEqualTo: 'Service IT')
-            .where('requestStatus', isEqualTo: 'Prêt pour Technicien')
-            .snapshots(),
-      ),
-      // ✅ MISSIONS (UPDATED STATUS: "Planifiée")
+      // ❌ REMOVED: Remplacements Card
+
+      // ✅ MISSIONS
       _ActionData(
         'Missions',
         Icons.assignment_rounded,
@@ -544,7 +537,7 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
         countStream: FirebaseFirestore.instance
             .collection('missions')
             .where('serviceType', isEqualTo: 'Service IT')
-            .where('status', isEqualTo: 'Planifiée') // ✅ Checked
+            .where('status', isEqualTo: 'Planifiée')
             .snapshots(),
       ),
       // ✅ LIVRAISONS
@@ -558,7 +551,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
               builder: (_) =>
               const LivraisonsHubPage(serviceType: 'Service IT')),
         ),
-        // Stream: Service IT + À Préparer
         countStream: FirebaseFirestore.instance
             .collection('livraisons')
             .where('serviceType', isEqualTo: 'Service IT')
@@ -578,20 +570,12 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
           ),
         ),
       ),
-      // ✅ JOURNAL
-      _ActionData(
-        "Journal d'activité",
-        Icons.timeline_rounded,
-        const Color(0xFFfd746c),
-            () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ItActivityFeedPage()),
-        ),
-      ),
-      // ✅ EVALUATIONS (UPDATED with Smart Logic)
+      // ❌ REMOVED: Journal d'activité Card
+
+      // ✅ EVALUATIONS (With Smart Logic)
       _ActionData(
         'Évaluations',
-        Icons.dns_rounded,
+        Icons.pending_actions_rounded, // Better icon for evaluations
         const Color(0xFFa78bfa),
             () => Navigator.push(
           context,
@@ -602,7 +586,6 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
         ),
         countStream: FirebaseFirestore.instance
             .collection('projects')
-        // ✅ APPLY SMART FILTER (OR Logic)
             .where(evaluationsFilter)
             .where('status', isEqualTo: 'Nouvelle Demande')
             .snapshots(),
@@ -651,6 +634,7 @@ class _ActionData {
       });
 }
 
+// ✅ APPLE IOS 26 PREMIUM GLASS CARD (Responsive)
 class _ActionCard extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -668,120 +652,185 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If no stream is provided, just return the card
+    // We check the exact screen width to ensure perfect scaling regardless of platform!
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isWide = screenWidth > 900;
+
+    // Handle null stream case safely
     if (countStream == null) {
-      return _buildCardContent(0);
+      return _buildCardContent(0, isWide);
     }
 
-    // If stream is provided, listen to it
     return StreamBuilder<QuerySnapshot>(
       stream: countStream,
       builder: (context, snapshot) {
-        final int count =
-        snapshot.hasData ? snapshot.data!.docs.length : 0;
-        return _buildCardContent(count);
+        final int count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+        return _buildCardContent(count, isWide);
       },
     );
   }
 
-  Widget _buildCardContent(int count) {
+  Widget _buildCardContent(int count, bool isWide) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // The main card
         Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withOpacity(0.25),
-                Colors.white.withOpacity(0.15)
-              ],
-            ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-                color: Colors.white.withOpacity(0.3), width: 1.5),
+            borderRadius: BorderRadius.circular(32),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10)),
+                color: color.withOpacity(0.15),
+                blurRadius: 30,
+                offset: const Offset(0, 15),
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
             ],
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(24),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                            colors: [color, color.withOpacity(0.7)]),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                              color: color.withOpacity(0.4),
-                              blurRadius: 16,
-                              offset: const Offset(0, 8)),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(32),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 25.0, sigmaY: 25.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(0.25),
+                      Colors.white.withOpacity(0.05),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(32),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.4),
+                    width: 1.2,
+                  ),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(32),
+                    splashColor: Colors.white.withOpacity(0.2),
+                    highlightColor: Colors.white.withOpacity(0.1),
+                    child: Padding(
+                      // ✅ ADAPTIVE PADDING based on screen width
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: isWide ? 20 : 12),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            // ✅ ADAPTIVE ICON BOX
+                            padding: EdgeInsets.all(isWide ? 18 : 12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  color.withOpacity(0.9),
+                                  color.withOpacity(0.6),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.5),
+                                width: 1.0,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: color.withOpacity(0.5),
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 8),
+                                ),
+                                BoxShadow(
+                                  color: Colors.white.withOpacity(0.5),
+                                  blurRadius: 10,
+                                  offset: const Offset(-2, -2),
+                                  spreadRadius: -2,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              icon,
+                              color: Colors.white,
+                              // ✅ ADAPTIVE ICON SIZE
+                              size: isWide ? 42 : 28,
+                            ),
+                          ),
+
+                          // ✅ ADAPTIVE SPACING
+                          SizedBox(height: isWide ? 16 : 8),
+
+                          Container(
+                            // ✅ ADAPTIVE CONTAINER HEIGHT
+                            height: isWide ? 54.0 : 40.0,
+                            alignment: Alignment.center,
+                            child: Text(
+                              label,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.poppins(
+                                // ✅ ADAPTIVE FONT SIZE
+                                fontSize: isWide ? 16 : 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                      child: Icon(icon,
-                          color: Colors.white, size: kIsWeb ? 48 : 28),
                     ),
-                    Container(
-                      height: kIsWeb ? 60.0 : 44.0,
-                      alignment: Alignment.center,
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: kIsWeb ? 18 : 13,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: 0.3,
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
 
-        // The Badge
         if (count > 0)
           Positioned(
-            top: 8,
-            right: 8,
+            top: -2,
+            right: -2,
             child: Container(
-              padding: const EdgeInsets.all(2),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.red,
-                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFFF453A), Color(0xFFC40000)],
+                ),
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                    color: Colors.white.withOpacity(0.5), width: 1.5),
+                  color: Colors.white.withOpacity(0.9),
+                  width: 2.0,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.red.withOpacity(0.6),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
               constraints: const BoxConstraints(
-                minWidth: 22,
-                minHeight: 22,
+                minWidth: 28,
+                minHeight: 28,
               ),
               child: Center(
                 child: Text(
                   count.toString(),
-                  style: const TextStyle(
+                  style: GoogleFonts.inter(
                     color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
                   ),
                   textAlign: TextAlign.center,
                 ),
