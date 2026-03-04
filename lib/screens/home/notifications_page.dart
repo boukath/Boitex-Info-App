@@ -1,45 +1,39 @@
 // lib/screens/home/notifications_page.dart
 
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart'; // ✅ REQUIRED FOR DATE FORMATTING
+import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
-// ✅ IMPORTS
 import 'package:boitex_info_app/models/sav_ticket.dart';
-import 'package:boitex_info_app/models/mission.dart'; // Mission Model
-import 'package:boitex_info_app/models/channel_model.dart'; // Channel Model
+import 'package:boitex_info_app/models/mission.dart';
+import 'package:boitex_info_app/models/channel_model.dart';
 
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
-// ✅ NEW IMPORT: For Smart Navigation to Timeline
 import 'package:boitex_info_app/screens/service_technique/installation_timeline_page.dart';
 
 import 'package:boitex_info_app/screens/administration/project_details_page.dart';
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
 import 'package:boitex_info_app/screens/administration/requisition_details_page.dart';
 import 'package:boitex_info_app/screens/announce/announce_hub_page.dart';
-import 'package:boitex_info_app/screens/announce/channel_chat_page.dart'; // Chat Page
+import 'package:boitex_info_app/screens/announce/channel_chat_page.dart';
 import 'package:boitex_info_app/screens/administration/rappel_page.dart';
-import 'package:boitex_info_app/screens/administration/mission_details_page.dart'; // Mission Details
-
-// ✅ NEW IMPORT: For Portal Request Validation
+import 'package:boitex_info_app/screens/administration/mission_details_page.dart';
 import 'package:boitex_info_app/screens/administration/portal_request_details_page.dart';
-
-// ✅ NEW IMPORT: For Fleet Navigation
 import 'package:boitex_info_app/screens/fleet/fleet_list_page.dart';
-
-// ✅ NEW IMPORT: For Morning Briefing
 import 'package:boitex_info_app/screens/dashboard/morning_briefing_summary_page.dart';
 
 // ✅ HELPER CLASS FOR GROUPING
 class NotificationGroup {
   final String docId;
   final String collection;
-  final String type; // ✅ Added type to distinguish special notifs
+  final String type;
   final List<DocumentSnapshot> events;
   final DateTime latestTimestamp;
   final bool hasUnread;
@@ -47,7 +41,7 @@ class NotificationGroup {
   NotificationGroup({
     required this.docId,
     required this.collection,
-    this.type = '', // Default empty
+    this.type = '',
     required this.events,
     required this.latestTimestamp,
     required this.hasUnread,
@@ -83,15 +77,11 @@ class NotificationsPage extends StatefulWidget {
 
 class _NotificationsPageState extends State<NotificationsPage> {
   String? _userId;
-  // ignore: unused_field
   bool _isLoading = false;
 
-  // 🎨 Theme Colors (Premium Palette)
-  final Color _bgLight = const Color(0xFFF0F2F5);
-  final Color _cardWhite = Colors.white;
-  final Color _primaryBlue = const Color(0xFF2962FF);
-  final Color _textDark = const Color(0xFF111111);
-  final Color _textGrey = const Color(0xFF616161);
+  final Color _primaryBlue = const Color(0xFF007AFF); // iOS Blue
+  final Color _textDark = const Color(0xFF1C1C1E);
+  final Color _textGrey = const Color(0xFF8E8E93);
 
   @override
   void initState() {
@@ -99,14 +89,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
     _userId = FirebaseAuth.instance.currentUser?.uid;
   }
 
-  /// ✅ GROUPING LOGIC
   List<NotificationGroup> _groupNotifications(List<QueryDocumentSnapshot> docs) {
     Map<String, List<DocumentSnapshot>> groups = {};
 
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
-      // For standard docs, key is relatedDocId. For Briefings/Reminders, we group by ID directly to avoid stacking wrong items.
-      // If relatedDocId is missing (like in some system notifs), use doc.id.
       final String key = data['relatedDocId'] ?? doc.id;
 
       if (!groups.containsKey(key)) {
@@ -129,7 +116,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       groupList.add(NotificationGroup(
         docId: key,
         collection: latestDoc['relatedCollection'] ?? 'unknown',
-        type: latestDoc['type'] ?? '', // Capture Type
+        type: latestDoc['type'] ?? '',
         events: events,
         latestTimestamp: (latestDoc['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
         hasUnread: hasUnread,
@@ -140,8 +127,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return groupList;
   }
 
-  /// ✅ SMART DATE FORMATTING LOGIC
-  /// Returns "TimeAgo" if < 24h, otherwise explicit Date/Time
   String _formatSmartDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);
@@ -149,16 +134,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
     if (difference.inHours < 24) {
       return timeago.format(date, locale: 'fr');
     } else {
-      // Example: "24 janv. à 14:30"
       return DateFormat('d MMM à HH:mm', 'fr').format(date);
     }
   }
 
-  /// ✅ BATCH DELETE LOGIC (SWIPE ACTION)
   Future<void> _deleteNotificationGroup(NotificationGroup group) async {
     final batch = FirebaseFirestore.instance.batch();
-
-    // Delete all individual notifications in this group
     for (var doc in group.events) {
       batch.delete(doc.reference);
     }
@@ -168,9 +149,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text("Notifications supprimées"),
+              content: Text("Notifications supprimées", style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w500)),
               behavior: SnackBarBehavior.floating,
-              backgroundColor: _textDark,
+              backgroundColor: _textDark.withOpacity(0.9),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               duration: const Duration(seconds: 2),
             )
         );
@@ -184,29 +166,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
-  /// ✅ PARSING LOGIC: Cleans up title
   String _cleanTitle(String title) {
-    final prefixes = [
-      "Mise à jour :", "Mise à jour", "Update:", "Notification:", "Rappel :"
-    ];
-
+    final prefixes = ["Mise à jour :", "Mise à jour", "Update:", "Notification:", "Rappel :"];
     String clean = title;
     for (var prefix in prefixes) {
       if (clean.toLowerCase().startsWith(prefix.toLowerCase())) {
         clean = clean.substring(prefix.length).trim();
       }
     }
-    if (clean.isNotEmpty) {
-      clean = clean[0].toUpperCase() + clean.substring(1);
-    }
+    if (clean.isNotEmpty) clean = clean[0].toUpperCase() + clean.substring(1);
     return clean;
   }
 
-  /// ✅ CENTRALIZED STATUS LOGIC
   _StatusAttributes _getStatusAttributes(String body, String type) {
     final lowerBody = body.toLowerCase();
 
-    // ☀️ MORNING BRIEFING
     if (type == 'morning_briefing') {
       return _StatusAttributes(
         color: Colors.amber.shade800,
@@ -216,189 +190,54 @@ class _NotificationsPageState extends State<NotificationsPage> {
       );
     }
 
-    // ⏰ MILEAGE REMINDER (Added Logic)
     if (type == 'reminder') {
-      // 🚗 Check if it's specifically an OIL CHANGE ALERT
       if (lowerBody.contains("vidange") || lowerBody.contains("oil change")) {
-        // Critical Alert (Red)
         if (lowerBody.contains("🚨") || lowerBody.contains("critique") || lowerBody.contains("1000")) {
-          return _StatusAttributes(
-            color: const Color(0xFFD50000), // Intense Red
-            bgColor: const Color(0xFFFFEBEE), // Light Red
-            label: "VIDANGE URGENTE",
-            badgeIcon: Icons.water_drop_rounded, // Oil Drop
-          );
+          return _StatusAttributes(color: const Color(0xFFD50000), bgColor: const Color(0xFFFFEBEE), label: "VIDANGE URGENTE", badgeIcon: Icons.water_drop_rounded);
         }
-        // Warning Alert (Orange)
-        return _StatusAttributes(
-          color: const Color(0xFFFF6D00), // Orange
-          bgColor: const Color(0xFFFFF3E0), // Light Orange
-          label: "VIDANGE BIENTÔT",
-          badgeIcon: Icons.water_drop_outlined,
-        );
+        return _StatusAttributes(color: const Color(0xFFFF6D00), bgColor: const Color(0xFFFFF3E0), label: "VIDANGE BIENTÔT", badgeIcon: Icons.water_drop_outlined);
       }
-
-      // Default Mileage Reminder
-      return _StatusAttributes(
-        color: const Color(0xFFFFD600), // Strong Yellow
-        bgColor: const Color(0xFFFFF9C4), // Light Yellow
-        label: "RAPPEL KILOMÉTRAGE",
-        badgeIcon: Icons.speed_rounded,
-      );
+      return _StatusAttributes(color: const Color(0xFFFFD600), bgColor: const Color(0xFFFFF9C4), label: "RAPPEL KILOMÉTRAGE", badgeIcon: Icons.speed_rounded);
     }
 
     if (lowerBody.contains("terminé") || lowerBody.contains("clôturé") || lowerBody.contains("livré") || lowerBody.contains("validé")) {
-      return _StatusAttributes(
-        color: const Color(0xFF1B5E20), // Green
-        bgColor: const Color(0xFFE8F5E9),
-        label: "TERMINÉ",
-        badgeIcon: Icons.check_circle_rounded,
-      );
+      // YOUR CUSTOM GREEN
+      return _StatusAttributes(color: const Color(0xFF1B5E20), bgColor: const Color(0xFFE8F5E9), label: "TERMINÉ", badgeIcon: Icons.check_circle_rounded);
     } else if (lowerBody.contains("en cours") || lowerBody.contains("démarré") || lowerBody.contains("traitement") || lowerBody.contains("update") || lowerBody.contains("mise à jour")) {
-      return _StatusAttributes(
-        color: const Color(0xFFE65100), // Orange
-        bgColor: const Color(0xFFFFF3E0),
-        label: "EN COURS",
-        badgeIcon: Icons.schedule_rounded,
-      );
+      // YOUR CUSTOM ORANGE
+      return _StatusAttributes(color: const Color(0xFFE65100), bgColor: const Color(0xFFFFF3E0), label: "EN COURS", badgeIcon: Icons.schedule_rounded);
     } else if (lowerBody.contains("urgent") || lowerBody.contains("problème") || lowerBody.contains("panne")) {
-      return _StatusAttributes(
-        color: const Color(0xFFB71C1C), // Red
-        bgColor: const Color(0xFFFFEBEE),
-        label: "URGENT",
-        badgeIcon: Icons.warning_rounded,
-      );
+      // YOUR CUSTOM RED
+      return _StatusAttributes(color: const Color(0xFFB71C1C), bgColor: const Color(0xFFFFEBEE), label: "URGENT", badgeIcon: Icons.warning_rounded);
     } else {
-      return _StatusAttributes(
-        color: const Color(0xFF2962FF), // Blue
-        bgColor: const Color(0xFFE3F2FD),
-        label: "NOUVEAU",
-        badgeIcon: Icons.info_rounded,
-      );
+      // YOUR CUSTOM BLUE
+      return _StatusAttributes(color: const Color(0xFF2962FF), bgColor: const Color(0xFFE3F2FD), label: "NOUVEAU", badgeIcon: Icons.info_rounded);
     }
   }
 
-  /// ✅ HELPER: Generate Gradient based on Status Color
+  // ✅ BRING BACK YOUR GRADIENT FUNCTION
   LinearGradient _getGradientForStatus(_StatusAttributes status) {
     return LinearGradient(
-      colors: [
-        status.color.withOpacity(0.85), // Slightly lighter start
-        status.color,                   // Solid color end
-      ],
+      colors: [status.color.withOpacity(0.85), status.color],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
     );
   }
 
-  /// ✅ DYNAMIC STORYTELLER ICON
-  Widget _buildDynamicStoryIcon(String collection, String body, String type) {
-    // ☀️ Special Case for Briefing
-    if (type == 'morning_briefing') {
-      return Stack(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.amber.shade50,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.amber.shade200, width: 1.5),
-            ),
-            child: Icon(Icons.wb_sunny_rounded, color: Colors.amber.shade800, size: 28),
-          ),
-          Positioned(
-            bottom: -2,
-            right: -2,
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: const BoxDecoration(color: Colors.deepOrange, shape: BoxShape.circle),
-                child: const Icon(Icons.priority_high_rounded, color: Colors.white, size: 10),
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-
-    final status = _getStatusAttributes(body, type);
-    // 🛢️ Override Icon for Oil Change
-    IconData mainIcon = _getIconForCollection(collection);
-    if (type == 'reminder' && (body.toLowerCase().contains('vidange') || body.toLowerCase().contains('oil'))) {
-      mainIcon = Icons.oil_barrel_outlined;
-    }
-
-    return Stack(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: status.bgColor,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: status.color.withOpacity(0.15), width: 1.5),
-          ),
-          child: Icon(
-            mainIcon,
-            color: status.color.withOpacity(0.85),
-            size: 24,
-          ),
-        ),
-        Positioned(
-          bottom: -2,
-          right: -2,
-          child: Container(
-            padding: const EdgeInsets.all(2), // White border effect
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                color: status.color,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(color: status.color.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2)),
-                ],
-              ),
-              child: Icon(
-                status.badgeIcon,
-                color: Colors.white,
-                size: 10,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// ✅ STATUS PILL
   Widget _buildStatusPill(_StatusAttributes status) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: status.bgColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
+      decoration: BoxDecoration(color: status.bgColor, borderRadius: BorderRadius.circular(8)),
       child: Text(
         status.label,
-        style: GoogleFonts.poppins(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: status.color,
-          letterSpacing: 0.5,
-        ),
+        style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w800, color: status.color, letterSpacing: 0.5),
       ),
     );
   }
 
   IconData _getIconForCollection(String? collection) {
     switch (collection) {
-      case 'portal_requests': return Icons.lock_clock; // Special Icon for Requests
+      case 'portal_requests': return Icons.lock_clock;
       case 'interventions': return Icons.handyman_rounded;
       case 'installations': return Icons.router_rounded;
       case 'sav_tickets': return Icons.assignment_return_rounded;
@@ -413,9 +252,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
-  // ✅ NAVIGATION LOGIC (UPDATED WITH SMART REDIRECT)
   Future<void> _navigateToDetails(String? collection, String? docId, String type, List<DocumentSnapshot> groupEvents) async {
-    // 1. Mark as Read immediately
     for (var doc in groupEvents) {
       final data = doc.data() as Map<String, dynamic>;
       if (data['isRead'] == false) {
@@ -423,120 +260,75 @@ class _NotificationsPageState extends State<NotificationsPage> {
       }
     }
 
-    // ----------------------------------------------------------------------
-    // ☀️ 0. MORNING BRIEFING LOGIC (Highest Priority)
-    // ----------------------------------------------------------------------
     if (type == 'morning_briefing') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const MorningBriefingSummaryPage()),
-      );
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const MorningBriefingSummaryPage()));
       return;
     }
 
-    // ----------------------------------------------------------------------
-    // 🚗 0.5 MILEAGE/OIL REMINDER LOGIC (Fleet Redirection)
-    // ----------------------------------------------------------------------
     if (type == 'reminder' && collection == 'vehicles') {
-      // Logic: If docId is "fleet_list" (from the Oil Change Alert), go to Fleet List.
-      // If it's a specific car ID, we could go to details, but Fleet List is safer default.
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const FleetListPage()),
-      );
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const FleetListPage()));
       return;
     }
 
     if (collection == null || docId == null) return;
 
     setState(() => _isLoading = true);
+
+    // Modern iOS Loading overlay
     showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+        context: context,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withOpacity(0.2),
+        builder: (ctx) => Center(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(color: Colors.white.withOpacity(0.8), borderRadius: BorderRadius.circular(20)),
+                child: const CircularProgressIndicator(color: Colors.black87, strokeWidth: 3),
+              ),
+            )
+        )
     );
 
     try {
       Widget? pageToNavigate;
 
-      // ----------------------------------------------------------------------
-      // 🚀 1. SPECIAL LOGIC: PORTAL REQUESTS
-      // ----------------------------------------------------------------------
       if (collection == 'portal_requests') {
-        final doc = await FirebaseFirestore.instance.collection('interventions').doc(docId).get()
-            .timeout(const Duration(seconds: 10));
-
+        final doc = await FirebaseFirestore.instance.collection('interventions').doc(docId).get().timeout(const Duration(seconds: 10));
         if (doc.exists) {
           final data = doc.data() as Map<String, dynamic>;
           final status = data['status'] ?? '';
-
           if (status == 'En Attente Validation') {
             pageToNavigate = PortalRequestDetailsPage(interventionId: docId);
           } else {
             pageToNavigate = InterventionDetailsPage(interventionDoc: doc);
           }
-        } else {
-          throw Exception("Cette demande n'existe plus.");
         }
-      }
-
-      // ----------------------------------------------------------------------
-      // 2. STANDARD LOGIC
-      // ----------------------------------------------------------------------
-      else if (['interventions', 'sav_tickets', 'installations', 'projects', 'livraisons', 'requisitions', 'missions'].contains(collection)) {
-        final doc = await FirebaseFirestore.instance.collection(collection!).doc(docId).get()
-            .timeout(const Duration(seconds: 10));
-
+      } else if (['interventions', 'sav_tickets', 'installations', 'projects', 'livraisons', 'requisitions', 'missions'].contains(collection)) {
+        final doc = await FirebaseFirestore.instance.collection(collection!).doc(docId).get().timeout(const Duration(seconds: 10));
         if (!doc.exists) throw Exception("Ce document n'existe plus.");
 
         switch (collection) {
           case 'interventions': pageToNavigate = InterventionDetailsPage(interventionDoc: doc); break;
-          case 'sav_tickets':
-            final ticket = SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
-            pageToNavigate = SavTicketDetailsPage(ticket: ticket);
-            break;
-
-        // ✅ SMART NAV: Installation Timeline vs Details
+          case 'sav_tickets': pageToNavigate = SavTicketDetailsPage(ticket: SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>)); break;
           case 'installations':
             final data = doc.data() as Map<String, dynamic>;
-            final status = data['status'];
-            // If "En Cours", we assume it's an active job needing the Timeline
-            if (status == 'En Cours') {
-              pageToNavigate = InstallationTimelinePage(
-                installationId: docId,
-                installationData: data,
-              );
+            if (data['status'] == 'En Cours') {
+              pageToNavigate = InstallationTimelinePage(installationId: docId, installationData: data);
             } else {
-              // Otherwise (Terminée, À Planifier, etc.), go to Details
               pageToNavigate = InstallationDetailsPage(installationDoc: doc, userRole: widget.userRole);
             }
             break;
-
           case 'projects': pageToNavigate = ProjectDetailsPage(projectId: docId, userRole: widget.userRole); break;
           case 'livraisons': pageToNavigate = LivraisonDetailsPage(livraisonId: docId); break;
           case 'requisitions': pageToNavigate = RequisitionDetailsPage(requisitionId: docId, userRole: widget.userRole); break;
-          case 'missions':
-            final mission = Mission.fromFirestore(doc);
-            pageToNavigate = MissionDetailsPage(mission: mission);
-            break;
+          case 'missions': pageToNavigate = MissionDetailsPage(mission: Mission.fromFirestore(doc)); break;
         }
-      }
-      // ----------------------------------------------------------------------
-      // 3. CHANNEL LOGIC (Direct Navigation to Chat)
-      // ----------------------------------------------------------------------
-      else if (collection == 'channels') {
-        final doc = await FirebaseFirestore.instance.collection('channels').doc(docId).get()
-            .timeout(const Duration(seconds: 10));
-
-        if (doc.exists) {
-          final channel = ChannelModel.fromFirestore(doc);
-          pageToNavigate = ChannelChatPage(channel: channel);
-        } else {
-          // Fallback to Hub if the specific channel is gone
-          pageToNavigate = const AnnounceHubPage();
-        }
-      }
-      else if (collection == 'reminders') pageToNavigate = const RappelPage();
+      } else if (collection == 'channels') {
+        final doc = await FirebaseFirestore.instance.collection('channels').doc(docId).get().timeout(const Duration(seconds: 10));
+        pageToNavigate = doc.exists ? ChannelChatPage(channel: ChannelModel.fromFirestore(doc)) : const AnnounceHubPage();
+      } else if (collection == 'reminders') pageToNavigate = const RappelPage();
       else if (collection == 'vehicles') pageToNavigate = const FleetListPage();
 
       if (mounted) {
@@ -557,224 +349,227 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
+  // =======================================================================
+  // UI BUILDERS (Vibrant iOS 26 Aesthetic)
+  // =======================================================================
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bgLight,
+      backgroundColor: const Color(0xFFF2F2F7), // Base iOS background
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text(
-          'Notifications',
-          style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 24),
-        ),
+        title: Text('Notifications', style: GoogleFonts.inter(color: Colors.black87, fontWeight: FontWeight.w800, fontSize: 28, letterSpacing: -0.5)),
         centerTitle: false,
-        backgroundColor: _bgLight,
+        backgroundColor: Colors.white.withOpacity(0.5),
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 22),
-          onPressed: () => Navigator.pop(context),
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(color: Colors.white.withOpacity(0.2)),
+          ),
         ),
+        leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 22), onPressed: () => Navigator.pop(context)),
       ),
-      body: _userId == null
-          ? Center(child: Text("Erreur: Non connecté", style: GoogleFonts.poppins(color: Colors.red)))
-          : StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('user_notifications')
-            .where('userId', isEqualTo: _userId)
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator(color: _primaryBlue));
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return _buildEmptyState();
-          }
+      body: Stack(
+        children: [
+          //  1. VIBRANT MESH BACKGROUND (Absolute positioning for performance)
+          Positioned(
+              top: -100, left: -100,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+                child: Container(width: 300, height: 300, decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFFF2D55).withOpacity(0.15))),
+              )
+          ),
+          Positioned(
+              bottom: -50, right: -50,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
+                child: Container(width: 400, height: 400, decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF007AFF).withOpacity(0.15))),
+              )
+          ),
+          Positioned(
+              top: 300, right: -150,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+                child: Container(width: 300, height: 300, decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFAF52DE).withOpacity(0.15))),
+              )
+          ),
+          // 📄 2. CONTENT LAYER
+          SafeArea(
+            child: _userId == null
+                ? Center(child: Text("Erreur: Non connecté", style: GoogleFonts.inter(color: Colors.red)))
+                : StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('user_notifications').where('userId', isEqualTo: _userId).orderBy('timestamp', descending: true).snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator(color: _primaryBlue));
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return _buildEmptyState();
 
-          final groups = _groupNotifications(snapshot.data!.docs);
+                final groups = _groupNotifications(snapshot.data!.docs);
 
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            itemCount: groups.length,
-            physics: const BouncingScrollPhysics(),
-            separatorBuilder: (ctx, i) => const SizedBox(height: 20),
-            itemBuilder: (context, index) {
-              // ⚡⚡⚡ WRAP IN DISMISSIBLE FOR SWIPE-TO-DELETE
-              return Dismissible(
-                key: Key(groups[index].docId), // Unique Key for the Group
-                direction: DismissDirection.endToStart, // Swipe Right to Left
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 24),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade400,
-                    borderRadius: BorderRadius.circular(24),
+                // 🌐 Web Adaptability (MaxWidth 750)
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 750),
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                      itemCount: groups.length,
+                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                      separatorBuilder: (ctx, i) => const SizedBox(height: 16),
+                      itemBuilder: (context, index) {
+                        return Dismissible(
+                          key: Key(groups[index].docId),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 28),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFFFF3B30), Color(0xFFFF453A)]),
+                              borderRadius: BorderRadius.circular(32),
+                            ),
+                            child: const Icon(Icons.delete_sweep_rounded, color: Colors.white, size: 32),
+                          ),
+                          onDismissed: (direction) => _deleteNotificationGroup(groups[index]),
+                          child: _buildGlassCard(groups[index]),
+                        );
+                      },
+                    ),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        "Supprimer",
-                        style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.delete_outline_rounded, color: Colors.white, size: 28),
-                    ],
-                  ),
-                ),
-                onDismissed: (direction) {
-                  _deleteNotificationGroup(groups[index]);
-                },
-                child: _buildBigCard(groups[index]),
-              );
-            },
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  // 🔥 "COMMAND CENTER" CARD LAYOUT
-  Widget _buildBigCard(NotificationGroup group) {
+  Widget _buildGlassCard(NotificationGroup group) {
     final latestData = group.events.first.data() as Map<String, dynamic>;
     final String rawTitle = latestData['title'] ?? 'Notification';
     final String rawBody = latestData['body'] ?? '';
     final String cleanTitle = _cleanTitle(rawTitle);
     final int count = group.events.length;
-    final status = _getStatusAttributes(rawBody, group.type); // Get status info
+    final status = _getStatusAttributes(rawBody, group.type);
 
-    // Determine category name from collection
     String categoryName = group.collection.toUpperCase();
     if (group.collection == 'sav_tickets') categoryName = "SERVICE APRÈS-VENTE";
     if (group.collection == 'portal_requests') categoryName = "DEMANDE CLIENT";
     if (group.collection == 'vehicles') categoryName = "GESTION PARC";
-    if (group.type == 'morning_briefing') categoryName = "QUOTIDIEN"; // ☀️ Special Header
-    if (group.type == 'reminder') categoryName = "MAINTENANCE FLOTTE"; // ⏰ Special Header
+    if (group.type == 'morning_briefing') categoryName = "QUOTIDIEN";
+    if (group.type == 'reminder') categoryName = "MAINTENANCE FLOTTE";
 
-    // Custom Button Logic
-    String buttonText = "VOIR";
-    IconData buttonIcon = Icons.arrow_forward_rounded;
-    Color buttonColor = _primaryBlue;
-
-    if (group.type == 'reminder') {
-      buttonText = "CONTRÔLER";
-      buttonIcon = Icons.car_repair_rounded;
-      buttonColor = Colors.amber.shade900;
+    IconData mainIcon = _getIconForCollection(group.collection);
+    if (group.type == 'reminder' && (rawBody.toLowerCase().contains('vidange') || rawBody.toLowerCase().contains('oil'))) {
+      mainIcon = Icons.oil_barrel_outlined;
     }
 
     return Container(
       decoration: BoxDecoration(
-        color: _cardWhite,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(32),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 24, offset: const Offset(0, 10)),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: InkWell(
-          onTap: () => _navigateToDetails(group.collection, group.docId, group.type, group.events),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. TOP HEADER BANNER (Updated Logic: Color by Status)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                decoration: BoxDecoration(
-                  // ⚡ CHANGED: Uses status color instead of collection color
-                  gradient: _getGradientForStatus(status),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        categoryName,
-                        style: GoogleFonts.poppins(
-                          color: status.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white, // Smart Text Color
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.5,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (group.hasUnread)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          "NON LU",
-                          style: GoogleFonts.poppins(
-                            color: status.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-
-              // 2. HERO CONTENT
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                child: Row(
+        borderRadius: BorderRadius.circular(32),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25), // Intense Glass Blur
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.65), // Frosted White Base
+              borderRadius: BorderRadius.circular(32),
+              border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _navigateToDetails(group.collection, group.docId, group.type, group.events),
+                highlightColor: Colors.black.withOpacity(0.05),
+                splashColor: Colors.black.withOpacity(0.05),
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Dynamic Icon (Matches Status Color)
-                    _buildDynamicStoryIcon(group.collection, rawBody, group.type),
+                    // ✅ YOUR COLORED GRADIENT HEADER IS BACK!
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: _getGradientForStatus(status),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(mainIcon, size: 16, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              categoryName,
+                              style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.2
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (group.hasUnread)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.white.withOpacity(0.25), borderRadius: BorderRadius.circular(20)),
+                              child: Text(
+                                "NON LU",
+                                style: GoogleFonts.inter(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          Text(
+                              _formatSmartDate(group.latestTimestamp),
+                              style: GoogleFonts.inter(fontSize: 12, color: Colors.white.withOpacity(0.9), fontWeight: FontWeight.w600)
+                          ),
+                        ],
+                      ),
+                    ),
 
-                    const SizedBox(width: 16),
-
-                    // TEXT CONTENT
-                    Expanded(
-                      child: Column(
+                    // MAIN CONTENT
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+                      child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            cleanTitle,
-                            style: GoogleFonts.poppins(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: _textDark,
-                              height: 1.2,
-                            ),
+                          // SMART AVATAR (Glass Styled)
+                          _StoreLogoAvatar(
+                            collection: group.collection,
+                            type: group.type,
+                            data: latestData,
+                            status: status,
+                            defaultIcon: mainIcon,
                           ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              _buildStatusPill(status),
-                              if (count > 1) ...[
-                                const SizedBox(width: 8),
-                                Text(
-                                  "+${count - 1} maj",
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: _textGrey,
-                                  ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(cleanTitle, style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700, color: _textDark, height: 1.2, letterSpacing: -0.3)),
+                                const SizedBox(height: 8),
+                                Text(rawBody, style: GoogleFonts.inter(fontSize: 14, color: _textGrey.withOpacity(0.9), height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    _buildStatusPill(status),
+                                    if (count > 1) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(color: Colors.black.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
+                                        child: Text("+${count - 1} updates", style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: _textGrey)),
+                                      )
+                                    ]
+                                  ],
                                 ),
-                              ]
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            rawBody,
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              color: _textGrey,
-                              height: 1.5,
+                              ],
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -782,68 +577,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   ],
                 ),
               ),
-
-              const SizedBox(height: 0),
-              Divider(color: Colors.grey.shade100, thickness: 1.5, height: 1),
-
-              // 3. ACTION FOOTER
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.access_time_rounded, size: 14, color: _textGrey.withOpacity(0.6)),
-                    const SizedBox(width: 6),
-                    // ⚡⚡⚡ UPDATED: Uses Smart Date Logic
-                    Text(
-                      _formatSmartDate(group.latestTimestamp),
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: _textGrey.withOpacity(0.8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    // 🚗 Special Action Button for Mileage/Oil Reminder
-                    if (group.type == 'reminder')
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: buttonColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: buttonColor),
-                        ),
-                        child: Row(
-                          children: [
-                            Text(
-                              buttonText,
-                              style: GoogleFonts.poppins(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                                color: buttonColor,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Icon(buttonIcon, size: 14, color: buttonColor),
-                          ],
-                        ),
-                      )
-                    else ...[
-                      Text(
-                        "VOIR",
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: _primaryBlue,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.arrow_forward_rounded, size: 16, color: _primaryBlue),
-                    ],
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -856,26 +590,126 @@ class _NotificationsPageState extends State<NotificationsPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.all(30),
+            padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Colors.white.withOpacity(0.6),
               shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 30, offset: const Offset(0, 10))],
             ),
-            child: Icon(Icons.mark_email_read_outlined, size: 50, color: Colors.grey.shade400),
+            child: Icon(Icons.check_circle_outline_rounded, size: 60, color: Colors.black.withOpacity(0.2)),
           ),
-          const SizedBox(height: 20),
-          Text(
-            'Boîte de réception vide',
-            style: GoogleFonts.poppins(fontSize: 18, color: _textDark, fontWeight: FontWeight.w600),
-          ),
+          const SizedBox(height: 24),
+          Text('All Caught Up', style: GoogleFonts.inter(fontSize: 22, color: _textDark, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
           const SizedBox(height: 8),
-          Text(
-            'Tout est calme pour le moment.',
-            style: GoogleFonts.poppins(fontSize: 14, color: _textGrey),
-          ),
+          Text('You have no new notifications.', style: GoogleFonts.inter(fontSize: 15, color: _textGrey, fontWeight: FontWeight.w500)),
         ],
       ),
+    );
+  }
+}
+
+// ============================================================================
+// ✅ THE SMART STORE LOGO AVATAR (Redesigned for Glassmorphism)
+// ============================================================================
+class _StoreLogoAvatar extends StatefulWidget {
+  final String collection;
+  final String type;
+  final Map<String, dynamic> data;
+  final _StatusAttributes status;
+  final IconData defaultIcon;
+
+  const _StoreLogoAvatar({
+    required this.collection,
+    required this.type,
+    required this.data,
+    required this.status,
+    required this.defaultIcon,
+  });
+
+  @override
+  State<_StoreLogoAvatar> createState() => _StoreLogoAvatarState();
+}
+
+class _StoreLogoAvatarState extends State<_StoreLogoAvatar> {
+  String? _logoUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLogo();
+  }
+
+  Future<void> _fetchLogo() async {
+    if (widget.type == 'morning_briefing') return;
+    if (!['interventions', 'installations', 'sav_tickets', 'livraisons', 'portal_requests'].contains(widget.collection)) return;
+
+    try {
+      String? storeId = widget.data['storeId'];
+      String? clientId = widget.data['clientId'];
+
+      if (storeId == null && widget.data['relatedDocId'] != null) {
+        final relatedDocRef = await FirebaseFirestore.instance
+            .collection(widget.collection == 'portal_requests' ? 'interventions' : widget.collection)
+            .doc(widget.data['relatedDocId'])
+            .get();
+
+        if (relatedDocRef.exists) {
+          storeId = relatedDocRef.data()?['storeId'];
+          clientId = relatedDocRef.data()?['clientId'];
+        }
+      }
+
+      if (clientId != null && storeId != null) {
+        final storeDoc = await FirebaseFirestore.instance.collection('clients').doc(clientId).collection('stores').doc(storeId).get();
+
+        if (storeDoc.exists && storeDoc.data()?['logoUrl'] != null) {
+          final fetchedUrl = storeDoc.data()!['logoUrl'] as String;
+          if (fetchedUrl.isNotEmpty && mounted) {
+            setState(() {
+              _logoUrl = fetchedUrl;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching store logo for notification: $e");
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.type == 'morning_briefing') {
+      return Container(
+        width: 56, height: 56,
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF9500).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withOpacity(0.5), width: 1.5),
+        ),
+        child: const Icon(Icons.wb_sunny_rounded, color: Color(0xFFFF9500), size: 30),
+      );
+    }
+
+    return Container(
+      width: 56, height: 56,
+      decoration: BoxDecoration(
+        color: widget.status.bgColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.8), width: 2), // Thick white rim
+        boxShadow: [BoxShadow(color: widget.status.color.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 5))],
+      ),
+      child: _logoUrl != null
+          ? ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: CachedNetworkImage(
+          imageUrl: _logoUrl!,
+          fit: BoxFit.cover,
+          placeholder: (context, url) => Center(child: CircularProgressIndicator(strokeWidth: 2, color: widget.status.color.withOpacity(0.5))),
+          errorWidget: (context, url, error) => Icon(widget.defaultIcon, color: widget.status.color.withOpacity(0.85), size: 28),
+        ),
+      )
+          : Icon(widget.defaultIcon, color: widget.status.color.withOpacity(0.85), size: 28),
     );
   }
 }
