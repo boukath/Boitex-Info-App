@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:ui';
 // ✅ ADDED: For premium 4K fonts
 import 'package:google_fonts/google_fonts.dart';
+// ✅ ADDED: For Android Home Screen Widget
+import 'package:home_widget/home_widget.dart';
 
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
@@ -56,12 +58,68 @@ class _ServiceTechniqueDashboardPageState
         .animate(
         CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
     _controller.forward();
+
+    // ✅ TRIGGER WIDGET UPDATE ON DASHBOARD LOAD
+    if (!kIsWeb) {
+      updateHomeWidgetCounts();
+    }
   }
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  // ✅ UPDATED FUNCTION: Update the Android Home Screen Widget
+  Future<void> updateHomeWidgetCounts() async {
+    // 1. 🔥 DELAY ADDED: Gives Firebase Auth time to resolve and sync locally
+    await Future.delayed(const Duration(seconds: 2));
+
+    final firestore = FirebaseFirestore.instance;
+
+    try {
+      // 2. 🚀 FORCE SERVER FETCH: Prevents it from reading an empty local offline cache
+      final interventionsSnap = await firestore
+          .collection('interventions')
+          .where('serviceType', isEqualTo: 'Service Technique')
+          .where('status', isEqualTo: 'Nouvelle Demande')
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      final installationsSnap = await firestore
+          .collection('installations')
+          .where('serviceType', isEqualTo: 'Service Technique')
+          .where('status', whereIn: ['Nouveau', 'Planifiée'])
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      final savSnap = await firestore
+          .collection('sav_tickets')
+          .where('serviceType', isEqualTo: 'Service Technique')
+          .where('status', isEqualTo: 'Nouveau')
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      final missionsSnap = await firestore
+          .collection('missions')
+          .where('serviceType', isEqualTo: 'Service Technique')
+          .where('status', whereIn: ['En Cours', 'Planifiée'])
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      // 3. Save the new counts
+      await HomeWidget.saveWidgetData<String>('interventions_count', interventionsSnap.docs.length.toString());
+      await HomeWidget.saveWidgetData<String>('installations_count', installationsSnap.docs.length.toString());
+      await HomeWidget.saveWidgetData<String>('sav_count', savSnap.docs.length.toString());
+      await HomeWidget.saveWidgetData<String>('missions_count', missionsSnap.docs.length.toString());
+
+      // 4. 🔥 EXPLICIT ANDROID TARGETING: Wake up the native Android code
+      await HomeWidget.updateWidget(
+        name: 'ServiceDashboardWidgetProvider',
+        androidName: 'ServiceDashboardWidgetProvider',
+      );
+
+      debugPrint("✅ Widget successfully updated with live data!");
+    } catch (e) {
+      debugPrint("❌ Error updating widget: $e");
+    }
   }
 
   @override
@@ -571,7 +629,6 @@ class _ServiceTechniqueDashboardPageState
           ),
         ),
       ),
-      // ❌ REMOVED: Journal Card was completely removed here.
       _ActionData(
         'Évaluations',
         Icons.pending_actions_rounded,

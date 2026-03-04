@@ -1,8 +1,11 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+
 // ✅ Import the SAV Model
 import 'package:boitex_info_app/models/sav_ticket.dart';
 
@@ -16,15 +19,17 @@ class MorningBriefingSummaryPage extends StatefulWidget {
   const MorningBriefingSummaryPage({super.key});
 
   @override
-  State<MorningBriefingSummaryPage> createState() => _MorningBriefingSummaryPageState();
+  State<MorningBriefingSummaryPage> createState() =>
+      _MorningBriefingSummaryPageState();
 }
 
-class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage> {
+class _MorningBriefingSummaryPageState
+    extends State<MorningBriefingSummaryPage> {
   bool _isLoading = true;
   String? _userRole;
   Map<String, List<String>> _contentVisibility = {};
 
-  // ✅ FIXED: Strictly Typed Lists to avoid "Object?" errors
+  // ✅ Strictly Typed Lists to avoid "Object?" errors
   List<DocumentSnapshot<Map<String, dynamic>>> _interventions = [];
   List<DocumentSnapshot<Map<String, dynamic>>> _savTickets = [];
   List<DocumentSnapshot<Map<String, dynamic>>> _livraisons = [];
@@ -44,16 +49,23 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
       if (user == null) return;
 
       // 1. Get User Role
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       _userRole = userDoc.data()?['role'];
 
       // 2. Get Briefing Settings (Permissions)
-      final settingsDoc = await FirebaseFirestore.instance.collection('settings').doc('morning_briefing').get();
+      final settingsDoc = await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('morning_briefing')
+          .get();
       if (settingsDoc.exists) {
         final data = settingsDoc.data()!;
         if (data['content_visibility'] != null) {
           final Map<String, dynamic> rawMap = data['content_visibility'];
-          _contentVisibility = rawMap.map((key, value) => MapEntry(key, List<String>.from(value)));
+          _contentVisibility = rawMap
+              .map((key, value) => MapEntry(key, List<String>.from(value)));
         }
       }
 
@@ -89,13 +101,14 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
         .where('status', isEqualTo: 'Nouvelle Demande')
         .limit(20)
         .get();
-    _interventions = snap.docs; // Implicitly cast because we typed the list correctly
+    _interventions = snap.docs;
   }
 
   Future<void> _fetchSav() async {
     final snap = await FirebaseFirestore.instance
         .collection('sav_tickets')
-        .where('status', whereIn: ['Nouveau', 'En cours', 'En attente de pièce', 'Diagnostiqué'])
+        .where('status',
+        whereIn: ['Nouveau', 'En cours', 'En attente de pièce', 'Diagnostiqué'])
         .limit(20)
         .get();
     _savTickets = snap.docs;
@@ -130,72 +143,179 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
 
   @override
   Widget build(BuildContext context) {
-    final totalTasks = _interventions.length + _savTickets.length + _livraisons.length + _billing.length + _requisitions.length;
+    final totalTasks = _interventions.length +
+        _savTickets.length +
+        _livraisons.length +
+        _billing.length +
+        _requisitions.length;
     final dateStr = DateFormat('EEEE d MMMM', 'fr').format(DateTime.now());
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : CustomScrollView(
-        slivers: [
-          // 1. Pro Header
-          SliverAppBar(
-            expandedHeight: 180,
-            floating: false,
-            pinned: true,
-            backgroundColor: Colors.blue[900],
-            flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
-              title: Text(
-                "Briefing Matinal",
-                style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
+      extendBodyBehindAppBar: true,
+      body: Stack(
+        children: [
+          // 1. Premium 4K iOS 2026 Background (Mesh Gradient Feel)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF0F172A), // Deep Slate
+                  Color(0xFF1E1B4B), // Deep Indigo
+                  Color(0xFF312E81), // Rich Purple
+                  Color(0xFF0F172A),
+                ],
+                stops: [0.0, 0.4, 0.8, 1.0],
               ),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Colors.blue[900]!, Colors.blue[700]!],
+            ),
+          ),
+          // Subtle glowing orbs in background
+          Positioned(
+            top: -100,
+            left: -100,
+            child: Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF8B5CF6).withOpacity(0.3),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -50,
+            right: -50,
+            child: Container(
+              width: 400,
+              height: 400,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF3B82F6).withOpacity(0.2),
+              ),
+            ),
+          ),
+          // Blur layer over the orbs to create the "mesh" effect
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+
+          // 2. Main Content (Adaptable for Web & Mobile)
+          SafeArea(
+            bottom: false,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800), // Web limit
+                child: _isLoading
+                    ? const Center(
+                  child: CupertinoActivityIndicator(
+                    color: Colors.white,
+                    radius: 20,
                   ),
-                ),
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 30),
-                    Text(
-                      dateStr.toUpperCase(),
-                      style: GoogleFonts.poppins(
-                        color: Colors.white70,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "$totalTasks Tâches en attente",
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: totalTasks == 0 ? 1 : 0.1,
-                        backgroundColor: Colors.white24,
-                        valueColor: AlwaysStoppedAnimation(
-                          totalTasks == 0 ? Colors.greenAccent : Colors.orangeAccent,
+                )
+                    : CustomScrollView(
+                  physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics()),
+                  slivers: [
+                    // Dynamic Glass Header
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 40, 24, 30),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              dateStr.toUpperCase(),
+                              style: GoogleFonts.poppins(
+                                color: Colors.white.withOpacity(0.6),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              "Briefing Matinal",
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 34,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            _buildProgressCard(totalTasks),
+                          ],
                         ),
-                        minHeight: 6,
+                      ),
+                    ),
+
+                    // Sections
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate([
+                          if (totalTasks == 0) _buildEmptyState(),
+
+                          if (_interventions.isNotEmpty)
+                            _buildGlassSection(
+                              title: "Interventions",
+                              count: _interventions.length,
+                              color: const Color(0xFFF59E0B), // Amber
+                              icon: CupertinoIcons.wrench_fill,
+                              items: _interventions,
+                              itemBuilder: (doc) =>
+                                  _buildInterventionCard(doc),
+                            ),
+
+                          if (_savTickets.isNotEmpty)
+                            _buildGlassSection(
+                              title: "Tickets SAV",
+                              count: _savTickets.length,
+                              color: const Color(0xFFEF4444), // Red
+                              icon: CupertinoIcons.ticket_fill,
+                              items: _savTickets,
+                              itemBuilder: (doc) => _buildSavCard(doc),
+                            ),
+
+                          if (_livraisons.isNotEmpty)
+                            _buildGlassSection(
+                              title: "Livraisons",
+                              count: _livraisons.length,
+                              color: const Color(0xFF3B82F6), // Blue
+                              icon: CupertinoIcons.cube_box_fill,
+                              items: _livraisons,
+                              itemBuilder: (doc) =>
+                                  _buildLivraisonCard(doc),
+                            ),
+
+                          if (_requisitions.isNotEmpty)
+                            _buildGlassSection(
+                              title: "Achats (Réquisitions)",
+                              count: _requisitions.length,
+                              color: const Color(0xFF10B981), // Emerald
+                              icon: CupertinoIcons.cart_fill,
+                              items: _requisitions,
+                              itemBuilder: (doc) => _buildSimpleCard(
+                                  doc, "requisitionCode", "requestedBy"),
+                            ),
+
+                          if (_billing.isNotEmpty)
+                            _buildGlassSection(
+                              title: "Facturation (Terminé)",
+                              count: _billing.length,
+                              color: const Color(0xFF8B5CF6), // Purple
+                              icon: CupertinoIcons.doc_text_fill,
+                              items: _billing,
+                              itemBuilder: (doc) =>
+                                  _buildInterventionCard(doc),
+                            ),
+
+                          const SizedBox(height: 60),
+                        ]),
                       ),
                     ),
                   ],
@@ -203,66 +323,119 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
 
-          // 2. Sections
-          SliverPadding(
-            padding: const EdgeInsets.all(16),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                if (totalTasks == 0) _buildEmptyState(),
+  // --- PREMIUM WIDGETS ---
 
-                if (_interventions.isNotEmpty)
-                  _buildSection(
-                    title: "Interventions",
-                    count: _interventions.length,
-                    color: Colors.orange,
-                    icon: Icons.build_circle_outlined,
-                    items: _interventions,
-                    itemBuilder: (doc) => _buildInterventionCard(doc),
-                  ),
+  Widget _buildProgressCard(int totalTasks) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+          ),
+          child: Row(
+            children: [
+              Container(
+                height: 50,
+                width: 50,
+                decoration: BoxDecoration(
+                  color: totalTasks == 0
+                      ? const Color(0xFF10B981).withOpacity(0.2)
+                      : const Color(0xFFF59E0B).withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  totalTasks == 0
+                      ? CupertinoIcons.check_mark_circled_solid
+                      : CupertinoIcons.bolt_fill,
+                  color: totalTasks == 0
+                      ? const Color(0xFF34D399)
+                      : const Color(0xFFFCD34D),
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      totalTasks == 0
+                          ? "Journée terminée"
+                          : "$totalTasks Tâches en attente",
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: totalTasks == 0 ? 1.0 : 0.3,
+                        backgroundColor: Colors.white.withOpacity(0.1),
+                        valueColor: AlwaysStoppedAnimation(
+                          totalTasks == 0
+                              ? const Color(0xFF34D399)
+                              : const Color(0xFF8B5CF6),
+                        ),
+                        minHeight: 6,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                if (_savTickets.isNotEmpty)
-                  _buildSection(
-                    title: "Tickets SAV",
-                    count: _savTickets.length,
-                    color: Colors.red,
-                    icon: Icons.confirmation_number_outlined,
-                    items: _savTickets,
-                    itemBuilder: (doc) => _buildSavCard(doc),
-                  ),
-
-                if (_livraisons.isNotEmpty)
-                  _buildSection(
-                    title: "Livraisons",
-                    count: _livraisons.length,
-                    color: Colors.blue,
-                    icon: Icons.local_shipping_outlined,
-                    items: _livraisons,
-                    itemBuilder: (doc) => _buildLivraisonCard(doc),
-                  ),
-
-                if (_requisitions.isNotEmpty)
-                  _buildSection(
-                    title: "Achats (Réquisitions)",
-                    count: _requisitions.length,
-                    color: Colors.teal,
-                    icon: Icons.shopping_cart_outlined,
-                    items: _requisitions,
-                    itemBuilder: (doc) => _buildSimpleCard(doc, "requisitionCode", "requestedBy"),
-                  ),
-
-                if (_billing.isNotEmpty)
-                  _buildSection(
-                    title: "Facturation (Terminé)",
-                    count: _billing.length,
-                    color: Colors.purple,
-                    icon: Icons.receipt_long,
-                    items: _billing,
-                    itemBuilder: (doc) => _buildInterventionCard(doc),
-                  ),
-
-                const SizedBox(height: 40),
-              ]),
+  Widget _buildEmptyState() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 60),
+      alignment: Alignment.center,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(
+                  color: const Color(0xFF10B981).withOpacity(0.3), width: 1),
+            ),
+            child: const Icon(CupertinoIcons.checkmark_seal_fill,
+                size: 64, color: Color(0xFF34D399)),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            "Tout est à jour !",
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Aucune tâche en attente pour votre rôle.\nProfitez de votre journée.",
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: 15,
+              height: 1.5,
             ),
           ),
         ],
@@ -270,126 +443,149 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
     );
   }
 
-  Widget _buildEmptyState() {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      alignment: Alignment.center,
-      child: Column(
-        children: [
-          Icon(Icons.check_circle_outline, size: 64, color: Colors.green[300]),
-          const SizedBox(height: 16),
-          Text(
-            "Tout est à jour !",
-            style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.grey[700]),
-          ),
-          Text(
-            "Aucune tâche en attente pour votre rôle.",
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- SECTION WIDGETS ---
-
-  Widget _buildSection({
+  Widget _buildGlassSection({
     required String title,
     required int count,
     required Color color,
     required IconData icon,
-    // ✅ FIXED: Explicit type
     required List<DocumentSnapshot<Map<String, dynamic>>> items,
     required Widget Function(DocumentSnapshot<Map<String, dynamic>>) itemBuilder,
   }) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 20),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ExpansionTile(
-        initiallyExpanded: true,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: Colors.white,
-        collapsedBackgroundColor: Colors.white,
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+            ),
+            child: Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                initiallyExpanded: true,
+                iconColor: Colors.white70,
+                collapsedIconColor: Colors.white70,
+                tilePadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      )
+                    ],
+                  ),
+                  child: Icon(icon, color: color, size: 22),
+                ),
+                title: Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 17,
+                    color: Colors.white,
+                  ),
+                ),
+                trailing: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    count.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                children: [
+                  Container(
+                    height: 1,
+                    color: Colors.white.withOpacity(0.1),
+                    margin: const EdgeInsets.symmetric(horizontal: 20),
+                  ),
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: items.length,
+                    separatorBuilder: (ctx, i) => Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Divider(
+                        height: 1,
+                        color: Colors.white.withOpacity(0.05),
+                      ),
+                    ),
+                    itemBuilder: (ctx, i) => itemBuilder(items[i]),
+                  ),
+                ],
+              ),
+            ),
           ),
-          child: Icon(icon, color: color),
         ),
-        title: Text(
-          title,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 16),
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            count.toString(),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-          ),
-        ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Divider(color: Colors.grey[100]),
-          ),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(0),
-            itemCount: items.length,
-            separatorBuilder: (ctx, i) => Divider(height: 1, color: Colors.grey[100]),
-            itemBuilder: (ctx, i) => itemBuilder(items[i]),
-          ),
-          const SizedBox(height: 8),
-        ],
       ),
     );
   }
 
-  // --- ITEM CARDS ---
+  // --- GLASS LIST ITEMS ---
 
-  // ✅ FIXED: Argument type
   Widget _buildInterventionCard(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!; // Safe because of strict type
+    final data = doc.data()!;
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       title: Text(
         data['clientName'] ?? 'Client Inconnu',
-        style: const TextStyle(fontWeight: FontWeight.bold),
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          fontSize: 15,
+        ),
       ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("${data['storeName'] ?? ''} • ${data['serviceType'] ?? ''}"),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(Icons.access_time, size: 12, color: Colors.grey[600]),
-              const SizedBox(width: 4),
-              Text(
-                data['createdAt'] != null
-                    ? DateFormat('dd MMM HH:mm').format((data['createdAt'] as Timestamp).toDate())
-                    : "Date inconnue",
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        ],
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "${data['storeName'] ?? ''} • ${data['serviceType'] ?? ''}",
+              style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(CupertinoIcons.clock, size: 14, color: Colors.white54),
+                const SizedBox(width: 4),
+                Text(
+                  data['createdAt'] != null
+                      ? DateFormat('dd MMM HH:mm')
+                      .format((data['createdAt'] as Timestamp).toDate())
+                      : "Date inconnue",
+                  style:
+                  GoogleFonts.poppins(fontSize: 12, color: Colors.white54),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+      trailing:
+      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
       onTap: () {
-        // ✅ FIXED: Passes strictly typed document
         Navigator.push(
           context,
-          MaterialPageRoute(
+          CupertinoPageRoute(
             builder: (_) => InterventionDetailsPage(interventionDoc: doc),
           ),
         );
@@ -397,23 +593,32 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
     );
   }
 
-  // ✅ FIXED: Argument type
   Widget _buildSavCard(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       title: Text(
         data['clientName'] ?? 'Client Inconnu',
-        style: const TextStyle(fontWeight: FontWeight.bold),
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          fontSize: 15,
+        ),
       ),
-      subtitle: Text("${data['productName'] ?? 'Produit'} • ${data['status']}"),
-      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          "${data['productName'] ?? 'Produit'} • ${data['status']}",
+          style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
+        ),
+      ),
+      trailing:
+      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
       onTap: () {
-        // ✅ FIXED: Use .fromFirestore() which is the correct factory
         final ticket = SavTicket.fromFirestore(doc);
         Navigator.push(
           context,
-          MaterialPageRoute(
+          CupertinoPageRoute(
             builder: (_) => SavTicketDetailsPage(ticket: ticket),
           ),
         );
@@ -421,21 +626,39 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
     );
   }
 
-  // ✅ FIXED: Argument type
   Widget _buildLivraisonCard(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
     return ListTile(
-      leading: const Icon(Icons.local_shipping, color: Colors.blueGrey),
-      title: Text(
-        data['clientName'] ?? 'Client',
-        style: const TextStyle(fontWeight: FontWeight.bold),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(CupertinoIcons.cube_box, color: Colors.white70, size: 20),
       ),
-      subtitle: Text("BL: ${data['bonLivraisonCode'] ?? 'N/A'}"),
-      trailing: const Icon(Icons.chevron_right),
+      title: Text(
+        data['clientName'] ?? 'Client Inconnu',
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          fontSize: 15,
+        ),
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          "BL: ${data['bonLivraisonCode'] ?? 'N/A'}",
+          style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
+        ),
+      ),
+      trailing:
+      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(
+          CupertinoPageRoute(
             builder: (_) => LivraisonDetailsPage(livraisonId: doc.id),
           ),
         );
@@ -443,18 +666,33 @@ class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
     );
   }
 
-  // ✅ FIXED: Argument type
-  Widget _buildSimpleCard(DocumentSnapshot<Map<String, dynamic>> doc, String titleKey, String subKey) {
+  Widget _buildSimpleCard(
+      DocumentSnapshot<Map<String, dynamic>> doc, String titleKey, String subKey) {
     final data = doc.data()!;
     return ListTile(
-      title: Text(data[titleKey] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold)),
-      subtitle: Text(data[subKey] ?? ''),
-      trailing: const Icon(Icons.chevron_right),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      title: Text(
+        data[titleKey] ?? 'Item',
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          fontSize: 15,
+        ),
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          data[subKey] ?? '',
+          style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
+        ),
+      ),
+      trailing:
+      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
       onTap: () {
-        if(titleKey == 'requisitionCode') {
+        if (titleKey == 'requisitionCode') {
           Navigator.push(
             context,
-            MaterialPageRoute(
+            CupertinoPageRoute(
               builder: (_) => RequisitionDetailsPage(
                 requisitionId: doc.id,
                 userRole: _userRole ?? '',
