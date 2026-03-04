@@ -52,52 +52,32 @@ class _SavListPageState extends State<SavListPage> {
         _currentUserRole == 'Responsable Administratif';
   }
 
-  // ✅ Extract color logic so we can use it for the badge AND the card accents
-  (Color bgColor, Color textColor) _getStatusColors(String status) {
+  // ✅ ENHANCED Apple-Style Colorful Gradients for the Ambient Glow
+  (List<Color> gradient, Color textColor) _getStatusTheme(String status) {
     switch (status) {
-      case 'Nouveau':
-        return (const Color(0xFFE0F2FE), const Color(0xFF0369A1)); // Light Blue
+      case 'Nouveau': // Vivid iOS Blue
+        return ([const Color(0xFF3B82F6), const Color(0xFF60A5FA), const Color(0xFF93C5FD)], const Color(0xFF1E3A8A));
       case 'En Diagnostic':
-      case 'En Réparation':
-        return (const Color(0xFFFEF3C7), const Color(0xFFB45309)); // Amber
+      case 'En Réparation': // Warm Sunset Amber
+        return ([const Color(0xFFF59E0B), const Color(0xFFFBBF24), const Color(0xFFFDE68A)], const Color(0xFF78350F));
       case 'Terminé':
-      case 'Approuvé - Prêt pour retour':
-        return (const Color(0xFFDCFCE7), const Color(0xFF15803D)); // Emerald
-      case 'Irréparable - Remplacement Demandé':
-        return (const Color(0xFFFEE2E2), const Color(0xFFB91C1C)); // Red
+      case 'Approuvé - Prêt pour retour': // Vibrant Emerald
+        return ([const Color(0xFF10B981), const Color(0xFF34D399), const Color(0xFFA7F3D0)], const Color(0xFF064E3B));
+      case 'Irréparable - Remplacement Demandé': // Intense Rose/Red
+        return ([const Color(0xFFEF4444), const Color(0xFFF87171), const Color(0xFFFECACA)], const Color(0xFF7F1D1D));
       case 'Retourné':
-      case 'Dépose':
-        return (const Color(0xFFF3F4F6), const Color(0xFF374151)); // Gray
+      case 'Dépose': // Sleek Graphite/Silver
+        return ([const Color(0xFF6B7280), const Color(0xFF9CA3AF), const Color(0xFFE5E7EB)], const Color(0xFF1F2937));
       default:
-        return (const Color(0xFFF3F4F6), const Color(0xFF374151));
+        return ([const Color(0xFF6B7280), const Color(0xFF9CA3AF), const Color(0xFFE5E7EB)], const Color(0xFF1F2937));
     }
-  }
-
-  Widget _buildPremiumStatusBadge(String status) {
-    final colors = _getStatusColors(status);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: colors.$1,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        status.toUpperCase(),
-        style: GoogleFonts.inter(
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
-          color: colors.$2,
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      // Clean, slightly off-white background to make the glass pop
+      backgroundColor: const Color(0xFFF4F5F7),
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
         slivers: [
@@ -105,20 +85,20 @@ class _SavListPageState extends State<SavListPage> {
             expandedHeight: 120.0,
             pinned: true,
             elevation: 0,
-            backgroundColor: Colors.white.withOpacity(0.85),
+            backgroundColor: Colors.white.withOpacity(0.7),
             iconTheme: const IconThemeData(color: Colors.black87),
             flexibleSpace: ClipRRect(
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                 child: FlexibleSpaceBar(
                   titlePadding: const EdgeInsets.only(left: 20, bottom: 16, right: 20),
                   title: Text(
                     '   SAV',
                     style: GoogleFonts.inter(
                       color: const Color(0xFF111827),
-                      fontSize: 22,
+                      fontSize: 24,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
+                      letterSpacing: -1.0,
                     ),
                   ),
                   background: Container(color: Colors.transparent),
@@ -143,7 +123,6 @@ class _SavListPageState extends State<SavListPage> {
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('sav_tickets')
-            // ✅ CRITICAL FIX: We now filter by IT vs Technique!
                 .where('serviceType', isEqualTo: widget.serviceType)
                 .where('status', whereIn: [
               'Nouveau',
@@ -152,7 +131,6 @@ class _SavListPageState extends State<SavListPage> {
               'Terminé',
               'Approuvé - Prêt pour retour',
               'Irréparable - Remplacement Demandé',
-              // 'Dépose' is removed to keep it in History only
             ])
                 .orderBy('createdAt', descending: true)
                 .snapshots(),
@@ -201,13 +179,13 @@ class _SavListPageState extends State<SavListPage> {
               }
 
               return SliverPadding(
-                padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 100),
+                padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 100),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                         (context, index) {
                       final doc = tickets[index];
                       final ticket = SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
-                      return _buildPremiumTicketCard(context, ticket);
+                      return _buildIOS26GlassCard(context, ticket);
                     },
                     childCount: tickets.length,
                   ),
@@ -219,15 +197,15 @@ class _SavListPageState extends State<SavListPage> {
       ),
 
       floatingActionButton: FloatingActionButton.extended(
-        elevation: 4,
-        highlightElevation: 12,
-        backgroundColor: const Color(0xFF111827),
+        elevation: 8,
+        highlightElevation: 16,
+        backgroundColor: const Color(0xFF000000), // Pure black iOS style
         foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        icon: const Icon(Icons.add_rounded, size: 22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        icon: const Icon(Icons.add_rounded, size: 24),
         label: Text(
           'Nouveau Ticket',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600, letterSpacing: -0.2),
+          style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.3),
         ),
         onPressed: () {
           Navigator.of(context).push(
@@ -240,217 +218,336 @@ class _SavListPageState extends State<SavListPage> {
     );
   }
 
-  Widget _buildPremiumTicketCard(BuildContext context, SavTicket ticket) {
-    // Fetch the colors based on the current status
-    final colors = _getStatusColors(ticket.status);
+  // ✅ NEW 2026 iOS GLASS ANIMATION CARD
+  Widget _buildIOS26GlassCard(BuildContext context, SavTicket ticket) {
+    final theme = _getStatusTheme(ticket.status);
+    final isWeb = MediaQuery.of(context).size.width > 600;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFF3F4F6), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            // ✅ TOUCH OF COLOR: The shadow subtly glows with the status color
-            color: colors.$2.withOpacity(0.06),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
+    // Helper for default logo
+    Widget buildDefaultLogo() {
+      return Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [theme.$1[1].withOpacity(0.2), theme.$1[2].withOpacity(0.1)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(24),
-          highlightColor: colors.$1.withOpacity(0.3),
-          splashColor: colors.$1.withOpacity(0.5),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => SavTicketDetailsPage(ticket: ticket)),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Row(
-                      children: [
-                        // ✅ TOUCH OF COLOR: Icon matches the status badge
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: colors.$1,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(Icons.confirmation_number_rounded, size: 16, color: colors.$2),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          ticket.savCode,
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF111827),
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                    _buildPremiumStatusBadge(ticket.status),
-                  ],
-                ),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withOpacity(0.5)),
+        ),
+        child: Icon(Icons.storefront_rounded, size: 18, color: theme.$2),
+      );
+    }
 
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Divider(height: 1, color: Color(0xFFF3F4F6)),
-                ),
-
-                Text(
-                  ticket.productName,
-                  style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF111827),
-                    letterSpacing: -0.5,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 10),
-
-                // Client Row
-                Row(
-                  children: [
-                    const Icon(Icons.person_outline_rounded, size: 14, color: Color(0xFF6B7280)),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        ticket.clientName,
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: const Color(0xFF6B7280),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-
-                // ✅ Store Name Row (only shown if it exists)
-                if (ticket.storeName != null && ticket.storeName!.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.storefront_rounded, size: 14, color: Color(0xFF6B7280)),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          ticket.storeName!,
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: const Color(0xFF6B7280),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-
-                const SizedBox(height: 12),
-
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF9FAFB),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFF3F4F6)),
-                  ),
-                  child: Row(
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 24),
+        constraints: isWeb ? const BoxConstraints(maxWidth: 800) : null,
+        // ✅ 1. THE AMBIENT GLOW BACKDROP
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(32),
+          // Deep, colorful soft shadow matching the status
+          boxShadow: [
+            BoxShadow(
+              color: theme.$1[0].withOpacity(0.15),
+              blurRadius: 30,
+              spreadRadius: -5,
+              offset: const Offset(0, 15),
+            ),
+          ],
+          // Colorful under-gradient that will bleed through the glass
+          gradient: LinearGradient(
+            colors: [
+              theme.$1[0].withOpacity(0.15),
+              theme.$1[1].withOpacity(0.05),
+              Colors.transparent,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        // ✅ 2. THE FROSTED GLASS LAYER
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(32),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              padding: const EdgeInsets.all(24.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.6), // Slightly milky glass
+                borderRadius: BorderRadius.circular(32),
+                // Ultra-thin, crisp highly reflective edge
+                border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  highlightColor: Colors.black.withOpacity(0.03),
+                  splashColor: Colors.black.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(32),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => SavTicketDetailsPage(ticket: ticket)),
+                    );
+                  },
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF9CA3AF)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          ticket.problemDescription.isNotEmpty ? ticket.problemDescription : 'Aucune description fournie.',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            color: const Color(0xFF4B5563),
-                            height: 1.4,
+                      // --- TOP ROW: LOGO, STORE NAME & STATUS PILL ---
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // B2 Logo Fetcher
+                          if (ticket.clientId.isNotEmpty && ticket.storeId != null && ticket.storeId!.isNotEmpty)
+                            FutureBuilder<DocumentSnapshot>(
+                              future: FirebaseFirestore.instance
+                                  .collection('clients')
+                                  .doc(ticket.clientId)
+                                  .collection('stores')
+                                  .doc(ticket.storeId)
+                                  .get(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 14.0),
+                                    child: SizedBox(
+                                      width: 36, height: 36,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: theme.$2.withOpacity(0.5)),
+                                    ),
+                                  );
+                                }
+                                if (snapshot.hasData && snapshot.data!.exists) {
+                                  final storeData = snapshot.data!.data() as Map<String, dynamic>?;
+                                  final logoUrl = storeData?['logoUrl'] as String?;
+                                  if (logoUrl != null && logoUrl.isNotEmpty) {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 14.0),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(color: Colors.white.withOpacity(0.6), width: 1),
+                                          boxShadow: [
+                                            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                                          ],
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(9),
+                                          child: Image.network(
+                                            logoUrl,
+                                            width: 36, height: 36, fit: BoxFit.cover,
+                                            errorBuilder: (ctx, err, stack) => buildDefaultLogo(),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 14.0),
+                                  child: buildDefaultLogo(),
+                                );
+                              },
+                            )
+                          else
+                            Padding(
+                              padding: const EdgeInsets.only(right: 14.0),
+                              child: buildDefaultLogo(),
+                            ),
+
+                          // Store Name & SAV Code
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  ticket.storeName ?? 'Inconnu',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF0F172A),
+                                    letterSpacing: -0.5,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  ticket.savCode,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.$2.withOpacity(0.7),
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+
+                          // Glowing Status Pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [theme.$1[0].withOpacity(0.2), theme.$1[1].withOpacity(0.1)],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: theme.$1[0].withOpacity(0.3), width: 1),
+                            ),
+                            child: Text(
+                              ticket.status.toUpperCase(),
+                              style: GoogleFonts.inter(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.0,
+                                color: theme.$2,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // --- HERO SECTION: HUGE PRODUCT NAME ---
+                      Text(
+                        ticket.productName,
+                        style: GoogleFonts.inter(
+                          fontSize: 24, // Massive 4K iOS typography
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF030712),
+                          letterSpacing: -1.0,
+                          height: 1.1,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // --- INSET BOX: PROBLEM DESCRIPTION ---
+                      if (ticket.problemDescription.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.4), // Inner frosted glass
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withOpacity(0.6)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline_rounded, size: 18, color: theme.$2.withOpacity(0.6)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  ticket.problemDescription,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: const Color(0xFF374151),
+                                    height: 1.4,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      const SizedBox(height: 24),
+
+                      // --- BOTTOM ROW: AVATAR, DATE & ACTIONS ---
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          // Client info
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 10,
+                                    backgroundColor: theme.$1[0].withOpacity(0.2),
+                                    child: Icon(Icons.person_rounded, size: 12, color: theme.$2),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    ticket.clientName,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF1F2937),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                DateFormat('dd MMM yyyy • HH:mm', 'fr_FR').format(ticket.createdAt),
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF6B7280),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // Actions (Delete & Forward Arrow)
+                          Row(
+                            children: [
+                              if (_isManager && ticket.id != null) ...[
+                                GestureDetector(
+                                  onTap: () => _confirmDelete(context, ticket.id!),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.withOpacity(0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                              ],
+
+                              // Apple-style circular action button
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [theme.$1[0], theme.$1[1]],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: theme.$1[0].withOpacity(0.4),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    )
+                                  ],
+                                ),
+                                child: const Icon(Icons.arrow_forward_rounded, size: 18, color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-
-                const SizedBox(height: 16),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF9CA3AF)),
-                        const SizedBox(width: 6),
-                        Text(
-                          DateFormat('dd MMM yyyy, HH:mm', 'fr_FR').format(ticket.createdAt),
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF9CA3AF),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    Row(
-                      children: [
-                        if (_isManager)
-                          GestureDetector(
-                            onTap: () {
-                              if (ticket.id != null) {
-                                _confirmDelete(context, ticket.id!);
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade50,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red.shade700),
-                            ),
-                          ),
-                        if (_isManager) const SizedBox(width: 12),
-
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: colors.$1, // Touch of color!
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.arrow_forward_rounded, size: 14, color: colors.$2),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -462,9 +559,11 @@ class _SavListPageState extends State<SavListPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Confirmer la suppression', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-        content: Text('Voulez-vous vraiment supprimer ce ticket ? Cette action est irréversible.', style: GoogleFonts.inter(height: 1.4)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white.withOpacity(0.9),
+        surfaceTintColor: Colors.transparent,
+        title: Text('Confirmer la suppression', style: GoogleFonts.inter(fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+        content: Text('Voulez-vous vraiment supprimer ce ticket ? Cette action est irréversible.', style: GoogleFonts.inter(height: 1.4, color: Colors.black87)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         actions: [
           TextButton(
             child: Text('Annuler', style: GoogleFonts.inter(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
@@ -475,7 +574,7 @@ class _SavListPageState extends State<SavListPage> {
               backgroundColor: Colors.red.shade600,
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
             onPressed: () {
               FirebaseFirestore.instance.collection('sav_tickets').doc(ticketId).delete();
