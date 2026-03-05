@@ -877,6 +877,18 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
     }
   }
 
+  // ✅ NEW: Open generic URLs (used for PDF Invoices)
+  Future<void> _launchURL(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Impossible d'ouvrir le document.")),
+        );
+      }
+    }
+  }
+
   Future<void> _editSchedule() async {
     final now = DateTime.now();
     final initialDate = _scheduledAt ?? now;
@@ -2151,7 +2163,7 @@ L'équipe BOITEX INFO'''
     } else if (billingStatus == 'INCLUS') {
       billingColor = Colors.teal;
       billingIcon = Icons.assignment_turned_in;
-    } else if (billingStatus == 'FACTURABLE') {
+    } else if (billingStatus == 'FACTURABLE' || billingStatus == 'Facturé') {
       billingColor = Colors.redAccent;
       billingIcon = Icons.attach_money;
     } else {
@@ -2241,7 +2253,7 @@ L'équipe BOITEX INFO'''
                   if (billingStatus != 'INCONNU')
                     Container(
                       width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 20),
+                      margin: const EdgeInsets.only(bottom: 16),
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: billingColor,
@@ -2281,6 +2293,59 @@ L'équipe BOITEX INFO'''
                               ],
                             ),
                           ),
+                        ],
+                      ),
+                    ),
+
+                  // ✅ NEW: INVOICE ATTACHMENT WIDGET (Appears if invoiceUrl is present)
+                  if (data['invoiceUrl'] != null && data['invoiceUrl'].toString().isNotEmpty)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.redAccent.shade100),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.redAccent.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          )
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 28),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("Facture", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87)),
+                                Text("Document PDF attaché", style: TextStyle(color: Colors.grey, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: () => _launchURL(data['invoiceUrl']),
+                            icon: const Icon(Icons.open_in_new, size: 16),
+                            label: const Text("Ouvrir"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            ),
+                          )
                         ],
                       ),
                     ),
