@@ -2,11 +2,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:boitex_info_app/models/analytics_stats.dart'; // ✅ Needed for TechnicianData
-import 'dart:math'; // ✅ Needed for random Trend simulation
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+import 'package:boitex_info_app/models/analytics_stats.dart';
+import 'dart:math';
 
 class TechnicianPodium extends StatelessWidget {
-  // 🔄 UPDATED: Now accepts the List object to access efficiency data
   final List<TechnicianData> topTechnicians;
 
   const TechnicianPodium({super.key, required this.topTechnicians});
@@ -17,11 +18,9 @@ class TechnicianPodium extends StatelessWidget {
       return _buildEmptyState();
     }
 
-    // 1. Sort by Score (Highest first) - ensures correct podium order
     final sortedList = List<TechnicianData>.from(topTechnicians)
       ..sort((a, b) => b.score.compareTo(a.score));
 
-    // 2. Split Top 3 (Podium) and The Rest (List)
     final top3 = sortedList.take(3).toList();
     final rest = sortedList.skip(3).toList();
 
@@ -31,38 +30,32 @@ class TechnicianPodium extends StatelessWidget {
         // 🏆 THE PODIUM SECTION
         if (top3.isNotEmpty)
           SizedBox(
-            // 📏 FIXED: Height 290 to prevent overflow
             height: 290,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end, // Align to bottom
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // 🥈 2nd Place (Left)
                 if (top3.length >= 2)
                   _buildPodiumSpot(
-                    context, // 👈 Added Context
+                    context,
                     data: top3[1],
                     rank: 2,
                     height: 140,
                     size: 80,
                     color: const Color(0xFFC0C0C0), // Silver
                   ),
-
-                // 🥇 1st Place (Center - Biggest)
                 _buildPodiumSpot(
-                  context, // 👈 Added Context
+                  context,
                   data: top3[0],
                   rank: 1,
-                  height: 180, // Taller
-                  size: 110, // Bigger
+                  height: 180,
+                  size: 110,
                   color: const Color(0xFFFFD700), // Gold
                   isWinner: true,
                 ),
-
-                // 🥉 3rd Place (Right)
                 if (top3.length >= 3)
                   _buildPodiumSpot(
-                    context, // 👈 Added Context
+                    context,
                     data: top3[2],
                     rank: 3,
                     height: 120,
@@ -80,8 +73,7 @@ class TechnicianPodium extends StatelessWidget {
           ...rest.asMap().entries.map((entry) {
             final index = entry.key;
             final data = entry.value;
-            // Rank starts at 4
-            return _buildRankListItem(context, data, index + 4); // 👈 Added Context
+            return _buildRankListItem(context, data, index + 4);
           }),
 
         if (rest.isEmpty && top3.isNotEmpty)
@@ -96,7 +88,6 @@ class TechnicianPodium extends StatelessWidget {
     );
   }
 
-  // 🔹 BUILD A PODIUM SPOT
   Widget _buildPodiumSpot(
       BuildContext context, {
         required TechnicianData data,
@@ -106,22 +97,19 @@ class TechnicianPodium extends StatelessWidget {
         required Color color,
         bool isWinner = false,
       }) {
-    // 🎲 SIMULATED TREND (Random for now)
     final bool isUp = Random().nextBool();
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        // 1. The Crown (Only for #1)
         if (isWinner)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 5),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 5),
             child: Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 32),
           ),
 
-        // 2. The Avatar with Border (Clickable)
         GestureDetector(
-          onTap: () => _showDetails(context, data), // 👈 Handle Click
+          onTap: () => _showDetails(context, data),
           child: Container(
             width: size,
             height: size,
@@ -152,17 +140,14 @@ class TechnicianPodium extends StatelessWidget {
 
         const SizedBox(height: 8),
 
-        // 3. The Name
         Text(
-          data.name.split(' ').first, // Just first name
+          data.name.split(' ').first,
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
         ),
 
-        // 4. Score & Trend Arrow 📈
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // ✅ USED NEW FORMATTER HERE
             Text(
               "${_formatScore(data.score)} XP",
               style: GoogleFonts.poppins(
@@ -172,7 +157,6 @@ class TechnicianPodium extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 2),
-            // ✅ Trend Arrow
             Icon(
               isUp ? Icons.arrow_drop_up_rounded : Icons.remove_rounded,
               color: isUp ? Colors.green : Colors.grey,
@@ -181,12 +165,10 @@ class TechnicianPodium extends StatelessWidget {
           ],
         ),
 
-        // 5. Efficiency Badge & Specialist Title ⚡️
         Container(
           margin: const EdgeInsets.only(top: 2, bottom: 4),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            // Change color based on badge type
             color: _getBadgeColor(data.badge).withOpacity(0.1),
             borderRadius: BorderRadius.circular(6),
           ),
@@ -197,7 +179,6 @@ class TechnicianPodium extends StatelessWidget {
                 style: GoogleFonts.poppins(fontSize: 9, fontWeight: FontWeight.w500, color: Colors.black54),
               ),
               const SizedBox(height: 2),
-              // 🏅 THE SPECIALIST BADGE
               Text(
                 data.badge.toUpperCase(),
                 style: GoogleFonts.poppins(
@@ -210,11 +191,10 @@ class TechnicianPodium extends StatelessWidget {
           ),
         ),
 
-        // 6. The Podium Step (Visual Anchor)
         const SizedBox(height: 4),
         Container(
           width: size,
-          height: rank == 1 ? 40 : 20, // 1st place has taller block
+          height: rank == 1 ? 40 : 20,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
@@ -237,13 +217,11 @@ class TechnicianPodium extends StatelessWidget {
     );
   }
 
-  // 🔹 BUILD A LIST ITEM (For Rank 4+)
   Widget _buildRankListItem(BuildContext context, TechnicianData data, int rank) {
-    // 🎲 SIMULATED TREND
     final bool isUp = Random().nextBool();
 
     return InkWell(
-      onTap: () => _showDetails(context, data), // 👈 Handle Click
+      onTap: () => _showDetails(context, data),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10, left: 16, right: 16),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -260,7 +238,6 @@ class TechnicianPodium extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Rank Badge
             Container(
               width: 30,
               height: 30,
@@ -279,7 +256,6 @@ class TechnicianPodium extends StatelessWidget {
             ),
             const SizedBox(width: 15),
 
-            // Name & Efficiency & Badge
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,11 +267,10 @@ class TechnicianPodium extends StatelessWidget {
                       fontSize: 15,
                     ),
                   ),
-                  // ✅ Efficiency Subtitle with Badge
                   Row(
                     children: [
                       Text(
-                        "${data.count} msns • ${data.efficiency.toStringAsFixed(1)} xp/j",
+                        "${data.count} tâches • ${data.efficiency.toStringAsFixed(1)} xp/j",
                         style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey),
                       ),
                       const SizedBox(width: 6),
@@ -320,11 +295,9 @@ class TechnicianPodium extends StatelessWidget {
               ),
             ),
 
-            // Score & Trend
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // ✅ USED NEW FORMATTER HERE
                 Text(
                   "${_formatScore(data.score)} pts",
                   style: GoogleFonts.poppins(
@@ -332,7 +305,6 @@ class TechnicianPodium extends StatelessWidget {
                     color: Colors.blue.shade700,
                   ),
                 ),
-                // ✅ Trend Icon
                 Icon(
                   isUp ? Icons.arrow_drop_up_rounded : Icons.remove_rounded,
                   color: isUp ? Colors.green : Colors.grey,
@@ -346,129 +318,41 @@ class TechnicianPodium extends StatelessWidget {
     );
   }
 
-  // 📊 SHOW DETAILS DIALOG (New Function)
+  // 🔄 REPLACED: Now opens the advanced Stateful Dialog
   void _showDetails(BuildContext context, TechnicianData data) {
     showDialog(
       context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: _getBadgeColor(data.badge).withOpacity(0.2),
-                  child: Text(
-                    _getInitials(data.name),
-                    style: GoogleFonts.poppins(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: _getBadgeColor(data.badge),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  data.name,
-                  style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  data.badge,
-                  style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 24),
-
-                // Detailed List from Breakdown
-                if (data.breakdown.isEmpty)
-                  Text("Aucun détail disponible.", style: GoogleFonts.poppins(color: Colors.grey)),
-
-                ...data.breakdown.entries.map((e) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(e.key, style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          "${e.value}",
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-                        ),
-                      )
-                    ],
-                  ),
-                )),
-
-                const SizedBox(height: 20),
-                const Divider(),
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text("Total Missions", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                      Text(
-                        "${data.count}",
-                        style: GoogleFonts.poppins(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                          color: Colors.blue,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (context) => TechnicianDetailsDialog(data: data),
     );
   }
 
-  // ✅ IMPROVED INITIALS EXTRACTOR
   String _getInitials(String name) {
     if (name.isEmpty) return "";
     final parts = name.trim().split(' ');
-
-    // Case 1: First Name + Last Name (e.g. "Amine S.") -> "AS"
     if (parts.length > 1) {
       return "${parts[0][0]}${parts[1][0]}".toUpperCase();
     }
-
-    // Case 2: Only First Name (e.g. "Athmane") -> "AT" (First 2 letters)
     if (name.length >= 2) {
       return name.substring(0, 2).toUpperCase();
     }
-
-    // Fallback: Just 1 letter
     return name[0].toUpperCase();
   }
 
-  // Helper function to pick colors for badges
   Color _getBadgeColor(String badge) {
     switch (badge) {
       case 'Installateur': return Colors.purple;
       case 'Expert SAV': return Colors.red;
       case 'Logistique': return Colors.orange;
       case 'Mission': return Colors.teal;
-      default: return Colors.blue; // Polyvalent
+      default: return Colors.blue;
     }
   }
 
-  // ✅ NEW: Formats the score beautifully (e.g., 2.0 -> "2", 1.5 -> "1.5")
   String _formatScore(double score) {
     if (score == score.truncateToDouble()) {
-      return score.toInt().toString(); // Removes the decimal if it's a whole number
+      return score.toInt().toString();
     }
-    return score.toStringAsFixed(1); // Keeps 1 decimal otherwise
+    return score.toStringAsFixed(1);
   }
 
   Widget _buildEmptyState() {
@@ -481,6 +365,351 @@ class TechnicianPodium extends StatelessWidget {
             "Aucun classement disponible",
             style: GoogleFonts.poppins(color: Colors.grey),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// ✅ NEW: ADVANCED DIALOG WITH REAL-TIME FIRESTORE HISTORY
+// ============================================================================
+class TechnicianDetailsDialog extends StatelessWidget {
+  final TechnicianData data;
+
+  const TechnicianDetailsDialog({super.key, required this.data});
+
+  Color _getBadgeColor(String badge) {
+    switch (badge) {
+      case 'Installateur': return Colors.purple;
+      case 'Expert SAV': return Colors.red;
+      case 'Logistique': return Colors.orange;
+      case 'Mission': return Colors.teal;
+      default: return Colors.blue;
+    }
+  }
+
+  String _getInitials(String name) {
+    if (name.isEmpty) return "";
+    final parts = name.trim().split(' ');
+    if (parts.length > 1) return "${parts[0][0]}${parts[1][0]}".toUpperCase();
+    if (name.length >= 2) return name.substring(0, 2).toUpperCase();
+    return name[0].toUpperCase();
+  }
+
+  // 🔍 THE BRAIN: Fetches real history from all 4 collections (Strictly Completed Tasks)
+  Future<List<Map<String, dynamic>>> _fetchRecentActivity() async {
+    final db = FirebaseFirestore.instance;
+    List<Map<String, dynamic>> activities = [];
+
+    // 🗓️ Helper safely extracts the date to prevent crashes
+    DateTime extractDate(Map<String, dynamic> data) {
+      final ts = data['updatedAt'] ?? data['closedAt'] ?? data['endDate'] ?? data['createdAt'] ?? data['timestamp'];
+      if (ts is Timestamp) return ts.toDate();
+      return DateTime(2000); // Fallback date if missing
+    }
+
+    // 1. Interventions
+    try {
+      final intSnap = await db.collection('interventions')
+          .where('assignedTechnicians', arrayContains: data.name)
+          .where('status', whereIn: ['Terminé', 'Clôturé'])
+          .get(); // 👈 LIMIT REMOVED!
+
+      var docs = intSnap.docs.toList();
+      // Sort locally (Newest first)
+      docs.sort((a, b) => extractDate(b.data()).compareTo(extractDate(a.data())));
+
+      for (var doc in docs.take(15)) { // Only take the newest 15
+        final d = doc.data();
+        activities.add({
+          'type': 'Intervention',
+          'title': d['storeName'] ?? d['clientName'] ?? d['interventionCode'] ?? 'Intervention',
+          'status': d['status'] ?? 'Inconnu',
+          'date': extractDate(d),
+        });
+      }
+    } catch (e) { debugPrint("Error Interventions: $e"); }
+
+    // 2. Installations
+    try {
+      final instSnap = await db.collection('installations')
+          .where('assignedTechnicianNames', arrayContains: data.name)
+          .where('status', isEqualTo: 'Terminée')
+          .get();
+
+      var docs = instSnap.docs.toList();
+      docs.sort((a, b) => extractDate(b.data()).compareTo(extractDate(a.data())));
+
+      for (var doc in docs.take(15)) {
+        final d = doc.data();
+        activities.add({
+          'type': 'Installation',
+          'title': d['storeName'] ?? d['clientName'] ?? d['installationCode'] ?? 'Installation',
+          'status': d['status'] ?? 'Inconnu',
+          'date': extractDate(d),
+        });
+      }
+    } catch (e) { debugPrint("Error Installations: $e"); }
+
+    // 3. Missions
+    try {
+      final missSnap = await db.collection('missions')
+          .where('assignedTechniciansNames', arrayContains: data.name)
+          .where('status', isEqualTo: 'Terminée')
+          .get();
+
+      var docs = missSnap.docs.toList();
+      docs.sort((a, b) => extractDate(b.data()).compareTo(extractDate(a.data())));
+
+      for (var doc in docs.take(15)) {
+        final d = doc.data();
+        activities.add({
+          'type': 'Mission',
+          'title': d['title'] ?? d['missionCode'] ?? 'Mission',
+          'status': d['status'] ?? 'Inconnu',
+          'date': extractDate(d),
+        });
+      }
+    } catch (e) { debugPrint("Error Missions: $e"); }
+
+    // 4. SAV
+    try {
+      final journalSnap = await db.collectionGroup('journal_entries')
+          .where('newStatus', isEqualTo: 'Terminé')
+          .where('authorName', isEqualTo: data.name)
+          .get();
+
+      var docs = journalSnap.docs.toList();
+      // Sort the journal entries by date first
+      docs.sort((a, b) => extractDate(b.data()).compareTo(extractDate(a.data())));
+
+      for (var doc in docs.take(15)) {
+        final parentRef = doc.reference.parent.parent;
+        if (parentRef != null) {
+          final parentDoc = await parentRef.get();
+          if (parentDoc.exists) {
+            final d = parentDoc.data() as Map<String, dynamic>;
+
+            if (d['status'] == 'Retourné' || d['status'] == 'Terminé') {
+
+              // 🌟 Better Display: "Boitier 9050 - Play Mode Gallery"
+              final product = d['productName'] ?? 'Matériel';
+              final client = d['clientName'] ?? d['storeName'] ?? '';
+              final title = client.isNotEmpty ? '$product - $client' : product;
+
+              activities.add({
+                'type': 'SAV',
+                'title': title,
+                'status': 'Réparé', // Shows 'Réparé' because that's what the technician did
+                'date': extractDate(doc.data()), // 👈 Uses the exact time from journal_entries!
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // 🚨 THIS WILL TELL US EXACTLY WHY FIREBASE IS BLOCKING IT
+      debugPrint("❌ CRITICAL ERROR IN SAV: $e");
+    }
+
+    // 🏆 Final sort of all combined activities
+    activities.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+    return activities.take(15).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: const Color(0xFFF8F9FA),
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 650), // Prevent taking whole screen
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // --- HEADER ---
+            Container(
+              padding: const EdgeInsets.all(24.0),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundColor: _getBadgeColor(data.badge).withOpacity(0.2),
+                    child: Text(
+                      _getInitials(data.name),
+                      style: GoogleFonts.poppins(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: _getBadgeColor(data.badge),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    data.name,
+                    style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    data.badge,
+                    style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Summary Blocks
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildSummaryCard("Score", "${data.score.toStringAsFixed(1)} xp", Colors.blue),
+                      _buildSummaryCard("Tâches", "${data.count}", Colors.green),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // --- HISTORY LIST ---
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    Text("Historique Récent", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 8),
+
+                    Expanded(
+                      child: FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _fetchRecentActivity(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+                          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                            return Center(
+                                child: Text(
+                                    "Aucune activité récente trouvée.",
+                                    style: GoogleFonts.poppins(color: Colors.grey)
+                                )
+                            );
+                          }
+
+                          final items = snapshot.data!;
+                          return ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: items.length,
+                            separatorBuilder: (c, i) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final item = items[index];
+                              final date = item['date'] as DateTime;
+
+                              IconData icon;
+                              Color iconColor;
+                              switch (item['type']) {
+                                case 'Installation': icon = Icons.handyman; iconColor = Colors.purple; break;
+                                case 'Intervention': icon = Icons.build_circle; iconColor = Colors.blue; break;
+                                case 'SAV': icon = Icons.medical_services; iconColor = Colors.red; break;
+                                case 'Mission': icon = Icons.directions_car; iconColor = Colors.teal; break;
+                                default: icon = Icons.work; iconColor = Colors.grey;
+                              }
+
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                ),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      backgroundColor: iconColor.withOpacity(0.1),
+                                      radius: 20,
+                                      child: Icon(icon, color: iconColor, size: 20),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item['title'],
+                                            style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                  item['type'],
+                                                  style: GoogleFonts.poppins(fontSize: 11, color: iconColor, fontWeight: FontWeight.w500)
+                                              ),
+                                              const Text(" • ", style: TextStyle(color: Colors.grey)),
+                                              Text(
+                                                  item['status'],
+                                                  style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey.shade600)
+                                              ),
+                                            ],
+                                          )
+                                        ],
+                                      ),
+                                    ),
+                                    Text(
+                                      DateFormat('dd MMM').format(date),
+                                      style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                                    )
+                                  ],
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // --- FOOTER BUTTON ---
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(
+                      backgroundColor: Colors.grey.shade200,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                  ),
+                  child: Text("Fermer", style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(String title, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3))
+      ),
+      child: Column(
+        children: [
+          Text(title, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade700)),
+          Text(value, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
         ],
       ),
     );
