@@ -56,7 +56,7 @@ class _InterventionHistoryStoresPageState extends State<InterventionHistoryStore
         .collection('interventions')
         .where('serviceType', isEqualTo: widget.serviceType)
         .where('clientName', isEqualTo: widget.clientName)
-        .where('status', isEqualTo: 'Clôturé')
+        .where('status', whereIn: ['Clôturé', 'Terminé'])
         .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfYear))
         .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfYear))
         .get();

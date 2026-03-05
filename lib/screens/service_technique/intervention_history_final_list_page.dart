@@ -247,6 +247,11 @@ class _InterventionHistoryFinalListPageState
             return _buildEmptyState();
           }
 
+          // Temporary debug print
+          for (var doc in snapshot.data!.docs) {
+            print("Found Intervention ID: ${doc.id} with status: '${doc.data()['status']}'");
+          }
+
           // FILTER LOCALLY: Only keep Terminé and Clôturé
           final docs = snapshot.data!.docs.where((doc) {
             final status = doc.data()['status'] as String?;

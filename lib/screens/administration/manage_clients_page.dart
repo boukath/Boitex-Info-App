@@ -892,7 +892,14 @@ class _ManageClientsPageState extends State<ManageClientsPage> with SingleTicker
                                 children: [
                                   Text(clientName, style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: kTextDark, letterSpacing: -0.3)),
                                   const SizedBox(height: 4),
-                                  Text("ID: ${clientId.substring(0, 8).toUpperCase()}", style: GoogleFonts.inter(fontSize: 12, color: kTextSecondary, fontWeight: FontWeight.w500)),
+                                  Text(
+                                    "ID: ${clientId.length > 8 ? clientId.substring(0, 8).toUpperCase() : clientId.toUpperCase()}",
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: kTextSecondary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
