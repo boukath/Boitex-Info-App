@@ -691,6 +691,9 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
+  // ==============================================================================
+  // 🏢 APERÇU TAB (OVERVIEW)
+  // ==============================================================================
   Widget _buildOverviewTab() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -706,11 +709,14 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
             Future<void> openGoogleMaps() async {
               Uri mapUrl;
               if (lat != null && lng != null) {
+                // ✅ FIXED: Official Google Maps coordinate search
                 mapUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
               } else {
                 final String searchQuery = Uri.encodeComponent('${widget.storeName} $address');
+                // ✅ FIXED: Official Google Maps text search
                 mapUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$searchQuery');
               }
+
               if (await canLaunchUrl(mapUrl)) {
                 await launchUrl(mapUrl, mode: LaunchMode.externalApplication);
               } else {
@@ -718,70 +724,85 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
               }
             }
 
-            return Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("Localisation", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                        const SizedBox(height: 8),
-                        Row(
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 📍 1. LOCALISATION CARD
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.location_on_outlined, color: Colors.redAccent, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(address, style: const TextStyle(fontSize: 14, color: Color(0xFF475569), height: 1.4))),
+                            const Text("Localisation", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                            const SizedBox(height: 8),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.location_on_outlined, color: Colors.redAccent, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(address, style: const TextStyle(fontSize: 14, color: Color(0xFF475569), height: 1.4))),
+                              ],
+                            ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: openGoogleMaps,
-                    child: Container(
-                      height: 150,
-                      width: double.infinity,
-                      decoration: const BoxDecoration(
-                        borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
-                        color: Color(0xFFE2E8F0),
-                        image: DecorationImage(
-                          image: AssetImage('assets/images/map_placeholder.png'),
-                          fit: BoxFit.cover,
-                          colorFilter: ColorFilter.mode(Colors.black12, BlendMode.darken),
-                        ),
                       ),
-                      child: Center(
-                        child: ElevatedButton.icon(
-                          onPressed: openGoogleMaps,
-                          icon: const Icon(Icons.map, size: 16),
-                          label: const Text("Ouvrir dans Maps", style: TextStyle(fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white.withOpacity(0.95),
-                            foregroundColor: const Color(0xFF1E293B),
-                            elevation: 8,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      GestureDetector(
+                        onTap: openGoogleMaps,
+                        child: Container(
+                          height: 150,
+                          width: double.infinity,
+                          decoration: const BoxDecoration(
+                            borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                            color: Color(0xFFE2E8F0),
+                            image: DecorationImage(
+                              image: AssetImage('assets/images/map_placeholder.png'),
+                              fit: BoxFit.cover,
+                              colorFilter: ColorFilter.mode(Colors.black12, BlendMode.darken),
+                            ),
+                          ),
+                          child: Center(
+                            child: ElevatedButton.icon(
+                              onPressed: openGoogleMaps,
+                              icon: const Icon(Icons.map, size: 16),
+                              label: const Text("Ouvrir dans Maps", style: TextStyle(fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white.withOpacity(0.95),
+                                foregroundColor: const Color(0xFF1E293B),
+                                elevation: 8,
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                  )
+                      )
+                    ],
+                  ),
+                ),
+
+                // 🛡️ 2. MAINTENANCE CONTRACT CARD (NEW)
+                if (data['maintenance_contract'] != null) ...[
+                  const SizedBox(height: 24),
+                  _buildMaintenanceContractCard(data['maintenance_contract'] as Map<String, dynamic>),
                 ],
-              ),
+              ],
             );
           },
         ),
+
         const SizedBox(height: 24),
+
+        // 📞 3. CONTACTS SECTION
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 12),
           child: Text("Répertoire (Contacts Historiques)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
@@ -841,6 +862,108 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
+  // ==============================================================================
+  // 🛡️ MAINTENANCE CONTRACT WIDGETS
+  // ==============================================================================
+  Widget _buildMaintenanceContractCard(Map<String, dynamic> contract) {
+    final DateTime? start = (contract['startDate'] as Timestamp?)?.toDate();
+    final DateTime? end = (contract['endDate'] as Timestamp?)?.toDate();
+    final int quotaPrev = contract['quotaPreventive'] ?? 0;
+    final int usedPrev = contract['usedPreventive'] ?? 0;
+    final int quotaCorr = contract['quotaCorrective'] ?? 0;
+    final int usedCorr = contract['usedCorrective'] ?? 0;
+
+    final bool isActive = end != null && end.isAfter(DateTime.now());
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.teal.withOpacity(0.1), shape: BoxShape.circle),
+                    child: const Icon(Icons.shield_rounded, color: Colors.teal, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text("Contrat de Maintenance", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: isActive ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                child: Text(isActive ? "Actif" : "Expiré", style: TextStyle(color: isActive ? Colors.green : Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider(height: 1, color: Color(0xFFF1F5F9))),
+          Row(
+            children: [
+              Expanded(child: _buildContractDateCol("Date de Début", start)),
+              Container(width: 1, height: 30, color: const Color(0xFFE2E8F0)),
+              Expanded(child: _buildContractDateCol("Date de Fin", end)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _buildQuotaProgress("Préventif", usedPrev, quotaPrev, const Color(0xFF667EEA)),
+          const SizedBox(height: 16),
+          _buildQuotaProgress("Curatif", usedCorr, quotaCorr, Colors.orange),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContractDateCol(String label, DateTime? date) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 6),
+        Text(
+            date != null ? DateFormat('dd MMM yyyy').format(date) : "-",
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuotaProgress(String label, int used, int total, Color color) {
+    double progress = total > 0 ? used / total : 0.0;
+    if (progress > 1.0) progress = 1.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("Quota $label", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+            Text("$used / $total", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: LinearProgressIndicator(
+            value: progress,
+            backgroundColor: color.withOpacity(0.15),
+            color: color,
+            minHeight: 8,
+          ),
+        ),
+      ],
+    );
+  }
   Widget _buildContactRow(IconData icon, String value, String label, {bool isLink = false}) {
     return Row(
       children: [

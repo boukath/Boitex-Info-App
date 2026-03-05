@@ -1,10 +1,18 @@
 // lib/screens/administration/client_details_page.dart
 
 import 'dart:ui';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+// ✅ NEW IMPORTS FOR B2 & MEDIA HANDLING
+import 'package:http/http.dart' as http;
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 
 // ✅ ADDED `hide` to prevent naming collisions for our premium design constants
 import 'package:boitex_info_app/screens/administration/add_client_page.dart' hide kBgColor, kSurfaceColor, kTextDark, kTextSecondary, kAppleBlue, kAppleRed, kAppleGreen, kRadius;
@@ -16,15 +24,26 @@ const kTextDark = Color(0xFF1D1D1F);
 const kTextSecondary = Color(0xFF86868B);
 const kAppleBlue = Color(0xFF007AFF);
 const kAppleGreen = Color(0xFF34C759);
-const kAppleRed = Color(0xFFFF3B30); // ✅ Added missing local Apple Red
-const kTechIndigo = Color(0xFF4F46E5); // Technique Service
-const kItSkyBlue = Color(0xFF0EA5E9); // IT Service
+const kAppleRed = Color(0xFFFF3B30);
+const kTechIndigo = Color(0xFF4F46E5);
+const kItSkyBlue = Color(0xFF0EA5E9);
 const double kRadius = 24.0;
 
-class ClientDetailsPage extends StatelessWidget {
+class ClientDetailsPage extends StatefulWidget {
   final String clientId;
 
   const ClientDetailsPage({super.key, required this.clientId});
+
+  @override
+  State<ClientDetailsPage> createState() => _ClientDetailsPageState();
+}
+
+class _ClientDetailsPageState extends State<ClientDetailsPage> {
+  // ✅ STATE FOR LOGO UPLOAD
+  bool _isUploadingLogo = false;
+
+  // ✅ B2 Cloud Function URL
+  final String _getB2UploadUrlCloudFunctionUrl = 'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   Future<void> _launchUrl(String scheme, String value) async {
     final Uri uri = Uri(scheme: scheme, path: value);
@@ -33,7 +52,7 @@ class ClientDetailsPage extends StatelessWidget {
     }
   }
 
-  // ✅ FIXED: String interpolation & Proper Google Maps universal links
+  // ✅ FIXED: String interpolation (added $) & upgraded to standard Google Maps URLs
   Future<void> _openMaps(dynamic locationData) async {
     String mapUrl = '';
     if (locationData is GeoPoint) {
@@ -52,6 +71,108 @@ class ClientDetailsPage extends StatelessWidget {
     final Uri uri = Uri.parse(mapUrl);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // ☁️ B2 UPLOAD LOGIC
+  // ----------------------------------------------------------------------
+  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
+    try {
+      final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<String?> _uploadFileToB2(PlatformFile file, Map<String, dynamic> b2Creds) async {
+    try {
+      final fileName = 'clients_logos/${DateTime.now().millisecondsSinceEpoch}_${file.name.replaceAll(' ', '_')}';
+      final int length = file.size;
+
+      final Uint8List bytes;
+      if (kIsWeb) {
+        bytes = file.bytes!;
+      } else {
+        bytes = await File(file.path!).readAsBytes();
+      }
+
+      final sha1Hash = sha1.convert(bytes).toString();
+      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
+
+      var request = http.StreamedRequest('POST', uploadUri);
+      request.headers.addAll({
+        'Authorization': b2Creds['authorizationToken'] as String,
+        'X-Bz-File-Name': Uri.encodeComponent(fileName),
+        'Content-Type': 'b2/x-auto',
+        'X-Bz-Content-Sha1': sha1Hash,
+        'Content-Length': length.toString(),
+      });
+
+      request.sink.add(bytes);
+      request.sink.close();
+
+      final response = await request.send();
+      final respStr = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final body = json.decode(respStr) as Map<String, dynamic>;
+        final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
+        return (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
+      } else {
+        debugPrint("❌ B2 Upload Failed: ${response.statusCode} - $respStr");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("❌ B2 Upload Error: $e");
+      return null;
+    }
+  }
+
+  Future<void> _pickAndUploadLogo() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: kIsWeb,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      setState(() => _isUploadingLogo = true);
+      final file = result.files.first;
+
+      final b2Credentials = await _getB2UploadCredentials();
+      if (b2Credentials != null) {
+        final uploadedUrl = await _uploadFileToB2(file, b2Credentials);
+
+        if (uploadedUrl != null) {
+          // Update Firestore with the new logo URL
+          await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).update({
+            'logoUrl': uploadedUrl,
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Logo mis à jour avec succès!'), backgroundColor: Colors.green),
+            );
+          }
+        } else {
+          throw Exception("Échec de l'upload sur B2.");
+        }
+      } else {
+        throw Exception("Impossible d'obtenir les identifiants B2.");
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingLogo = false);
     }
   }
 
@@ -91,7 +212,7 @@ class ClientDetailsPage extends StatelessWidget {
 
           // 3. Main Scrollable Content
           StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance.collection('clients').doc(clientId).snapshots(),
+              stream: FirebaseFirestore.instance.collection('clients').doc(widget.clientId).snapshots(),
               builder: (context, clientSnapshot) {
                 if (clientSnapshot.hasError) return const Center(child: Text("Erreur de chargement."));
                 if (clientSnapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator.adaptive());
@@ -101,6 +222,7 @@ class ClientDetailsPage extends StatelessWidget {
 
                 // Base Info
                 final String clientName = clientData['name'] ?? 'Client Inconnu';
+                final String? logoUrl = clientData['logoUrl']; // ✅ Logo URL
                 final List<dynamic> contacts = clientData['contacts'] ?? [];
 
                 // Legal Info
@@ -114,7 +236,7 @@ class ClientDetailsPage extends StatelessWidget {
                     ? mapsLink
                     : (clientData['headquartersLocation'] ?? clientData['address'] ?? clientData['location']);
 
-                // Services Auth (Checks both arrays and strings to be ultra-compatible with old data)
+                // Services Auth
                 final dynamic serviceData = clientData['serviceType'] ?? clientData['services'];
                 bool isTech = false;
                 bool isIt = false;
@@ -125,7 +247,7 @@ class ClientDetailsPage extends StatelessWidget {
                   isTech = serviceData.contains('Service Technique');
                   isIt = serviceData.contains('Service IT');
                 }
-                // If none selected, default to both just so badges appear, or keep false
+
                 if (!isTech && !isIt) { isTech = true; isIt = true; }
 
                 final int hash = clientName.hashCode;
@@ -158,18 +280,50 @@ class ClientDetailsPage extends StatelessWidget {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   const SizedBox(height: 30),
-                                  Container(
-                                    width: 90, height: 90,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: LinearGradient(colors: [color1, color2], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                                      boxShadow: [BoxShadow(color: color2.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 6))],
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        clientName.isNotEmpty ? clientName[0].toUpperCase() : '?',
-                                        style: GoogleFonts.inter(color: Colors.white, fontSize: 40, fontWeight: FontWeight.bold),
-                                      ),
+                                  // ✅ PROFILE PICTURE AVATAR (CLICKABLE)
+                                  GestureDetector(
+                                    onTap: _isUploadingLogo ? null : _pickAndUploadLogo,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        Container(
+                                          width: 90, height: 90,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            gradient: logoUrl == null
+                                                ? LinearGradient(colors: [color1, color2], begin: Alignment.topLeft, end: Alignment.bottomRight)
+                                                : null,
+                                            boxShadow: [BoxShadow(color: color2.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 6))],
+                                            image: logoUrl != null
+                                                ? DecorationImage(image: NetworkImage(logoUrl), fit: BoxFit.cover)
+                                                : null,
+                                          ),
+                                          child: logoUrl == null
+                                              ? Center(
+                                            child: Text(
+                                              clientName.isNotEmpty ? clientName[0].toUpperCase() : '?',
+                                              style: GoogleFonts.inter(color: Colors.white, fontSize: 40, fontWeight: FontWeight.bold),
+                                            ),
+                                          )
+                                              : null,
+                                        ),
+                                        // Edit overlay
+                                        Positioned(
+                                          bottom: 0,
+                                          right: 0,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.white,
+                                              shape: BoxShape.circle,
+                                              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+                                            ),
+                                            child: _isUploadingLogo
+                                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                                : const Icon(Icons.camera_alt, size: 16, color: kAppleBlue),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -191,7 +345,7 @@ class ClientDetailsPage extends StatelessWidget {
                                 icon: Icons.edit_rounded,
                                 label: "Modifier le Profil",
                                 color: kTextDark,
-                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddClientPage(clientId: clientId)))
+                                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddClientPage(clientId: widget.clientId)))
                             ),
                           ],
                         ),
@@ -324,7 +478,7 @@ class ClientDetailsPage extends StatelessWidget {
                           children: [
                             Text("MAGASINS & SITES", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: kTextSecondary, letterSpacing: 1.2)),
                             GestureBinding(
-                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ManageStoresPage(clientId: clientId, clientName: clientName))),
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ManageStoresPage(clientId: widget.clientId, clientName: clientName))),
                               child: Text("Gérer", style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: kAppleBlue)),
                             )
                           ],
@@ -333,7 +487,7 @@ class ClientDetailsPage extends StatelessWidget {
                     ),
 
                     StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance.collection('clients').doc(clientId).collection('stores').orderBy('name').snapshots(),
+                      stream: FirebaseFirestore.instance.collection('clients').doc(widget.clientId).collection('stores').orderBy('name').snapshots(),
                       builder: (context, storeSnapshot) {
                         if (!storeSnapshot.hasData) return const SliverToBoxAdapter(child: Center(child: CircularProgressIndicator.adaptive()));
                         final stores = storeSnapshot.data!.docs;
@@ -464,10 +618,47 @@ class ClientDetailsPage extends StatelessWidget {
   }
 
   Widget _buildContactCard(Map<String, dynamic> contact) {
-    final name = contact['name'] ?? 'Inconnu';
-    final role = contact['role'] ?? '';
-    final phone = contact['phone'] ?? '';
-    final email = contact['email'] ?? '';
+    // 1. Extract based on NEW format (label, type, value)
+    final label = (contact['label']?.toString() ?? '').trim();
+    final type = (contact['type']?.toString() ?? '').trim();
+    final value = (contact['value']?.toString() ?? '').trim();
+
+    // 2. Extract based on OLD format (name, role, phone, email) - Backward Compatibility
+    final nameOld = (contact['name']?.toString() ?? '').trim();
+    final roleOld = (contact['role']?.toString() ?? '').trim();
+    final phoneOld = (contact['phone']?.toString() ?? '').trim();
+    final emailOld = (contact['email']?.toString() ?? '').trim();
+
+    // Determine which format we are using
+    final bool isNewFormat = value.isNotEmpty || type.isNotEmpty || label.isNotEmpty;
+
+    String displayTitle = '';
+    String displaySubtitle = '';
+    String phoneToUse = '';
+    String emailToUse = '';
+
+    if (isNewFormat) {
+      // If label is empty, fallback to the 'type' (e.g., "E-mail") or "Contact"
+      displayTitle = label.isNotEmpty ? label : (type.isNotEmpty ? type : 'Contact');
+      displaySubtitle = (label.isNotEmpty && type.isNotEmpty) ? type : '';
+
+      final isEmail = type.toLowerCase().contains('mail') || value.contains('@');
+      final isPhone = type.toLowerCase().contains('tél') || type.toLowerCase().contains('phone') || type.toLowerCase().contains('mob');
+
+      if (isEmail) {
+        emailToUse = value;
+      } else if (isPhone) {
+        phoneToUse = value;
+      } else {
+        // Fallback: If type is neither (e.g., WhatsApp, Fax), treat as phone to display it
+        phoneToUse = value;
+      }
+    } else {
+      displayTitle = nameOld.isNotEmpty ? nameOld : 'Inconnu';
+      displaySubtitle = roleOld;
+      phoneToUse = phoneOld;
+      emailToUse = emailOld;
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -482,48 +673,52 @@ class ClientDetailsPage extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(color: kTextDark.withOpacity(0.05), shape: BoxShape.circle),
-                    child: const Icon(Icons.person_rounded, color: kTextDark, size: 20),
+                    child: Icon(
+                        emailToUse.isNotEmpty && phoneToUse.isEmpty ? Icons.email_rounded : Icons.person_rounded,
+                        color: kTextDark, size: 20
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: kTextDark)),
-                        if (role.isNotEmpty) Text(role, style: GoogleFonts.inter(fontSize: 12, color: kTextSecondary)),
+                        Text(displayTitle, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: kTextDark)),
+                        if (displaySubtitle.isNotEmpty)
+                          Text(displaySubtitle, style: GoogleFonts.inter(fontSize: 12, color: kTextSecondary)),
                       ],
                     ),
                   ),
                 ],
               ),
-              if (phone.isNotEmpty || email.isNotEmpty) ...[
+              if (phoneToUse.isNotEmpty || emailToUse.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Divider(height: 1, color: Colors.black.withOpacity(0.05)),
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    if (phone.isNotEmpty)
+                    if (phoneToUse.isNotEmpty)
                       Expanded(
                         child: InkWell(
-                          onTap: () => _launchUrl('tel', phone),
+                          onTap: () => _launchUrl('tel', phoneToUse),
                           child: Row(
                             children: [
                               Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: kAppleGreen.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.phone_rounded, color: kAppleGreen, size: 14)),
                               const SizedBox(width: 8),
-                              Expanded(child: Text(phone, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: kTextDark), overflow: TextOverflow.ellipsis)),
+                              Expanded(child: Text(phoneToUse, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: kTextDark), overflow: TextOverflow.ellipsis)),
                             ],
                           ),
                         ),
                       ),
-                    if (email.isNotEmpty)
+                    if (emailToUse.isNotEmpty)
                       Expanded(
                         child: InkWell(
-                          onTap: () => _launchUrl('mailto', email),
+                          onTap: () => _launchUrl('mailto', emailToUse),
                           child: Row(
                             children: [
                               Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: kAppleBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.email_rounded, color: kAppleBlue, size: 14)),
                               const SizedBox(width: 8),
-                              Expanded(child: Text(email, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: kTextDark), overflow: TextOverflow.ellipsis)),
+                              Expanded(child: Text(emailToUse, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: kTextDark), overflow: TextOverflow.ellipsis)),
                             ],
                           ),
                         ),
@@ -544,7 +739,7 @@ class ClientDetailsPage extends StatelessWidget {
 
     return _buildGlassContainer(
       child: InkWell(
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoreEquipmentPage(clientId: clientId, storeId: storeId, storeName: storeName))),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoreEquipmentPage(clientId: widget.clientId, storeId: storeId, storeName: storeName))),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Row(
