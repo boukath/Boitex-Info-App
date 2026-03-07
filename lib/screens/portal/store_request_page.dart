@@ -100,11 +100,11 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
         debugPrint("Primary query failed (Index missing): $e");
       }
 
-      // Attempt 2: Fallback to 'qr_access_token'
+      // Attempt 2: Fallback to 'qrToken' (FIXED FIELD NAME)
       if (storeQuery == null || storeQuery.docs.isEmpty) {
         storeQuery = await FirebaseFirestore.instance
             .collectionGroup('stores')
-            .where('qr_access_token', isEqualTo: widget.token)
+            .where('qrToken', isEqualTo: widget.token) // 👈 Changed from qr_access_token
             .get();
       }
 
@@ -115,7 +115,8 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       final storeDoc = storeQuery.docs.first;
       final storeData = storeDoc.data() as Map<String, dynamic>;
 
-      if (storeData['qr_access_token'] != widget.token) {
+      // ✅ FIXED FIELD NAME
+      if (storeData['qrToken'] != widget.token) {
         throw "Lien expiré ou non autorisé.";
       }
 
@@ -124,17 +125,15 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
       final clientDoc = await clientRef.get();
       final clientData = clientDoc.data() as Map<String, dynamic>;
 
-      // ✅ 1. CHECK MAINTENANCE CONTRACT (FIXED LOGIC)
+      // ✅ 1. CHECK MAINTENANCE CONTRACT
       MaintenanceContract? foundContract;
       try {
-        // 🛠 FIX: Check the 'maintenance_contract' field directly in the store document
         if (storeData.containsKey('maintenance_contract') &&
             storeData['maintenance_contract'] != null) {
 
           final contractMap = storeData['maintenance_contract'] as Map<String, dynamic>;
           final c = MaintenanceContract.fromMap(contractMap);
 
-          // Check dates using the helper in your model
           if (c.isActive && c.isValidNow) {
             foundContract = c;
           }
@@ -156,8 +155,6 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
 
       // ✅ PREPARE STORE NAME & LOCATION STRING
       String storeName = storeData['name'] ?? 'Magasin Inconnu';
-
-      // ✅ CHANGED: Format as "Store Name - Store Location" (Text only, no Geolocation/Coords)
       String finalStoreDisplay = storeName;
       dynamic rawLocation = storeData['location'];
 
@@ -171,7 +168,6 @@ class _StoreRequestPageState extends State<StoreRequestPage> {
           _clientDoc = clientDoc;
           _clientNameController.text = clientData['name'] ?? 'Client Inconnu';
 
-          // ✅ UPDATE STORE NAME CONTROLLER
           _storeNameController.text = finalStoreDisplay;
 
           _activeContract = foundContract;
