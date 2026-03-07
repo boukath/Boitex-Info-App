@@ -1,20 +1,20 @@
 // lib/widgets/video_player_page.dart
 
-import 'dart:io'; // ✅ Required for File operations (Mobile)
-import 'dart:ui'; // ✅ Required for Glassmorphism (BackdropFilter)
-import 'package:flutter/foundation.dart'; // ✅ Required for kIsWeb check
+import 'dart:io';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ✅ For SystemChrome (Immersive Mode)
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart'; // Required for HapticFeedback
 import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart'; // ✅ Required for temp storage (Mobile)
-import 'package:gal/gal.dart'; // ✅ Required for saving to Gallery (Mobile)
-import 'package:file_saver/file_saver.dart'; // ✅ Required for Web Downloads
+import 'package:path_provider/path_provider.dart';
+import 'package:gal/gal.dart';
+import 'package:file_saver/file_saver.dart';
 
 class VideoPlayerPage extends StatefulWidget {
   final String videoUrl;
-  final VoidCallback? onDelete; // Callback for deletion
+  final VoidCallback? onDelete;
 
   const VideoPlayerPage({
     super.key,
@@ -26,163 +26,162 @@ class VideoPlayerPage extends StatefulWidget {
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
 }
 
-class _VideoPlayerPageState extends State<VideoPlayerPage> {
+class _VideoPlayerPageState extends State<VideoPlayerPage> with SingleTickerProviderStateMixin {
   late VideoPlayerController _videoPlayerController;
-  ChewieController? _chewieController; // Nullable to handle loading state better
+
   bool _isLoading = true;
-  bool _hasError = false;
   bool _isDownloading = false;
-  bool _showControls = true; // To toggle the Glass Header visibility
+  bool _showPlayPauseIcon = false;
+
+  // Premium Player States
+  Duration _currentPosition = Duration.zero;
+  bool _isDragging = false;
+  bool _isMuted = false;
+  bool _isSpeedingUp = false;
+
+  // Gesture Trackers
+  Offset _lastTapPosition = Offset.zero;
+  String _seekOverlayText = "";
+  bool _showSeekOverlay = false;
+
+  late AnimationController _animationController;
 
   @override
   void initState() {
     super.initState();
-    // ⚡️ Enter Fullscreen Immersive Mode
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
     _initializePlayer();
   }
 
   Future<void> _initializePlayer() async {
+    _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+
     try {
-      _videoPlayerController = VideoPlayerController.networkUrl(
-        Uri.parse(widget.videoUrl),
-      );
-
       await _videoPlayerController.initialize();
+      _videoPlayerController.setLooping(true);
+      _videoPlayerController.play();
 
-      _chewieController = ChewieController(
-        videoPlayerController: _videoPlayerController,
-        autoPlay: true,
-        looping: false,
-        allowFullScreen: true,
-        allowMuting: true,
-        showControls: true,
-        allowPlaybackSpeedChanging: true, // ✅ Premium Feature: Speed Control
-        // Customizing the player look
-        materialProgressColors: ChewieProgressColors(
-          playedColor: const Color(0xFF2962FF), // Premium Blue
-          handleColor: Colors.white,
-          bufferedColor: Colors.white24,
-          backgroundColor: Colors.black54,
-        ),
-        placeholder: const Center(
-          child: CircularProgressIndicator(color: Color(0xFF2962FF)),
-        ),
-        errorBuilder: (context, errorMessage) {
-          return Center(
-            child: Text(
-              errorMessage,
-              style: const TextStyle(color: Colors.white),
-            ),
-          );
-        },
-      );
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _hasError = false;
-        });
-      }
+      _videoPlayerController.addListener(() {
+        if (!_isDragging && mounted) {
+          setState(() {
+            _currentPosition = _videoPlayerController.value.position;
+          });
+        }
+      });
     } catch (e) {
-      debugPrint('Error initializing video player: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _hasError = true;
-        });
-      }
+      debugPrint("Error loading video: $e");
+    }
+
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
 
-  // ✅ UPDATED DOWNLOAD FUNCTION (WEB + MOBILE SUPPORT)
-  Future<void> _downloadVideo() async {
-    if (_isDownloading) return;
-    setState(() => _isDownloading = true);
-
-    try {
-      final cleanUrl = widget.videoUrl.split('?').first;
-      final ext = cleanUrl.split('.').last;
-      final fileName = 'video_${DateTime.now().millisecondsSinceEpoch}';
-
-      final response = await http.get(Uri.parse(widget.videoUrl));
-      if (response.statusCode != 200) {
-        throw Exception('Erreur serveur: ${response.statusCode}');
-      }
-
-      if (kIsWeb) {
-        await FileSaver.instance.saveFile(
-          name: fileName,
-          bytes: response.bodyBytes,
-          ext: ext,
-          mimeType: MimeType.mpeg,
-        );
-        if (mounted) _showSnack('✅ Téléchargement terminé (Web)', Colors.green);
+  // --- PRO FEATURE: Smart Play/Pause with Haptics ---
+  void _togglePlayPause() {
+    HapticFeedback.lightImpact(); // Apple-style tactile feel
+    setState(() {
+      if (_videoPlayerController.value.isPlaying) {
+        _videoPlayerController.pause();
+        _animationController.reverse();
       } else {
-        if (!await Gal.requestAccess()) {
-          throw Exception('Permission refusée pour la galerie.');
-        }
-
-        final tempDir = await getTemporaryDirectory();
-        final path = '${tempDir.path}/$fileName.$ext';
-        final file = File(path);
-        await file.writeAsBytes(response.bodyBytes);
-
-        await Gal.putVideo(path);
-        await file.delete();
-
-        if (mounted) _showSnack('✅ Enregistré dans la Galerie !', Colors.green);
+        _videoPlayerController.play();
+        _animationController.forward();
       }
+      _showPlayPauseIcon = true;
+    });
+
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) setState(() => _showPlayPauseIcon = false);
+    });
+  }
+
+  // --- PRO FEATURE: YouTube Style Double Tap Seek ---
+  void _handleDoubleTap() {
+    HapticFeedback.mediumImpact();
+    final screenWidth = MediaQuery.of(context).size.width;
+    final currentPos = _videoPlayerController.value.position;
+    final maxDuration = _videoPlayerController.value.duration;
+
+    // Tap on Left side (Rewind)
+    if (_lastTapPosition.dx < screenWidth / 3) {
+      final newPos = currentPos - const Duration(seconds: 10);
+      _videoPlayerController.seekTo(newPos < Duration.zero ? Duration.zero : newPos);
+      _triggerSeekOverlay("-10s");
+    }
+    // Tap on Right side (Fast Forward)
+    else if (_lastTapPosition.dx > screenWidth * (2 / 3)) {
+      final newPos = currentPos + const Duration(seconds: 10);
+      _videoPlayerController.seekTo(newPos > maxDuration ? maxDuration : newPos);
+      _triggerSeekOverlay("+10s");
+    }
+  }
+
+  void _triggerSeekOverlay(String text) {
+    setState(() {
+      _seekOverlayText = text;
+      _showSeekOverlay = true;
+    });
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _showSeekOverlay = false);
+    });
+  }
+
+  // --- PRO FEATURE: Mute/Unmute ---
+  void _toggleMute() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _isMuted = !_isMuted;
+      _videoPlayerController.setVolume(_isMuted ? 0.0 : 1.0);
+    });
+  }
+
+  // --- EXISTING DOWNLOAD/DELETE LOGIC ---
+  Future<void> _downloadVideo() async {
+    setState(() => _isDownloading = true);
+    try {
+      final response = await http.get(Uri.parse(widget.videoUrl));
+      if (kIsWeb) {
+        await FileSaver.instance.saveFile(name: 'boitex_video_${DateTime.now().millisecondsSinceEpoch}', bytes: response.bodyBytes, ext: 'mp4', mimeType: MimeType.mpeg);
+      } else {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/boitex_video.mp4');
+        await file.writeAsBytes(response.bodyBytes);
+        await Gal.putVideo(file.path);
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vidéo téléchargée avec succès !'), backgroundColor: Colors.green));
     } catch (e) {
-      if (mounted) _showSnack('Erreur: $e', Colors.red);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isDownloading = false);
     }
   }
 
-  void _showSnack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color, behavior: SnackBarBehavior.floating),
-    );
+  void _deleteVideo() {
+    if (widget.onDelete != null) {
+      widget.onDelete!();
+      Navigator.of(context).pop();
+    }
   }
 
-  void _deleteVideo() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.grey.shade900,
-        title: const Text('Supprimer la vidéo ?', style: TextStyle(color: Colors.white)),
-        content: const Text(
-            'Cette action est irréversible.',
-            style: TextStyle(color: Colors.white70)
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Annuler', style: TextStyle(color: Colors.white))
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              if (widget.onDelete != null) {
-                widget.onDelete!();
-                Navigator.of(context).pop();
-              }
-            },
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
-    );
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$twoDigitMinutes:$twoDigitSeconds";
   }
 
   @override
   void dispose() {
-    // ⚡️ Restore System UI when leaving
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _videoPlayerController.dispose();
-    _chewieController?.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -190,130 +189,244 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      extendBodyBehindAppBar: true, // Key for immersive feel
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Ambient Background (Subtle Gradient)
-          Container(
-            decoration: const BoxDecoration(
-              gradient: RadialGradient(
-                colors: [Color(0xFF1E1E1E), Colors.black],
-                center: Alignment.center,
-                radius: 1.5,
+          // 1. VIDEO LAYER WITH GESTURES
+          if (!_isLoading && _videoPlayerController.value.isInitialized)
+            GestureDetector(
+              onTapDown: (details) => _lastTapPosition = details.localPosition,
+              onTap: _togglePlayPause,
+              onDoubleTap: _handleDoubleTap,
+              // TikTok 2x Speed Long Press
+              onLongPressStart: (_) {
+                HapticFeedback.heavyImpact();
+                _videoPlayerController.setPlaybackSpeed(2.0);
+                setState(() => _isSpeedingUp = true);
+              },
+              onLongPressEnd: (_) {
+                HapticFeedback.lightImpact();
+                _videoPlayerController.setPlaybackSpeed(1.0);
+                setState(() => _isSpeedingUp = false);
+              },
+              child: SizedBox.expand(
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _videoPlayerController.value.size.width,
+                    height: _videoPlayerController.value.size.height,
+                    child: VideoPlayer(_videoPlayerController),
+                  ),
+                ),
+              ),
+            )
+          else
+            const Center(child: CupertinoActivityIndicator(radius: 20, color: Colors.white)),
+
+          // 2. TOP & BOTTOM GRADIENTS
+          Positioned(
+            top: 0, left: 0, right: 0, height: 140,
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black.withOpacity(0.7), Colors.transparent])),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 0, left: 0, right: 0, height: 150,
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black.withOpacity(0.8), Colors.transparent])),
               ),
             ),
           ),
 
-          // 2. The Player (Centered)
-          Center(
-            child: _isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : _hasError
-                ? Column(
-              mainAxisSize: MainAxisSize.min,
+          // 3. TOP ACTION BAR (Back + Speed Indicator)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 16, right: 16,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Icon(Icons.broken_image, color: Colors.white54, size: 50),
-                const SizedBox(height: 10),
-                const Text(
-                  'Vidéo indisponible',
-                  style: TextStyle(color: Colors.white),
+                _buildGlassButton(icon: CupertinoIcons.back, onTap: () => Navigator.of(context).pop(), size: 45),
+
+                // 2x Speed Pill Badge
+                AnimatedOpacity(
+                  opacity: _isSpeedingUp ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withOpacity(0.3))),
+                    child: const Row(
+                      children: [
+                        Text("2x Speed", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        SizedBox(width: 4),
+                        Icon(CupertinoIcons.forward_fill, color: Colors.white, size: 16),
+                      ],
+                    ),
+                  ),
                 ),
-                TextButton(
-                  onPressed: _initializePlayer,
-                  child: const Text("Réessayer"),
-                )
+                const SizedBox(width: 45), // Balancing spacer
               ],
-            )
-                : AspectRatio(
-              aspectRatio: _videoPlayerController.value.aspectRatio,
-              child: Chewie(controller: _chewieController!),
             ),
           ),
 
-          // 3. 🌫️ Glassmorphism Floating Header
+          // 4. FLOATING RIGHT SIDEBAR (Mute, Download, Delete)
           Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _buildGlassHeader(context),
+            right: 16,
+            bottom: 120,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildSidebarButton(
+                  icon: _isMuted ? CupertinoIcons.volume_off : CupertinoIcons.volume_up,
+                  label: _isMuted ? "Muted" : "Audio",
+                  onTap: _toggleMute,
+                ),
+                const SizedBox(height: 24),
+                _buildSidebarButton(
+                  icon: _isDownloading ? CupertinoIcons.cloud_download : CupertinoIcons.arrow_down_to_line,
+                  label: "Save",
+                  onTap: _downloadVideo,
+                  isLoading: _isDownloading,
+                ),
+                if (widget.onDelete != null) ...[
+                  const SizedBox(height: 24),
+                  _buildSidebarButton(icon: CupertinoIcons.trash, label: "Delete", onTap: _deleteVideo, color: Colors.redAccent),
+                ]
+              ],
+            ),
           ),
+
+          // 5. CENTER PLAY/PAUSE & SEEK OVERLAYS
+          Center(
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Play/Pause Icon
+                AnimatedOpacity(
+                  opacity: _showPlayPauseIcon ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), shape: BoxShape.circle),
+                    child: Icon(_videoPlayerController.value.isPlaying ? CupertinoIcons.play_fill : CupertinoIcons.pause_fill, color: Colors.white.withOpacity(0.8), size: 50),
+                  ),
+                ),
+                // +/- 10s Text Overlay
+                AnimatedOpacity(
+                  opacity: _showSeekOverlay ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(30)),
+                    child: Text(_seekOverlayText, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 6. PREMIUM SCRUBBER & TIMELINE
+          if (_videoPlayerController.value.isInitialized)
+            Positioned(
+              bottom: MediaQuery.of(context).padding.bottom + 10,
+              left: 16, right: 16,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedOpacity(
+                    opacity: _isDragging ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Center(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white.withOpacity(0.2))),
+                            child: Text("${_formatDuration(_currentPosition)} / ${_formatDuration(_videoPlayerController.value.duration)}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 14)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: _isDragging ? 6.0 : 3.0,
+                      activeTrackColor: Colors.white, inactiveTrackColor: Colors.white.withOpacity(0.3),
+                      thumbColor: Colors.white, thumbShape: RoundSliderThumbShape(enabledThumbRadius: _isDragging ? 8.0 : 5.0),
+                      overlayColor: Colors.white.withOpacity(0.2), overlayShape: const RoundSliderOverlayShape(overlayRadius: 20.0),
+                    ),
+                    child: Slider(
+                      value: _currentPosition.inMilliseconds.toDouble().clamp(0.0, _videoPlayerController.value.duration.inMilliseconds.toDouble()),
+                      min: 0.0, max: _videoPlayerController.value.duration.inMilliseconds.toDouble(),
+                      onChanged: (value) {
+                        setState(() => _currentPosition = Duration(milliseconds: value.toInt()));
+                        _videoPlayerController.seekTo(_currentPosition);
+                      },
+                      onChangeStart: (value) {
+                        HapticFeedback.lightImpact(); // Haptic on grab
+                        setState(() => _isDragging = true);
+                        _videoPlayerController.pause();
+                      },
+                      onChangeEnd: (value) {
+                        HapticFeedback.lightImpact(); // Haptic on release
+                        setState(() => _isDragging = false);
+                        _videoPlayerController.play();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildGlassHeader(BuildContext context) {
-    return ClipRRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
-        child: Container(
-          padding: EdgeInsets.only(
-            top: MediaQuery.of(context).padding.top + 10,
-            bottom: 15,
-            left: 20,
-            right: 20,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.3),
-            border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Back Button (Circle Glass)
-              _buildGlassButton(
-                icon: Icons.arrow_back_ios_new,
-                onTap: () => Navigator.pop(context),
-              ),
-
-              const Spacer(),
-
-              // Action Buttons
-              Row(
-                children: [
-                  _buildGlassButton(
-                    icon: _isDownloading ? Icons.hourglass_top : Icons.download_rounded,
-                    onTap: _downloadVideo,
-                    isLoading: _isDownloading,
-                  ),
-                  if (widget.onDelete != null) ...[
-                    const SizedBox(width: 12),
-                    _buildGlassButton(
-                      icon: Icons.delete_outline,
-                      onTap: _deleteVideo,
-                      color: Colors.redAccent,
-                    ),
-                  ]
-                ],
-              ),
-            ],
+  // --- UI Helpers ---
+  Widget _buildGlassButton({required IconData icon, required VoidCallback onTap, double size = 50}) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size / 2),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            width: size, height: size,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.2))),
+            child: Icon(icon, color: Colors.white, size: size * 0.5),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildGlassButton({
-    required IconData icon,
-    required VoidCallback onTap,
-    Color color = Colors.white,
-    bool isLoading = false,
-  }) {
-    return InkWell(
-      onTap: isLoading ? null : onTap,
-      borderRadius: BorderRadius.circular(30),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
+  Widget _buildSidebarButton({required IconData icon, required String label, required VoidCallback onTap, Color color = Colors.white, bool isLoading = false}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: isLoading ? null : () {
+            HapticFeedback.lightImpact();
+            onTap();
+          },
+          child: Container(
+            width: 50, height: 50,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.black.withOpacity(0.4), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))]),
+            child: isLoading ? const CupertinoActivityIndicator(color: Colors.white) : Icon(icon, color: color, size: 28),
+          ),
         ),
-        child: isLoading
-            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-            : Icon(icon, color: color, size: 20),
-      ),
+        const SizedBox(height: 6),
+        Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600, shadows: const [Shadow(color: Colors.black54, blurRadius: 4, offset: Offset(0, 1))]))
+      ],
     );
   }
 }
