@@ -269,9 +269,14 @@ class TechnicianPodium extends StatelessWidget {
                   ),
                   Row(
                     children: [
-                      Text(
-                        "${data.count} tâches • ${data.efficiency.toStringAsFixed(1)} xp/j",
-                        style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey),
+                      // 👇 Wrap the text in Expanded with maxLines
+                      Expanded(
+                        child: Text(
+                          "${data.count} tâches • ${data.efficiency.toStringAsFixed(1)} xp/j",
+                          style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       const SizedBox(width: 6),
                       Container(
@@ -476,40 +481,52 @@ class TechnicianDetailsDialog extends StatelessWidget {
     // 4. SAV
     try {
       final journalSnap = await db.collectionGroup('journal_entries')
-          .where('newStatus', isEqualTo: 'Terminé')
           .where('authorName', isEqualTo: data.name)
           .get();
 
       var docs = journalSnap.docs.toList();
-      // Sort the journal entries by date first
       docs.sort((a, b) => extractDate(b.data()).compareTo(extractDate(a.data())));
 
-      for (var doc in docs.take(15)) {
-        final parentRef = doc.reference.parent.parent;
-        if (parentRef != null) {
-          final parentDoc = await parentRef.get();
-          if (parentDoc.exists) {
-            final d = parentDoc.data() as Map<String, dynamic>;
+      for (var doc in docs) {
+        final d = doc.data();
 
-            if (d['status'] == 'Retourné' || d['status'] == 'Terminé') {
+        // 🌟 Use trim() to destroy hidden spaces, and check the 'content' as a backup!
+        final newStatus = d['newStatus']?.toString().trim() ?? '';
+        final content = d['content']?.toString() ?? '';
 
-              // 🌟 Better Display: "Boitier 9050 - Play Mode Gallery"
-              final product = d['productName'] ?? 'Matériel';
-              final client = d['clientName'] ?? d['storeName'] ?? '';
-              final title = client.isNotEmpty ? '$product - $client' : product;
+        if (newStatus == 'Terminé' || content.contains('Terminé')) {
 
-              activities.add({
-                'type': 'SAV',
-                'title': title,
-                'status': 'Réparé', // Shows 'Réparé' because that's what the technician did
-                'date': extractDate(doc.data()), // 👈 Uses the exact time from journal_entries!
-              });
+          final parentRef = doc.reference.parent.parent;
+          if (parentRef != null) {
+            final parentDoc = await parentRef.get();
+
+            if (parentDoc.exists) {
+              final parentData = parentDoc.data() as Map<String, dynamic>;
+              final parentStatus = parentData['status']?.toString().trim() ?? '';
+
+              // ✅ Correct Parent Status Check
+              if (parentStatus == 'Retourné' || parentStatus == 'Terminé') {
+                final product = parentData['productName'] ?? 'Matériel';
+                final client = parentData['clientName'] ?? parentData['storeName'] ?? '';
+                final title = client.isNotEmpty ? '$product - $client' : product;
+
+                // 🛡️ Prevent duplicates if the user generated multiple journal entries
+                bool alreadyAdded = activities.any((a) => a['title'] == title && a['type'] == 'SAV');
+
+                if (!alreadyAdded) {
+                  activities.add({
+                    'type': 'SAV',
+                    'title': title,
+                    'status': 'Réparé',
+                    'date': extractDate(doc.data()),
+                  });
+                }
+              }
             }
           }
         }
       }
     } catch (e) {
-      // 🚨 THIS WILL TELL US EXACTLY WHY FIREBASE IS BLOCKING IT
       debugPrint("❌ CRITICAL ERROR IN SAV: $e");
     }
 
@@ -651,9 +668,13 @@ class TechnicianDetailsDialog extends StatelessWidget {
                                                   style: GoogleFonts.poppins(fontSize: 11, color: iconColor, fontWeight: FontWeight.w500)
                                               ),
                                               const Text(" • ", style: TextStyle(color: Colors.grey)),
-                                              Text(
+                                              Expanded(
+                                                child: Text(
                                                   item['status'],
-                                                  style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey.shade600)
+                                                  style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey.shade600),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
                                               ),
                                             ],
                                           )
