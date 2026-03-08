@@ -96,6 +96,7 @@ dependencies:
   multi_select_flutter: ^4.1.3
   # Corrected version (7.1.3 doesn't exist for mobile_scanner yet)
   mobile_scanner: ^5.2.3
+  speech_to_text: ^7.3.0
 
 dev_dependencies:
   flutter_test:
