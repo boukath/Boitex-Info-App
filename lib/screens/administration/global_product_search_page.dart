@@ -578,7 +578,7 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage>
                     ),
                   );
                 },
-                child: _buildProductCard(productDoc, data),
+                child: _buildProductCard(context, productDoc, data),
               );
             },
           ),
@@ -588,7 +588,10 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage>
   }
 
   Widget _buildProductCard(
-      DocumentSnapshot productDoc, Map<String, dynamic> data) {
+      BuildContext context, DocumentSnapshot productDoc, Map<String, dynamic> data) {
+
+    // ✅ ADD THIS LINE: Determine if the device is a mobile screen (width < 600)
+    final bool isMobile = MediaQuery.of(context).size.width < 600;
     final imageUrls =
         (data['imageUrls'] as List<dynamic>?)?.cast<String>() ?? [];
     final mainCategory = data['mainCategory'] as String?;
@@ -709,7 +712,8 @@ class _GlobalProductSearchPageState extends State<GlobalProductSearchPage>
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF1F2937),
                         ),
-                        maxLines: 1,
+                        // ✅ FIX: Allow up to 3 lines on mobile, but keep 1 line on Web/Desktop
+                        maxLines: isMobile ? 3 : 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 6),
