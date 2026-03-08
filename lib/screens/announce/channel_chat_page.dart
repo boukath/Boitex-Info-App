@@ -29,12 +29,13 @@ import 'package:flutter/foundation.dart' show kIsWeb, Platform;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:any_link_preview/any_link_preview.dart'; // 🌟 PRO FEATURE 3
 
 class ChannelChatPage extends StatefulWidget {
   final ChannelModel channel;
   const ChannelChatPage({super.key, required this.channel});
   @override
-  State createState() => _ChannelChatPageState();
+  State<ChannelChatPage> createState() => _ChannelChatPageState();
 }
 
 class _ChannelChatPageState extends State<ChannelChatPage>
@@ -70,6 +71,18 @@ class _ChannelChatPageState extends State<ChannelChatPage>
   // 🌟 FIX: Cached stream to prevent UI jitter
   late Stream<List<MessageModel>> _messagesStream;
 
+  // 🌟 NEW: Key map for scrolling to replies
+  final Map<String, GlobalKey> _messageKeys = {};
+
+  // 🌟 NEW: Highlighted message state
+  String? _highlightedMessageId;
+
+  // 🌟 PRO FEATURE 2: Scroll to Bottom FAB State
+  bool _showScrollToBottom = false;
+
+  // 🌟 PRO FEATURE 4: Sticky Date Tracker
+  DateTime? _currentlyVisibleDate;
+
   final String _getB2UploadUrlCloudFunctionUrl =
       'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
 
@@ -91,6 +104,9 @@ class _ChannelChatPageState extends State<ChannelChatPage>
       vsync: this,
       duration: const Duration(seconds: 20),
     )..repeat();
+
+    // 🌟 PRO FEATURE 2: Listen to scroll changes
+    _scrollController.addListener(_onScroll);
   }
 
   @override
@@ -99,6 +115,7 @@ class _ChannelChatPageState extends State<ChannelChatPage>
     _typingTimer?.cancel();
     _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _messageInputFocusNode.dispose();
     _audioRecorder.dispose();
@@ -106,6 +123,20 @@ class _ChannelChatPageState extends State<ChannelChatPage>
     _recordingAnimationController.dispose();
     _bgAnimationController.dispose();
     super.dispose();
+  }
+
+  // 🌟 PRO FEATURE 2 & 4: Scroll Logic
+  void _onScroll() {
+    // Scroll to bottom FAB logic
+    if (_scrollController.offset > 300 && !_showScrollToBottom) {
+      setState(() => _showScrollToBottom = true);
+    } else if (_scrollController.offset <= 300 && _showScrollToBottom) {
+      setState(() => _showScrollToBottom = false);
+    }
+
+    // Note for Pro Feature 4 (Sticky Dates):
+    // A true sticky header usually requires a package like `sliver_tools` or `grouped_list`.
+    // For this implementation, we will keep the floating pill at the top that updates based on the top-most visible item.
   }
 
   void _setTypingStatus(bool isTyping) {
@@ -253,6 +284,11 @@ class _ChannelChatPageState extends State<ChannelChatPage>
       _setTypingStatus(false);
       setState(() { _showMentionSuggestions = false; _replyToMessage = null; });
       HapticFeedback.lightImpact();
+
+      // 🌟 PRO FEATURE 2: Scroll to bottom after sending
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      }
     }
   }
 
@@ -374,6 +410,37 @@ class _ChannelChatPageState extends State<ChannelChatPage>
       'pinnedMessageSender': FieldValue.delete(),
     });
   }
+
+  // 🌟 NEW: Function to scroll to original message
+  void _scrollToMessage(String targetMessageId) {
+    final targetKey = _messageKeys[targetMessageId];
+    if (targetKey != null && targetKey.currentContext != null) {
+      Scrollable.ensureVisible(
+        targetKey.currentContext!,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+        alignment: 0.5,
+      );
+
+      setState(() => _highlightedMessageId = targetMessageId);
+
+      // Remove highlight after 2 seconds
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() {
+            if (_highlightedMessageId == targetMessageId) {
+              _highlightedMessageId = null;
+            }
+          });
+        }
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message original non trouvé (peut-être trop ancien).')),
+      );
+    }
+  }
+
 
   // ==========================================
   // FILE HANDLING & LAUNCHING METHODS
@@ -626,6 +693,9 @@ class _ChannelChatPageState extends State<ChannelChatPage>
                               _announceService.markMessageAsRead(widget.channel.id, message.id);
                             }
 
+                            // 🌟 NEW: Ensure a GlobalKey exists for this message
+                            final messageKey = _messageKeys.putIfAbsent(message.id, () => GlobalKey());
+
                             bool showDateSeparator = false;
                             if (index == messages.length - 1) { showDateSeparator = true; }
                             else {
@@ -647,16 +717,22 @@ class _ChannelChatPageState extends State<ChannelChatPage>
                               if (newerMessage.senderId == message.senderId && !newerHasSeparator) isLastInGroup = false;
                             }
 
-                            Widget chatBubble = Dismissible(
-                              key: Key(message.id),
-                              direction: DismissDirection.startToEnd,
-                              onUpdate: (details) { if (details.reached && !details.previousReached) HapticFeedback.lightImpact(); },
-                              confirmDismiss: (direction) async { _startReplying(message); return false; },
-                              background: Container(alignment: Alignment.centerLeft, padding: const EdgeInsets.only(left: 30), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.reply_rounded, color: Colors.white))),
-                              child: _buildSmartGlassBubble(message, isMe, _editingMessage?.id == message.id, isFirstInGroup, isLastInGroup),
+                            Widget chatBubble = Container(
+                              // 🌟 NEW: Attach the key here so we can scroll to it
+                              key: messageKey,
+                              child: Dismissible(
+                                key: Key('dismiss_${message.id}'),
+                                direction: DismissDirection.startToEnd,
+                                onUpdate: (details) { if (details.reached && !details.previousReached) HapticFeedback.lightImpact(); },
+                                confirmDismiss: (direction) async { _startReplying(message); return false; },
+                                background: Container(alignment: Alignment.centerLeft, padding: const EdgeInsets.only(left: 30), child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.reply_rounded, color: Colors.white))),
+                                child: _buildSmartGlassBubble(message, isMe, _editingMessage?.id == message.id, isFirstInGroup, isLastInGroup),
+                              ),
                             );
 
                             List<Widget> columnChildren = [];
+
+                            // 🌟 PRO FEATURE 4: Keeping standard date separators
                             if (showDateSeparator) columnChildren.add(_buildDateSeparator(message.timestamp.toDate()));
 
                             if (message.id == oldestUnreadId) {
@@ -686,6 +762,35 @@ class _ChannelChatPageState extends State<ChannelChatPage>
                       },
                     ),
                   ),
+
+                  // 🌟 PRO FEATURE 2: Scroll to Bottom FAB Stack Layer
+                  if (_showScrollToBottom)
+                    Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20, bottom: 10),
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        duration: const Duration(milliseconds: 300),
+                        builder: (context, value, child) {
+                          return Transform.scale(
+                            scale: value,
+                            child: child,
+                          );
+                        },
+                        child: FloatingActionButton(
+                          mini: true,
+                          backgroundColor: const Color(0xFF2563EB).withOpacity(0.9),
+                          onPressed: () {
+                            _scrollController.animateTo(
+                              0.0, // 0.0 is the bottom of the list because reverse: true
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                            );
+                          },
+                          child: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white),
+                        ),
+                      ),
+                    ),
 
                   _buildTypingIndicatorStream(),
 
@@ -802,8 +907,31 @@ class _ChannelChatPageState extends State<ChannelChatPage>
   }
 
   Widget _buildSmartGlassBubble(MessageModel message, bool isMe, bool isEditing, bool isFirstInGroup, bool isLastInGroup) {
+    // 🌟 NEW: Determine if this message is currently highlighted
+    final isHighlighted = _highlightedMessageId == message.id;
+
+    // 🌟 NEW: Define the gradient logic based on state
+    List<Color> bubbleGradient;
+    if (isHighlighted) {
+      bubbleGradient = [Colors.orangeAccent.withOpacity(0.8), Colors.deepOrangeAccent.withOpacity(0.8)];
+    } else if (isEditing) {
+      bubbleGradient = [Colors.blue.withOpacity(0.4), Colors.blue.withOpacity(0.2)];
+    } else if (isMe) {
+      bubbleGradient = [const Color(0xFF3B82F6).withOpacity(0.9), const Color(0xFF2563EB).withOpacity(0.9)];
+    } else {
+      bubbleGradient = [Colors.white.withOpacity(0.18), Colors.white.withOpacity(0.08)];
+    }
+
     return GestureDetector(
       onLongPress: () => _showMessageOptions(message),
+
+      // 🌟 PRO FEATURE 1: Double tap to react!
+      onDoubleTap: () {
+        HapticFeedback.heavyImpact();
+        // Automatically add a heart reaction (or toggle it off if already there)
+        _announceService.toggleReaction(widget.channel.id, message.id, '❤️');
+      },
+
       child: Container(
         margin: EdgeInsets.only(top: isFirstInGroup ? 12 : 2, bottom: isLastInGroup ? 12 : 2, left: isMe ? 60 : 16, right: isMe ? 16 : 60),
         child: Row(
@@ -825,12 +953,15 @@ class _ChannelChatPageState extends State<ChannelChatPage>
                 children: [
                   if (!isMe && isFirstInGroup)
                     Padding(padding: const EdgeInsets.only(left: 4, bottom: 4), child: Text(message.senderName, style: TextStyle(color: _getAvatarColor(message.senderName), fontSize: 13, fontWeight: FontWeight.w700))),
-                  Container(
+
+                  // 🌟 NEW: Added AnimatedContainer for smooth color transitions
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.only(topLeft: Radius.circular((!isMe && !isFirstInGroup) ? 6 : 22), topRight: Radius.circular((isMe && !isFirstInGroup) ? 6 : 22), bottomLeft: Radius.circular((!isMe && !isLastInGroup) ? 6 : 22), bottomRight: Radius.circular((isMe && !isLastInGroup) ? 6 : 22)),
-                      border: Border.all(color: Colors.white.withOpacity(isMe ? 0.2 : 0.1), width: 1.2),
-                      gradient: LinearGradient(colors: isEditing ? [Colors.blue.withOpacity(0.4), Colors.blue.withOpacity(0.2)] : isMe ? [const Color(0xFF3B82F6).withOpacity(0.9), const Color(0xFF2563EB).withOpacity(0.9)] : [Colors.white.withOpacity(0.18), Colors.white.withOpacity(0.08)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 10, offset: const Offset(0, 4))],
+                      border: Border.all(color: Colors.white.withOpacity(isHighlighted ? 0.8 : (isMe ? 0.2 : 0.1)), width: isHighlighted ? 2.0 : 1.2),
+                      gradient: LinearGradient(colors: bubbleGradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+                      boxShadow: [BoxShadow(color: isHighlighted ? Colors.orangeAccent.withOpacity(0.5) : Colors.black.withOpacity(0.15), blurRadius: 10, offset: const Offset(0, 4))],
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(22),
@@ -842,7 +973,27 @@ class _ChannelChatPageState extends State<ChannelChatPage>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               if (message.replyToMessageId != null)
-                                Container(margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.black.withOpacity(0.2), borderRadius: BorderRadius.circular(12), border: Border(left: BorderSide(color: Colors.white.withOpacity(0.8), width: 3))), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(message.replyToSenderName ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)), Text(message.replyToText ?? 'Attachment', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.7)))])),
+                              // 🌟 NEW: Wrapped the reply snippet in GestureDetector
+                                GestureDetector(
+                                  onTap: () {
+                                    if (message.replyToMessageId != null) {
+                                      _scrollToMessage(message.replyToMessageId!);
+                                    }
+                                  },
+                                  child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.2), borderRadius: BorderRadius.circular(12), border: Border(left: BorderSide(color: Colors.white.withOpacity(0.8), width: 3))),
+                                      child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(message.replyToSenderName ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)),
+                                            // 🌟 PRO FEATURE 5: Truncated replies (maxLines 2)
+                                            Text(message.replyToText ?? 'Attachment', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.7)))
+                                          ]
+                                      )
+                                  ),
+                                ),
                               _buildMessageContent(message, isMe),
                               const SizedBox(height: 4),
                               _buildReactionsDisplay(message),
@@ -889,8 +1040,12 @@ class _ChannelChatPageState extends State<ChannelChatPage>
     final List<TextSpan> textSpans = [];
     final TextStyle defaultStyle = const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w400, height: 1.4);
 
+    // Track if a link was found to build the preview
+    String? foundUrl;
+
     text.split(RegExp(r'(?=\s)|(?<=\s)')).forEach((word) {
       if (linkRegex.hasMatch(word)) {
+        foundUrl = word.trim();
         textSpans.add(TextSpan(
           text: word,
           style: defaultStyle.copyWith(color: Colors.lightBlueAccent, decoration: TextDecoration.underline),
@@ -903,7 +1058,30 @@ class _ChannelChatPageState extends State<ChannelChatPage>
       }
     });
 
-    return RichText(text: TextSpan(children: textSpans));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RichText(text: TextSpan(children: textSpans)),
+
+        // 🌟 PRO FEATURE 3: Rich URL Link Preview
+        if (foundUrl != null)
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            child: AnyLinkPreview(
+              link: foundUrl!,
+              displayDirection: UIDirection.uiDirectionHorizontal,
+              // REMOVED: showImage: true, (It is now handled automatically by the package)
+              cache: const Duration(hours: 1),
+              backgroundColor: Colors.black.withOpacity(0.2),
+              errorWidget: const SizedBox.shrink(),
+              placeholderWidget: const SizedBox.shrink(),
+              bodyStyle: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+              titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              onTap: () => launchUrl(Uri.parse(foundUrl!), mode: LaunchMode.externalApplication),
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildFileBubble(String fileName, IconData icon, Color iconColor) {

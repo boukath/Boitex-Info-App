@@ -90,6 +90,7 @@ dependencies:
   crypto: ^3.0.7
   path: ^1.9.0
   universal_html: ^2.2.4
+  any_link_preview: ^3.0.0
 
   # --- WIDGETS ---
   home_widget: ^0.7.0

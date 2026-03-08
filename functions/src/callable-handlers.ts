@@ -35,29 +35,42 @@ async (request) => {
     const modelId = "llama-3.1-8b-instant";
 
     const businessContext = `
-      **CONTEXTE IMPORTANT:**
-      - "Boitex Info" est une société spécialisée dans les systèmes de sécurité pour **magasins (retail)**.
-      - Le terme "antivol" ou "anti vol" fait référence à des **systèmes de sécurité pour magasins** (portiques antivol, anti-vol à l'étalage, antivol textile).
-      - **NE PAS** l'associer à des voitures ou des véhicules.
+      **CONTEXTE DE L'ENTREPRISE:**
+      - "Boitex Info" est spécialisée dans la sécurité et l'IT pour magasins (retail).
+      - Matériel concerné : portiques antivol, TPV / caisses, imprimantes tickets, scanners, PDA, compteurs de passage.
     `;
 
     let systemPrompt = "";
     switch (context) {
       case 'diagnostic':
-        systemPrompt = `Tu es un technicien expert pour Boitex Info.
+        systemPrompt = `Tu es un Directeur Technique (Technical Manager) pro chez Boitex Info.
         ${businessContext}
-        **TA TÂCHE:** Convertir les notes/mots-clés suivants en un **diagnostic technique** clair et professionnel. Reste factuel et précis. Ne parle pas de la solution.`;
+        **TA TÂCHE:** Le technicien a écrit des notes brouillonnes pour le "Diagnostic". Tu dois juste améliorer la syntaxe, corriger les fautes et utiliser un vocabulaire technique pro.
+
+        **RÈGLES STRICTES:**
+        1. Ne rédige SURTOUT PAS un long rapport. Reste très concis (1 ou 2 phrases maximum).
+        2. Ne change pas le sens original et n'invente rien.
+        3. Ne parle pas de la solution, uniquement du problème constaté.
+        4. Ne fais AUCUNE phrase d'introduction ou de conclusion (ex: "Voici le diagnostic corrigé :"). Renvoie DIRECTEMENT le texte final.`;
         break;
+
       case 'workDone':
-        systemPrompt = `Tu es un technicien expert pour Boitex Info.
+        systemPrompt = `Tu es un Directeur Technique (Technical Manager) pro chez Boitex Info.
         ${businessContext}
-        **TA TÂCHE:** Convertir les notes/mots-clés suivants en un rapport formel des **travaux effectués**. Liste les actions de manière claire. Ne parle pas du diagnostic.`;
+        **TA TÂCHE:** Le technicien a écrit des notes brouillonnes pour les "Travaux Effectués". Tu dois juste améliorer la syntaxe, corriger les fautes et utiliser un vocabulaire technique pro.
+
+        **RÈGLES STRICTES:**
+        1. Ne rédige SURTOUT PAS un long rapport. Reste très concis (utilise des tirets si pertinent, ou des phrases courtes).
+        2. Ne change pas le sens original et n'invente rien.
+        3. Ne parle pas du problème initial, uniquement de l'action réalisée.
+        4. Ne fais AUCUNE phrase d'introduction (ex: "Voici les travaux :"). Renvoie DIRECTEMENT le texte final.`;
         break;
+
       case 'problem_report':
       default:
-        systemPrompt = `Tu es un assistant expert pour Boitex Info.
+        systemPrompt = `Tu es un Directeur Technique chez Boitex Info.
         ${businessContext}
-        **TA TÂCHE:** Ton unique objectif est de convertir les notes/mots-clés suivants en une **description de problème** claire et professionnelle en Français, telle que rapportée par un client de magasin. Ne crée PAS de section "Diagnostic" ou "Solution". Rédige simplement la plainte du client en utilisant le bon contexte.`;
+        **TA TÂCHE:** Améliore la plainte du client pour la rendre claire et professionnelle. Reste très concis. Renvoie uniquement le texte final sans introduction.`;
         break;
     }
 
@@ -73,8 +86,9 @@ async (request) => {
         {
           model: modelId,
           messages: messages,
-          max_tokens: 300,
+          max_tokens: 150, // Reduced max_tokens to further prevent long essays
           stream: false,
+          temperature: 0.3, // Lower temperature makes it more factual and less "creative"
         },
         {
           headers: {
