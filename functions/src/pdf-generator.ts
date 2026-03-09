@@ -271,7 +271,7 @@ function _drawSectionTitle(doc: PDFKit.PDFDocument, title: string) {
 }
 
 function _drawInformationGrid(doc: PDFKit.PDFDocument, data: any) {
-  _checkPageBreak(doc, 80); // Tighter squeeze threshold
+  _checkPageBreak(doc, 80);
   doc.x = LAYOUT.margin;
 
   const startY = doc.y;
@@ -365,7 +365,6 @@ function _drawEquipmentTable(doc: PDFKit.PDFDocument, data: any) {
   doc.x = LAYOUT.margin;
 }
 
-// 🚀 NEW: Dynamic Timeline for Multi-Visit Interventions
 function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
   doc.x = LAYOUT.margin;
   _drawSectionTitle(doc, "Journal Multi-Visites");
@@ -390,7 +389,6 @@ function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
     doc.moveDown(0.5);
     doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary);
 
-    // ✅ CLEAN THE TEXT BEFORE DRAWING
     const safeEntryWorkDone = sanitizeText(entry.workDone) || "Aucune description.";
     doc.text(safeEntryWorkDone, contentX, doc.y, {
       width: contentWidth,
@@ -400,11 +398,9 @@ function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
 
     const endY = doc.y + 15;
 
-    // Timeline Dot
     doc.circle(timelineX, startY + 5, 4).lineWidth(2).strokeColor(COLORS.accent).stroke();
     doc.circle(timelineX, startY + 5, 1.5).fill(COLORS.accent);
 
-    // Timeline Vertical Line (except for the last one)
     if (index < entries.length - 1) {
       doc.moveTo(timelineX, startY + 15).lineTo(timelineX, endY - 5).lineWidth(1).strokeColor(COLORS.border).stroke();
     }
@@ -423,7 +419,6 @@ function _drawSimpleDiagnostic(doc: PDFKit.PDFDocument, data: any) {
   doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("DIAGNOSTIC / PANNE SIGNALÉE", LAYOUT.margin, doc.y);
   doc.moveDown(0.5);
 
-  // ✅ CLEAN THE TEXT BEFORE DRAWING
   const safeDiagnostic = sanitizeText(data.diagnostic) || "Aucun diagnostic spécifié.";
   doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
      .text(safeDiagnostic, LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
@@ -435,7 +430,6 @@ function _drawSimpleDiagnostic(doc: PDFKit.PDFDocument, data: any) {
   doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("TRAVAUX EFFECTUÉS", LAYOUT.margin, doc.y);
   doc.moveDown(0.5);
 
-  // ✅ CLEAN THE TEXT BEFORE DRAWING
   const safeWorkDone = sanitizeText(data.workDone) || "Aucun travail spécifié.";
   doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
      .text(safeWorkDone, LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
@@ -443,38 +437,57 @@ function _drawSimpleDiagnostic(doc: PDFKit.PDFDocument, data: any) {
   doc.moveDown(2);
 }
 
+// ✅ FIXED: Completely rewritten Gallery Generator to prevent desyncing doc.y and empty pages
 function _drawPhotoGallery(doc: PDFKit.PDFDocument, photoBuffers: Buffer[]) {
   if (photoBuffers.length === 0) return;
 
-  _checkPageBreak(doc, 150);
+  const imgSize = (LAYOUT.contentWidth - 20) / 2;
+
+  // 1. Ensure we have space for the Title + the FIRST row of images
+  _checkPageBreak(doc, 40 + imgSize + 30);
+
   doc.x = LAYOUT.margin;
   _drawSectionTitle(doc, "Preuves Visuelles (Galerie)");
 
-  const imgSize = (LAYOUT.contentWidth - 20) / 2;
   let startX = LAYOUT.margin;
-  let currentY = doc.y;
 
   photoBuffers.forEach((buf, i) => {
+    // Move to the next row every 2 images
     if (i % 2 === 0 && i !== 0) {
-      currentY += imgSize + 15;
+      doc.y += imgSize + 15; // Move doc.y down to the new row
       startX = LAYOUT.margin;
+
+      // Now that doc.y is updated, check if this new row forces a page break
       _checkPageBreak(doc, imgSize + 30);
-      if (doc.y !== currentY) currentY = doc.y;
     }
+
+    const currentY = doc.y; // currentY always strictly follows doc.y
 
     try {
       doc.save();
+      // Add a clipping path with rounded corners
       doc.roundedRect(startX, currentY, imgSize, imgSize, 8).clip();
-      doc.image(buf, startX, currentY, { width: imgSize, height: imgSize, fit: [imgSize, imgSize], align: 'center', valign: 'center' });
+
+      // Draw the image
+      doc.image(buf, startX, currentY, {
+        width: imgSize,
+        height: imgSize,
+        fit: [imgSize, imgSize],
+        align: 'center',
+        valign: 'center'
+      });
       doc.restore();
     } catch (e) {
       doc.restore();
+      logger.warn("Failed to draw a photo in the gallery", e);
     }
 
     startX += imgSize + 20;
   });
 
-  doc.y = currentY + imgSize + 30;
+  // Update doc.y to the bottom of the gallery safely for the elements coming after it
+  doc.y += imgSize + 30;
+  doc.x = LAYOUT.margin;
 }
 
 // ----------------------------------------------------------------------------

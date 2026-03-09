@@ -3,212 +3,531 @@
 import PDFDocument from "pdfkit";
 import axios from "axios";
 import * as logger from "firebase-functions/logger";
+import * as admin from "firebase-admin";
 
-// --- Constants ---
-const LOGO_URL_WHITE = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
-const WATERMARK_URL = "https://f003.backblazeb2.com/file/BoitexInfo/Boitex+logo/cache+technique.png";
+// --- 1. ASSETS ---
+const LOGO_URL = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
+const STAMP_URL = "https://f003.backblazeb2.com/file/BoitexInfo/Boitex+logo/cache+technique.png";
 
-const BRAND_COLOR = "#0D47A1";
-const HEADER_TEXT_COLOR = "#FFFFFF";
-const TITLE_COLOR = "#000000";
-const TEXT_COLOR = "#333333";
-const LABEL_COLOR = "#666666";
-const LIGHT_GRAY_BACKGROUND = "#F7F9FA";
-const LINE_COLOR = "#E0E0E0";
-const MARGIN = 40;
+// --- 2. PREMIUM DESIGN TOKENS ---
+const COLORS = {
+primary: "#0F172A",     // Deep Space Dark
+secondary: "#64748B",   // Slate Gray
+accent: "#2563EB",      // Vibrant Apple Blue
+border: "#E2E8F0",      // Light Border
+bgLight: "#F8FAFC",     // Frost White
+success: "#10B981",     // Emerald
+warning: "#F59E0B",     // Sunset Amber
+white: "#FFFFFF"
+};
 
-// --- Helper Functions ---
+const FONTS = {
+regular: "Helvetica",
+bold: "Helvetica-Bold",
+italic: "Helvetica-Oblique"
+};
 
+const LAYOUT = {
+margin: 50,
+pageWidth: 595.28,
+pageHeight: 841.89,
+contentWidth: 495.28
+};
+
+/**
+* 🚀 Helper: Fetch Image Buffer safely
+*/
 async function fetchImage(url: string): Promise<Buffer | null> {
-  if (!url || !url.startsWith("http")) return null;
+  if (!url || typeof url !== 'string' || !url.startsWith("http")) return null;
   try {
-    const response = await axios.get(url, { responseType: "arraybuffer" });
-    return Buffer.from(response.data);
+    const response = await axios.get(url, { responseType: "arraybuffer", timeout: 10000 });
+    const buffer = Buffer.from(response.data);
+
+    if (buffer.length > 2.5 * 1024 * 1024) {
+      logger.warn(`Skipping image ${url} - Size is too large.`);
+      return null;
+    }
+    return buffer;
   } catch (error) {
-    logger.error(`❌ Error fetching image at ${url}:`, error);
+    logger.warn(`Could not load image at ${url}`);
     return null;
   }
 }
 
-function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
-  doc.rect(0, 0, doc.page.width, 100).fillColor(BRAND_COLOR).fill();
-  if (logoBuffer) {
-    doc.image(logoBuffer, MARGIN, 25, { height: 50 });
-  }
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(18)
-    .fillColor(HEADER_TEXT_COLOR)
-    .text("BON DE RESTITUTION SAV", doc.page.width - MARGIN - 300, 40, {
-      width: 300,
-      align: "right",
-    });
-  doc.y = 130;
+/**
+ * Helper: Format Date
+ */
+function formatDate(dateObj: any, includeTime = false): string {
+  if (!dateObj) return "N/A";
+  let d: Date;
+  if (dateObj._seconds) d = new Date(dateObj._seconds * 1000);
+  else if (dateObj.seconds) d = new Date(dateObj.seconds * 1000);
+  else d = new Date(dateObj);
+
+  if (isNaN(d.getTime())) return "N/A";
+
+  const opts: Intl.DateTimeFormatOptions = {
+    day: "2-digit", month: "short", year: "numeric",
+    ...(includeTime && { hour: "2-digit", minute: "2-digit" })
+  };
+  return d.toLocaleDateString("fr-FR", opts);
 }
 
-function _buildFooter(doc: PDFKit.PDFDocument) {
-  const range = doc.bufferedPageRange();
-  const pageCount = range.start + range.count;
-  const footerY = doc.page.height - 35;
-
-  for (let i = range.start; i < pageCount; i++) {
-    doc.switchToPage(i);
-    doc.save().moveTo(MARGIN, footerY).lineTo(doc.page.width - MARGIN, footerY)
-       .lineWidth(0.5).strokeColor(LINE_COLOR).stroke().restore();
-
-    doc.font("Helvetica").fontSize(8).fillColor(LABEL_COLOR)
-       .text("www.boitexinfo.com | commercial@boitexinfo.com | +213 560 367 256", MARGIN, footerY + 10, { align: "left" });
-
-    doc.text(`Page ${i + 1} / ${pageCount}`, doc.page.width - MARGIN - 50, footerY + 10, {
-      width: 50, align: "right"
-    });
+/**
+ * 🚀 SMART PAGE BREAK HANDLER
+ */
+function _checkPageBreak(doc: PDFKit.PDFDocument, requiredSpace: number) {
+  if (doc.y + requiredSpace > LAYOUT.pageHeight - 80) {
+    doc.addPage();
+    doc.x = LAYOUT.margin;
+    doc.y = LAYOUT.margin;
   }
 }
 
-// --- Main Generator Function ---
+/**
+ * 🚀 MAIN GENERATOR FUNCTION
+ */
+export async function generateSavReturnPdf(data: any, ticketId?: string): Promise<Buffer> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const doc = new PDFDocument({
+        size: "A4",
+        margins: { top: LAYOUT.margin, bottom: LAYOUT.margin, left: LAYOUT.margin, right: LAYOUT.margin },
+        bufferPages: true,
+      });
 
-export async function generateSavReturnPdf(data: any): Promise<Buffer> {
-  const doc = new PDFDocument({
-    size: "A4",
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
-    bufferPages: true,
+      const buffers: Buffer[] = [];
+      doc.on("data", buffers.push.bind(buffers));
+
+      const signatureUrl = data.returnSignatureUrl || data.storeManagerSignatureUrl;
+      const ticketTitle = "BON DE RESTITUTION SAV";
+
+      let targetTicketId = ticketId || data.id || data.ticketId;
+
+      // 🌟 WHATSAPP STYLE QR CODE
+      const qrData = encodeURIComponent(`Certifié BOITEX INFO | ${ticketTitle} | SAV: ${data.savCode || 'N/A'} | Client: ${data.clientName || 'N/A'}`);
+      const logoUrlEnc = encodeURIComponent(LOGO_URL);
+      const QR_URL = `https://quickchart.io/qr?text=${qrData}&dark=0F172A&light=FFFFFF&size=150&centerImageUrl=${logoUrlEnc}`;
+
+      // Fetch Assets
+      const [logoBuffer, signatureBuffer, stampBuffer, qrBuffer] = await Promise.all([
+        fetchImage(LOGO_URL),
+        fetchImage(signatureUrl),
+        fetchImage(STAMP_URL),
+        fetchImage(QR_URL),
+      ]);
+
+      // 🌟 FETCH JOURNAL ENTRIES FOR TIMELINE
+      let journalEntries: any[] = [];
+
+      try {
+        // 🛠️ BULLETPROOF FIX: If ID is missing, find it via the savCode!
+        if (!targetTicketId && data.savCode) {
+          const ticketQuery = await admin.firestore()
+            .collection('sav_tickets')
+            .where('savCode', '==', data.savCode)
+            .limit(1)
+            .get();
+
+          if (!ticketQuery.empty) {
+            targetTicketId = ticketQuery.docs[0].id;
+          }
+        }
+
+        // Now that we definitely have the ID, fetch the journal!
+        if (targetTicketId) {
+          const snapshot = await admin.firestore()
+            .collection('sav_tickets')
+            .doc(targetTicketId)
+            .collection('journal_entries')
+            .orderBy('timestamp', 'asc')
+            .get();
+
+          journalEntries = snapshot.docs.map(doc => doc.data());
+        } else {
+          logger.warn(`Could not find a valid Ticket ID for SAV Code: ${data.savCode}`);
+        }
+      } catch (e) {
+        logger.error("Error fetching journal entries for timeline", e);
+      }
+
+      doc.on('pageAdded', () => {
+        _drawWatermark(doc, logoBuffer);
+      });
+
+      // --- START DRAWING ---
+      _drawWatermark(doc, logoBuffer);
+      _drawHeader(doc, data, logoBuffer, ticketTitle);
+
+      doc.moveDown(1);
+      _drawInformationGrid(doc, data);
+
+      doc.moveDown(1.5);
+      _drawEquipmentDetails(doc, data);
+
+      doc.moveDown(1.5);
+      _drawJournalTimeline(doc, journalEntries);
+
+      doc.moveDown(1.5);
+      _drawValidationSection(doc, data, signatureBuffer, stampBuffer, qrBuffer);
+
+      _addGlobalFooters(doc, data, ticketTitle);
+
+      doc.end();
+      doc.on("end", () => resolve(Buffer.concat(buffers)));
+
+    } catch (error) {
+      logger.error("CRITICAL ERROR IN SAV RETURN PDF GENERATION:", error);
+      reject(error);
+    }
   });
+}
 
-  const buffers: Buffer[] = [];
-  doc.on("data", buffers.push.bind(buffers));
+// ============================================================================
+// 🎨 PREMIUM DRAWING FUNCTIONS
+// ============================================================================
 
-  // 1. Fetch Images
-  const signatureUrl = data.returnSignatureUrl || data.storeManagerSignatureUrl;
+function _drawWatermark(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
+  if (!logoBuffer) return;
+  try {
+    doc.save()
+       .opacity(0.06)
+       .image(logoBuffer, LAYOUT.margin, (LAYOUT.pageHeight - 400) / 2, {
+          fit: [LAYOUT.contentWidth, 400],
+          align: 'center',
+          valign: 'center'
+       })
+       .restore();
+  } catch (e) {
+    doc.restore();
+  }
+}
 
-  const [logoBuffer, signatureBuffer, watermarkBuffer] = await Promise.all([
-    fetchImage(LOGO_URL_WHITE),
-    fetchImage(signatureUrl),
-    fetchImage(WATERMARK_URL),
-  ]);
-
-  // 2. Header
-  _buildHeader(doc, logoBuffer);
-
-  // 3. Info Section (2 Columns)
-  doc.x = MARGIN;
-  const col1X = MARGIN;
-  const col2X = doc.page.width / 2 + 30;
+function _drawHeader(doc: PDFKit.PDFDocument, data: any, logoBuffer: Buffer | null, title: string) {
+  doc.x = LAYOUT.margin;
   const startY = doc.y;
 
-  const returnDate = new Date().toLocaleDateString("fr-FR");
+  if (logoBuffer) {
+    try {
+      doc.image(logoBuffer, LAYOUT.margin, startY, { fit: [210, 80] });
+    } catch (e) {
+      doc.font(FONTS.bold).fontSize(16).fillColor(COLORS.primary).text("BOITEX INFO", LAYOUT.margin, startY);
+    }
+  } else {
+    doc.font(FONTS.bold).fontSize(16).fillColor(COLORS.primary).text("BOITEX INFO", LAYOUT.margin, startY);
+  }
 
-  // Col 1
-  doc.font("Helvetica-Bold").fontSize(10).fillColor(LABEL_COLOR).text("Client", col1X, startY);
-  doc.font("Helvetica").fillColor(TEXT_COLOR).text(data.clientName || "N/A", col1X);
+  doc.font(FONTS.bold).fontSize(20).fillColor(COLORS.primary)
+     .text(title, LAYOUT.margin, startY, { align: "right", width: LAYOUT.contentWidth });
+
+  doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.secondary)
+     .text(`RÉF SAV: ${data.savCode || 'N/A'}`, LAYOUT.margin, doc.y + 2, { align: "right", width: LAYOUT.contentWidth });
+
+  const returnDate = formatDate(new Date(), false);
+  doc.text(`RESTITUÉ LE : ${returnDate}`, LAYOUT.margin, doc.y + 2, { align: "right", width: LAYOUT.contentWidth });
+
+  // Status Badge
   doc.moveDown(0.5);
+  const status = "Restitué";
+  const textWidth = doc.widthOfString(status.toUpperCase()) + 20;
+  const badgeX = LAYOUT.pageWidth - LAYOUT.margin - textWidth;
 
-  doc.font("Helvetica-Bold").fillColor(LABEL_COLOR).text("Magasin", col1X);
-  doc.font("Helvetica").fillColor(TEXT_COLOR).text(data.storeName || "N/A", col1X);
-  doc.moveDown(0.5);
+  doc.roundedRect(badgeX, doc.y, textWidth, 18, 9).fill(COLORS.accent);
+  doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.white)
+     .text(status.toUpperCase(), badgeX, doc.y + 5, { width: textWidth, align: "center" });
 
-  doc.font("Helvetica-Bold").fillColor(LABEL_COLOR).text("Réf. Ticket", col1X);
-  doc.font("Helvetica").fillColor(TEXT_COLOR).text(data.savCode || "N/A", col1X);
+  doc.y = Math.max(startY + 80, doc.y + 20);
+  doc.moveTo(LAYOUT.margin, doc.y).lineTo(LAYOUT.pageWidth - LAYOUT.margin, doc.y)
+     .lineWidth(1).strokeColor(COLORS.border).stroke();
+  doc.y += 15;
+  doc.x = LAYOUT.margin;
+}
 
-  // Col 2
-  doc.font("Helvetica-Bold").fillColor(LABEL_COLOR).text("Date de Restitution", col2X, startY);
-  doc.font("Helvetica").fillColor(TEXT_COLOR).text(returnDate, col2X);
-  doc.moveDown(0.5);
+function _drawSectionTitle(doc: PDFKit.PDFDocument, title: string) {
+  _checkPageBreak(doc, 40);
+  doc.x = LAYOUT.margin;
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.accent)
+     .text(title.toUpperCase(), LAYOUT.margin, doc.y, { characterSpacing: 1.5 });
+  doc.moveDown(1);
+}
 
-  doc.font("Helvetica-Bold").fillColor(LABEL_COLOR).text("Responsable", col2X);
-  doc.font("Helvetica").fillColor(TEXT_COLOR).text(data.storeManagerName || "N/A", col2X);
-  doc.moveDown(0.5);
+function _drawInformationGrid(doc: PDFKit.PDFDocument, data: any) {
+  _checkPageBreak(doc, 80);
+  doc.x = LAYOUT.margin;
 
-  doc.font("Helvetica-Bold").fillColor(LABEL_COLOR).text("Email", col2X);
-  doc.font("Helvetica").fillColor(TEXT_COLOR).text(data.storeManagerEmail || "N/A", col2X);
+  const startY = doc.y;
+  const colWidth = (LAYOUT.contentWidth / 2) - 10;
+  const rightColX = LAYOUT.margin + colWidth + 20;
 
-  doc.y = Math.max(doc.y, startY + 80);
-  doc.moveDown(2);
+  // Left Column
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("INFORMATIONS CLIENT", LAYOUT.margin, startY, { characterSpacing: 1 });
+  doc.font(FONTS.bold).fontSize(11).fillColor(COLORS.primary).text(data.clientName || "Client Inconnu", LAYOUT.margin, startY + 15, { width: colWidth });
+  doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
+     .text(data.storeName || "Site non spécifié", LAYOUT.margin, startY + 30, { width: colWidth });
 
-  // Divider
-  doc.save().moveTo(MARGIN, doc.y).lineTo(doc.page.width - MARGIN, doc.y)
-     .lineWidth(0.5).strokeColor(LINE_COLOR).stroke().restore();
-  doc.moveDown(2);
+  const managerName = data.returnClientName || data.storeManagerName || "N/A";
+  const managerPhone = data.returnClientPhone || data.storeManagerEmail || "";
 
-  // 4. Product Details & Repair Report (Consolidated Gray Card)
-  const contentX = MARGIN + 20;
-  const contentWidth = doc.page.width - MARGIN * 2 - 40;
+  doc.text(`A la charge de: ${managerName}`, LAYOUT.margin, startY + 45, { width: colWidth })
+     .fillColor(COLORS.secondary).text(managerPhone, LAYOUT.margin, startY + 60, { width: colWidth });
 
-  const cardTop = doc.y;
+  // Right Column
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("DÉTAILS INTERVENTION", rightColX, startY, { characterSpacing: 1 });
 
-  // --- Helper to draw a standard block ---
-  const drawBlock = (title: string, value: string) => {
-     doc.font("Helvetica-Bold").fontSize(12).fillColor(TITLE_COLOR).text(title, contentX, doc.y, { width: contentWidth });
-     doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR).text(value || "N/A", contentX, doc.y, { width: contentWidth });
-     doc.moveDown(1.5);
+  let techs = "Non assigné";
+  if (Array.isArray(data.pickupTechnicianNames) && data.pickupTechnicianNames.length > 0) {
+    techs = data.pickupTechnicianNames.join(", ");
+  }
+
+  const row = (label: string, val: string, yPos: number) => {
+    doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.secondary).text(label, rightColX, yPos, { width: 90 });
+    doc.font(FONTS.bold).fillColor(COLORS.primary).text(val, rightColX + 90, yPos, { width: colWidth - 90 });
   };
 
-  // MEASURE PASS: Calculate height
-  doc.y += 20;
-  drawBlock("Produit", data.productName);
-  drawBlock("Numéro de Série", data.serialNumber);
-  drawBlock("Problème Initial", data.problemDescription);
-  // ✅ NEW: "Réparation" is now inside the box, same style
-  drawBlock("Réparation", data.technicianReport || "Maintenance standard effectuée.");
+  row("Type Ticket:", "Restitution Matériel", startY + 15);
+  row("Équipe (Livraison):", techs, startY + 30);
 
-  const cardBottom = doc.y + 20;
+  doc.y = startY + 80;
+  doc.x = LAYOUT.margin;
+}
 
-  // DRAW PASS: Draw background and text
-  doc.rect(MARGIN, cardTop, doc.page.width - MARGIN * 2, cardBottom - cardTop).fillColor(LIGHT_GRAY_BACKGROUND).fill();
+function _drawEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
+  // 🅰️ MULTI-PRODUCT MODE
+  if (data.multiProducts && data.multiProducts.length > 0) {
+    _drawSectionTitle(doc, "Liste des Équipements Restitués");
 
-  doc.y = cardTop + 20; // Reset Y to top of card padding
-  drawBlock("Produit", data.productName);
-  drawBlock("Numéro de Série", data.serialNumber);
-  drawBlock("Problème Initial", data.problemDescription);
-  drawBlock("Réparation", data.technicianReport || "Maintenance standard effectuée.");
+    const startX = LAYOUT.margin;
+    doc.rect(startX, doc.y, LAYOUT.contentWidth, 20).fill(COLORS.bgLight);
 
-  doc.y = cardBottom + 30; // Move below card
+    const headerY = doc.y + 6;
+    doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.secondary);
+    doc.text("PRODUIT", startX + 10, headerY, { width: 180 });
+    doc.text("N° SÉRIE", startX + 200, headerY, { width: 120 });
+    doc.text("ÉTAT / RÉPARATION", startX + 330, headerY, { width: doc.page.width - startX - 350 });
 
-  // 5. Validation
-  if (watermarkBuffer) {
-    const colWidth = doc.page.width / 2 - MARGIN - 30;
-    doc.save().opacity(0.2).image(watermarkBuffer, col1X, doc.y, { fit: [colWidth, 100] }).restore();
+    doc.y = headerY + 14;
+
+    data.multiProducts.forEach((item: any) => {
+      _checkPageBreak(doc, 30);
+      const rowY = doc.y + 6;
+
+      const name = item.productName || "Inconnu";
+      const sns = item.serialNumber || "-";
+      const rep = item.technicianReport || data.technicianReport || "Vérifié & Opérationnel";
+
+      doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.primary).text(name, startX + 10, rowY, { width: 180 });
+      doc.font(FONTS.regular).fillColor(COLORS.secondary).text(sns, startX + 200, rowY, { width: 120 });
+      doc.fillColor(COLORS.primary).text(rep, startX + 330, rowY, { width: doc.page.width - startX - 350 });
+
+      const nameHeight = doc.heightOfString(name, { width: 180 });
+      const repHeight = doc.heightOfString(rep, { width: doc.page.width - startX - 350 });
+      const maxH = Math.max(nameHeight, repHeight);
+
+      doc.y = rowY + maxH + 6;
+      doc.moveTo(startX, doc.y).lineTo(LAYOUT.pageWidth - startX, doc.y)
+         .lineWidth(0.5).strokeColor(COLORS.border).stroke();
+    });
+
+    doc.y += 15;
+    doc.x = LAYOUT.margin;
+    return;
   }
 
-  // Techs
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(TITLE_COLOR).text("Techniciens", col1X, doc.y);
-  const techs = data.pickupTechnicianNames || [];
-  if (techs.length > 0) {
-    techs.forEach((t: string) => doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR).text(`• ${t}`));
-  } else {
-    doc.font("Helvetica-Oblique").fontSize(10).fillColor(LABEL_COLOR).text("Non spécifié");
+  // 🅱️ SINGLE PRODUCT MODE
+  _checkPageBreak(doc, 90);
+  _drawSectionTitle(doc, "Équipement Concerné");
+
+  const cardX = LAYOUT.margin;
+  const cardWidth = LAYOUT.contentWidth;
+
+  doc.font(FONTS.regular).fontSize(10);
+  const probHeight = doc.heightOfString(data.problemDescription || "Non spécifié", { width: cardWidth - 40 });
+  const cardHeight = 80 + probHeight;
+
+  doc.roundedRect(cardX, doc.y, cardWidth, cardHeight, 10)
+     .fillAndStroke(COLORS.bgLight, COLORS.border);
+
+  const innerY = doc.y + 15;
+
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("PRODUIT", cardX + 20, innerY);
+  doc.font(FONTS.bold).fontSize(12).fillColor(COLORS.primary).text(data.productName || "Inconnu", cardX + 20, innerY + 12);
+
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("NUMÉRO DE SÉRIE", cardX + 250, innerY);
+  doc.font(FONTS.regular).fontSize(11).fillColor(COLORS.primary).text(data.serialNumber || "N/A", cardX + 250, innerY + 12);
+
+  doc.moveTo(cardX + 20, innerY + 35).lineTo(cardX + cardWidth - 20, innerY + 35)
+     .lineWidth(0.5).strokeColor(COLORS.border).stroke();
+
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("PROBLÈME INITIAL", cardX + 20, innerY + 45);
+  doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
+     .text(data.problemDescription || "Non spécifié", cardX + 20, innerY + 60, { width: cardWidth - 40 });
+
+  doc.y += cardHeight + 20;
+}
+
+// ----------------------------------------------------------------------------
+// 🌟 NEW: THE DYNAMIC REPARATION TIMELINE
+// ----------------------------------------------------------------------------
+function _drawJournalTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
+  const relevantEntries = entries.filter(e => {
+    const type = (e.type || "").toLowerCase();
+    if (type === 'text') return true;
+    if (type === 'status_change') {
+      const ns = e.newStatus || (e.metadata && e.metadata.newStatus) || "";
+      return ns === 'En Réparation' || ns === 'Terminé';
+    }
+    return false;
+  });
+
+  if (relevantEntries.length === 0) return;
+
+  doc.x = LAYOUT.margin;
+  _drawSectionTitle(doc, "Journal de Réparation & Suivi Technique");
+
+  const timelineX = LAYOUT.margin + 10;
+  const contentX = timelineX + 25;
+  const contentWidth = LAYOUT.pageWidth - LAYOUT.margin - contentX;
+
+  relevantEntries.forEach((entry, index) => {
+    _checkPageBreak(doc, 60);
+    const startY = doc.y;
+
+    const dateStr = formatDate(entry.timestamp, true);
+
+    let dotColor = COLORS.secondary;
+    let titleText = "";
+    let contentText = entry.content || "";
+
+    if ((entry.type || "").toLowerCase() === 'status_change') {
+      const ns = entry.newStatus || (entry.metadata && entry.metadata.newStatus);
+      if (ns === 'En Réparation') {
+         dotColor = COLORS.warning;
+         titleText = `Début de Réparation • ${dateStr}`;
+         if (!contentText) contentText = "L'équipement a été pris en charge pour réparation.";
+      } else if (ns === 'Terminé') {
+         dotColor = COLORS.success;
+         titleText = `Réparation Terminée • ${dateStr}`;
+         if (!contentText) contentText = "L'intervention technique est officiellement achevée.";
+      }
+    } else {
+      dotColor = COLORS.accent;
+      const author = entry.authorName || "Technicien";
+      titleText = `Note Technique (${author}) • ${dateStr}`;
+    }
+
+    doc.font(FONTS.bold).fontSize(9).fillColor(dotColor).text(titleText, contentX, startY);
+
+    doc.moveDown(0.3);
+    doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
+       .text(contentText, contentX, doc.y, { width: contentWidth, lineGap: 4, align: 'left' });
+
+    const endY = doc.y + 15;
+
+    doc.circle(timelineX, startY + 4, 4).lineWidth(1.5).strokeColor(dotColor).stroke();
+    doc.circle(timelineX, startY + 4, 2).fill(dotColor);
+
+    if (index < relevantEntries.length - 1) {
+      doc.moveTo(timelineX, startY + 14).lineTo(timelineX, endY - 6).lineWidth(1).strokeColor(COLORS.border).stroke();
+    }
+
+    doc.y = endY;
+    doc.x = LAYOUT.margin;
+  });
+}
+
+// ----------------------------------------------------------------------------
+// 🌟 THE ULTIMATE VALIDATION CARD
+// ----------------------------------------------------------------------------
+function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuffer: Buffer | null, stampBuffer: Buffer | null, qrBuffer: Buffer | null) {
+  _checkPageBreak(doc, 145);
+  doc.x = LAYOUT.margin;
+
+  const cardX = LAYOUT.margin;
+  const cardY = doc.y;
+  const cardWidth = LAYOUT.contentWidth;
+  const cardHeight = 125;
+
+  doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 10)
+     .fillAndStroke(COLORS.bgLight, COLORS.border);
+
+  doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary)
+     .text("VALIDATION & SIGNATURE", cardX + 15, cardY + 12);
+
+  const agreementText = "En signant ce document, le client confirme la récupération du matériel réparé en bon état de fonctionnement de la part de Boitex Info.";
+
+  doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.secondary)
+     .text(agreementText, cardX + 15, cardY + 25, { width: cardWidth - 30 });
+
+  const elementsY = cardY + 40;
+
+  if (qrBuffer) {
+    try {
+      doc.image(qrBuffer, cardX + 15, elementsY, { width: 60, height: 60 });
+    } catch (e) {}
   }
 
-  // Signature Box
-  const colWidth = doc.page.width / 2 - MARGIN - 30;
-  doc.y = doc.y - (techs.length * 12); // Approximate Y reset
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(TITLE_COLOR).text("Signature Client (Réception)", col2X, doc.y);
+  const stampX = cardX + 90;
+  if (stampBuffer) {
+    try {
+      doc.image(stampBuffer, stampX, elementsY - 5, { width: 100, height: 70, fit: [100, 70], align: 'center', valign: 'center' });
+    } catch (e) {}
+  }
 
-  const sigBoxY = doc.y + 10;
-  const sigBoxHeight = 80;
+  const sigWidth = 160;
+  const sigX = cardX + cardWidth - sigWidth - 15;
 
-  doc.rect(col2X, sigBoxY, colWidth, sigBoxHeight).lineWidth(0.5).strokeColor(LINE_COLOR).stroke();
+  doc.roundedRect(sigX, elementsY, sigWidth, 60, 6).fillAndStroke(COLORS.white, COLORS.border);
 
   if (signatureBuffer) {
-    doc.image(signatureBuffer, col2X, sigBoxY, { fit: [colWidth, sigBoxHeight], align: "center", valign: "center" });
+    try {
+      doc.image(signatureBuffer, sigX + 5, elementsY + 5, { width: sigWidth - 10, height: 40, fit: [sigWidth - 10, 40], align: 'center', valign: 'center' });
+    } catch (e) {
+      doc.fillColor(COLORS.secondary).fontSize(8).text("Erreur Signature", sigX, elementsY + 25, { width: sigWidth, align: "center" });
+    }
   } else {
-    doc.font("Helvetica-Oblique").fontSize(10).fillColor(LABEL_COLOR)
-       .text("Non signé", col2X, sigBoxY + 35, { width: colWidth, align: "center" });
+    doc.fillColor(COLORS.secondary).fontSize(8).text("Signature non fournie", sigX, elementsY + 25, { width: sigWidth, align: "center" });
   }
 
-  // ✅ FIX: Manager Name visibility
-  // Placed explicitly 5 units below the signature box bottom
-  const nameY = sigBoxY + sigBoxHeight + 5;
-  const managerName = data.returnClientName || data.storeManagerName || "Client";
+  const managerName = data.returnClientName || data.storeManagerName || "Client (Réception)";
 
-  doc.font("Helvetica").fontSize(9).fillColor(LABEL_COLOR)
-     .text(`Validé par : ${managerName}`, col2X, nameY, { width: colWidth, align: "center" });
-  
-  // Footer
-  _buildFooter(doc);
+  doc.fillColor(COLORS.primary).font(FONTS.bold).fontSize(9)
+     .text(managerName, sigX, elementsY + 47, { width: sigWidth, align: "center" });
 
-  return new Promise((resolve, reject) => {
-    doc.on("end", () => resolve(Buffer.concat(buffers)));
-    doc.on("error", reject);
-    doc.end();
-  });
+  doc.moveTo(cardX, cardY + 110).lineTo(cardX + cardWidth, cardY + 110)
+     .lineWidth(0.5).strokeColor(COLORS.border).stroke();
+
+  doc.font(FONTS.italic).fontSize(7).fillColor(COLORS.secondary)
+     .text("Certifié Numériquement -- Garantie de traçabilité Boitex Info.", cardX, cardY + 115, { align: "center", width: cardWidth });
+
+  doc.y = cardY + cardHeight + 20;
+}
+
+function _addGlobalFooters(doc: PDFKit.PDFDocument, data: any, title: string) {
+  const pageCount = doc.bufferedPageRange().count;
+  const originalBottomMargin = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
+
+  for (let i = 0; i < pageCount; i++) {
+    doc.switchToPage(i);
+
+    try {
+      const footerY = LAYOUT.pageHeight - 35;
+
+      doc.moveTo(LAYOUT.margin, footerY - 5).lineTo(LAYOUT.pageWidth - LAYOUT.margin, footerY - 5)
+         .lineWidth(0.5).strokeColor(COLORS.border).stroke();
+
+      doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.primary)
+         .text("BOITEX INFO", LAYOUT.margin, footerY);
+
+      doc.font(FONTS.regular).fillColor(COLORS.accent)
+         .text("www.Boitexinfo.com", LAYOUT.margin, footerY + 12, { link: "https://www.Boitexinfo.com" });
+
+      doc.font(FONTS.regular).fillColor(COLORS.secondary)
+         .text(`${title} - SAV: ${data.savCode || "N/A"}`, LAYOUT.margin, footerY, { align: "center", width: LAYOUT.contentWidth });
+
+      doc.text(`Page ${i + 1} / ${pageCount}`, LAYOUT.margin, footerY, { align: "right", width: LAYOUT.contentWidth });
+    } finally {
+      doc.page.margins.bottom = originalBottomMargin;
+    }
+  }
 }

@@ -4,374 +4,452 @@ import PDFDocument from "pdfkit";
 import axios from "axios";
 import * as logger from "firebase-functions/logger";
 
-// --- 1. CONSTANTS (Identical to Intervention PDF) ---
-const LOGO_URL_WHITE = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
-const WATERMARK_URL = "https://f003.backblazeb2.com/file/BoitexInfo/Boitex+logo/cache+technique.png";
+// --- 1. ASSETS ---
+const LOGO_URL = "https://f003.backblazeb2.com/file/BoitexInfo/boitex_logo.png";
+const STAMP_URL = "https://f003.backblazeb2.com/file/BoitexInfo/Boitex+logo/cache+technique.png";
 
-// --- Design Constants ---
-const BRAND_COLOR = "#0D47A1"; // Deep blue
-const HEADER_TEXT_COLOR = "#FFFFFF";
-const TITLE_COLOR = "#000000";
-const TEXT_COLOR = "#333333";
-const LABEL_COLOR = "#666666";
-const LIGHT_GRAY_BACKGROUND = "#F7F9FA";
-const LINE_COLOR = "#E0E0E0";
-const MARGIN = 40;
+// --- 2. PREMIUM DESIGN TOKENS ---
+const COLORS = {
+primary: "#0F172A",     // Deep Space Dark
+secondary: "#64748B",   // Slate Gray
+accent: "#2563EB",      // Vibrant Apple Blue
+border: "#E2E8F0",      // Light Border
+bgLight: "#F8FAFC",     // Frost White
+success: "#10B981",     // Emerald
+warning: "#F59E0B",     // Sunset Amber
+white: "#FFFFFF"
+};
+
+const FONTS = {
+regular: "Helvetica",
+bold: "Helvetica-Bold",
+italic: "Helvetica-Oblique"
+};
+
+const LAYOUT = {
+margin: 50,
+pageWidth: 595.28,
+pageHeight: 841.89,
+contentWidth: 495.28
+};
 
 /**
-* Fetches an image from a URL and returns it as a Buffer.
+* 🚀 Helper: Fetch Image Buffer safely
 */
 async function fetchImage(url: string): Promise<Buffer | null> {
-  if (!url || !url.startsWith("http")) {
-    return null;
-  }
+  if (!url || typeof url !== 'string' || !url.startsWith("http")) return null;
   try {
-    const response = await axios.get(url, { responseType: "arraybuffer" });
-    return Buffer.from(response.data);
+    const response = await axios.get(url, { responseType: "arraybuffer", timeout: 10000 });
+    const buffer = Buffer.from(response.data);
+
+    if (buffer.length > 2.5 * 1024 * 1024) {
+      logger.warn(`Skipping image ${url} - Size is too large.`);
+      return null;
+    }
+    return buffer;
   } catch (error) {
-    logger.error(`❌ Error fetching image at ${url}:`, error);
+    logger.warn(`Could not load image at ${url}`);
     return null;
   }
 }
 
 /**
- * Builds the Header (Reused layout, Custom Title)
+ * Helper: Format Date
  */
-function _buildHeader(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null, title: string) {
-  // Full-width blue rectangle
-  doc.rect(0, 0, doc.page.width, 100).fillColor(BRAND_COLOR).fill();
+function formatDate(dateObj: any, includeTime = false): string {
+  if (!dateObj) return "N/A";
+  let d: Date;
+  if (dateObj._seconds) d = new Date(dateObj._seconds * 1000);
+  else if (dateObj.seconds) d = new Date(dateObj.seconds * 1000);
+  else d = new Date(dateObj);
+
+  if (isNaN(d.getTime())) return "N/A";
+
+  const opts: Intl.DateTimeFormatOptions = {
+    day: "2-digit", month: "long", year: "numeric",
+    ...(includeTime && { hour: "2-digit", minute: "2-digit" })
+  };
+  return d.toLocaleDateString("fr-FR", opts);
+}
+
+/**
+ * 🚀 SMART PAGE BREAK HANDLER
+ */
+function _checkPageBreak(doc: PDFKit.PDFDocument, requiredSpace: number) {
+  if (doc.y + requiredSpace > LAYOUT.pageHeight - 80) {
+    doc.addPage();
+    doc.x = LAYOUT.margin;
+    doc.y = LAYOUT.margin;
+  }
+}
+
+/**
+ * 🚀 MAIN GENERATOR FUNCTION
+ */
+export async function generateSavDechargePdf(data: any): Promise<Buffer> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const doc = new PDFDocument({
+        size: "A4",
+        margins: { top: LAYOUT.margin, bottom: LAYOUT.margin, left: LAYOUT.margin, right: LAYOUT.margin },
+        bufferPages: true,
+      });
+
+      const buffers: Buffer[] = [];
+      doc.on("data", buffers.push.bind(buffers));
+
+      // 🌟 WHATSAPP STYLE QR CODE
+      const ticketTitle = data.ticketType === 'removal' ? "BON DE DÉPOSE" : "DÉCHARGE MATÉRIEL";
+      const qrData = encodeURIComponent(`Certifié BOITEX INFO | ${ticketTitle} | SAV: ${data.savCode || 'N/A'} | Client: ${data.clientName || 'N/A'}`);
+      const logoUrlEnc = encodeURIComponent(LOGO_URL);
+      const QR_URL = `https://quickchart.io/qr?text=${qrData}&dark=0F172A&light=FFFFFF&size=150&centerImageUrl=${logoUrlEnc}`;
+
+      // Fetch Assets
+      const [logoBuffer, signatureBuffer, stampBuffer, qrBuffer] = await Promise.all([
+        fetchImage(LOGO_URL),
+        fetchImage(data.storeManagerSignatureUrl),
+        fetchImage(STAMP_URL),
+        fetchImage(QR_URL),
+      ]);
+
+      doc.on('pageAdded', () => {
+        _drawWatermark(doc, logoBuffer);
+      });
+
+      // --- START DRAWING ---
+      _drawWatermark(doc, logoBuffer);
+      _drawHeader(doc, data, logoBuffer, ticketTitle);
+
+      doc.moveDown(1);
+      _drawInformationGrid(doc, data);
+
+      doc.moveDown(1.5);
+      _drawEquipmentDetails(doc, data);
+
+      doc.moveDown(1.5);
+      _drawValidationSection(doc, data, signatureBuffer, stampBuffer, qrBuffer);
+
+      _addGlobalFooters(doc, data, ticketTitle);
+
+      doc.end();
+      doc.on("end", () => resolve(Buffer.concat(buffers)));
+
+    } catch (error) {
+      logger.error("CRITICAL ERROR IN SAV PDF GENERATION:", error);
+      reject(error);
+    }
+  });
+}
+
+// ============================================================================
+// 🎨 PREMIUM DRAWING FUNCTIONS
+// ============================================================================
+
+function _drawWatermark(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
+  if (!logoBuffer) return;
+  try {
+    doc.save()
+       .opacity(0.06)
+       .image(logoBuffer, LAYOUT.margin, (LAYOUT.pageHeight - 400) / 2, {
+          fit: [LAYOUT.contentWidth, 400],
+          align: 'center',
+          valign: 'center'
+       })
+       .restore();
+  } catch (e) {
+    doc.restore();
+  }
+}
+
+function _drawHeader(doc: PDFKit.PDFDocument, data: any, logoBuffer: Buffer | null, title: string) {
+  doc.x = LAYOUT.margin;
+  const startY = doc.y;
 
   // Draw Logo
   if (logoBuffer) {
-    doc.image(logoBuffer, MARGIN, 25, { height: 50 });
+    try {
+      doc.image(logoBuffer, LAYOUT.margin, startY, { fit: [210, 80] });
+    } catch (e) {
+      doc.font(FONTS.bold).fontSize(16).fillColor(COLORS.primary).text("BOITEX INFO", LAYOUT.margin, startY);
+    }
+  } else {
+    doc.font(FONTS.bold).fontSize(16).fillColor(COLORS.primary).text("BOITEX INFO", LAYOUT.margin, startY);
   }
 
   // Draw Title
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(18)
-    .fillColor(HEADER_TEXT_COLOR)
-    .text(title, doc.page.width - MARGIN - 250, 40, {
-      width: 250,
-      align: "right",
-    });
+  doc.font(FONTS.bold).fontSize(20).fillColor(COLORS.primary)
+     .text(title, LAYOUT.margin, startY, { align: "right", width: LAYOUT.contentWidth });
 
-  doc.y = 130; // Reset Y cursor
+  doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.secondary)
+     .text(`RÉF SAV: ${data.savCode || 'N/A'}`, LAYOUT.margin, doc.y + 2, { align: "right", width: LAYOUT.contentWidth });
+
+  const dateLabel = data.ticketType === 'removal' ? "DÉPOSE LE :" : "RÉCUPÉRÉ LE :";
+  doc.text(`${dateLabel} ${formatDate(data.createdAt)}`, LAYOUT.margin, doc.y + 2, { align: "right", width: LAYOUT.contentWidth });
+
+  // Status Badge
+  doc.moveDown(0.5);
+  const status = data.status || "Nouveau";
+  const isDepose = data.ticketType === 'removal';
+  const badgeColor = isDepose ? COLORS.warning : COLORS.success;
+
+  const textWidth = doc.widthOfString(status.toUpperCase()) + 20;
+  const badgeX = LAYOUT.pageWidth - LAYOUT.margin - textWidth;
+
+  doc.roundedRect(badgeX, doc.y, textWidth, 18, 9).fill(badgeColor);
+  doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.white)
+     .text(status.toUpperCase(), badgeX, doc.y + 5, { width: textWidth, align: "center" });
+
+  // Divider Line
+  doc.y = Math.max(startY + 80, doc.y + 20);
+  doc.moveTo(LAYOUT.margin, doc.y).lineTo(LAYOUT.pageWidth - LAYOUT.margin, doc.y)
+     .lineWidth(1).strokeColor(COLORS.border).stroke();
+  doc.y += 15;
+  doc.x = LAYOUT.margin;
 }
 
-/**
- * Section 1: Client & Store Manager Info
- * Layout: 2 Columns
- */
-function _buildClientAndManagerInfo(doc: PDFKit.PDFDocument, data: any) {
-  const col1X = MARGIN;
-  const col2X = doc.page.width / 2 + 30;
-  const colWidth = doc.page.width / 2 - MARGIN - 30;
+function _drawSectionTitle(doc: PDFKit.PDFDocument, title: string) {
+  _checkPageBreak(doc, 40);
+  doc.x = LAYOUT.margin;
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.accent)
+     .text(title.toUpperCase(), LAYOUT.margin, doc.y, { characterSpacing: 1.5 });
+  doc.moveDown(1);
+}
 
-  doc.font("Helvetica").fontSize(10);
-
-  const drawField = (label: string, value: string, x: number, y: number) => {
-    doc.font("Helvetica-Bold").fillColor(LABEL_COLOR).text(label, x, y, { width: colWidth });
-    doc.font("Helvetica").fillColor(TEXT_COLOR).text(value || "N/A", { width: colWidth });
-    doc.moveDown(0.5);
-  };
+function _drawInformationGrid(doc: PDFKit.PDFDocument, data: any) {
+  _checkPageBreak(doc, 80);
+  doc.x = LAYOUT.margin;
 
   const startY = doc.y;
+  const colWidth = (LAYOUT.contentWidth / 2) - 10;
+  const rightColX = LAYOUT.margin + colWidth + 20;
 
-  // Format Date from Firestore Timestamp
-  let dateStr = "N/A";
-  if (data.createdAt && data.createdAt._seconds) {
-    dateStr = new Date(data.createdAt._seconds * 1000).toLocaleDateString("fr-FR");
-  } else if (data.createdAt instanceof Date) {
-    dateStr = data.createdAt.toLocaleDateString("fr-FR");
+  // Left Column: Client
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("INFORMATIONS CLIENT", LAYOUT.margin, startY, { characterSpacing: 1 });
+  doc.font(FONTS.bold).fontSize(11).fillColor(COLORS.primary).text(data.clientName || "Client Inconnu", LAYOUT.margin, startY + 15, { width: colWidth });
+  doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
+     .text(data.storeName || "Site non spécifié", LAYOUT.margin, startY + 30, { width: colWidth })
+     .text(`Responsable: ${data.storeManagerName || "N/A"}`, LAYOUT.margin, startY + 45, { width: colWidth })
+     .fillColor(COLORS.secondary).text(data.storeManagerEmail || "", LAYOUT.margin, startY + 60, { width: colWidth });
+
+  // Right Column: Details
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("DÉTAILS INTERVENTION", rightColX, startY, { characterSpacing: 1 });
+
+  let techs = "Non assigné";
+  if (Array.isArray(data.pickupTechnicianNames) && data.pickupTechnicianNames.length > 0) {
+    techs = data.pickupTechnicianNames.join(", ");
   }
 
-  // --- Column 1: Client & Store ---
-  drawField("Client", data.clientName, col1X, startY);
-  drawField("Magasin / Site", data.storeName, col1X, doc.y);
+  // ✅ NEW LOGIC: Precisely determine the Ticket Type and Technician Label
+  let ticketTypeDisplay = "Récupération Matériel";
+  let roleLabel = "Équipe (Récup):";
 
-  // --- Column 2: Manager & Date ---
-  // ✅ LOGIC: If removal, label is 'Date de Dépose', else 'Date de Récupération'
-  const dateLabel = data.ticketType === 'removal' ? "Date de Dépose" : "Date de Récupération";
+  if (data.ticketType === 'removal' || data.status === 'Dépose') {
+    ticketTypeDisplay = "Dépose Matériel";
+    roleLabel = "Équipe (Dépose):";
+  } else if (data.status === 'Dépose') {
+    ticketTypeDisplay = "Retour Matériel";
+    roleLabel = "Équipe (Retour):";
+  } else if (data.ticketType === 'standard' || data.status === 'standard') {
+    ticketTypeDisplay = "Récupération Matériel";
+    roleLabel = "Équipe (Récup):";
+  }
 
-  drawField(dateLabel, dateStr, col2X, startY);
-  drawField("Responsable sur Site", data.storeManagerName, col2X, doc.y);
-  drawField("Email Responsable", data.storeManagerEmail, col2X, doc.y);
+  const row = (label: string, val: string, yPos: number) => {
+    doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.secondary).text(label, rightColX, yPos, { width: 90 });
+    doc.font(FONTS.bold).fillColor(COLORS.primary).text(val, rightColX + 90, yPos, { width: colWidth - 90 });
+  };
 
-  doc.y = Math.max(doc.y, startY + 60);
-  doc.moveDown(2);
+  row("Type Ticket:", ticketTypeDisplay, startY + 15);
+  row(roleLabel, techs, startY + 30);
+
+  doc.y = startY + 80;
+  doc.x = LAYOUT.margin;
 }
 
-/**
- * Section 2: Equipment Details
- * ✅ MODIFIED: Handles both Single Item (Card) and Multi-Items (Table)
- */
-function _buildEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
-  const startY = doc.y;
-
-  // ✅ LOGIC: Change label based on ticket type
-  const problemLabelHeader = data.ticketType === 'removal' ? "Motif" : "Problème";
+function _drawEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
+  const problemLabelHeader = data.ticketType === 'removal' ? "Motif / Problème" : "Problème Déclaré";
 
   // ---------------------------------------------------------
   // 🅰️ MULTI-PRODUCT MODE (Table View)
   // ---------------------------------------------------------
   if (data.multiProducts && data.multiProducts.length > 0) {
-    // Table Config
-    const col1X = MARGIN;           // Product Name
-    const col2X = MARGIN + 200;     // Serial Number
-    const col3X = MARGIN + 350;     // Problem/Description
+    _drawSectionTitle(doc, "Liste des Équipements");
 
-    const col1Width = 190;
-    const col2Width = 140;
-    const col3Width = doc.page.width - MARGIN - col3X;
+    const startX = LAYOUT.margin;
+    doc.rect(startX, doc.y, LAYOUT.contentWidth, 20).fill(COLORS.bgLight);
 
-    // 1. Draw Table Header
-    doc.rect(MARGIN, doc.y, doc.page.width - (MARGIN * 2), 20).fillColor(BRAND_COLOR).fill();
+    const headerY = doc.y + 6;
+    doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.secondary);
+    doc.text("PRODUIT", startX + 10, headerY, { width: 180 });
+    doc.text("N° SÉRIE", startX + 200, headerY, { width: 120 });
+    doc.text(problemLabelHeader.toUpperCase(), startX + 330, headerY, { width: doc.page.width - startX - 350 });
 
-    const headerY = doc.y + 5; // vertical centering offset
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(HEADER_TEXT_COLOR);
-    doc.text("Produit / Équipement", col1X + 5, headerY, { width: col1Width });
-    doc.text("N° Série (S/N)", col2X, headerY, { width: col2Width });
-    doc.text(problemLabelHeader, col3X, headerY, { width: col3Width });
+    doc.y = headerY + 14;
 
-    doc.moveDown(2); // Move past header rectangle
+    data.multiProducts.forEach((item: any) => {
+      _checkPageBreak(doc, 30);
+      const rowY = doc.y + 6;
 
-    // 2. Draw Rows
-    doc.font("Helvetica").fontSize(9).fillColor(TEXT_COLOR);
+      const name = item.productName || "Inconnu";
+      const sns = item.serialNumber || "-";
+      const prob = item.problemDescription || "-";
 
-    data.multiProducts.forEach((item: any, index: number) => {
-      // ✅ FIX: Check for Page Break BEFORE getting rowY
-      if (doc.y > doc.page.height - 50) {
-        doc.addPage();
-        // Optional: Re-draw header here if you want perfect polish
-      }
+      doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.primary);
+      doc.text(name, startX + 10, rowY, { width: 180 });
 
-      const rowY = doc.y; // Capture Y *after* potentially adding a page
-      const rowHeight = 25;
+      doc.font(FONTS.regular).fillColor(COLORS.secondary);
+      doc.text(sns, startX + 200, rowY, { width: 120 });
 
-      // Zebra Striping
-      if (index % 2 === 0) {
-        doc.rect(MARGIN, rowY - 5, doc.page.width - (MARGIN * 2), rowHeight + 5)
-           .fillColor(LIGHT_GRAY_BACKGROUND).fill();
-        doc.fillColor(TEXT_COLOR);
-      }
+      doc.fillColor(COLORS.primary);
+      doc.text(prob, startX + 330, rowY, { width: doc.page.width - startX - 350 });
 
-      doc.text(item.productName || "N/A", col1X + 5, rowY, { width: col1Width });
-      doc.text(item.serialNumber || "N/A", col2X, rowY, { width: col2Width });
-      doc.text(item.problemDescription || "N/A", col3X, rowY, { width: col3Width });
+      const nameHeight = doc.heightOfString(name, { width: 180 });
+      const probHeight = doc.heightOfString(prob, { width: doc.page.width - startX - 350 });
+      const maxH = Math.max(nameHeight, probHeight);
 
-      doc.moveDown(1);
+      doc.y = rowY + maxH + 6;
+      doc.moveTo(startX, doc.y).lineTo(LAYOUT.pageWidth - startX, doc.y)
+         .lineWidth(0.5).strokeColor(COLORS.border).stroke();
     });
 
-    doc.moveDown(1);
-
-    // ✅ ADDED: Technicians Summary right after table
-    const techs: string[] = data.pickupTechnicianNames || [];
-    const techLabel = data.ticketType === 'removal' ? "Techniciens (Dépose) :" : "Techniciens (Récupération) :";
-
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(TITLE_COLOR)
-       .text(techLabel, MARGIN, doc.y, { continued: true });
-
-    doc.font("Helvetica").fillColor(TEXT_COLOR)
-       .text(`  ${techs.length > 0 ? techs.join(", ") : "Non spécifié"}`);
-
-    doc.moveDown(2);
-    return; // 🛑 Stop here
+    doc.y += 15;
+    doc.x = LAYOUT.margin;
+    return;
   }
 
   // ---------------------------------------------------------
-  // 🅱️ SINGLE PRODUCT MODE (Original Gray Card)
+  // 🅱️ SINGLE PRODUCT MODE (Premium Card)
   // ---------------------------------------------------------
+  _checkPageBreak(doc, 100);
+  _drawSectionTitle(doc, "Équipement Concerné");
 
-  const contentX = MARGIN + 20;
-  const contentWidth = doc.page.width - MARGIN * 2 - 40;
-  const problemLabel = data.ticketType === 'removal' ? "Motif de la Dépose" : "Problème Déclaré";
+  const cardX = LAYOUT.margin;
+  const cardWidth = LAYOUT.contentWidth;
 
-  const drawTextBlock = (label: string, text: string) => {
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(12)
-      .fillColor(TITLE_COLOR)
-      .text(label, contentX, doc.y, { width: contentWidth });
+  // Calculate dynamic height based on problem description length
+  doc.font(FONTS.regular).fontSize(10);
+  const probHeight = doc.heightOfString(data.problemDescription || "Non spécifié", { width: cardWidth - 40 });
+  const cardHeight = 80 + probHeight;
 
-    doc
-      .font("Helvetica")
-      .fontSize(10)
-      .fillColor(TEXT_COLOR)
-      .text(text || "Non spécifié", contentX, doc.y, { width: contentWidth });
+  doc.roundedRect(cardX, doc.y, cardWidth, cardHeight, 10)
+     .fillAndStroke(COLORS.bgLight, COLORS.border);
 
-    doc.moveDown(1.5);
-  };
+  const innerY = doc.y + 15;
 
-  const tempY = doc.y;
-  doc.y = tempY + 20;
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary)
+     .text("PRODUIT", cardX + 20, innerY);
+  doc.font(FONTS.bold).fontSize(12).fillColor(COLORS.primary)
+     .text(data.productName || "Inconnu", cardX + 20, innerY + 12);
 
-  drawTextBlock("Produit / Équipement", data.productName);
-  drawTextBlock("Numéro de Série (S/N)", data.serialNumber);
-  drawTextBlock(problemLabel, data.problemDescription);
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary)
+     .text("NUMÉRO DE SÉRIE", cardX + 250, innerY);
+  doc.font(FONTS.regular).fontSize(11).fillColor(COLORS.primary)
+     .text(data.serialNumber || "N/A", cardX + 250, innerY + 12);
 
-  const endY = doc.y;
+  doc.moveTo(cardX + 20, innerY + 35).lineTo(cardX + cardWidth - 20, innerY + 35)
+     .lineWidth(0.5).strokeColor(COLORS.border).stroke();
 
-  // Draw Gray Card Background
-  doc
-    .rect(MARGIN, startY, doc.page.width - MARGIN * 2, endY - startY + 10)
-    .fillColor(LIGHT_GRAY_BACKGROUND)
-    .fill();
+  doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary)
+     .text(problemLabelHeader.toUpperCase(), cardX + 20, innerY + 45);
+  doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
+     .text(data.problemDescription || "Non spécifié", cardX + 20, innerY + 60, { width: cardWidth - 40 });
 
-  // Draw Text on Top
-  doc.y = tempY + 20;
-  drawTextBlock("Produit / Équipement", data.productName);
-  drawTextBlock("Numéro de Série (S/N)", data.serialNumber);
-  drawTextBlock(problemLabel, data.problemDescription);
-
-  doc.y = endY + 20;
+  doc.y += cardHeight + 20;
 }
 
-/**
- * Section 3: Validation (Technicians & Signature)
- * Layout: 2 Columns with Watermark
- */
-async function _buildValidationSection(
-  doc: PDFKit.PDFDocument,
-  data: any,
-  signatureBuffer: Buffer | null,
-  watermarkBuffer: Buffer | null
-) {
-  // Ensure we don't start at the very bottom
-  if (doc.y > doc.page.height - 150) {
-    doc.addPage();
+// ----------------------------------------------------------------------------
+// 🌟 THE ULTIMATE VALIDATION CARD (Same as Intervention PDF)
+// ----------------------------------------------------------------------------
+function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuffer: Buffer | null, stampBuffer: Buffer | null, qrBuffer: Buffer | null) {
+  _checkPageBreak(doc, 145);
+  doc.x = LAYOUT.margin;
+
+  const cardX = LAYOUT.margin;
+  const cardY = doc.y;
+  const cardWidth = LAYOUT.contentWidth;
+  const cardHeight = 125;
+
+  doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 10)
+     .fillAndStroke(COLORS.bgLight, COLORS.border);
+
+  doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary)
+     .text("VALIDATION & SIGNATURE", cardX + 15, cardY + 12);
+
+  const agreementText = data.ticketType === 'removal'
+      ? "En signant ce document, le client confirme la dépose et la remise du matériel au technicien."
+      : "En signant ce document, le client confirme la récupération du matériel de la part de Boitex Info.";
+
+  doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.secondary)
+     .text(agreementText, cardX + 15, cardY + 25, { width: cardWidth - 30 });
+
+  const elementsY = cardY + 40;
+
+  if (qrBuffer) {
+    try {
+      doc.image(qrBuffer, cardX + 15, elementsY, { width: 60, height: 60 });
+    } catch (e) {}
   }
 
-  const startY = doc.y;
-  const col1X = MARGIN;
-  const col2X = doc.page.width / 2 + 30;
-  const colWidth = doc.page.width / 2 - MARGIN - 30;
-
-  // --- Watermark (Background) ---
-  if (watermarkBuffer) {
-    doc.save()
-      .opacity(0.20) // 20% Opacity
-      .image(watermarkBuffer, col1X, startY + 25, {
-        fit: [colWidth, 100],
-        align: "center",
-        valign: "center",
-      })
-      .restore();
+  const stampX = cardX + 90;
+  if (stampBuffer) {
+    try {
+      doc.image(stampBuffer, stampX, elementsY - 5, { width: 100, height: 70, fit: [100, 70], align: 'center', valign: 'center' });
+    } catch (e) {}
   }
 
-  // --- Column 1: Boitex Technicians ---
-  const techLabel = data.ticketType === 'removal' ? "Techniciens (Dépose)" : "Techniciens (Récupération)";
+  const sigWidth = 160;
+  const sigX = cardX + cardWidth - sigWidth - 15;
 
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(TITLE_COLOR)
-     .text(techLabel, col1X, startY);
-
-  const techs: string[] = data.pickupTechnicianNames || [];
-
-  if (techs.length > 0) {
-    techs.forEach((tech) => {
-      doc.font("Helvetica").fontSize(10).fillColor(TEXT_COLOR).text(`• ${tech}`, { lineGap: 3 });
-    });
-  } else {
-    doc.font("Helvetica-Oblique").fontSize(10).fillColor(LABEL_COLOR).text("Non spécifié", { lineGap: 3 });
-  }
-
-  // --- Column 2: Manager Signature ---
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(TITLE_COLOR)
-     .text("Signature Responsable", col2X, startY);
-
-  const sigBoxHeight = 100;
-  const sigBoxY = startY + 25;
-
-  doc.rect(col2X, sigBoxY, colWidth, sigBoxHeight).lineWidth(0.5).strokeColor(LINE_COLOR).stroke();
+  doc.roundedRect(sigX, elementsY, sigWidth, 60, 6).fillAndStroke(COLORS.white, COLORS.border);
 
   if (signatureBuffer) {
-    doc.image(signatureBuffer, col2X, sigBoxY, {
-      fit: [colWidth, sigBoxHeight],
-      align: "center",
-      valign: "center",
-    });
+    try {
+      doc.image(signatureBuffer, sigX + 5, elementsY + 5, { width: sigWidth - 10, height: 40, fit: [sigWidth - 10, 40], align: 'center', valign: 'center' });
+    } catch (e) {
+      doc.fillColor(COLORS.secondary).fontSize(8).text("Erreur Signature", sigX, elementsY + 25, { width: sigWidth, align: "center" });
+    }
   } else {
-    doc.font("Helvetica-Oblique").fontSize(10).fillColor(LABEL_COLOR)
-       .text("Absence de signature", col2X, sigBoxY + 40, { width: colWidth, align: "center" });
+    doc.fillColor(COLORS.secondary).fontSize(8).text("Signature non fournie", sigX, elementsY + 25, { width: sigWidth, align: "center" });
   }
 
-  doc.font("Helvetica").fontSize(9).fillColor(LABEL_COLOR)
-     .text(`Validé par : ${data.storeManagerName || "N/A"}`, col2X, sigBoxY + sigBoxHeight + 5, {
-       width: colWidth, align: "center"
-     });
+  doc.fillColor(COLORS.primary).font(FONTS.bold).fontSize(9)
+     .text(data.storeManagerName || "Responsable Site", sigX, elementsY + 47, { width: sigWidth, align: "center" });
+
+  doc.moveTo(cardX, cardY + 110).lineTo(cardX + cardWidth, cardY + 110)
+     .lineWidth(0.5).strokeColor(COLORS.border).stroke();
+
+  doc.font(FONTS.italic).fontSize(7).fillColor(COLORS.secondary)
+     .text("Certifié Numériquement -- Garantie de traçabilité Boitex Info.", cardX, cardY + 115, { align: "center", width: cardWidth });
+
+  doc.y = cardY + cardHeight + 20;
 }
 
-/**
- * Footer: Page Numbers & Contact
- */
-function _buildFooter(doc: PDFKit.PDFDocument) {
-  const range = doc.bufferedPageRange();
-  const pageCount = range.start + range.count;
-  const footerY = doc.page.height - 35;
+function _addGlobalFooters(doc: PDFKit.PDFDocument, data: any, title: string) {
+  const pageCount = doc.bufferedPageRange().count;
+  const originalBottomMargin = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
 
-  for (let i = range.start; i < pageCount; i++) {
+  for (let i = 0; i < pageCount; i++) {
     doc.switchToPage(i);
 
-    doc.save().moveTo(MARGIN, footerY).lineTo(doc.page.width - MARGIN, footerY)
-       .lineWidth(0.5).strokeColor(LINE_COLOR).stroke().restore();
+    try {
+      const footerY = LAYOUT.pageHeight - 35;
 
-    const contactInfo = "www.boitexinfo.com | commercial@boitexinfo.com | +213 560 367 256";
-    doc.font("Helvetica").fontSize(8).fillColor(LABEL_COLOR)
-       .text(contactInfo, MARGIN, footerY + 10, { align: "left" });
+      doc.moveTo(LAYOUT.margin, footerY - 5).lineTo(LAYOUT.pageWidth - LAYOUT.margin, footerY - 5)
+         .lineWidth(0.5).strokeColor(COLORS.border).stroke();
 
-    doc.text(`Page ${i + 1} / ${pageCount}`, doc.page.width - MARGIN - 50, footerY + 10, {
-      width: 50, align: "right"
-    });
+      doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.primary)
+         .text("BOITEX INFO", LAYOUT.margin, footerY);
+
+      doc.font(FONTS.regular).fillColor(COLORS.accent)
+         .text("www.Boitexinfo.com", LAYOUT.margin, footerY + 12, { link: "https://www.Boitexinfo.com" });
+
+      doc.font(FONTS.regular).fillColor(COLORS.secondary)
+         .text(`${title} - SAV: ${data.savCode || "N/A"}`, LAYOUT.margin, footerY, { align: "center", width: LAYOUT.contentWidth });
+
+      doc.text(`Page ${i + 1} / ${pageCount}`, LAYOUT.margin, footerY, { align: "right", width: LAYOUT.contentWidth });
+    } finally {
+      doc.page.margins.bottom = originalBottomMargin;
+    }
   }
-}
-
-/**
- * MAIN EXPORT: Generates the "Décharge Matériel" PDF
- */
-export async function generateSavDechargePdf(data: any): Promise<Buffer> {
-  const doc = new PDFDocument({
-    size: "A4",
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
-    bufferPages: true,
-  });
-
-  const buffers: Buffer[] = [];
-  doc.on("data", buffers.push.bind(buffers));
-
-  // 1. Fetch Images
-  const [logoBuffer, signatureBuffer, watermarkBuffer] = await Promise.all([
-    fetchImage(LOGO_URL_WHITE),
-    fetchImage(data.storeManagerSignatureUrl),
-    fetchImage(WATERMARK_URL),
-  ]);
-
-  // ✅ 2. Header (Dynamic Title)
-  const isRemoval = data.ticketType === 'removal';
-  const title = isRemoval ? "BON DE DÉPOSE" : "DÉCHARGE MATÉRIEL";
-
-  _buildHeader(doc, logoBuffer, title);
-
-  // 3. Info Section
-  doc.x = MARGIN;
-  _buildClientAndManagerInfo(doc, data);
-
-  // Divider
-  doc.save().moveTo(MARGIN, doc.y).lineTo(doc.page.width - MARGIN, doc.y)
-     .lineWidth(0.5).strokeColor(LINE_COLOR).stroke().restore();
-  doc.moveDown(2);
-
-  // 4. Equipment Details (Gray Card OR Table)
-  _buildEquipmentDetails(doc, data);
-
-  // 5. Validation (Signatures)
-  await _buildValidationSection(doc, data, signatureBuffer, watermarkBuffer);
-
-  // 6. Footer
-  _buildFooter(doc);
-
-  return new Promise((resolve, reject) => {
-    doc.on("end", () => resolve(Buffer.concat(buffers)));
-    doc.on("error", (err) => reject(err));
-    doc.end();
-  });
 }
