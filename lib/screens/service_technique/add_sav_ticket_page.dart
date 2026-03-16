@@ -2,12 +2,13 @@
 
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui'; // ✅ Required for ImageFilter.blur
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// REMOVED: import 'package:firebase_storage/firebase_storage.dart'; // ❌ No longer needed
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/sav_ticket.dart';
-import 'package:boitex_info_app/screens/widgets/scanner_page.dart';
+// ✅ CHANGED: Now importing the pro product_scanner_page
+import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 import 'package:signature/signature.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:file_picker/file_picker.dart';
@@ -20,8 +21,49 @@ import 'package:uuid/uuid.dart';
 import 'package:boitex_info_app/services/sav_draft_service.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_drafts_list_page.dart';
 import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
-// ✅ IMPORT Selection Models
 import 'package:boitex_info_app/models/selection_models.dart';
+
+// --- GLASSMORPHISM HELPER WIDGET (LIGHT THEME) ---
+class GlassCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final double borderRadius;
+  final double opacity;
+
+  const GlassCard({
+    Key? key,
+    required this.child,
+    this.padding,
+    this.borderRadius = 24.0,
+    this.opacity = 0.6, // Higher opacity for light glass
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: padding ?? const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(opacity),
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04), // Very soft shadow
+                blurRadius: 20,
+                spreadRadius: -5,
+              )
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
 
 // Class to manage individual row inputs
 class TicketItemEditor {
@@ -66,7 +108,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   String _creationMode = 'individual';
   String? _currentDraftId;
 
-  // ✅ UPDATED: Use SelectableItem for Clients/Stores
   List<SelectableItem> _clients = [];
   List<SelectableItem> _stores = [];
   bool _isLoadingClients = true;
@@ -82,12 +123,13 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   final _managerEmailController = TextEditingController();
   DateTime? _pickupDate;
   final SignatureController _signatureController = SignatureController(
-    penStrokeWidth: 2,
+    penStrokeWidth: 3,
     penColor: Colors.black,
     exportBackgroundColor: Colors.white,
   );
-  List<File> _pickedMediaFiles = [];
-  File? _attachedFile;
+
+  // ✅ UNIFIED ATTACHMENTS LIST
+  List<File> _attachedFiles = [];
 
   bool _isLoading = false;
 
@@ -117,7 +159,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
 
   // --- DATA FETCHING ---
-
   Future<void> _fetchClients() async {
     setState(() => _isLoadingClients = true);
     try {
@@ -136,7 +177,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         setState(() {
           _clients = clients;
           _isLoadingClients = false;
-          // Validate existing selection
           if (_selectedClient != null && !_clients.any((c) => c.id == _selectedClient!.id)) {
             _selectedClient = null;
           }
@@ -212,8 +252,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // ✅ --- SEARCH DIALOG LOGIC ---
-
+  // --- UI HELPER: PREMIUM DIALOG (LIGHT) ---
   void _openSearchDialog({
     required String title,
     required List<SelectableItem> items,
@@ -223,6 +262,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }) {
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.3),
       builder: (BuildContext context) {
         String searchQuery = '';
         return StatefulBuilder(
@@ -233,25 +273,33 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               return nameLower.contains(queryLower);
             }).toList();
 
-            return AlertDialog(
-              title: Text(title),
-              content: SizedBox(
-                width: double.maxFinite,
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: GlassCard(
+                opacity: 0.9,
+                padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
+                    const SizedBox(height: 16),
                     TextField(
                       autofocus: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Rechercher...',
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(),
+                      style: const TextStyle(color: Colors.black87),
+                      decoration: InputDecoration(
+                        hintText: 'Rechercher...',
+                        hintStyle: const TextStyle(color: Colors.black45),
+                        prefixIcon: const Icon(Icons.search, color: Colors.black54),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.7),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                       ),
                       onChanged: (val) {
                         setStateSB(() => searchQuery = val);
                       },
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 16),
                     ConstrainedBox(
                       constraints: BoxConstraints(
                         maxHeight: MediaQuery.of(context).size.height * 0.4,
@@ -259,12 +307,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                       child: ListView.separated(
                         shrinkWrap: true,
                         itemCount: filteredItems.length + 1,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (_, __) => const Divider(color: Colors.black12, height: 1),
                         itemBuilder: (context, index) {
                           if (index == filteredItems.length) {
                             return ListTile(
-                              leading: const Icon(Icons.add_circle, color: Colors.blue),
-                              title: Text(addButtonLabel, style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                              leading: const Icon(Icons.add_circle, color: Colors.blueAccent),
+                              title: Text(addButtonLabel, style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
                               onTap: () {
                                 Navigator.pop(context);
                                 onAddPressed();
@@ -274,8 +322,8 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                           final item = filteredItems[index];
                           final subtitle = item.data != null && item.data!.containsKey('location') ? item.data!['location'] : null;
                           return ListTile(
-                            title: Text(item.name),
-                            subtitle: subtitle != null ? Text(subtitle) : null,
+                            title: Text(item.name, style: const TextStyle(color: Colors.black87)),
+                            subtitle: subtitle != null ? Text(subtitle, style: const TextStyle(color: Colors.black54)) : null,
                             onTap: () {
                               onSelected(item);
                               Navigator.pop(context);
@@ -284,15 +332,22 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                         },
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.black87,
+                          backgroundColor: Colors.white.withOpacity(0.5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        onPressed: () => Navigator.pop(context),
+                        child: const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text("Fermer")),
+                      ),
+                    ),
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  child: const Text("Fermer"),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
             );
           },
         );
@@ -300,22 +355,24 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     );
   }
 
-  // ✅ --- QUICK ADD LOGIC ---
-
+  // --- QUICK ADD LOGIC ---
   Future<void> _addNewClient() async {
     final TextEditingController nameController = TextEditingController();
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Nouveau Client'),
+        backgroundColor: Colors.white,
+        title: const Text('Nouveau Client', style: TextStyle(color: Colors.black87)),
         content: TextField(
           controller: nameController,
-          decoration: const InputDecoration(labelText: 'Nom du client', border: OutlineInputBorder()),
+          style: const TextStyle(color: Colors.black87),
+          decoration: InputDecoration(labelText: 'Nom du client', labelStyle: const TextStyle(color: Colors.black54), filled: true, fillColor: Colors.grey.shade100, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
           textCapitalization: TextCapitalization.words,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler', style: TextStyle(color: Colors.black54))),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             onPressed: () async {
               final name = nameController.text.trim();
               if (name.isNotEmpty) {
@@ -339,7 +396,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 }
               }
             },
-            child: const Text('Ajouter'),
+            child: const Text('Ajouter', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -354,18 +411,20 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Nouveau Magasin'),
+        backgroundColor: Colors.white,
+        title: const Text('Nouveau Magasin', style: TextStyle(color: Colors.black87)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nom du magasin', border: OutlineInputBorder())),
+            TextField(controller: nameController, style: const TextStyle(color: Colors.black87), decoration: InputDecoration(labelText: 'Nom du magasin', labelStyle: const TextStyle(color: Colors.black54), filled: true, fillColor: Colors.grey.shade100, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
             const SizedBox(height: 10),
-            TextField(controller: addressController, decoration: const InputDecoration(labelText: 'Adresse / Localisation', border: OutlineInputBorder())),
+            TextField(controller: addressController, style: const TextStyle(color: Colors.black87), decoration: InputDecoration(labelText: 'Adresse / Localisation', labelStyle: const TextStyle(color: Colors.black54), filled: true, fillColor: Colors.grey.shade100, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler', style: TextStyle(color: Colors.black54))),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             onPressed: () async {
               final name = nameController.text.trim();
               final address = addressController.text.trim();
@@ -391,7 +450,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                 }
               }
             },
-            child: const Text('Ajouter'),
+            child: const Text('Ajouter', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -399,7 +458,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
 
   // --- PRODUCT SEARCH ---
-
   Future<void> _openProductSearch() async {
     await Navigator.push(
       context,
@@ -409,17 +467,25 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           onProductSelected: (Map<String, dynamic> result) {
             final String? pid = result['id'] ?? result['productId'];
             final String? pname = result['nom'] ?? result['productName'];
+            final int qty = result['quantity'] ?? 1;
 
             if (pid != null && pname != null) {
               setState(() {
-                _itemEditors.add(TicketItemEditor(
-                  productId: pid,
-                  productName: pname,
-                ));
+                for (int i = 0; i < qty; i++) {
+                  _itemEditors.add(TicketItemEditor(
+                    productId: pid,
+                    productName: pname,
+                  ));
+                }
               });
               ScaffoldMessenger.of(context).hideCurrentSnackBar();
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Ajouté: $pname'), duration: const Duration(milliseconds: 800), behavior: SnackBarBehavior.floating),
+                SnackBar(
+                  content: Text('Ajouté: $pname (x$qty)', style: const TextStyle(color: Colors.white)),
+                  backgroundColor: Colors.green.shade600,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
               );
             }
           },
@@ -429,7 +495,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
 
   // --- OTHER HELPERS ---
-
   void _removeEditor(int index) {
     setState(() {
       _itemEditors[index].dispose();
@@ -437,18 +502,20 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     });
   }
 
+  // ✅ CHANGED: Now pushing ProductScannerPage instead of ScannerPage
   Future<void> _scanSerialForEditor(int index) async {
-    await Navigator.of(context).push(
+    final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (context) => ScannerPage(
-          onScan: (result) {
-            setState(() {
-              _itemEditors[index].serialController.text = result;
-            });
-          },
-        ),
+        builder: (context) => const ProductScannerPage(),
       ),
     );
+
+    // If the scanner returns a result, populate the text field
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _itemEditors[index].serialController.text = result;
+      });
+    }
   }
 
   Future<void> _selectDate() async {
@@ -463,26 +530,45 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  Future<void> _pickMediaFiles() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.media, allowMultiple: true);
+  // ✅ UNIFIED FILE PICKER
+  Future<void> _pickFiles() async {
+    final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: true
+    );
     if (result != null) {
       setState(() {
-        _pickedMediaFiles = result.files.where((f) => f.path != null).map((f) => File(f.path!)).toList();
+        final newFiles = result.files.where((f) => f.path != null).map((f) => File(f.path!));
+        for (var file in newFiles) {
+          // Avoid exact path duplicates
+          if (!_attachedFiles.any((e) => e.path == file.path)) {
+            _attachedFiles.add(file);
+          }
+        }
       });
     }
   }
 
-  Future<void> _pickAttachedFile() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.any, allowMultiple: false);
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        _attachedFile = File(result.files.single.path!);
-      });
-    }
+  // ✅ REMOVE FILE
+  void _removeFile(int index) {
+    setState(() {
+      _attachedFiles.removeAt(index);
+    });
   }
+
+  // File Type Checkers
+  bool _isVideoPath(String filePath) {
+    final p = filePath.toLowerCase();
+    return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
+  }
+
+  bool _isImagePath(String filePath) {
+    final p = filePath.toLowerCase();
+    return p.endsWith('.jpg') || p.endsWith('.jpeg') || p.endsWith('.png') || p.endsWith('.gif') || p.endsWith('.webp');
+  }
+
 
   // --- SAVE LOGIC (B2) ---
-
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
@@ -495,7 +581,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // ✅ New helper: Upload Bytes (Signature)
   Future<String?> _uploadBytesToB2(Uint8List bytes, String fileName, Map<String, dynamic> b2Creds) async {
     try {
       final sha1Hash = sha1.convert(bytes).toString();
@@ -506,7 +591,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         headers: {
           'Authorization': b2Creds['authorizationToken'],
           'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': 'image/png', // Signature is PNG
+          'Content-Type': 'image/png',
           'X-Bz-Content-Sha1': sha1Hash,
           'Content-Length': bytes.length.toString(),
         },
@@ -519,12 +604,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       }
       return null;
     } catch (e) {
-      print('B2 Bytes Upload Error: $e');
       return null;
     }
   }
 
-  // Helper: Upload File (Media)
   Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds) async {
     try {
       final fileBytes = await file.readAsBytes();
@@ -555,12 +638,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
   Future<void> _saveTicket() async {
     if (_selectedClient == null || _managerNameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez remplir les infos client/gérant.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Veuillez remplir les infos client/gérant.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))));
       return;
     }
 
     if (_itemEditors.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La liste des appareils est vide.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('La liste des appareils est vide.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.orangeAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))));
       return;
     }
 
@@ -586,15 +669,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         return current + 1;
       });
 
-      // ✅ 1. Get Credentials EARLY (Before uploads)
       final b2Credentials = await _getB2UploadCredentials();
 
-      // ✅ 2. Upload Signature to B2 (No Firebase Storage!)
       String sigUrl = '';
       if (_signatureController.isNotEmpty && b2Credentials != null) {
         final sigData = await _signatureController.toPngBytes();
         if (sigData != null) {
-          // Create a unique name for the signature
           final fileName = 'sav_signatures/BATCH-${startCount}_$year.png';
           final uploadedUrl = await _uploadBytesToB2(sigData, fileName, b2Credentials);
           if (uploadedUrl != null) {
@@ -603,16 +683,20 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         }
       }
 
+      // ✅ ROUTE FILES BASED ON EXTENSION
       List<String> mediaUrls = [];
       String? attachedFileUrl;
 
       if (b2Credentials != null) {
-        for (var file in _pickedMediaFiles) {
+        for (var file in _attachedFiles) {
           final url = await _uploadFileToB2(file, b2Credentials);
-          if (url != null) mediaUrls.add(url);
-        }
-        if (_attachedFile != null) {
-          attachedFileUrl = await _uploadFileToB2(_attachedFile!, b2Credentials);
+          if (url != null) {
+            if (_isImagePath(file.path) || _isVideoPath(file.path)) {
+              mediaUrls.add(url);
+            } else {
+              attachedFileUrl = url; // Documents map to uploadedFileUrl
+            }
+          }
         }
       }
 
@@ -696,20 +780,19 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
       if (mounted) {
         scaffoldMessenger.showSnackBar(
-          SnackBar(content: Text(_creationMode == 'grouped' ? 'SAV Groupé créé !' : '${_itemEditors.length} SAV créés !')),
+          SnackBar(content: Text(_creationMode == 'grouped' ? 'SAV Groupé créé !' : '${_itemEditors.length} SAV créés !', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
         );
         navigator.pop();
       }
     } catch (e) {
       if (mounted) {
-        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        scaffoldMessenger.showSnackBar(SnackBar(content: Text('Erreur: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))));
         setState(() => _isLoading = false);
       }
     }
   }
 
   // --- DRAFTS ---
-
   Future<void> _openDraftsList() async {
     final SavDraft? selectedDraft = await Navigator.push(
       context,
@@ -765,19 +848,19 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           ));
         }
 
-        _pickedMediaFiles = draft.mediaPaths
+        // ✅ RECOVER ALL SAVED DRAFT PATHS
+        _attachedFiles = draft.mediaPaths
             .map((path) => File(path))
             .where((file) => file.existsSync())
             .toList();
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Brouillon chargé.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Brouillon chargé.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.blueAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))));
     }
   }
 
-  // --- DRAFT SAVE ---
   Future<void> _saveDraftLogic() async {
     if (_selectedClient == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sélectionner un client.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Sélectionner un client.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.orangeAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))));
       return;
     }
 
@@ -799,16 +882,42 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         'serialNumber': editor.serialController.text,
         'problemDescription': editor.problemController.text,
       }).toList(),
-      mediaPaths: _pickedMediaFiles.map((f) => f.path).toList(),
+      mediaPaths: _attachedFiles.map((f) => f.path).toList(), // ✅ Save all file paths to draft
       technicianIds: _selectedTechnicians.map((u) => u.id).toList(),
     );
 
     await _draftService.saveDraft(draft);
     setState(() => _currentDraftId = draftId);
-    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Brouillon sauvegardé !')));
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Brouillon sauvegardé !', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))));
   }
 
   // --- WIDGETS ---
+
+  Widget _buildGlassTextField({
+    required TextEditingController controller,
+    required String labelText,
+    required IconData icon,
+    TextInputType? keyboardType,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        style: const TextStyle(color: Colors.black87, fontSize: 16),
+        decoration: InputDecoration(
+          labelText: labelText,
+          labelStyle: const TextStyle(color: Colors.black54),
+          prefixIcon: Icon(icon, color: Colors.black54),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+          contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+        ),
+      ),
+    );
+  }
 
   Widget _buildSearchableDropdown({
     required String label,
@@ -827,20 +936,43 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
 
     return GestureDetector(
       onTap: onTap,
-      child: AbsorbPointer(
-        child: TextFormField(
-          controller: TextEditingController(text: text),
-          decoration: InputDecoration(
-            labelText: label,
-            prefixIcon: Icon(icon, color: Colors.grey[600]),
-            suffixIcon: (value != null && onClear != null)
-                ? IconButton(icon: const Icon(Icons.clear, color: Colors.red), onPressed: onClear)
-                : const Icon(Icons.arrow_drop_down),
-            filled: true,
-            fillColor: Colors.grey[200],
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: AbsorbPointer(
+          child: TextFormField(
+            controller: TextEditingController(text: text),
+            style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w600),
+            decoration: InputDecoration(
+              labelText: label,
+              labelStyle: const TextStyle(color: Colors.black54),
+              prefixIcon: Icon(icon, color: Colors.black54),
+              suffixIcon: (value != null && onClear != null)
+                  ? IconButton(icon: const Icon(Icons.clear, color: Colors.redAccent), onPressed: onClear)
+                  : const Icon(Icons.keyboard_arrow_down, color: Colors.black54),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildModeSegmentedControl() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          _buildModeButton('Individuel', 'individual', Icons.grid_view_rounded),
+          _buildModeButton('Groupé', 'grouped', Icons.folder_copy_rounded),
+        ],
       ),
     );
   }
@@ -850,23 +982,31 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _creationMode = value),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOutBack,
+          padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.orange : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: isSelected ? null : Border.all(color: Colors.grey.shade300),
+            gradient: isSelected
+                ? const LinearGradient(colors: [Color(0xFF007AFF), Color(0xFF0056D6)])
+                : null,
+            color: isSelected ? null : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected
+                ? [BoxShadow(color: const Color(0xFF007AFF).withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2))]
+                : [],
           ),
-          child: Column(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: isSelected ? Colors.white : Colors.grey, size: 20),
-              const SizedBox(height: 4),
+              Icon(icon, color: isSelected ? Colors.white : Colors.black54, size: 20),
+              const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.grey[700],
+                  color: isSelected ? Colors.white : Colors.black54,
                   fontWeight: FontWeight.bold,
-                  fontSize: 13,
+                  fontSize: 14,
                 ),
               ),
             ],
@@ -876,323 +1016,479 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     );
   }
 
-  bool _isVideoPath(String filePath) {
-    final p = filePath.toLowerCase();
-    return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
-  }
-
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Colors.orange;
-    final defaultBorder = OutlineInputBorder(
-      borderSide: BorderSide(color: Colors.grey.shade300),
-      borderRadius: BorderRadius.circular(12),
-    );
-
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text('Nouveau SAV (${widget.serviceType})'),
-        backgroundColor: primaryColor,
+        title: Text('Nouveau SAV (${widget.serviceType})', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, letterSpacing: 1.2)),
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black87),
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(color: Colors.white.withOpacity(0.5)),
+          ),
+        ),
         actions: [
-          IconButton(icon: const Icon(Icons.folder_open), onPressed: _openDraftsList),
-          IconButton(icon: const Icon(Icons.save_outlined), onPressed: _saveDraftLogic),
+          IconButton(icon: const Icon(Icons.folder_special), tooltip: "Brouillons", onPressed: _openDraftsList),
+          IconButton(icon: const Icon(Icons.cloud_upload_outlined), tooltip: "Sauvegarder Brouillon", onPressed: _saveDraftLogic),
+          const SizedBox(width: 8),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Informations Client',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
-              const SizedBox(height: 16),
-
-              // ✅ REPLACED: Searchable Client Dropdown
-              _buildSearchableDropdown(
-                label: 'Client',
-                value: _selectedClient,
-                icon: Icons.person_outline,
-                onClear: () {
-                  setState(() {
-                    _selectedClient = null;
-                    _selectedStore = null;
-                    _stores = [];
-                  });
-                },
-                onTap: () => _openSearchDialog(
-                  title: 'Rechercher un Client',
-                  items: _clients,
-                  onSelected: (item) {
-                    setState(() {
-                      _selectedClient = item;
-                      _selectedStore = null;
-                      _stores = [];
-                    });
-                    _fetchStoresForClient(item.id);
-                  },
-                  onAddPressed: _addNewClient,
-                  addButtonLabel: '+ Nouveau Client',
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // ✅ REPLACED: Searchable Store Dropdown
-              if (_selectedClient != null)
-                _buildSearchableDropdown(
-                  label: 'Magasin (Optionnel)',
-                  value: _selectedStore,
-                  icon: Icons.store_outlined,
-                  onClear: () => setState(() => _selectedStore = null),
-                  onTap: () => _openSearchDialog(
-                    title: 'Rechercher un Magasin',
-                    items: _stores,
-                    onSelected: (item) => setState(() => _selectedStore = item),
-                    onAddPressed: _addNewStore,
-                    addButtonLabel: '+ Nouveau Magasin',
-                  ),
-                ),
-
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _managerNameController,
-                decoration: InputDecoration(labelText: 'Nom du Gérant/Contact', border: defaultBorder, prefixIcon: const Icon(Icons.badge_outlined)),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _managerEmailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(labelText: 'Email (Optionnel)', border: defaultBorder, prefixIcon: const Icon(Icons.alternate_email_rounded)),
-              ),
-              const SizedBox(height: 16),
-
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedTicketType,
-                    isExpanded: true,
-                    icon: const Icon(Icons.arrow_drop_down, color: Colors.blue),
-                    items: const [
-                      DropdownMenuItem(value: 'standard', child: Text('Réparation Standard (Atelier)')),
-                      DropdownMenuItem(value: 'removal', child: Text('Dépose Matériel (Laissé sur site)')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) setState(() => _selectedTicketType = value);
-                    },
-                  ),
-                ),
-              ),
-
-              Container(
-                decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
-                padding: const EdgeInsets.all(4),
-                child: Row(
-                  children: [
-                    _buildModeButton('Individuel (1 SAV/Article)', 'individual', Icons.list),
-                    const SizedBox(width: 4),
-                    _buildModeButton('Groupé (1 SAV Global)', 'grouped', Icons.folder_copy_outlined),
-                  ],
-                ),
-              ),
-
-              const Divider(height: 24),
-              const Text('Appareils à Récupérer', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
-              const SizedBox(height: 10),
-
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _openProductSearch,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade50,
-                    foregroundColor: Colors.blue.shade800,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.blue.shade200)),
-                  ),
-                  icon: const Icon(Icons.add_shopping_cart_rounded),
-                  label: const Text('AJOUTER DES APPAREILS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              if (_itemEditors.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(30),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300, style: BorderStyle.none),
-                  ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFF3F4F6),
+              Color(0xFFE8EDF2),
+              Color(0xFFFDEBEE),
+              Color(0xFFF5F7FA),
+            ],
+            stops: [0.0, 0.4, 0.7, 1.0],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 850),
+              child: Form(
+                key: _formKey,
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.inventory_2_outlined, size: 40, color: Colors.grey.shade400),
-                      const SizedBox(height: 8),
-                      Text("Aucun appareil ajouté", style: TextStyle(color: Colors.grey.shade500)),
-                    ],
-                  ),
-                )
-              else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _itemEditors.length,
-                  itemBuilder: (context, index) {
-                    final editor = _itemEditors[index];
-                    return Card(
-                      key: editor.key,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
-                      elevation: 2,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
+                      // --- CLIENT SECTION ---
+                      const Text('Informations Client', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const SizedBox(height: 16),
+                      GlassCard(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 14,
-                                  backgroundColor: Colors.blue.shade100,
-                                  child: Text('${index + 1}', style: TextStyle(color: Colors.blue.shade800, fontSize: 12, fontWeight: FontWeight.bold)),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(editor.productName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, color: Colors.red, size: 20),
-                                  onPressed: () => _removeEditor(index),
-                                ),
-                              ],
+                            _buildSearchableDropdown(
+                              label: 'Sélectionner le Client',
+                              value: _selectedClient,
+                              icon: Icons.business_rounded,
+                              onClear: () {
+                                setState(() {
+                                  _selectedClient = null;
+                                  _selectedStore = null;
+                                  _stores = [];
+                                });
+                              },
+                              onTap: () => _openSearchDialog(
+                                title: 'Rechercher un Client',
+                                items: _clients,
+                                onSelected: (item) {
+                                  setState(() {
+                                    _selectedClient = item;
+                                    _selectedStore = null;
+                                    _stores = [];
+                                  });
+                                  _fetchStoresForClient(item.id);
+                                },
+                                onAddPressed: _addNewClient,
+                                addButtonLabel: '+ Nouveau Client',
+                              ),
                             ),
-                            const Divider(),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: editor.serialController,
-                                    decoration: InputDecoration(
-                                      labelText: 'Numéro de Série',
-                                      isDense: true,
-                                      border: const OutlineInputBorder(),
-                                      suffixIcon: IconButton(
-                                        icon: const Icon(Icons.qr_code_scanner),
-                                        onPressed: () => _scanSerialForEditor(index),
-                                      ),
-                                    ),
-                                  ),
+                            const SizedBox(height: 16),
+                            if (_selectedClient != null) ...[
+                              _buildSearchableDropdown(
+                                label: 'Magasin (Optionnel)',
+                                value: _selectedStore,
+                                icon: Icons.store_mall_directory_rounded,
+                                onClear: () => setState(() => _selectedStore = null),
+                                onTap: () => _openSearchDialog(
+                                  title: 'Rechercher un Magasin',
+                                  items: _stores,
+                                  onSelected: (item) => setState(() => _selectedStore = item),
+                                  onAddPressed: _addNewStore,
+                                  addButtonLabel: '+ Nouveau Magasin',
                                 ),
-                              ],
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            _buildGlassTextField(
+                              controller: _managerNameController,
+                              labelText: 'Nom du Gérant / Contact',
+                              icon: Icons.person_pin_rounded,
                             ),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: editor.problemController,
-                              decoration: const InputDecoration(labelText: 'Description Panne', isDense: true, border: OutlineInputBorder()),
+                            const SizedBox(height: 16),
+                            _buildGlassTextField(
+                              controller: _managerEmailController,
+                              labelText: 'Email (Optionnel)',
+                              icon: Icons.alternate_email_rounded,
+                              keyboardType: TextInputType.emailAddress,
                             ),
                           ],
                         ),
                       ),
-                    );
-                  },
-                ),
+                      const SizedBox(height: 32),
 
-              const Divider(height: 24),
-              InkWell(
-                onTap: _selectDate,
-                child: InputDecorator(
-                  decoration: InputDecoration(labelText: 'Date de récupération', border: defaultBorder, prefixIcon: const Icon(Icons.calendar_today_outlined)),
-                  child: Text(_pickupDate == null ? 'Sélectionner une date' : DateFormat('dd MMMM yyyy', 'fr_FR').format(_pickupDate!)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              MultiSelectDialogField<UserViewModel>(
-                items: _availableTechnicians.map((u) => MultiSelectItem<UserViewModel>(u, u.name)).toList(),
-                title: const Text('Techniciens'),
-                buttonText: _isLoadingTechnicians ? const Text('Chargement...') : const Text('Assigner techniciens'),
-                onConfirm: (results) => setState(() => _selectedTechnicians = results),
-                chipDisplay: MultiSelectChipDisplay(chipColor: primaryColor.withOpacity(0.1), textStyle: const TextStyle(color: primaryColor)),
-                decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
-                validator: (vals) => vals == null || vals.isEmpty ? 'Assigner au moins un' : null,
-              ),
+                      // --- CONFIGURATION SECTION ---
+                      const Text('Configuration du Billet', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const SizedBox(height: 16),
+                      GlassCard(
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.5),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _selectedTicketType,
+                                  isExpanded: true,
+                                  dropdownColor: Colors.white,
+                                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.black54),
+                                  style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w500),
+                                  items: const [
+                                    DropdownMenuItem(value: 'standard', child: Text('Réparation Standard (Atelier)')),
+                                    DropdownMenuItem(value: 'removal', child: Text('Dépose Matériel (Laissé sur site)')),
+                                  ],
+                                  onChanged: (value) {
+                                    if (value != null) setState(() => _selectedTicketType = value);
+                                  },
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            _buildModeSegmentedControl(),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
 
-              const Divider(height: 30),
-              OutlinedButton.icon(
-                onPressed: _pickMediaFiles,
-                icon: const Icon(Icons.perm_media_outlined),
-                label: Text('Photos/Vidéos Globales (${_pickedMediaFiles.length})'),
-              ),
-              if (_pickedMediaFiles.isNotEmpty)
-                Container(
-                  height: 80,
-                  margin: const EdgeInsets.only(top: 8),
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _pickedMediaFiles.length,
-                    itemBuilder: (context, index) {
-                      final file = _pickedMediaFiles[index];
-                      final isVideo = _isVideoPath(file.path);
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ClipRRect(borderRadius: BorderRadius.circular(8), child: isVideo ? Container(width: 80, color: Colors.black, child: const Icon(Icons.videocam, color: Colors.white)) : Image.file(file, width: 80, height: 80, fit: BoxFit.cover)),
-                      );
-                    },
+                      // --- PRODUCTS LIST SECTION ---
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Appareils à Récupérer', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          IconButton(
+                            onPressed: _openProductSearch,
+                            icon: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: const LinearGradient(colors: [Color(0xFF007AFF), Color(0xFF0056D6)]),
+                                boxShadow: [BoxShadow(color: const Color(0xFF007AFF).withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2))],
+                              ),
+                              child: const Icon(Icons.add, color: Colors.white, size: 24),
+                            ),
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      if (_itemEditors.isEmpty)
+                        GestureDetector(
+                          onTap: _openProductSearch,
+                          child: GlassCard(
+                            opacity: 0.3,
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 30),
+                              child: Column(
+                                children: [
+                                  const Icon(Icons.inventory_2_rounded, size: 60, color: Colors.black26),
+                                  const SizedBox(height: 12),
+                                  const Text("Aucun appareil ajouté", style: TextStyle(color: Colors.black54, fontSize: 16)),
+                                  const SizedBox(height: 8),
+                                  const Text("Appuyez pour ajouter", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _itemEditors.length,
+                          itemBuilder: (context, index) {
+                            final editor = _itemEditors[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: GlassCard(
+                                key: editor.key,
+                                padding: const EdgeInsets.all(20),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.blueAccent.withOpacity(0.1)),
+                                          child: Text('${index + 1}', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 16)),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(editor.productName, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18)),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.remove_circle, color: Colors.redAccent, size: 28),
+                                          onPressed: () => _removeEditor(index),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Container(
+                                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+                                      child: TextField(
+                                        controller: editor.serialController,
+                                        style: const TextStyle(color: Colors.black87),
+                                        decoration: InputDecoration(
+                                          labelText: 'Numéro de Série',
+                                          labelStyle: const TextStyle(color: Colors.black54),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                                          suffixIcon: IconButton(
+                                            icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.blueAccent),
+                                            onPressed: () => _scanSerialForEditor(index),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+                                      child: TextField(
+                                        controller: editor.problemController,
+                                        style: const TextStyle(color: Colors.black87),
+                                        maxLines: 2,
+                                        decoration: InputDecoration(
+                                          labelText: 'Description de la Panne',
+                                          labelStyle: const TextStyle(color: Colors.black54),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      const SizedBox(height: 32),
+
+                      // --- DETAILS SECTION ---
+                      const Text('Détails', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const SizedBox(height: 16),
+                      GlassCard(
+                        child: Column(
+                          children: [
+                            GestureDetector(
+                              onTap: _selectDate,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                                decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.calendar_month_rounded, color: Colors.black54),
+                                    const SizedBox(width: 16),
+                                    Text(
+                                      _pickupDate == null ? 'Sélectionner la Date' : DateFormat('dd MMMM yyyy', 'fr_FR').format(_pickupDate!),
+                                      style: TextStyle(color: _pickupDate == null ? Colors.black54 : Colors.black87, fontSize: 16),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Theme(
+                              data: Theme.of(context).copyWith(canvasColor: Colors.white),
+                              child: MultiSelectDialogField<UserViewModel>(
+                                items: _availableTechnicians.map((u) => MultiSelectItem<UserViewModel>(u, u.name)).toList(),
+                                title: const Text('Techniciens', style: TextStyle(color: Colors.black87)),
+                                buttonText: Text(_isLoadingTechnicians ? 'Chargement...' : 'Assigner les Techniciens', style: const TextStyle(color: Colors.black54, fontSize: 16)),
+                                buttonIcon: const Icon(Icons.engineering_rounded, color: Colors.black54),
+                                unselectedColor: Colors.black54,
+                                selectedColor: Colors.blueAccent,
+                                itemsTextStyle: const TextStyle(color: Colors.black87),
+                                selectedItemsTextStyle: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                                onConfirm: (results) => setState(() => _selectedTechnicians = results),
+                                chipDisplay: MultiSelectChipDisplay(
+                                  chipColor: Colors.blueAccent.withOpacity(0.1),
+                                  textStyle: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                                ),
+                                decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+                                validator: (vals) => vals == null || vals.isEmpty ? 'Assigner au moins un technicien' : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // ✅ --- UNIFIED MEDIA & DOCUMENTS ATTACHMENTS ---
+                      const Text('Fichiers & Médias', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const SizedBox(height: 16),
+                      GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.blueAccent,
+                                  backgroundColor: Colors.blueAccent.withOpacity(0.1),
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                ),
+                                onPressed: _pickFiles,
+                                icon: const Icon(Icons.upload_file_rounded),
+                                label: const Text('Ajouter des Fichiers', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+
+                            // File Preview Grid
+                            if (_attachedFiles.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: List.generate(_attachedFiles.length, (index) {
+                                  final file = _attachedFiles[index];
+                                  final isImage = _isImagePath(file.path);
+                                  final isVideo = _isVideoPath(file.path);
+
+                                  return Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Container(
+                                        width: 100,
+                                        height: 100,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.7),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.black12),
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(12),
+                                          child: isImage
+                                              ? Image.file(file, fit: BoxFit.cover)
+                                              : isVideo
+                                              ? const Icon(Icons.videocam_rounded, color: Colors.black54, size: 40)
+                                              : Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              const Icon(Icons.insert_drive_file_rounded, color: Colors.black54, size: 32),
+                                              const SizedBox(height: 4),
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                                child: Text(
+                                                  path.basename(file.path),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(fontSize: 10, color: Colors.black87),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      // Remove File Button
+                                      Positioned(
+                                        top: -6,
+                                        right: -6,
+                                        child: GestureDetector(
+                                          onTap: () => _removeFile(index),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.redAccent,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(Icons.close, color: Colors.white, size: 14),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // --- SIGNATURE SECTION ---
+                      const Text('Signature du Gérant', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const SizedBox(height: 16),
+                      GlassCard(
+                        padding: const EdgeInsets.all(4),
+                        child: Column(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: Signature(
+                                controller: _signatureController,
+                                backgroundColor: Colors.white,
+                                height: 180,
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: () => _signatureController.clear(),
+                                icon: const Icon(Icons.layers_clear_rounded, color: Colors.redAccent, size: 18),
+                                label: const Text('Effacer', style: TextStyle(color: Colors.redAccent)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+
+                      // --- SUBMIT BUTTON ---
+                      Container(
+                        width: double.infinity,
+                        height: 65,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF007AFF), Color(0xFF0056D6)],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                          ),
+                          boxShadow: [
+                            BoxShadow(color: const Color(0xFF007AFF).withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 10))
+                          ],
+                        ),
+                        child: ElevatedButton.icon(
+                          onPressed: _isLoading ? null : _saveTicket,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          ),
+                          icon: _isLoading ? const SizedBox.shrink() : const Icon(Icons.check_circle_rounded, size: 28, color: Colors.white),
+                          label: _isLoading
+                              ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                              : Text(
+                            _creationMode == 'grouped' ? 'VALIDER LE SAV GROUPÉ' : 'VALIDER ${_itemEditors.length} SAV',
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 60),
+                    ],
                   ),
                 ),
-
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pickAttachedFile,
-                      icon: const Icon(Icons.attach_file),
-                      label: Text(_attachedFile == null ? 'Joindre un Fichier (Optionnel)' : 'Fichier joint: ${path.basename(_attachedFile!.path)}'),
-                    ),
-                  ),
-                  if (_attachedFile != null)
-                    IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => setState(() => _attachedFile = null)),
-                ],
               ),
-
-              const Divider(height: 40),
-              const Text('Signature du Gérant/Contact', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor)),
-              const SizedBox(height: 8),
-              Container(
-                height: 120,
-                decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(12)),
-                child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Signature(controller: _signatureController, backgroundColor: Colors.grey.shade100)),
-              ),
-              Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () => _signatureController.clear(), child: const Text('Effacer'))),
-
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _saveTicket,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: _isLoading ? const SizedBox.shrink() : const Icon(Icons.check_circle_outline),
-                  label: _isLoading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : Text(_creationMode == 'grouped' ? 'VALIDER 1 SAV GROUPÉ (${_itemEditors.length} Articles)' : 'VALIDER ${_itemEditors.length} SAV INDIVIDUELS'),
-                ),
-              ),
-              const SizedBox(height: 40),
-            ],
+            ),
           ),
         ),
       ),
