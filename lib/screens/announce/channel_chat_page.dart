@@ -83,8 +83,7 @@ class _ChannelChatPageState extends State<ChannelChatPage>
   // 🌟 PRO FEATURE 4: Sticky Date Tracker
   DateTime? _currentlyVisibleDate;
 
-  final String _getB2UploadUrlCloudFunctionUrl =
-      'https://getb2uploadurl-onxwq446zq-ew.a.run.app';
+  final String _getB2UploadUrlCloudFunctionUrl = 'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {
@@ -133,10 +132,6 @@ class _ChannelChatPageState extends State<ChannelChatPage>
     } else if (_scrollController.offset <= 300 && _showScrollToBottom) {
       setState(() => _showScrollToBottom = false);
     }
-
-    // Note for Pro Feature 4 (Sticky Dates):
-    // A true sticky header usually requires a package like `sliver_tools` or `grouped_list`.
-    // For this implementation, we will keep the floating pill at the top that updates based on the top-most visible item.
   }
 
   void _setTypingStatus(bool isTyping) {
@@ -187,6 +182,7 @@ class _ChannelChatPageState extends State<ChannelChatPage>
     } catch (e) { return null; }
   }
 
+  // Used only for Voice Recordings now
   Future<String?> _uploadBytesToB2(Uint8List fileBytes, String fileName, Map<String, dynamic> b2Creds) async {
     try {
       final sha1Hash = sha1.convert(fileBytes).toString();
@@ -226,12 +222,10 @@ class _ChannelChatPageState extends State<ChannelChatPage>
   void _onTextChanged() {
     final isNowEmpty = _messageController.text.trim().isEmpty;
 
-    // Only rebuild the UI if the emptiness state actually changes (Mic <-> Send arrow)
     if (_isTextEmpty != isNowEmpty) {
       setState(() => _isTextEmpty = isNowEmpty);
     }
 
-    // Typing Indicator Trigger (Debounced, doesn't cause UI rebuild)
     if (!isNowEmpty) {
       _setTypingStatus(true);
       _typingTimer?.cancel();
@@ -285,7 +279,6 @@ class _ChannelChatPageState extends State<ChannelChatPage>
       setState(() { _showMentionSuggestions = false; _replyToMessage = null; });
       HapticFeedback.lightImpact();
 
-      // 🌟 PRO FEATURE 2: Scroll to bottom after sending
       if (_scrollController.hasClients) {
         _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
       }
@@ -336,6 +329,8 @@ class _ChannelChatPageState extends State<ChannelChatPage>
         final b2Credentials = await _getB2UploadCredentials();
         if (b2Credentials == null) throw Exception('No B2 credentials.');
         final String fileName = 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        // Voice recordings still use the simple byte upload
         final String? downloadUrl = await _uploadBytesToB2(fileBytes, fileName, b2Credentials);
         if (downloadUrl == null) throw Exception('Upload failed.');
 
@@ -443,35 +438,187 @@ class _ChannelChatPageState extends State<ChannelChatPage>
 
 
   // ==========================================
-  // FILE HANDLING & LAUNCHING METHODS
+  // FILE HANDLING & UPLOADING (STREAMED TO B2)
   // ==========================================
+
+  Future<String?> _uploadStreamWithProgress({
+    required Uri uploadUri,
+    required Map<String, String> headers,
+    required Stream<List<int>> stream,
+    required int totalLength,
+    required Function(double) onProgress,
+  }) async {
+    try {
+      final request = http.StreamedRequest('POST', uploadUri);
+      request.headers.addAll(headers);
+      request.contentLength = totalLength;
+
+      int bytesSent = 0;
+      final completer = Completer<void>();
+
+      stream.listen(
+            (chunk) {
+          request.sink.add(chunk);
+          bytesSent += chunk.length;
+          onProgress(bytesSent / totalLength);
+        },
+        onDone: () {
+          request.sink.close();
+          completer.complete();
+        },
+        onError: (e) {
+          request.sink.addError(e);
+          completer.completeError(e);
+        },
+        cancelOnError: true,
+      );
+
+      await completer.future;
+
+      final response = await request.send();
+      final respStr = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final responseBody = json.decode(respStr);
+        return responseBody['fileName'];
+      } else {
+        debugPrint("B2 Upload Error: ${response.statusCode} - $respStr");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("B2 Upload Exception: $e");
+      return null;
+    }
+  }
 
   void _pickAndUploadFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['jpg', 'png', 'pdf', 'mp4', 'mov', 'doc', 'zip'],
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'mp4', 'mov', 'avi', 'doc', 'zip'],
         withData: kIsWeb,
       );
 
       if (result != null && result.files.single != null) {
-        setState(() => _isUploading = true);
         final PlatformFile platformFile = result.files.first;
         Uint8List? fileBytes;
+        Stream<List<int>>? fileStream;
+        int fileLength = platformFile.size;
 
         if (kIsWeb) {
           fileBytes = platformFile.bytes;
+          if (fileBytes == null) throw Exception("Impossible de lire le fichier.");
+          fileStream = Stream.value(fileBytes);
         } else if (platformFile.path != null) {
-          fileBytes = await File(platformFile.path!).readAsBytes();
+          final file = File(platformFile.path!);
+          fileStream = file.openRead();
+          fileLength = await file.length();
+          fileBytes = await file.readAsBytes(); // Needed strictly to compute SHA1 hash
         }
 
-        if (fileBytes == null) throw Exception("Cannot read file bytes.");
+        if (fileStream == null || fileBytes == null) throw Exception("Erreur de flux de fichier.");
+
+        // 🌟 ADDED: Smooth Progress Dialog from Intervention Page
+        final ValueNotifier<double> progressNotifier = ValueNotifier(0.0);
+        final ValueNotifier<String> statusNotifier = ValueNotifier("Préparation de l'envoi...");
+
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) {
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                backgroundColor: const Color(0xFF1E1E1E),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: Colors.white.withOpacity(0.1))),
+                contentPadding: const EdgeInsets.all(24),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 10),
+                    const CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                    const SizedBox(height: 20),
+                    ValueListenableBuilder<String>(
+                      valueListenable: statusNotifier,
+                      builder: (context, status, child) => Text(status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                    ),
+                    const SizedBox(height: 20),
+                    ValueListenableBuilder<double>(
+                      valueListenable: progressNotifier,
+                      builder: (context, value, child) {
+                        return Column(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: LinearProgressIndicator(value: value, minHeight: 8, backgroundColor: Colors.white.withOpacity(0.1), valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent)),
+                            ),
+                            const SizedBox(height: 8),
+                            Text("${(value * 100).toInt()}%", style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12)),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+
+        setState(() => _isUploading = true);
+
         final b2Credentials = await _getB2UploadCredentials();
-        if (b2Credentials == null) throw Exception('No B2 credentials.');
+        if (b2Credentials == null) {
+          Navigator.of(context).pop(); // Close dialog on error
+          throw Exception('No B2 credentials.');
+        }
 
-        final String? downloadUrl = await _uploadBytesToB2(fileBytes, platformFile.name, b2Credentials);
-        if (downloadUrl == null) throw Exception('Upload failed.');
+        statusNotifier.value = "Envoi du fichier...";
 
+        // Ensure MIME Type is mapped correctly
+        String? mimeType;
+        final fNameLower = platformFile.name.toLowerCase();
+        if (fNameLower.endsWith('.jpg') || fNameLower.endsWith('.jpeg')) mimeType = 'image/jpeg';
+        else if (fNameLower.endsWith('.png')) mimeType = 'image/png';
+        else if (fNameLower.endsWith('.gif')) mimeType = 'image/gif';
+        else if (fNameLower.endsWith('.pdf')) mimeType = 'application/pdf';
+        else if (fNameLower.endsWith('.mp4')) mimeType = 'video/mp4';
+        else if (fNameLower.endsWith('.mov')) mimeType = 'video/quicktime';
+        else if (fNameLower.endsWith('.m4a') || fNameLower.endsWith('.aac')) mimeType = 'audio/mp4';
+        else mimeType = 'b2/x-auto';
+
+        // SHA1 Hash required by B2
+        final sha1Hash = sha1.convert(fileBytes).toString();
+        final Uri uploadUri = Uri.parse(b2Credentials['uploadUrl']);
+
+        final headers = <String, String>{
+          'Authorization': b2Credentials['authorizationToken'] as String,
+          'X-Bz-File-Name': Uri.encodeComponent(platformFile.name),
+          'Content-Type': mimeType,
+          'X-Bz-Content-Sha1': sha1Hash,
+          'Content-Length': fileLength.toString(),
+        };
+
+        // Upload using the streamed approach
+        final uploadedFileName = await _uploadStreamWithProgress(
+          uploadUri: uploadUri,
+          headers: headers,
+          stream: fileStream,
+          totalLength: fileLength,
+          onProgress: (prog) => progressNotifier.value = prog,
+        );
+
+        if (uploadedFileName == null) {
+          Navigator.of(context).pop(); // Close dialog on error
+          throw Exception('Upload failed.');
+        }
+
+        final String downloadUrl = b2Credentials['downloadUrlPrefix'] + uploadedFileName.split('/').map(Uri.encodeComponent).join('/');
+
+        statusNotifier.value = "Finalisation...";
+        progressNotifier.value = 1.0;
+
+        // Save Message to Firestore
         String messageType = 'file';
         final extension = platformFile.extension?.toLowerCase();
         if (['jpg', 'jpeg', 'png', 'gif'].contains(extension)) messageType = 'image';
@@ -486,7 +633,12 @@ class _ChannelChatPageState extends State<ChannelChatPage>
           fileSize: platformFile.size,
           replyTo: _replyToMessage,
         );
+
         setState(() => _replyToMessage = null);
+
+        // Success - Close the progress dialog
+        if (mounted) Navigator.of(context).pop();
+
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
