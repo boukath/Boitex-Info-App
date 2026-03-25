@@ -570,84 +570,136 @@ class LivraisonPdfService {
     );
   }
 
-  // ✅ UPDATED TABLE FOR MULTIPAGE
+// ✅ REBUILT WITH pw.Column / pw.Row for Flawless Page Breaking
   pw.Widget _buildCleanTable(List<ProductSelection> products, {
     required double fontSizeBody,
     required double fontSizeSmall,
     required double padding,
   }) {
-    return pw.Table(
-      border: null,
-      columnWidths: {
-        0: const pw.FlexColumnWidth(2),
-        1: const pw.FlexColumnWidth(4),
-        2: const pw.FlexColumnWidth(1),
-        3: const pw.FlexColumnWidth(1),
-      },
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.TableRow(
+        // ---------------------------------------------------------
+        // 1. HEADER ROW
+        // ---------------------------------------------------------
+        pw.Container(
+          padding: const pw.EdgeInsets.only(bottom: 6),
           decoration: const pw.BoxDecoration(
             border: pw.Border(bottom: pw.BorderSide(color: _brandPrimary, width: 1.5)),
           ),
-          children: [
-            pw.Padding(padding: const pw.EdgeInsets.only(bottom: 4), child: pw.Text("RÉFÉRENCE", style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.only(bottom: 4), child: pw.Text("DÉSIGNATION", style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.only(bottom: 4), child: pw.Text("CDE", textAlign: pw.TextAlign.center, style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
-            pw.Padding(padding: const pw.EdgeInsets.only(bottom: 4), child: pw.Text("LIV", textAlign: pw.TextAlign.right, style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
-          ],
+          child: pw.Row(
+            children: [
+              pw.Expanded(flex: 2, child: pw.Text("RÉFÉRENCE", style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
+              pw.Expanded(flex: 4, child: pw.Text("DÉSIGNATION", style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
+              pw.Expanded(flex: 1, child: pw.Text("CDE", textAlign: pw.TextAlign.center, style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
+              pw.Expanded(flex: 1, child: pw.Text("LIV", textAlign: pw.TextAlign.right, style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeSmall, fontWeight: pw.FontWeight.bold))),
+            ],
+          ),
         ),
-        ...products.map((item) {
+
+        // ---------------------------------------------------------
+        // 2. PRODUCTS LIST (Natively broken across pages)
+        // ---------------------------------------------------------
+        ...products.expand((item) {
           final int delivered = item.quantity;
           final int ordered = delivered;
 
-          return pw.TableRow(
-            decoration: const pw.BoxDecoration(
-              border: pw.Border(bottom: pw.BorderSide(color: _divider, width: 0.5)),
-            ),
-            children: [
-              pw.Container(
-                padding: pw.EdgeInsets.symmetric(vertical: padding),
-                child: pw.Text(item.partNumber, style: pw.TextStyle(color: _textDark, fontSize: fontSizeBody, fontWeight: pw.FontWeight.bold)),
+          // SMALLER CHUNK SIZE: 12 ensures rows are thin enough to page-break perfectly
+          const int chunkSize = 12;
+          List<List<String>> chunks = [];
+
+          if (item.serialNumbers.isNotEmpty) {
+            for (var i = 0; i < item.serialNumbers.length; i += chunkSize) {
+              chunks.add(item.serialNumbers.sublist(
+                i,
+                i + chunkSize > item.serialNumbers.length ? item.serialNumbers.length : i + chunkSize,
+              ));
+            }
+          } else {
+            chunks.add([]); // Add empty chunk so the product still shows
+          }
+
+          return chunks.asMap().entries.map((entry) {
+            final int index = entry.key;
+            final List<String> snChunk = entry.value;
+            final bool isFirstRow = index == 0;
+            final bool isLastRow = index == chunks.length - 1;
+
+            return pw.Container(
+              decoration: pw.BoxDecoration(
+                border: isLastRow ? const pw.Border(bottom: pw.BorderSide(color: _divider, width: 0.5)) : null,
               ),
-              pw.Container(
-                padding: pw.EdgeInsets.symmetric(vertical: padding),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(item.productName, style: pw.TextStyle(color: _textDark, fontSize: fontSizeBody)),
-                    if (item.serialNumbers.isNotEmpty) ...[
-                      pw.SizedBox(height: padding / 2),
-                      pw.Wrap(
-                          spacing: 4,
-                          runSpacing: 2,
-                          children: item.serialNumbers.map((sn) =>
-                              pw.Container(
-                                  padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                  decoration: pw.BoxDecoration(
-                                    color: _bgSidebar,
-                                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
-                                    border: pw.Border.all(color: _divider),
-                                  ),
-                                  child: pw.Text(sn, style: pw.TextStyle(color: _textDark, fontSize: 8, font: pw.Font.courier()))
-                              )
-                          ).toList()
-                      )
-                    ]
-                  ],
-                ),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start, // Important for alignment
+                children: [
+                  // --- RÉFÉRENCE ---
+                  pw.Expanded(
+                    flex: 2,
+                    child: pw.Container(
+                      padding: pw.EdgeInsets.only(top: isFirstRow ? padding : 0, bottom: isLastRow ? padding : 0, right: 5),
+                      child: isFirstRow
+                          ? pw.Text(item.partNumber, style: pw.TextStyle(color: _textDark, fontSize: fontSizeBody, fontWeight: pw.FontWeight.bold))
+                          : pw.SizedBox(),
+                    ),
+                  ),
+
+                  // --- DÉSIGNATION & SERIAL NUMBERS ---
+                  pw.Expanded(
+                    flex: 4,
+                    child: pw.Container(
+                      padding: pw.EdgeInsets.only(top: isFirstRow ? padding : padding / 2, bottom: isLastRow ? padding : padding / 2, right: 5),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          if (isFirstRow)
+                            pw.Text(item.productName, style: pw.TextStyle(color: _textDark, fontSize: fontSizeBody)),
+
+                          if (snChunk.isNotEmpty) ...[
+                            if (isFirstRow) pw.SizedBox(height: padding / 2),
+                            pw.Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                children: snChunk.map((sn) =>
+                                    pw.Container(
+                                        padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                        decoration: pw.BoxDecoration(
+                                          color: _bgSidebar,
+                                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+                                          border: pw.Border.all(color: _divider),
+                                        ),
+                                        child: pw.Text(sn, style: pw.TextStyle(color: _textDark, fontSize: 8, font: pw.Font.courier()))
+                                    )
+                                ).toList()
+                            )
+                          ]
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // --- CDE ---
+                  pw.Expanded(
+                    flex: 1,
+                    child: pw.Container(
+                      padding: pw.EdgeInsets.only(top: isFirstRow ? padding : 0),
+                      alignment: pw.Alignment.topCenter,
+                      child: isFirstRow ? pw.Text("$ordered", style: const pw.TextStyle(color: _textGrey, fontSize: 10)) : pw.SizedBox(),
+                    ),
+                  ),
+
+                  // --- LIV ---
+                  pw.Expanded(
+                    flex: 1,
+                    child: pw.Container(
+                      padding: pw.EdgeInsets.only(top: isFirstRow ? padding : 0),
+                      alignment: pw.Alignment.topRight,
+                      child: isFirstRow ? pw.Text("$delivered", style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeBody + 1, fontWeight: pw.FontWeight.bold)) : pw.SizedBox(),
+                    ),
+                  ),
+                ],
               ),
-              pw.Container(
-                padding: pw.EdgeInsets.symmetric(vertical: padding),
-                alignment: pw.Alignment.topCenter,
-                child: pw.Text("$ordered", style: const pw.TextStyle(color: _textGrey, fontSize: 10)),
-              ),
-              pw.Container(
-                padding: pw.EdgeInsets.symmetric(vertical: padding),
-                alignment: pw.Alignment.topRight,
-                child: pw.Text("$delivered", style: pw.TextStyle(color: _brandPrimary, fontSize: fontSizeBody + 1, fontWeight: pw.FontWeight.bold)),
-              ),
-            ],
-          );
+            );
+          }).toList();
         }).toList(),
       ],
     );
