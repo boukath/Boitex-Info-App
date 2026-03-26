@@ -22,6 +22,7 @@ class AddProductPage extends StatefulWidget {
 
   const AddProductPage({super.key, this.productDoc, this.scannedCode});
 
+
   @override
   State<AddProductPage> createState() => _AddProductPageState();
 }
@@ -35,6 +36,7 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
   final _referenceController = TextEditingController();
   final _origineController = TextEditingController();
   final _tagsController = TextEditingController();
+  final List<String> _customCategories = [];
 
   // ✅ NEW: Price Controllers
   final _prixAchatController = TextEditingController();
@@ -184,6 +186,58 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
         _showErrorSnackBar('Erreur: $e');
       }
     }
+  }
+  // ✅ NEW: Dialog to add a custom subcategory
+  Future<void> _showAddCategoryDialog() async {
+    final TextEditingController newCatController = TextEditingController();
+
+    return showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Nouvelle catégorie', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: TextField(
+            controller: newCatController,
+            textCapitalization: TextCapitalization.words, // Capitalize first letters
+            decoration: InputDecoration(
+              hintText: 'Ex: Caméras IP, Câbles, etc.',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF667EEA),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () {
+                final newCat = newCatController.text.trim();
+                if (newCat.isNotEmpty) {
+                  setState(() {
+                    // Add it if it doesn't already exist
+                    if (!_customCategories.contains(newCat)) {
+                      _customCategories.add(newCat);
+                    }
+                    // Automatically select it
+                    _selectedSubcategory = newCat;
+                  });
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Ajouter', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _pickImageFromGallery() async {
@@ -1331,7 +1385,9 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
           return const Center(child: CircularProgressIndicator());
         }
 
-        final categories = _extractUniqueCategories(snapshot.data!, _mainCategory!);
+        // ✅ Extract from Firestore and merge with our locally added custom categories
+        final firestoreCategories = _extractUniqueCategories(snapshot.data!, _mainCategory!);
+        final allCategories = {...firestoreCategories, ..._customCategories}.toList()..sort();
 
         return Container(
           padding: const EdgeInsets.all(20),
@@ -1378,31 +1434,11 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                 ],
               ),
               const SizedBox(height: 16),
-              if (categories.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.warning_rounded, color: Colors.orange.shade700),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          'Aucune catégorie disponible',
-                          style: TextStyle(color: Color(0xFF1F2937)),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: categories.map((category) {
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  ...allCategories.map((category) {
                     final isSelected = _selectedSubcategory == category;
                     return InkWell(
                       onTap: () {
@@ -1443,8 +1479,37 @@ class _AddProductPageState extends State<AddProductPage> with SingleTickerProvid
                         ),
                       ),
                     );
-                  }).toList(),
-                ),
+                  }),
+                  // ✅ NEW: Add Button to create a new category
+                  InkWell(
+                    onTap: _showAddCategoryDialog,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFF093FB), width: 1.5),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.add_rounded, color: Color(0xFFF093FB), size: 18),
+                          SizedBox(width: 4),
+                          Text(
+                            'Nouvelle',
+                            style: TextStyle(
+                              color: Color(0xFFF093FB),
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         );
