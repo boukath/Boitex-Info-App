@@ -39,7 +39,7 @@ async (event) => {
     logger.info(`🔄 Ticket SAV ${savCode} marked as 'Retourné'. Processing Return PDF...`);
 
     try {
-      // 1. Generate PDF using the NEW generator
+      // 1. Generate PDF using the NEW generator (which now includes the timeline)
       const pdfBuffer = await generateSavReturnPdf(after);
 
       // 2. Setup Email
@@ -71,31 +71,41 @@ async (event) => {
         ccList = emailSettings.sav_cc_tech;
       }
 
+      // Safe fallbacks in case of grouped/multi-product tickets
+      const displayProduct = after.productName || "Multiples équipements";
+      const displaySn = after.serialNumber || "-";
+      const displayReport = after.technicianReport || "Intervention technique terminée et matériel vérifié.";
+
       const mailOptions = {
         from: `"${fromDisplayName}" <${smtpUser.value()}>`,
         to: recipient,
         cc: ccList, // ✅ Dynamic List
-        subject: `[BON DE RESTITUTION] Retour SAV - ${after.productName} (${savCode})`,
+        subject: `[BON DE RESTITUTION] Retour SAV - ${displayProduct} (${savCode})`,
         html: `
-          <div style="font-family: Arial, sans-serif; color: #333;">
+          <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #0D47A1;">Restitution de Matériel SAV</h2>
             <p>Bonjour ${after.storeManagerName || "Client"},</p>
 
-            <p>Nous vous confirmons la restitution de votre matériel ce jour (${returnDate}).</p>
+            <p>Nous vous confirmons la restitution de votre matériel ce jour (<strong>${returnDate}</strong>).</p>
 
-            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-              <strong>Détails de l'intervention :</strong><br/>
-              Produit : ${after.productName}<br/>
-              S/N : ${after.serialNumber}<br/>
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #E2E8F0;">
+              <strong style="color: #0F172A;">Détails de l'intervention :</strong><br/><br/>
+              <strong>Produit :</strong> ${displayProduct}<br/>
+              <strong>N° Série :</strong> ${displaySn}<br/>
               <br/>
-              <em>"${after.technicianReport || 'Maintenance standard effectuée.'}"</em>
+              <em>"${displayReport}"</em>
             </div>
 
             <p>Veuillez trouver ci-joint le <strong>Bon de Restitution</strong> officiel.</p>
 
-            <hr style="border: 0; border-top: 1px solid #eee;" />
-            <p style="font-size: 12px; color: #666;">
-              Boitex Info SARL
+            <div style="background-color: #E0F2FE; color: #0284C7; padding: 12px; border-radius: 6px; font-size: 13px; margin: 20px 0; border-left: 4px solid #0284C7;">
+              📄 <strong>Note importante :</strong> Le document joint inclut désormais le journal détaillé de la réparation, précisant les <strong>pièces remplacées</strong> et les étapes de l'intervention.
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #eee; margin-top: 30px;" />
+            <p style="font-size: 12px; color: #666; text-align: center;">
+              Ceci est un message automatique, merci de ne pas y répondre directement.<br/>
+              <strong>Boitex Info SARL</strong>
             </p>
           </div>
         `,

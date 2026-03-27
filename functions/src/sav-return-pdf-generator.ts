@@ -366,12 +366,13 @@ function _drawEquipmentDetails(doc: PDFKit.PDFDocument, data: any) {
 }
 
 // ----------------------------------------------------------------------------
-// 🌟 NEW: THE DYNAMIC REPARATION TIMELINE
+// 🌟 THE DYNAMIC REPARATION TIMELINE (UPDATED WITH PARTS & MEDIA)
 // ----------------------------------------------------------------------------
 function _drawJournalTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
   const relevantEntries = entries.filter(e => {
     const type = (e.type || "").toLowerCase();
-    if (type === 'text') return true;
+    // ✅ Include text, parts, and photos!
+    if (['text', 'part_consumed', 'photo'].includes(type)) return true;
     if (type === 'status_change') {
       const ns = e.newStatus || (e.metadata && e.metadata.newStatus) || "";
       return ns === 'En Réparation' || ns === 'Terminé';
@@ -393,12 +394,15 @@ function _drawJournalTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
     const startY = doc.y;
 
     const dateStr = formatDate(entry.timestamp, true);
+    const author = entry.authorName || "Technicien";
+    const type = (entry.type || "").toLowerCase();
 
     let dotColor = COLORS.secondary;
     let titleText = "";
     let contentText = entry.content || "";
 
-    if ((entry.type || "").toLowerCase() === 'status_change') {
+    // ✅ Handle different Journal Entry Types
+    if (type === 'status_change') {
       const ns = entry.newStatus || (entry.metadata && entry.metadata.newStatus);
       if (ns === 'En Réparation') {
          dotColor = COLORS.warning;
@@ -409,20 +413,43 @@ function _drawJournalTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
          titleText = `Réparation Terminée • ${dateStr}`;
          if (!contentText) contentText = "L'intervention technique est officiellement achevée.";
       }
-    } else {
-      dotColor = COLORS.accent;
-      const author = entry.authorName || "Technicien";
+    }
+    else if (type === 'part_consumed') { // ✅ Handle Replaced Parts
+       dotColor = COLORS.success;
+       titleText = `Pièce Remplacée (${author}) • ${dateStr}`;
+
+       const pName = entry.metadata?.productName || "Pièce inconnue";
+       const pRef = entry.metadata?.productRef ? `(Réf: ${entry.metadata.productRef})` : "";
+
+       // Combine the technician's note with the part details
+       contentText = `🔧 ${pName} ${pRef}\n${contentText}`.trim();
+    }
+    else if (type === 'photo') { // ✅ Handle Photos/Videos
+       dotColor = COLORS.accent; // Blue color for media
+       const isVideo = entry.metadata?.isVideo;
+       titleText = `${isVideo ? 'Vidéo' : 'Photo'} d'inspection (${author}) • ${dateStr}`;
+
+       // Note the media inclusion
+       const mediaNote = isVideo ? "📹 Vidéo jointe au dossier numérique." : "📸 Photo jointe au dossier numérique.";
+       contentText = contentText ? `${contentText}\n${mediaNote}` : mediaNote;
+    }
+    else {
+      // Standard Text Note
+      dotColor = COLORS.secondary;
       titleText = `Note Technique (${author}) • ${dateStr}`;
     }
 
+    // Draw Title
     doc.font(FONTS.bold).fontSize(9).fillColor(dotColor).text(titleText, contentX, startY);
 
+    // Draw Content
     doc.moveDown(0.3);
     doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
        .text(contentText, contentX, doc.y, { width: contentWidth, lineGap: 4, align: 'left' });
 
     const endY = doc.y + 15;
 
+    // Draw Timeline Nodes
     doc.circle(timelineX, startY + 4, 4).lineWidth(1.5).strokeColor(dotColor).stroke();
     doc.circle(timelineX, startY + 4, 2).fill(dotColor);
 

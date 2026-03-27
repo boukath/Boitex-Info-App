@@ -176,7 +176,11 @@ export const exportInterventionPdf = onCall(
  * and returns it as a Base64 string for mobile download.
  */
 export const downloadSavPdf = onCall(
-  { region: "europe-west1" },
+  {
+    region: "europe-west1",
+    memory: "1GiB",       // ✅ ADDED: 1GB memory to fix the crash
+    timeoutSeconds: 120   // ✅ ADDED: Extra time for heavy PDFs
+  },
   async (request) => {
     const { ticketId, type } = request.data;
 
