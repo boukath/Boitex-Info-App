@@ -112,6 +112,7 @@ flutter:
     - assets/boitex_logo.png
     - assets/images/logo.png
     - assets/images/cachet.png
+    - assets/images/BOITEXINFOBLANC.png
     - assets/sounds/beep.mp3
 
 flutter_launcher_icons:
