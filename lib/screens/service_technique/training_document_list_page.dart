@@ -3,7 +3,9 @@
 import 'dart:io';
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:typed_data'; // ✅ Added for Uint8List
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // ✅ Added for kIsWeb
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
@@ -78,7 +80,7 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
   }
 
   // ===========================================================================
-  // ☁️ B2 UPLOAD LOGIC
+  // ☁️ B2 UPLOAD LOGIC (✅ UPDATED TO MATCH ADD_INTERVENTION)
   // ===========================================================================
 
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
@@ -91,37 +93,36 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
     return null;
   }
 
-  Future<String?> _uploadFileToB2(File file, Map<String, dynamic> b2Creds, StateSetter setProgressState) async {
+  // ✅ Fixed B2 Upload: Now uses StreamedRequest and 'b2/x-auto' Content-Type
+  Future<String?> _uploadFileToB2(Uint8List fileBytes, String originalFileName, Map<String, dynamic> b2Creds) async {
     try {
-      final fileBytes = await file.readAsBytes();
       final sha1Hash = sha1.convert(fileBytes).toString();
       final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final fileName = 'training_documents/${const Uuid().v4()}_${path.basename(file.path)}';
 
-      String mimeType = 'application/octet-stream';
-      final ext = path.extension(fileName).toLowerCase();
-      if (ext == '.jpg' || ext == '.jpeg') mimeType = 'image/jpeg';
-      else if (ext == '.png') mimeType = 'image/png';
-      else if (ext == '.pdf') mimeType = 'application/pdf';
-      else if (ext == '.mp4') mimeType = 'video/mp4';
-      else if (ext == '.mov') mimeType = 'video/quicktime';
+      // Ensure unique filename
+      final fileName = 'training_documents/${const Uuid().v4()}_$originalFileName';
 
-      final request = http.MultipartRequest('POST', uploadUri);
+      var request = http.StreamedRequest('POST', uploadUri);
       request.headers.addAll({
         'Authorization': b2Creds['authorizationToken'] as String,
         'X-Bz-File-Name': Uri.encodeComponent(fileName),
-        'Content-Type': mimeType,
+        'Content-Type': 'b2/x-auto', // B2 Auto-detects mime type
         'X-Bz-Content-Sha1': sha1Hash,
+        'Content-Length': fileBytes.length.toString(),
       });
 
-      request.files.add(http.MultipartFile.fromBytes('file', fileBytes, filename: fileName));
+      request.sink.add(fileBytes);
+      request.sink.close();
 
       final streamedResponse = await request.send();
+      final respStr = await streamedResponse.stream.bytesToString();
+
       if (streamedResponse.statusCode == 200) {
-        final respStr = await streamedResponse.stream.bytesToString();
         final body = json.decode(respStr) as Map<String, dynamic>;
         final encodedPath = (body['fileName'] as String).split('/').map(Uri.encodeComponent).join('/');
         return "${b2Creds['downloadUrlPrefix']}$encodedPath";
+      } else {
+        debugPrint("❌ B2 Upload Failed: ${streamedResponse.statusCode} - $respStr");
       }
     } catch (e) {
       debugPrint('Error uploading file to B2: $e');
@@ -130,7 +131,7 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
   }
 
   // ===========================================================================
-  // ➕ ADD DOCUMENT ACTIONS
+  // ➕ ADD DOCUMENT ACTIONS (✅ UPDATED FOR WEB SAFE BYTES)
   // ===========================================================================
 
   void _showAddDocumentMenu() {
@@ -201,11 +202,12 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
   }
 
   Future<void> _pickFile(FileType fileType) async {
-    File? fileToUpload;
+    Uint8List? fileBytes;
     String fileName = '';
     String title = '';
     String docType = 'document';
 
+    // ✅ Read Bytes instead of Path for universal compatibility
     if (fileType == FileType.image || fileType == FileType.video) {
       final picker = ImagePicker();
       final XFile? media = fileType == FileType.image
@@ -213,20 +215,28 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
           : await picker.pickVideo(source: ImageSource.gallery);
 
       if (media != null) {
-        fileToUpload = File(media.path);
+        fileBytes = await media.readAsBytes();
         fileName = media.name;
         docType = fileType == FileType.image ? 'image' : 'video';
       }
     } else {
-      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'doc', 'docx']);
-      if (result != null && result.files.single.path != null) {
-        fileToUpload = File(result.files.single.path!);
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx'],
+        withData: kIsWeb, // Required for web to load file into memory
+      );
+      if (result != null) {
+        if (kIsWeb) {
+          fileBytes = result.files.single.bytes;
+        } else if (result.files.single.path != null) {
+          fileBytes = await File(result.files.single.path!).readAsBytes();
+        }
         fileName = result.files.single.name;
         docType = 'document';
       }
     }
 
-    if (fileToUpload == null) return;
+    if (fileBytes == null) return;
 
     final TextEditingController titleController = TextEditingController(text: path.basenameWithoutExtension(fileName));
 
@@ -262,17 +272,17 @@ class _TrainingDocumentListPageState extends State<TrainingDocumentListPage> {
     title = titleController.text.trim();
     if (title.isEmpty) title = "Document sans titre";
 
-    _performUpload(fileToUpload, title, docType);
+    _performUpload(fileBytes, fileName, title, docType);
   }
 
-  Future<void> _performUpload(File file, String title, String docType) async {
+  Future<void> _performUpload(Uint8List fileBytes, String fileName, String title, String docType) async {
     setState(() { _isUploading = true; _uploadProgress = 0.0; });
 
     try {
       final b2Creds = await _getB2UploadCredentials();
       if (b2Creds == null) throw Exception("B2 Auth Failed");
 
-      final downloadUrl = await _uploadFileToB2(file, b2Creds, (setState) {});
+      final downloadUrl = await _uploadFileToB2(fileBytes, fileName, b2Creds);
       if (downloadUrl == null) throw Exception("Upload Failed");
 
       await _documentsCollection.add({

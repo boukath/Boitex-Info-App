@@ -156,6 +156,10 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
     final formattedDate = createdAt != null ? DateFormat('dd MMM, HH:mm').format(createdAt) : 'Date inconnue';
 
+    // ✅ Extract Client & Store IDs for the Logo
+    final String clientId = data['clientId']?.toString() ?? '';
+    final String storeId = data['storeId']?.toString() ?? '';
+
     // Logic for Progress Bar
     final products = data['products'] as List? ?? [];
     int totalItems = 0;
@@ -171,7 +175,7 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
       }
     }
 
-    // ✅ UPDATED: Dynamic Colors for the 3 Statuses
+    // Dynamic Colors for the 3 Statuses
     Color statusColor;
     IconData statusIcon;
     String footerText;
@@ -215,8 +219,16 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  // Icon Box
-                  Container(
+                  // ✅ INTEGRATED WIDGET: Replaced generic Container with StoreLogoThumbnail
+                  (clientId.isNotEmpty && storeId.isNotEmpty)
+                      ? StoreLogoThumbnail(
+                    clientId: clientId,
+                    storeId: storeId,
+                    size: 50,
+                    fallbackIcon: statusIcon,
+                    fallbackColor: statusColor,
+                  )
+                      : Container(
                     height: 50,
                     width: 50,
                     decoration: BoxDecoration(
@@ -225,6 +237,7 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
                     ),
                     child: Icon(statusIcon, color: statusColor, size: 24),
                   ),
+
                   const SizedBox(width: 16),
 
                   // Main Info
@@ -375,7 +388,6 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
             ),
           ),
         ],
-        // ✅ FIXED: Increased height to 100 to fit taller Tabs (Icon + Text) without hiding AppBar buttons
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(100),
           child: Container(
@@ -433,6 +445,136 @@ class _LivraisonsHubPageState extends State<LivraisonsHubPage>
         icon: const Icon(Icons.add, color: Colors.white),
         label: Text('NOUVELLE DEMANDE', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// 🚀 WIDGET: CACHED STORE LOGO THUMBNAIL
+// =============================================================================
+class StoreLogoThumbnail extends StatefulWidget {
+  final String clientId;
+  final String storeId;
+  final double size;
+  final IconData fallbackIcon;
+  final Color fallbackColor;
+
+  const StoreLogoThumbnail({
+    super.key,
+    required this.clientId,
+    required this.storeId,
+    this.size = 50,
+    this.fallbackIcon = Icons.store,
+    this.fallbackColor = Colors.blueAccent,
+  });
+
+  @override
+  State<StoreLogoThumbnail> createState() => _StoreLogoThumbnailState();
+}
+
+class _StoreLogoThumbnailState extends State<StoreLogoThumbnail> {
+  // Static cache persists across the whole list so we don't re-fetch the same store twice!
+  static final Map<String, String?> _globalLogoCache = {};
+
+  String? _logoUrl;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLogo();
+  }
+
+  Future<void> _fetchLogo() async {
+    final cacheKey = "${widget.clientId}_${widget.storeId}";
+
+    // 1. Check if we already fetched this store's logo
+    if (_globalLogoCache.containsKey(cacheKey)) {
+      if (mounted) {
+        setState(() {
+          _logoUrl = _globalLogoCache[cacheKey];
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    // 2. If not, fetch it from Firestore
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('clients')
+          .doc(widget.clientId)
+          .collection('stores')
+          .doc(widget.storeId)
+          .get();
+
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        final url = data['imageUrl'] ?? data['logoUrl'] ?? data['image'];
+
+        _globalLogoCache[cacheKey] = url; // Save to cache
+
+        if (mounted) {
+          setState(() {
+            _logoUrl = url;
+            _isLoading = false;
+          });
+        }
+      } else {
+        _globalLogoCache[cacheKey] = null;
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      _globalLogoCache[cacheKey] = null;
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          color: widget.fallbackColor.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Center(
+            child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: widget.fallbackColor)
+            )
+        ),
+      );
+    }
+
+    if (_logoUrl != null && _logoUrl!.isNotEmpty) {
+      return Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: widget.fallbackColor.withOpacity(0.3), width: 1.5),
+          image: DecorationImage(
+            image: NetworkImage(_logoUrl!),
+            fit: BoxFit.cover,
+          ),
+        ),
+      );
+    }
+
+    // Fallback Icon if no image exists (Maintains the nice UI colors)
+    return Container(
+      width: widget.size,
+      height: widget.size,
+      decoration: BoxDecoration(
+        color: widget.fallbackColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(widget.fallbackIcon, color: widget.fallbackColor, size: 24),
     );
   }
 }

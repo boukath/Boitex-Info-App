@@ -61,6 +61,7 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
   int? _selectedPickingIndex;
   StreamSubscription? _zebraSubscription;
 
+  String? _storeLogoUrl;
   String _status = '';
   bool _isLoading = true;
   bool _isCompleting = false;
@@ -159,14 +160,22 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
       final storeDoc = await FirebaseFirestore.instance.collection('clients').doc(clientId).collection('stores').doc(storeId).get();
       if (storeDoc.exists) {
         final storeData = storeDoc.data();
-        if (storeData != null && storeData['latitude'] != null && storeData['longitude'] != null) {
+        if (storeData != null) {
           setState(() {
-            _storeLat = (storeData['latitude'] as num).toDouble();
-            _storeLng = (storeData['longitude'] as num).toDouble();
+            if (storeData['latitude'] != null && storeData['longitude'] != null) {
+              _storeLat = (storeData['latitude'] as num).toDouble();
+              _storeLng = (storeData['longitude'] as num).toDouble();
+            }
+            // ✅ ADD THIS: Extract the store logo/image
+            _storeLogoUrl = storeData['imageUrl'] ?? storeData['logoUrl'] ?? storeData['image'];
           });
         }
       }
-    } catch (e) { debugPrint("Error GPS: $e"); } finally { if (mounted) setState(() => _isLoadingGps = false); }
+    } catch (e) {
+      debugPrint("Error GPS: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingGps = false);
+    }
   }
 
   // ✅ ADD THIS METHOD
@@ -1060,24 +1069,67 @@ class _LivraisonDetailsPageState extends State<LivraisonDetailsPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("DESTINATAIRE", style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text(data['clientName'] ?? 'Client Inconnu', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                Expanded(
+                  child: Row(
+                    children: [
+                      // ✅ ADDED: Store Logo Thumbnail
+                      if (_storeLogoUrl != null && _storeLogoUrl!.isNotEmpty)
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => ImageGalleryPage(imageUrls: [_storeLogoUrl!], initialIndex: 0)));
+                          },
+                          child: Container(
+                            width: 50,
+                            height: 50,
+                            margin: const EdgeInsets.only(right: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: _primaryBlue.withOpacity(0.3), width: 1.5),
+                              image: DecorationImage(
+                                image: NetworkImage(_storeLogoUrl!),
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: 50,
+                          height: 50,
+                          margin: const EdgeInsets.only(right: 12),
+                          decoration: BoxDecoration(
+                            color: _primaryBlue.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.store, color: _primaryBlue),
+                        ),
 
-                    if (data['storeName'] != null && data['storeName'].toString().trim().isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(data['storeName'], style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: _primaryBlue)),
+                      // Text Info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("DESTINATAIRE", style: GoogleFonts.poppins(fontSize: 10, letterSpacing: 1.5, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            Text(data['clientName'] ?? 'Client Inconnu', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87), overflow: TextOverflow.ellipsis),
+
+                            if (data['storeName'] != null && data['storeName'].toString().trim().isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(data['storeName'], style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: _primaryBlue), overflow: TextOverflow.ellipsis),
+                            ],
+                          ],
+                        ),
+                      ),
                     ],
-                  ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 5)],
+                    boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 5)],
                   ),
                   child: IconButton(
                     icon: const Icon(Icons.map, color: Colors.blueAccent),
