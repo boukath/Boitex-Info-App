@@ -628,8 +628,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _AddJournalEntrySheet(
-        onSave: (String workDone, double hours, List<String> keptMedia, List<XFile> files) async {
-          await _uploadAndSaveJournalEntry(ctx, workDone, hours, files);
+        onSave: (String workDone, double hours, List<String> keptMedia, List<XFile> files, bool notifyClient) async {
+          await _uploadAndSaveJournalEntry(ctx, workDone, hours, files, notifyClient);
         },
       ),
     );
@@ -645,26 +645,26 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         initialWorkDone: entryData['workDone'] ?? '',
         initialHours: (entryData['hours'] as num?)?.toDouble(),
         initialMediaUrls: List<String>.from(entryData['mediaUrls'] ?? []),
-        onSave: (String workDone, double hours, List<String> keptMedia, List<XFile> files) async {
-          await _uploadAndUpdateJournalEntry(ctx, entryId, workDone, hours, keptMedia, files);
+        onSave: (String workDone, double hours, List<String> keptMedia, List<XFile> files, bool notifyClient) async {
+          await _uploadAndUpdateJournalEntry(ctx, entryId, workDone, hours, keptMedia, files, notifyClient);
         },
       ),
     );
   }
 
   Future<void> _uploadAndSaveJournalEntry(
-      BuildContext sheetContext, String workDone, double hours, List<XFile> files) async {
-    await _processJournalMediaAndSave(sheetContext, null, workDone, hours, [], files);
+      BuildContext sheetContext, String workDone, double hours, List<XFile> files, bool notifyClient) async {
+    await _processJournalMediaAndSave(sheetContext, null, workDone, hours, [], files, notifyClient);
   }
 
   Future<void> _uploadAndUpdateJournalEntry(
-      BuildContext sheetContext, String entryId, String workDone, double hours, List<String> keptMediaUrls, List<XFile> files) async {
-    await _processJournalMediaAndSave(sheetContext, entryId, workDone, hours, keptMediaUrls, files);
+      BuildContext sheetContext, String entryId, String workDone, double hours, List<String> keptMediaUrls, List<XFile> files, bool notifyClient) async {
+    await _processJournalMediaAndSave(sheetContext, entryId, workDone, hours, keptMediaUrls, files, notifyClient);
   }
 
   // Unified function for both Creating and Updating
   Future<void> _processJournalMediaAndSave(
-      BuildContext sheetContext, String? entryId, String workDone, double hours, List<String> keptMediaUrls, List<XFile> files) async {
+      BuildContext sheetContext, String? entryId, String workDone, double hours, List<String> keptMediaUrls, List<XFile> files, bool notifyClient) async {
 
     final ValueNotifier<double> progressNotifier = ValueNotifier(0.0);
     final ValueNotifier<String> statusNotifier = ValueNotifier("Préparation...");
@@ -759,6 +759,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'workDone': workDone,
           'hours': hours,
           'mediaUrls': finalUrls,
+          'notifyClient': notifyClient, // ✅ ADDED NOTIFY CLIENT
         });
       } else {
         // Update EXISTING entry reference
@@ -768,6 +769,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           'workDone': workDone,
           'hours': hours,
           'mediaUrls': finalUrls,
+          'notifyClient': notifyClient, // ✅ ADDED NOTIFY CLIENT
           'lastEditedAt': Timestamp.now(),
         });
       }
@@ -3441,7 +3443,8 @@ class _AddJournalEntrySheet extends StatefulWidget {
   final String? initialWorkDone;
   final double? initialHours;
   final List<String>? initialMediaUrls;
-  final Future<void> Function(String workDone, double hours, List<String> keptMediaUrls, List<XFile> newFiles) onSave;
+  // ✅ UPDATED: Added bool notifyClient
+  final Future<void> Function(String workDone, double hours, List<String> keptMediaUrls, List<XFile> newFiles, bool notifyClient) onSave;
 
   const _AddJournalEntrySheet({
     super.key,
@@ -3467,6 +3470,8 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
   late List<String> _keptMediaUrls;
 
   bool _isLoading = false;
+  // ✅ NEW: Added notifyClient State
+  bool _notifyClient = true;
 
   @override
   void initState() {
@@ -3497,7 +3502,8 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
           _workDoneController.text.trim(),
           double.tryParse(_hoursController.text.trim().replaceAll(',', '.')) ?? 0.0,
           _keptMediaUrls,
-          _selectedFiles
+          _selectedFiles,
+          _notifyClient // ✅ UPDATED: Pass State variable
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -3651,6 +3657,19 @@ class _AddJournalEntrySheetState extends State<_AddJournalEntrySheet> {
             ),
 
             const SizedBox(height: 16),
+
+            // ✅ NEW: Checkbox to notify the client
+            CheckboxListTile(
+              title: const Text("Envoyer un compte-rendu au client"),
+              subtitle: const Text("Un email contenant ces travaux lui sera envoyé avec le PDF à jour."),
+              value: _notifyClient,
+              onChanged: (val) => setState(() => _notifyClient = val ?? true),
+              activeColor: const Color(0xFF667EEA),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            const SizedBox(height: 16),
+
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(

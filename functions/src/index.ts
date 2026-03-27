@@ -46,7 +46,6 @@ export {
 // PDF & Document Handlers
 export { onInstallationTermine, getInstallationPdf } from "./installation-handlers";
 export { createLivraisonFromInstallation } from "./installation-delivery-handler";
-export { onInterventionTermine } from "./intervention-handlers";
 export { onSavTicketCreated } from "./sav-handlers";
 export { onSavTicketReturned } from "./sav-return-handlers";
 export { downloadSavPdf } from "./callable-handlers";
@@ -55,6 +54,7 @@ export { notifyUsersOnAppVersionUpdate } from "./notification-handlers";
 // ✅ ADDED THIS LINE BELOW:
 export { generateInstallationReport } from "./installation-report-generator";
 export { recalculateTechnicianStats } from './analytics-updater';
+export { onInterventionTermine, onJournalEntryCreated } from "./intervention-handlers";
 // ------------------------------------------------------------------
 // 3. AI / LLM FEATURES (GROQ)
 // ------------------------------------------------------------------

@@ -6,6 +6,7 @@ import * as nodemailer from "nodemailer";
 import * as admin from "firebase-admin"; // ✅ ADDED: Required for database writes
 import {defineSecret} from "firebase-functions/params";
 import { HttpsError } from "firebase-functions/v2/https";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 
 // ✅ --- NEW ---
 // Import our new PDF generator function
@@ -301,6 +302,112 @@ export const onInterventionTermine = onDocumentUpdated(
         "Failed to generate PDF or send email.",
         error
       );
+    }
+  }
+);
+
+// ---------------------------------------------------------
+// NEW: Send Email on Journal Entry (Multi-Visit Step)
+// ---------------------------------------------------------
+export const onJournalEntryCreated = onDocumentCreated(
+  {
+    document: "interventions/{interventionId}/journal_entries/{entryId}",
+    region: "europe-west1",
+    secrets: [smtpHost, smtpPort, smtpUser, smtpPassword],
+    memory: "1GiB"
+  },
+  async (event) => {
+    const entryData = event.data?.data();
+    if (!entryData) return;
+
+    // 1. Only send if the technician checked the box
+    if (entryData.notifyClient !== true) {
+      logger.log("notifyClient is false or missing, skipping step email.");
+      return;
+    }
+
+    const interventionId = event.params.interventionId;
+    const db = admin.firestore();
+
+    // 2. Fetch the parent intervention to get client details
+    const parentDoc = await db.collection("interventions").doc(interventionId).get();
+    if (!parentDoc.exists) return;
+
+    const parentData = parentDoc.data();
+    const managerEmail = parentData?.managerEmail;
+
+    if (!isValidEmail(managerEmail)) {
+      logger.warn(`No valid manager email found for step report: ${managerEmail}`);
+      return;
+    }
+
+    // 3. Setup Nodemailer and CC lists
+    const transporter = nodemailer.createTransport({
+      host: smtpHost.value(),
+      port: parseInt(smtpPort.value(), 10),
+      secure: parseInt(smtpPort.value(), 10) === 465,
+      auth: { user: smtpUser.value(), pass: smtpPassword.value() },
+    });
+
+    const serviceType = parentData?.serviceType || "Service Technique";
+    let fromDisplayName = "Boitex Info Service Technique";
+    let subjectPrefix = "Rapport d'étape";
+
+    const emailSettings = await getEmailSettings();
+    let ccList: string[] = [];
+
+    if (serviceType === SERVICE_IT) {
+      fromDisplayName = "Boitex Info Service IT";
+      ccList = emailSettings.intervention_cc_it;
+      subjectPrefix = "Rapport d'étape IT";
+    } else {
+      ccList = emailSettings.intervention_cc_tech;
+    }
+
+    ccList = ccList.filter(email => email !== managerEmail);
+    const interventionCode = parentData?.interventionCode || "N/A";
+    const subject = `${subjectPrefix}: ${interventionCode} - ${parentData?.clientName || "Client"}`;
+
+    // 4. Draft the Email Body
+    const body = `
+      <p>Bonjour,</p>
+
+      <p>Notre technicien <strong>${entryData.technicianName || "N/A"}</strong> est intervenu aujourd'hui sur votre site <strong>${parentData?.storeName || "N/A"}</strong> dans le cadre du dossier <strong>${interventionCode}</strong>.</p>
+
+      <p><strong>Temps passé :</strong> ${entryData.hours ? entryData.hours + 'h' : "N/A"}</p>
+      <p><strong>Travaux effectués lors de cette visite :</strong><br/>
+      ${entryData.workDone || "Non spécifié"}</p>
+
+      <p>Veuillez trouver ci-joint l'état actuel du rapport d'intervention mis à jour au format PDF.</p>
+
+      <p>Cordialement,<br/>
+      ${fromDisplayName}</p>
+    `;
+
+    // 5. Generate PDF and Send
+    try {
+      logger.log(`Generating Step PDF for ${interventionId}...`);
+      const pdfBuffer = await generateInterventionPdf(parentData, interventionId);
+
+      const mailOptions = {
+        from: `"${fromDisplayName}" <${smtpUser.value()}>`,
+        to: managerEmail,
+        cc: ccList,
+        subject: subject,
+        html: body,
+        attachments: [
+          {
+            filename: `${subjectPrefix.replace(/\s/g, "_")}-${interventionCode}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ],
+      };
+
+      await transporter.sendMail(mailOptions);
+      logger.log(`✅ Step report email sent successfully to ${managerEmail}`);
+    } catch (error) {
+      logger.error("❌ Failed to send step report email.", error);
     }
   }
 );

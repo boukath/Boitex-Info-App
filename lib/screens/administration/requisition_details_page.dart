@@ -9,6 +9,7 @@ import 'package:boitex_info_app/screens/administration/confirm_receipt_page.dart
 import 'package:boitex_info_app/utils/user_roles.dart';
 // ✅ IMPORT PRODUCT DETAILS PAGE
 import 'package:boitex_info_app/screens/administration/product_details_page.dart';
+import 'package:boitex_info_app/widgets/image_gallery_page.dart';
 
 class RequisitionDetailsPage extends StatefulWidget {
   final String requisitionId;
@@ -659,7 +660,6 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
               final int receivedQty = item['receivedQuantity'] ?? 0;
               final bool isComplete = receivedQty >= orderedQty;
 
-              // ✅ MODIFICATION: Fetch product to show image and enable navigation
               return FutureBuilder<DocumentSnapshot>(
                 future: FirebaseFirestore.instance
                     .collection('produits')
@@ -674,35 +674,100 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
                     final data = snapshot.data!.data() as Map<String, dynamic>;
                     if (data.containsKey('imageUrls') &&
                         (data['imageUrls'] as List).isNotEmpty) {
-                      leadingWidget = CircleAvatar(
-                        backgroundImage:
-                        NetworkImage((data['imageUrls'] as List).first),
-                        backgroundColor: Colors.transparent,
+
+                      // Convert dynamic list to List<String>
+                      final List<String> images = (data['imageUrls'] as List)
+                          .map((e) => e.toString())
+                          .toList();
+
+                      leadingWidget = GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ImageGalleryPage(
+                                imageUrls: images,
+                                initialIndex: 0,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isComplete
+                                  ? Colors.teal
+                                  : Colors.indigo.withOpacity(0.5),
+                              width: 2,
+                            ),
+                            image: DecorationImage(
+                              image: NetworkImage(images.first),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          // Show a small icon indicator if there are multiple images
+                          child: images.length > 1
+                              ? Align(
+                            alignment: Alignment.bottomRight,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(8),
+                                  bottomRight: Radius.circular(10),
+                                ),
+                              ),
+                              child: const Icon(Icons.collections,
+                                  color: Colors.white, size: 12),
+                            ),
+                          )
+                              : null,
+                        ),
                       );
                     } else {
                       // Fallback icon if no image
-                      leadingWidget = CircleAvatar(
-                        backgroundColor: isComplete
-                            ? Colors.teal.withOpacity(0.1)
-                            : Colors.indigo.withOpacity(0.1),
-                        child: Icon(
+                      leadingWidget = Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: isComplete
+                              ? Colors.teal.withOpacity(0.1)
+                              : Colors.indigo.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Center(
+                          child: Icon(
                             isComplete
                                 ? Icons.check_circle_outline
                                 : Icons.inventory_2_outlined,
-                            color: isComplete ? Colors.teal : Colors.indigo),
+                            color: isComplete ? Colors.teal : Colors.indigo,
+                          ),
+                        ),
                       );
                     }
                   } else {
                     // Loading or Error or Not Found state
-                    leadingWidget = CircleAvatar(
-                      backgroundColor: isComplete
-                          ? Colors.teal.withOpacity(0.1)
-                          : Colors.indigo.withOpacity(0.1),
-                      child: Icon(
+                    leadingWidget = Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: isComplete
+                            ? Colors.teal.withOpacity(0.1)
+                            : Colors.indigo.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Icon(
                           isComplete
                               ? Icons.check_circle_outline
                               : Icons.inventory_2_outlined,
-                          color: isComplete ? Colors.teal : Colors.indigo),
+                          color: isComplete ? Colors.teal : Colors.indigo,
+                        ),
+                      ),
                     );
                   }
 
@@ -736,7 +801,6 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
                                         : FontWeight.normal)),
                           ]),
                     ),
-                    // ✅ 3. Navigation to ProductDetailsPage
                     onTap: () {
                       if (productDoc != null && productDoc.exists) {
                         Navigator.push(
@@ -746,8 +810,6 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
                                 ProductDetailsPage(productDoc: productDoc),
                           ),
                         );
-                      } else {
-                        // Optional: Show feedback if still loading or not found
                       }
                     },
                     trailing: _isEditMode
@@ -768,7 +830,6 @@ class _RequisitionDetailsPageState extends State<RequisitionDetailsPage> {
                         onPressed: () => _deleteItem(index),
                       ),
                     ])
-                    // Show chevron to indicate it is clickable when not in edit mode
                         : const Icon(Icons.arrow_forward_ios,
                         size: 14, color: Colors.grey),
                   );

@@ -43,8 +43,6 @@ async function fetchImage(url: string): Promise<Buffer | null> {
     const response = await axios.get(url, { responseType: "arraybuffer", timeout: 10000 });
     const buffer = Buffer.from(response.data);
 
-    // 🛑 FIREBASE CALLABLE 10MB LIMIT SHIELD
-    // If an image is larger than 2.5MB, it will bloat the PDF and crash the 10MB limit.
     if (buffer.length > 2.5 * 1024 * 1024) {
       logger.warn(`Skipping image ${url} - Size (${(buffer.length / 1024 / 1024).toFixed(2)} MB) is too large and will crash the PDF.`);
       return null;
@@ -55,6 +53,19 @@ async function fetchImage(url: string): Promise<Buffer | null> {
     logger.warn(`Could not load image at ${url}`);
     return null;
   }
+}
+
+/**
+ * 🚀 HELPER: Check if a buffer is a valid JPEG or PNG
+ * Fixes the "Empty Page" bug caused by PDFKit crashing on HEIC/WebP files
+ */
+function isValidImage(buffer: Buffer | null): boolean {
+  if (!buffer || buffer.length < 8) return false;
+  // JPEG magic numbers: FF D8 FF
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8) return true;
+  // PNG magic numbers: 89 50 4E 47
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return true;
+  return false;
 }
 
 /**
@@ -78,11 +89,9 @@ function formatDate(dateObj: any, includeTime = false): string {
 
 /**
  * 🚀 HELPER: Sanitize Text for PDFKit
- * Removes invisible zero-width characters that crash standard PDF fonts.
  */
 function sanitizeText(text: any): string {
   if (!text || typeof text !== 'string') return "";
-  // Replaces zero-width spaces, non-joiners, and invisible separators with a normal space
   return text.replace(/[\u200B-\u200D\uFEFF\u2028\u2029]/g, ' ').trim();
 }
 
@@ -112,13 +121,10 @@ export async function generateInterventionPdf(data: any, interventionId: string)
       const buffers: Buffer[] = [];
       doc.on("data", buffers.push.bind(buffers));
 
-      // 🌟 WHATSAPP STYLE QR CODE (Embedded Logo)
       const qrData = encodeURIComponent(`Certifié BOITEX INFO | Réf: ${data.interventionCode || 'N/A'} | Date: ${formatDate(data.createdAt)}`);
       const logoUrlEnc = encodeURIComponent(LOGO_URL);
-      // QuickChart API creates a QR code with your logo perfectly centered inside it
       const QR_URL = `https://quickchart.io/qr?text=${qrData}&dark=0F172A&light=FFFFFF&size=150&centerImageUrl=${logoUrlEnc}`;
 
-      // Fetch Assets
       const [logoBuffer, signatureBuffer, stampBuffer, qrBuffer] = await Promise.all([
         fetchImage(LOGO_URL),
         fetchImage(data.signatureUrl),
@@ -126,7 +132,6 @@ export async function generateInterventionPdf(data: any, interventionId: string)
         fetchImage(QR_URL),
       ]);
 
-      // --- FETCH MULTI-VISIT JOURNAL ENTRIES (IF APPLICABLE) ---
       let journalEntries: any[] = [];
       if (data.isExtended === true) {
         try {
@@ -134,7 +139,7 @@ export async function generateInterventionPdf(data: any, interventionId: string)
             .collection('interventions')
             .doc(interventionId)
             .collection('journal_entries')
-            .orderBy('date', 'asc') // Chronological order for PDF
+            .orderBy('date', 'desc')
             .get();
 
           if (!snapshot.empty) {
@@ -145,26 +150,38 @@ export async function generateInterventionPdf(data: any, interventionId: string)
         }
       }
 
-      // Safely Fetch Photos (Combine both types if possible)
-      let photoUrls: string[] = [];
+      // ✅ MODIFIED: Fetch images specifically per journal entry so we can place them inline
       if (data.isExtended && journalEntries.length > 0) {
-        journalEntries.forEach((entry: any) => {
+        for (let entry of journalEntries) {
+          entry.photoBuffers = [];
           if (Array.isArray(entry.mediaUrls)) {
-            photoUrls.push(...entry.mediaUrls);
+            // Added explicit (url: any) here
+            const validUrls = entry.mediaUrls
+              .filter((url: any) => typeof url === 'string' && !url.match(/\.(mp4|mov|avi|pdf|doc)$/i))
+              .slice(0, 4);
+
+            // Added explicit (url: string) here
+            const fetchedBuffers = await Promise.all(validUrls.map((url: string) => fetchImage(url)));
+            entry.photoBuffers = fetchedBuffers.filter(buf => isValidImage(buf));
           }
-        });
-      } else if (Array.isArray(data.mediaUrls)) {
-        photoUrls.push(...data.mediaUrls);
+        }
       }
 
-      photoUrls = photoUrls.filter(url => typeof url === 'string' && !url.match(/\.(mp4|mov|avi|pdf|doc)$/i)).slice(0, 4);
-      const photoBuffers = await Promise.all(photoUrls.map(url => fetchImage(url)));
+      // Keep global photo fetching ONLY for non-extended (simple) interventions
+      let globalPhotoBuffers: Buffer[] = [];
+      if (!data.isExtended && Array.isArray(data.mediaUrls)) {
+        const validUrls = data.mediaUrls
+          .filter((url: any) => typeof url === 'string' && !url.match(/\.(mp4|mov|avi|pdf|doc)$/i))
+          .slice(0, 4);
+
+        const fetchedBuffers = await Promise.all(validUrls.map((url: string) => fetchImage(url)));
+        globalPhotoBuffers = fetchedBuffers.filter(buf => isValidImage(buf)) as Buffer[];
+      }
 
       doc.on('pageAdded', () => {
         _drawWatermark(doc, logoBuffer);
       });
 
-      // --- START DRAWING ---
       _drawWatermark(doc, logoBuffer);
       _drawHeader(doc, data, logoBuffer);
 
@@ -175,18 +192,16 @@ export async function generateInterventionPdf(data: any, interventionId: string)
       _drawEquipmentTable(doc, data);
 
       doc.moveDown(1);
-      // THE CORE CONTENT: Switch based on whether it's extended
       if (data.isExtended && journalEntries.length > 0) {
-        _drawMultiVisitTimeline(doc, journalEntries);
+        _drawMultiVisitTimeline(doc, journalEntries); // Timeline now handles its own photos!
       } else {
         _drawSimpleDiagnostic(doc, data);
+        // Only draw the global gallery at the end if it's a simple intervention
+        if (globalPhotoBuffers.length > 0) {
+          _drawPhotoGallery(doc, globalPhotoBuffers);
+        }
       }
 
-      if (photoBuffers.some(buf => buf !== null)) {
-        _drawPhotoGallery(doc, photoBuffers.filter(b => b !== null) as Buffer[]);
-      }
-
-      // 🌟 THE ULTIMATE VALIDATION CARD
       _drawValidationSection(doc, data, signatureBuffer, stampBuffer, qrBuffer);
 
       _addGlobalFooters(doc, data);
@@ -201,12 +216,13 @@ export async function generateInterventionPdf(data: any, interventionId: string)
   });
 }
 
-// ============================================================================
-// 🎨 PREMIUM DRAWING FUNCTIONS
-// ============================================================================
-
 function _drawWatermark(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
   if (!logoBuffer) return;
+
+  // ✅ FIX: Save the exact cursor coordinates before drawing the watermark
+  const oldX = doc.x;
+  const oldY = doc.y;
+
   try {
     doc.save()
        .opacity(0.06)
@@ -218,6 +234,10 @@ function _drawWatermark(doc: PDFKit.PDFDocument, logoBuffer: Buffer | null) {
        .restore();
   } catch (e) {
     doc.restore();
+  } finally {
+    // ✅ FIX: Restore coordinates so text rendering doesn't start from the middle of the page
+    doc.x = oldX;
+    doc.y = oldY;
   }
 }
 
@@ -225,7 +245,7 @@ function _drawHeader(doc: PDFKit.PDFDocument, data: any, logoBuffer: Buffer | nu
   doc.x = LAYOUT.margin;
   const startY = doc.y;
 
-  if (logoBuffer) {
+  if (logoBuffer && isValidImage(logoBuffer)) {
     try {
       doc.image(logoBuffer, LAYOUT.margin, startY, { fit: [210, 80] });
     } catch (e) {
@@ -351,6 +371,8 @@ function _drawEquipmentTable(doc: PDFKit.PDFDocument, data: any) {
     doc.fillColor(COLORS.primary);
     doc.text(sns, startX + 390, rowY, { width: 100 });
 
+    // ✅ FIX: Force font context before measuring to prevent artificial inflation
+    doc.font(FONTS.regular).fontSize(9);
     const nameHeight = doc.heightOfString(name, { width: 200 });
     const snsHeight = doc.heightOfString(sns, { width: 100 });
     const maxH = Math.max(nameHeight, snsHeight);
@@ -374,7 +396,14 @@ function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
   const contentWidth = LAYOUT.pageWidth - LAYOUT.margin - contentX;
 
   entries.forEach((entry, index) => {
-    _checkPageBreak(doc, 60);
+    const safeEntryWorkDone = sanitizeText(entry.workDone) || "Aucune description.";
+
+    // Force font styling before measuring
+    doc.font(FONTS.regular).fontSize(10);
+    const textHeight = doc.heightOfString(safeEntryWorkDone, { width: contentWidth, lineGap: 4 });
+
+    // Initial space check for just the text header
+    _checkPageBreak(doc, 30 + textHeight + 20);
 
     const startY = doc.y;
 
@@ -389,18 +418,68 @@ function _drawMultiVisitTimeline(doc: PDFKit.PDFDocument, entries: any[]) {
     doc.moveDown(0.5);
     doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary);
 
-    const safeEntryWorkDone = sanitizeText(entry.workDone) || "Aucune description.";
     doc.text(safeEntryWorkDone, contentX, doc.y, {
       width: contentWidth,
       lineGap: 4,
       align: 'left'
     });
 
-    const endY = doc.y + 15;
+    let currentY = doc.y;
 
+    // ✅ NEW: Draw inline photos specific to this visit
+    if (entry.photoBuffers && entry.photoBuffers.length > 0) {
+      currentY += 10;
+      const imgSize = (contentWidth - 10) / 2; // Fit 2 images side-by-side
+
+      let startImgX = contentX;
+      let rowStartY = currentY;
+      let rowMaxY = rowStartY;
+
+      entry.photoBuffers.forEach((buf: Buffer, i: number) => {
+        // Move to the next row every 2 images
+        if (i % 2 === 0 && i !== 0) {
+          currentY = rowMaxY + 10;
+          _checkPageBreak(doc, imgSize + 15);
+          startImgX = contentX;
+          rowStartY = doc.y; // Update Y in case a page break happened
+          rowMaxY = rowStartY;
+        }
+
+        // Check page break for a new row before drawing the first image of that row
+        if (i % 2 === 0) {
+           _checkPageBreak(doc, imgSize + 20);
+           rowStartY = doc.y; // Refresh Y post-break check
+           rowMaxY = rowStartY;
+        }
+
+        try {
+          doc.save();
+          doc.roundedRect(startImgX, rowStartY, imgSize, imgSize, 6).clip();
+          doc.image(buf, startImgX, rowStartY, {
+            fit: [imgSize, imgSize],
+            align: 'center',
+            valign: 'center'
+          });
+          doc.restore();
+        } catch (e) {
+          doc.restore();
+          logger.warn("Failed to draw an inline photo in timeline", e);
+        }
+
+        rowMaxY = Math.max(rowMaxY, rowStartY + imgSize);
+        startImgX += imgSize + 10; // Spacing between side-by-side images
+      });
+
+      currentY = rowMaxY; // Set the ending Y to the bottom of the last image row
+    }
+
+    const endY = currentY + 15; // Bottom margin for the whole entry block
+
+    // Draw the timeline visual elements
     doc.circle(timelineX, startY + 5, 4).lineWidth(2).strokeColor(COLORS.accent).stroke();
     doc.circle(timelineX, startY + 5, 1.5).fill(COLORS.accent);
 
+    // Draw the connecting vertical line (stretching down past the text AND images)
     if (index < entries.length - 1) {
       doc.moveTo(timelineX, startY + 15).lineTo(timelineX, endY - 5).lineWidth(1).strokeColor(COLORS.border).stroke();
     }
@@ -414,64 +493,69 @@ function _drawSimpleDiagnostic(doc: PDFKit.PDFDocument, data: any) {
   doc.x = LAYOUT.margin;
   _drawSectionTitle(doc, "Rapport Technique");
 
-  _checkPageBreak(doc, 50);
+  const safeDiagnostic = sanitizeText(data.diagnostic) || "Aucun diagnostic spécifié.";
+
+  // ✅ FIX: Force font check before calculation
+  doc.font(FONTS.regular).fontSize(10);
+  const diagHeight = doc.heightOfString(safeDiagnostic, { width: LAYOUT.contentWidth, lineGap: 4 });
+
+  _checkPageBreak(doc, 40 + diagHeight);
   doc.x = LAYOUT.margin;
   doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("DIAGNOSTIC / PANNE SIGNALÉE", LAYOUT.margin, doc.y);
   doc.moveDown(0.5);
 
-  const safeDiagnostic = sanitizeText(data.diagnostic) || "Aucun diagnostic spécifié.";
   doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
      .text(safeDiagnostic, LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
 
   doc.moveDown(1.5);
 
-  _checkPageBreak(doc, 50);
+  const safeWorkDone = sanitizeText(data.workDone) || "Aucun travail spécifié.";
+
+  // ✅ FIX: Force font check
+  doc.font(FONTS.regular).fontSize(10);
+  const workHeight = doc.heightOfString(safeWorkDone, { width: LAYOUT.contentWidth, lineGap: 4 });
+
+  _checkPageBreak(doc, 40 + workHeight);
   doc.x = LAYOUT.margin;
   doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.secondary).text("TRAVAUX EFFECTUÉS", LAYOUT.margin, doc.y);
   doc.moveDown(0.5);
 
-  const safeWorkDone = sanitizeText(data.workDone) || "Aucun travail spécifié.";
   doc.font(FONTS.regular).fontSize(10).fillColor(COLORS.primary)
      .text(safeWorkDone, LAYOUT.margin, doc.y, { width: LAYOUT.contentWidth, lineGap: 4, align: 'left' });
 
   doc.moveDown(2);
 }
 
-// ✅ FIXED: Completely rewritten Gallery Generator to prevent desyncing doc.y and empty pages
-function _drawPhotoGallery(doc: PDFKit.PDFDocument, photoBuffers: Buffer[]) {
-  if (photoBuffers.length === 0) return;
+function _drawPhotoGallery(doc: PDFKit.PDFDocument, photoBuffers: any[]) {
+  const validBuffers = photoBuffers.filter(buf => isValidImage(buf));
+  if (validBuffers.length === 0) return;
 
   const imgSize = (LAYOUT.contentWidth - 20) / 2;
-
-  // 1. Ensure we have space for the Title + the FIRST row of images
   _checkPageBreak(doc, 40 + imgSize + 30);
 
   doc.x = LAYOUT.margin;
   _drawSectionTitle(doc, "Preuves Visuelles (Galerie)");
 
   let startX = LAYOUT.margin;
+  // ✅ FIX: Track the starting Y of the row, separate from doc.y
+  let rowStartY = doc.y;
+  let rowMaxY = rowStartY;
 
-  photoBuffers.forEach((buf, i) => {
+  validBuffers.forEach((buf, i) => {
     // Move to the next row every 2 images
     if (i % 2 === 0 && i !== 0) {
-      doc.y += imgSize + 15; // Move doc.y down to the new row
+      doc.y = rowMaxY + 15;
+      _checkPageBreak(doc, imgSize + 15);
       startX = LAYOUT.margin;
-
-      // Now that doc.y is updated, check if this new row forces a page break
-      _checkPageBreak(doc, imgSize + 30);
+      rowStartY = doc.y; // ✅ FIX: Lock the Y coordinate for the new row
+      rowMaxY = rowStartY;
     }
-
-    const currentY = doc.y; // currentY always strictly follows doc.y
 
     try {
       doc.save();
-      // Add a clipping path with rounded corners
-      doc.roundedRect(startX, currentY, imgSize, imgSize, 8).clip();
+      doc.roundedRect(startX, rowStartY, imgSize, imgSize, 8).clip();
 
-      // Draw the image
-      doc.image(buf, startX, currentY, {
-        width: imgSize,
-        height: imgSize,
+      doc.image(buf, startX, rowStartY, {
         fit: [imgSize, imgSize],
         align: 'center',
         valign: 'center'
@@ -482,17 +566,15 @@ function _drawPhotoGallery(doc: PDFKit.PDFDocument, photoBuffers: Buffer[]) {
       logger.warn("Failed to draw a photo in the gallery", e);
     }
 
+    // ✅ FIX: Calculate max based on the locked row start, not current doc.y
+    rowMaxY = Math.max(rowMaxY, rowStartY + imgSize);
     startX += imgSize + 20;
   });
 
-  // Update doc.y to the bottom of the gallery safely for the elements coming after it
-  doc.y += imgSize + 30;
+  doc.y = rowMaxY + 30;
   doc.x = LAYOUT.margin;
 }
 
-// ----------------------------------------------------------------------------
-// 🌟 THE ULTIMATE VALIDATION CARD
-// ----------------------------------------------------------------------------
 function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuffer: Buffer | null, stampBuffer: Buffer | null, qrBuffer: Buffer | null) {
   _checkPageBreak(doc, 145);
   doc.x = LAYOUT.margin;
@@ -512,16 +594,17 @@ function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuf
 
   const elementsY = cardY + 40;
 
-  if (qrBuffer) {
+  if (qrBuffer && isValidImage(qrBuffer)) {
     try {
       doc.image(qrBuffer, cardX + 15, elementsY, { width: 60, height: 60 });
     } catch (e) {}
   }
 
   const stampX = cardX + 90;
-  if (stampBuffer) {
+  if (stampBuffer && isValidImage(stampBuffer)) {
     try {
-      doc.image(stampBuffer, stampX, elementsY - 5, { width: 100, height: 70, fit: [100, 70], align: 'center', valign: 'center' });
+      // ✅ FIX: Removed conflicting dimensions when `fit` is applied
+      doc.image(stampBuffer, stampX, elementsY - 5, { fit: [100, 70], align: 'center', valign: 'center' });
     } catch (e) {}
   }
 
@@ -530,9 +613,10 @@ function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuf
 
   doc.roundedRect(sigX, elementsY, sigWidth, 60, 6).fillAndStroke(COLORS.white, COLORS.border);
 
-  if (signatureBuffer) {
+  if (signatureBuffer && isValidImage(signatureBuffer)) {
     try {
-      doc.image(signatureBuffer, sigX + 5, elementsY + 5, { width: sigWidth - 10, height: 40, fit: [sigWidth - 10, 40], align: 'center', valign: 'center' });
+      // ✅ FIX: Removed conflicting dimensions when `fit` is applied
+      doc.image(signatureBuffer, sigX + 5, elementsY + 5, { fit: [sigWidth - 10, 40], align: 'center', valign: 'center' });
     } catch (e) {
       doc.fillColor(COLORS.secondary).fontSize(8).text("Erreur Signature", sigX, elementsY + 25, { width: sigWidth, align: "center" });
     }
@@ -554,11 +638,13 @@ function _drawValidationSection(doc: PDFKit.PDFDocument, data: any, signatureBuf
 
 function _addGlobalFooters(doc: PDFKit.PDFDocument, data: any) {
   const pageCount = doc.bufferedPageRange().count;
-  const originalBottomMargin = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
 
   for (let i = 0; i < pageCount; i++) {
     doc.switchToPage(i);
+
+    // ✅ FIX: Get and set the margin FOR THIS SPECIFIC PAGE
+    const originalBottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
 
     try {
       const footerY = LAYOUT.pageHeight - 35;
@@ -577,6 +663,7 @@ function _addGlobalFooters(doc: PDFKit.PDFDocument, data: any) {
 
       doc.text(`Page ${i + 1} / ${pageCount}`, LAYOUT.margin, footerY, { align: "right", width: LAYOUT.contentWidth });
     } finally {
+      // ✅ FIX: Restore the margin before switching pages
       doc.page.margins.bottom = originalBottomMargin;
     }
   }
