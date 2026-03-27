@@ -2,20 +2,12 @@
 
 import 'dart:typed_data';
 import 'package:boitex_info_app/models/selection_models.dart';
-import 'package:boitex_info_app/widgets/product_selector_dialog.dart';
 // ✅ ADDED: Import the global search page
 import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:url_launcher/url_launcher.dart';
-
-// ✅ ADDED for B2
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'dart:developer'; // for debugPrint
 
 // ✅ ADDED: Multi Select Package
@@ -65,9 +57,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   bool _isLoadingPage = false;
   String? _clientError;
 
-  List<PlatformFile> _pickedFiles = [];
-  List<Map<String, String>> _existingFiles = [];
-
   bool _isUploading = false;
   // ✅ 1. ADDED: Loading status text
   String _loadingStatus = '';
@@ -76,9 +65,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
   String _currentStatus = 'À Préparer';
 
   bool get _isEditMode => widget.livraisonId != null;
-
-  final String _getB2UploadUrlCloudFunctionUrl =
-      'https://europe-west1-boitexinfo-63060.cloudfunctions.net/getB2UploadUrl';
 
   @override
   void initState() {
@@ -169,19 +155,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       if (data['products'] is List) {
         _selectedProducts = (data['products'] as List)
             .map((p) => ProductSelection.fromJson(p as Map<String, dynamic>))
-            .toList();
-      }
-
-      if (data['externalBons'] is List) {
-        _existingFiles = (data['externalBons'] as List)
-            .map((fileData) {
-          if (fileData is Map) {
-            return Map<String, String>.from(fileData
-                .map((k, v) => MapEntry(k.toString(), v.toString())));
-          }
-          return null;
-        })
-            .whereType<Map<String, String>>()
             .toList();
       }
 
@@ -517,114 +490,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     );
   }
 
-  // --- B2 HELPER FUNCTIONS ---
-  Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
-    try {
-      final response =
-      await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
-      if (response.statusCode == 200) {
-        return json.decode(response.body) as Map<String, dynamic>;
-      } else {
-        debugPrint('Failed to get B2 credentials: ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('Error calling Cloud Function: $e');
-      return null;
-    }
-  }
-
-  Future<Map<String, String>?> _uploadFileToB2(
-      PlatformFile file, Map<String, dynamic> b2Creds) async {
-    try {
-      final fileBytes = file.bytes;
-      if (fileBytes == null) {
-        debugPrint('File bytes are null for ${file.name}');
-        return null;
-      }
-      final sha1Hash = sha1.convert(fileBytes).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-      final fileName = file.name;
-
-      String? mimeType;
-      if (fileName.toLowerCase().endsWith('.jpg') ||
-          fileName.toLowerCase().endsWith('.jpeg')) {
-        mimeType = 'image/jpeg';
-      } else if (fileName.toLowerCase().endsWith('.png')) {
-        mimeType = 'image/png';
-      } else if (fileName.toLowerCase().endsWith('.pdf')) {
-        mimeType = 'application/pdf';
-      }
-
-      final resp = await http.post(
-        uploadUri,
-        headers: {
-          'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': mimeType ?? 'b2/x-auto',
-          'X-Bz-Content-Sha1': sha1Hash,
-          'Content-Length': fileBytes.length.toString(),
-        },
-        body: fileBytes,
-      );
-
-      if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String)
-            .split('/')
-            .map(Uri.encodeComponent)
-            .join('/');
-        final downloadUrl =
-            (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
-        return {'url': downloadUrl, 'name': fileName};
-      } else {
-        debugPrint('Failed to upload to B2: ${resp.body}');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('Error uploading file to B2: $e');
-      return null;
-    }
-  }
-
-  // ✅ HELPER: Upload Raw Bytes (PDF) to B2
-  Future<String?> _uploadBytesToB2(
-      Uint8List bytes, String fileName, Map<String, dynamic> b2Creds) async {
-    try {
-      final sha1Hash = sha1.convert(bytes).toString();
-      final uploadUri = Uri.parse(b2Creds['uploadUrl'] as String);
-
-      final resp = await http.post(
-        uploadUri,
-        headers: {
-          'Authorization': b2Creds['authorizationToken'] as String,
-          'X-Bz-File-Name': Uri.encodeComponent(fileName),
-          'Content-Type': 'application/pdf',
-          'X-Bz-Content-Sha1': sha1Hash,
-          'Content-Length': bytes.length.toString(),
-        },
-        body: bytes,
-      );
-
-      if (resp.statusCode == 200) {
-        final body = json.decode(resp.body) as Map<String, dynamic>;
-        final encodedPath = (body['fileName'] as String)
-            .split('/')
-            .map(Uri.encodeComponent)
-            .join('/');
-        final downloadUrl =
-            (b2Creds['downloadUrlPrefix'] as String) + encodedPath;
-        return downloadUrl;
-      } else {
-        debugPrint('Failed to upload PDF to B2: ${resp.body}');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('Error uploading PDF bytes: $e');
-      return null;
-    }
-  }
-
   Future<String> _getNextBonLivraisonCode() async {
     final year = DateTime.now().year;
     final counterRef = FirebaseFirestore.instance
@@ -650,34 +515,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
     return 'BL-$nextNumber/$year';
   }
 
-  void _showProductSelectorDialog() async {
-    final List<ProductSelection>? result = await showDialog(
-        context: context,
-        builder: (context) => ProductSelectorDialog(
-          initialProducts: _selectedProducts,
-          isRequestMode: true,
-        ));
-    if (result != null) {
-      setState(() => _selectedProducts = result);
-    }
-  }
-
-  Future<void> _pickFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-      withData: true,
-      allowMultiple: true,
-    );
-
-    if (result != null) {
-      setState(() {
-        _pickedFiles.addAll(result.files);
-      });
-    }
-  }
-
-// ✅ OPTIMIZED: "Fire and Forget" Save
+  // ✅ OPTIMIZED: "Fire and Forget" Save
   // The Cloud Function will detect this create and generate the PDF automatically.
   Future<void> _saveLivraison() async {
     if (!_formKey.currentState!.validate()) return;
@@ -695,7 +533,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
     setState(() {
       _isUploading = true;
-      _loadingStatus = 'Préparation...';
+      _loadingStatus = 'Sauvegarde en cours...';
     });
 
     try {
@@ -704,32 +542,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       final docRef = _isEditMode
           ? livraisonsCollection.doc(widget.livraisonId!)
           : livraisonsCollection.doc();
-
-      // --- 1. Upload User-Attached Files (Keep this, as users attach these manually) ---
-      List<Map<String, String>> uploadedFilesInfo = [];
-
-      // We still need B2 credentials for the manual attachments (images, etc.)
-      final b2Credentials = await _getB2UploadCredentials();
-      if (b2Credentials == null) {
-        throw Exception('Impossible de récupérer les accès B2.');
-      }
-
-      if (_pickedFiles.isNotEmpty) {
-        setState(() => _loadingStatus =
-        'Envoi des pièces jointes (${_pickedFiles.length})...');
-
-        final uploadFutures = _pickedFiles.map((file) {
-          return _uploadFileToB2(file, b2Credentials);
-        }).toList();
-
-        final results = await Future.wait(uploadFutures);
-
-        if (results.any((result) => result == null)) {
-          throw Exception('Échec de l\'upload d\'un ou plusieurs fichiers.');
-        }
-
-        uploadedFilesInfo = results.cast<Map<String, String>>().toList();
-      }
 
       // --- FIX: Logic to handle "Shared Access" (Both Services) ---
       List<String> accessGroups = [];
@@ -801,21 +613,14 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
 
         'lastModifiedBy': user.displayName ?? user.email,
         'lastModifiedAt': FieldValue.serverTimestamp(),
-        'externalBons': [
-          ..._existingFiles,
-          ...uploadedFilesInfo,
-        ],
       };
 
       if (_isEditMode) {
         // Edit Mode: Just update, PDF might not need regeneration unless critical fields changed.
         // If you want to force regen on edit, set pdfStatus: 'pending' here too.
-        setState(() => _loadingStatus = 'Sauvegarde...');
         await docRef.update(deliveryData);
       } else {
         // --- FAST PATH FOR CREATION ---
-        setState(() => _loadingStatus = 'Finalisation...');
-
         // A. Generate ID
         final bonLivraisonCode = await _getNextBonLivraisonCode();
 
@@ -836,7 +641,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Livraison créée avec succès !'),
+          content: Text('Livraison sauvegardée avec succès !'),
           backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ));
@@ -1049,11 +854,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                         onClear: () {
                           setState(() {
                             _selectedStore = null;
-                            // We don't necessarily clear the address here,
-                            // user might want to keep the address of the store they just cleared
-                            // but generally it's safer to let them type.
-                            // Let's leave the address as is, or clear it.
-                            // If they clear the store, they probably want to type a different address.
                             _internalDeliveryAddressController.clear();
                           });
                         },
@@ -1085,10 +885,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                             label: 'Adresse / Lieu de Livraison',
                             icon: Icons.place,
                             validator: (val) {
-                              // Optional validation: enforce address if no store
-                              // if (_selectedStore == null && (val == null || val.isEmpty)) {
-                              //    return 'Veuillez préciser le lieu';
-                              // }
                               return null;
                             }),
                       ],
@@ -1114,89 +910,23 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                           _buildProductItem(entry.value, entry.key))
                           .toList(),
                     const SizedBox(height: 16),
-                    // ✅ NEW: Two buttons side-by-side
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed:
-                            _openQuickSearch, // Call our new function
-                            icon: const Icon(Icons.search),
-                            label: const Text('Recherche Rapide'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 12),
-                              side: const BorderSide(color: Colors.blue),
-                              foregroundColor: Colors.blue,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                  BorderRadius.circular(12)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _showProductSelectorDialog,
-                            icon: const Icon(Icons.add_shopping_cart),
-                            label: const Text('Catalogue'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 12),
-                              side: const BorderSide(
-                                  color: Color(0xFFFFC107)),
-                              foregroundColor: const Color(0xFFFFC107),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                  BorderRadius.circular(12)),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ]),
-              const SizedBox(height: 24),
-              _buildSectionCard(
-                  title: 'Bon de Livraison',
-                  icon: Icons.attach_file,
-                  children: [
-                    if (_pickedFiles.isEmpty && _existingFiles.isEmpty)
-                      _buildFileUploadBox(),
-                    ..._existingFiles.map((file) => _buildFileInfo(
-                      fileName: file['name'] ?? 'Fichier existant',
-                      icon: Icons.description,
-                      iconColor: const Color(0xFF1976D2),
-                      onTap: () async {
-                        if (file['url'] != null) {
-                          final url = Uri.parse(file['url']!);
-                          if (await canLaunchUrl(url)) {
-                            await launchUrl(url);
-                          }
-                        }
-                      },
-                      onClear: () =>
-                          setState(() => _existingFiles.remove(file)),
-                    )),
-                    ..._pickedFiles.map((file) => _buildFileInfo(
-                      fileName: file.name,
-                      icon: Icons.file_present_rounded,
-                      iconColor: const Color(0xFF20C997),
-                      onClear: () =>
-                          setState(() => _pickedFiles.remove(file)),
-                    )),
-                    if (_pickedFiles.isNotEmpty ||
-                        _existingFiles.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16.0),
-                        child: Center(
-                          child: TextButton.icon(
-                            icon: const Icon(Icons.add_circle_outline,
-                                size: 18),
-                            label: const Text('Ajouter un autre fichier'),
-                            onPressed: _pickFile,
+                    // ✅ MODIFIED: Removed Catalogue button, expanded Quick Search
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _openQuickSearch,
+                        icon: const Icon(Icons.search),
+                        label: const Text('Ajouter un produit (Recherche)'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: const BorderSide(color: Colors.blue, width: 1.5),
+                          foregroundColor: Colors.blue,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                       ),
+                    ),
                   ]),
               const SizedBox(height: 40),
               // ✅ 3. MODIFIED: build method with status text
@@ -1208,7 +938,7 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
                       const CircularProgressIndicator(),
                       const SizedBox(height: 16),
                       Text(
-                        _loadingStatus, // ✅ Shows "Génération du PDF...", etc.
+                        _loadingStatus,
                         style: GoogleFonts.poppins(
                             color: Colors.blue[800],
                             fontWeight: FontWeight.w500),
@@ -1395,73 +1125,6 @@ class _AddLivraisonPageState extends State<AddLivraisonPage> {
             ),
           ),
           validator: (val) => validator != null ? validator(value) : null,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFileUploadBox() {
-    return InkWell(
-      onTap: _pickFile,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        decoration: BoxDecoration(
-          color: Colors.amber.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.amber, width: 2),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.upload_file_rounded,
-                  color: Colors.amber, size: 40),
-              const SizedBox(height: 12),
-              Text(
-                'Choisir un Fichier',
-                style: GoogleFonts.poppins(
-                  color: Colors.amber[800],
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'PDF, JPG, PNG',
-                style: GoogleFonts.poppins(
-                    color: Colors.grey[600], fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFileInfo({
-    required String fileName,
-    required IconData icon,
-    required Color iconColor,
-    VoidCallback? onClear,
-    VoidCallback? onTap,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: iconColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: iconColor),
-      ),
-      child: ListTile(
-        onTap: onTap,
-        leading: Icon(icon, color: iconColor, size: 30),
-        title: Text(fileName,
-            style: GoogleFonts.poppins(), overflow: TextOverflow.ellipsis),
-        trailing: IconButton(
-          icon: Icon(Icons.clear, color: Colors.red[400]),
-          tooltip: 'Supprimer le fichier',
-          onPressed: onClear,
         ),
       ),
     );
