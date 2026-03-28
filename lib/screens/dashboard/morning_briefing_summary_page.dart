@@ -1,18 +1,25 @@
+// lib/screens/dashboard/morning_briefing_summary_page.dart
+
 import 'dart:ui';
-import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
-// ✅ Import the SAV Model
+// ✅ Models
 import 'package:boitex_info_app/models/sav_ticket.dart';
+import 'package:boitex_info_app/models/mission.dart';
 
-// Import your detail pages
+// ✅ Detail Pages
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
+import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_page.dart';
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
+import 'package:boitex_info_app/screens/administration/mission_details_page.dart';
+import 'package:boitex_info_app/screens/administration/project_details_page.dart';
 import 'package:boitex_info_app/screens/administration/requisition_details_page.dart';
 
 class MorningBriefingSummaryPage extends StatefulWidget {
@@ -23,378 +30,367 @@ class MorningBriefingSummaryPage extends StatefulWidget {
       _MorningBriefingSummaryPageState();
 }
 
-class _MorningBriefingSummaryPageState
-    extends State<MorningBriefingSummaryPage> {
-  bool _isLoading = true;
-  String? _userRole;
-  Map<String, List<String>> _contentVisibility = {};
+class _MorningBriefingSummaryPageState extends State<MorningBriefingSummaryPage>
+    with SingleTickerProviderStateMixin {
+  late PageController _pageController;
+  late AnimationController _animationController;
 
-  // ✅ Strictly Typed Lists to avoid "Object?" errors
-  List<DocumentSnapshot<Map<String, dynamic>>> _interventions = [];
-  List<DocumentSnapshot<Map<String, dynamic>>> _savTickets = [];
-  List<DocumentSnapshot<Map<String, dynamic>>> _livraisons = [];
-  List<DocumentSnapshot<Map<String, dynamic>>> _billing = [];
-  List<DocumentSnapshot<Map<String, dynamic>>> _requisitions = [];
+  bool _isLoading = true;
+  int _currentIndex = 0;
+  String? _userRole;
+
+  // Data maps to hold fetched documents for each department
+  Map<String, List<DocumentSnapshot>> _dataTech = {};
+  Map<String, List<DocumentSnapshot>> _dataIT = {};
+  Map<String, List<DocumentSnapshot>> _dataAdmin = {};
+
+  late List<Map<String, dynamic>> _stories = [];
 
   @override
   void initState() {
     super.initState();
-    _loadBriefingData();
+    _pageController = PageController();
+    // Base duration. It will auto-pause when you open a list!
+    _animationController = AnimationController(
+        vsync: this, duration: const Duration(seconds: 15));
+
+    _animationController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _nextStory();
+      }
+    });
+
+    _initializeBriefing();
   }
 
-  Future<void> _loadBriefingData() async {
-    setState(() => _isLoading = true);
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      // 1. Get User Role
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+  Future<void> _initializeBriefing() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       _userRole = userDoc.data()?['role'];
+    }
 
-      // 2. Get Briefing Settings (Permissions)
-      final settingsDoc = await FirebaseFirestore.instance
-          .collection('settings')
-          .doc('morning_briefing')
-          .get();
-      if (settingsDoc.exists) {
-        final data = settingsDoc.data()!;
-        if (data['content_visibility'] != null) {
-          final Map<String, dynamic> rawMap = data['content_visibility'];
-          _contentVisibility = rawMap
-              .map((key, value) => MapEntry(key, List<String>.from(value)));
-        }
-      }
+    // Determine permissions based on role
+    bool canSeeTech = false;
+    bool canSeeIT = false;
+    bool canSeeAdmin = false;
 
-      // 3. Fetch Data in Parallel based on permissions
-      if (_userRole != null) {
-        await Future.wait([
-          if (_canSee('pending_interventions')) _fetchInterventions(),
-          if (_canSee('active_sav')) _fetchSav(),
-          if (_canSee('todays_livraisons')) _fetchLivraisons(),
-          if (_canSee('pending_billing')) _fetchBilling(),
-          if (_canSee('pending_requisitions')) _fetchRequisitions(),
-        ]);
+    if (_userRole != null) {
+      switch (_userRole) {
+        case 'Admin':
+        case 'PDG':
+        case 'Responsable Administratif':
+        case 'Responsable Commercial':
+        case 'Chef de Projet':
+          canSeeTech = true;
+          canSeeIT = true;
+          canSeeAdmin = true;
+          break;
+        case 'Responsable Technique':
+          canSeeTech = true;
+          canSeeIT = false;
+          canSeeAdmin = true;
+          break;
+        case 'Responsable IT':
+          canSeeTech = false;
+          canSeeIT = true;
+          canSeeAdmin = true;
+          break;
+        case 'Technicien ST':
+          canSeeTech = true;
+          canSeeIT = false;
+          canSeeAdmin = false;
+          break;
+        case 'Technicien IT':
+          canSeeTech = false;
+          canSeeIT = true;
+          canSeeAdmin = false;
+          break;
       }
-    } catch (e) {
-      debugPrint("Error loading briefing: $e");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    }
+
+    // Only fetch data if the user has permission to see it!
+    await Future.wait([
+      if (canSeeTech) _fetchServiceTechniqueData(),
+      if (canSeeIT) _fetchServiceITData(),
+      if (canSeeAdmin) _fetchAdministrationData(),
+    ]);
+
+    // Build the stories array based on the same permissions
+    _buildStoriesArray(canSeeTech, canSeeIT, canSeeAdmin);
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+      _loadStory(animateToPage: false);
     }
   }
 
-  // Helper: Check if current role is allowed to see this section
-  bool _canSee(String key) {
-    final allowedRoles = _contentVisibility[key];
-    if (allowedRoles == null) return false;
-    return allowedRoles.contains(_userRole) || allowedRoles.contains('ALL');
+  // --- DATA FETCHING LOGIC ---
+
+  Future<void> _fetchServiceTechniqueData() async {
+    final db = FirebaseFirestore.instance;
+    final futures = await Future.wait([
+      db.collection('installations').where('serviceType', isEqualTo: 'Service Technique').where('status', whereIn: ['En Cours', 'À Planifier']).get(),
+      db.collection('interventions').where('serviceType', isEqualTo: 'Service Technique').where('status', whereIn: ['En Cours', 'Nouvelle Demande']).get(),
+      db.collection('sav_tickets').where('serviceType', isEqualTo: 'Service Technique').where('status', whereIn: ['En Diagnostic', 'En Réparation', 'Nouveau']).get(),
+      db.collection('livraisons').where('serviceType', isEqualTo: 'Service Technique').where('status', whereIn: ['À Préparer', 'En Cours de Livraison']).get(),
+      db.collection('missions').where('serviceType', isEqualTo: 'Service Technique').where('status', isEqualTo: 'Planifiée').get(),
+      db.collection('projects').where('serviceType', isEqualTo: 'Service Technique').where('status', isEqualTo: 'Nouvelle Demande').get(),
+    ]);
+
+    _dataTech = {
+      'Installations': futures[0].docs,
+      'Interventions': futures[1].docs,
+      'Tickets SAV': futures[2].docs,
+      'Livraisons': futures[3].docs,
+      'Missions': futures[4].docs,
+      'Projets': futures[5].docs,
+    };
   }
 
-  // --- FETCHING LOGIC ---
+  Future<void> _fetchServiceITData() async {
+    final db = FirebaseFirestore.instance;
+    final futures = await Future.wait([
+      db.collection('installations').where('serviceType', isEqualTo: 'Service IT').where('status', whereIn: ['En Cours', 'À Planifier']).get(),
+      db.collection('interventions').where('serviceType', isEqualTo: 'Service IT').where('status', whereIn: ['En Cours', 'Nouvelle Demande']).get(),
+      db.collection('sav_tickets').where('serviceType', isEqualTo: 'Service IT').where('status', whereIn: ['En Diagnostic', 'En Réparation', 'Nouveau']).get(),
+      db.collection('livraisons').where('serviceType', isEqualTo: 'Service IT').where('status', whereIn: ['À Préparer', 'En Cours de Livraison']).get(),
+      db.collection('missions').where('serviceType', isEqualTo: 'Service IT').where('status', isEqualTo: 'Planifiée').get(),
+      db.collection('projects').where('serviceType', isEqualTo: 'Service IT').where('status', isEqualTo: 'Nouvelle Demande').get(),
+    ]);
 
-  Future<void> _fetchInterventions() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('interventions')
-        .where('status', isEqualTo: 'Nouvelle Demande')
-        .limit(20)
-        .get();
-    _interventions = snap.docs;
+    _dataIT = {
+      'Installations': futures[0].docs,
+      'Interventions': futures[1].docs,
+      'Tickets SAV': futures[2].docs,
+      'Livraisons': futures[3].docs,
+      'Missions': futures[4].docs,
+      'Projets': futures[5].docs,
+    };
   }
 
-  Future<void> _fetchSav() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('sav_tickets')
-        .where('status',
-        whereIn: ['Nouveau', 'En cours', 'En attente de pièce', 'Diagnostiqué'])
-        .limit(20)
-        .get();
-    _savTickets = snap.docs;
+  Future<void> _fetchAdministrationData() async {
+    final db = FirebaseFirestore.instance;
+    final futures = await Future.wait([
+      db.collection('interventions').where('status', isEqualTo: 'Terminé').get(),
+      db.collection('requisitions').where('status', whereIn: ['Commandée', "En attente d'approbation", 'Partiellement Reçue']).get(),
+    ]);
+
+    _dataAdmin = {
+      'Facturation': futures[0].docs,
+      'Réquisitions': futures[1].docs,
+    };
   }
 
-  Future<void> _fetchLivraisons() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('livraisons')
-        .where('status', isEqualTo: 'À Préparer')
-        .limit(20)
-        .get();
-    _livraisons = snap.docs;
-  }
+  void _buildStoriesArray(bool canSeeTech, bool canSeeIT, bool canSeeAdmin) {
+    _stories = [
+      {
+        "title": "Aperçu Matinal",
+        "icon": CupertinoIcons.sun_max_fill,
+        "color": const Color(0xFFFFB347),
+        "content": _buildWelcomeStory(),
+      },
+    ];
 
-  Future<void> _fetchBilling() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('interventions')
-        .where('status', isEqualTo: 'Terminé')
-        .limit(20)
-        .get();
-    _billing = snap.docs;
-  }
+    if (canSeeTech) {
+      _stories.add({
+        "title": "Service Technique",
+        "icon": CupertinoIcons.wrench_fill,
+        "color": const Color(0xFFF59E0B),
+        "content": _buildDepartmentList(_dataTech),
+      });
+    }
 
-  Future<void> _fetchRequisitions() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('requisitions')
-        .where('status', isEqualTo: "En attente d'approbation")
-        .limit(20)
-        .get();
-    _requisitions = snap.docs;
+    if (canSeeIT) {
+      _stories.add({
+        "title": "Service IT",
+        "icon": CupertinoIcons.device_laptop,
+        "color": const Color(0xFF32ADE6),
+        "content": _buildDepartmentList(_dataIT),
+      });
+    }
+
+    if (canSeeAdmin) {
+      _stories.add({
+        "title": "Administration",
+        "icon": CupertinoIcons.shield_fill,
+        "color": const Color(0xFF8B5CF6),
+        "content": _buildDepartmentList(_dataAdmin),
+      });
+    }
   }
 
   @override
+  void dispose() {
+    _pageController.dispose();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  // --- STORY NAVIGATION LOGIC ---
+
+  void _loadStory({bool animateToPage = true}) {
+    _animationController.stop();
+    _animationController.reset();
+    _animationController.forward();
+
+    if (animateToPage) {
+      _pageController.animateToPage(
+        _currentIndex,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _nextStory() {
+    HapticFeedback.lightImpact();
+    if (_currentIndex < _stories.length - 1) {
+      setState(() => _currentIndex++);
+      _loadStory();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _previousStory() {
+    HapticFeedback.lightImpact();
+    if (_currentIndex > 0) {
+      setState(() => _currentIndex--);
+      _loadStory();
+    } else {
+      _loadStory(animateToPage: false);
+    }
+  }
+
+  void _pauseTimer() => _animationController.stop();
+  void _resumeTimer() => _animationController.forward();
+
+  void _onBackgroundTap(TapUpDetails details) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double dx = details.globalPosition.dx;
+
+    if (dx < screenWidth * 0.3) {
+      _previousStory();
+    } else {
+      _nextStory();
+    }
+  }
+
+  // --- MAIN BUILD ---
+
+  @override
   Widget build(BuildContext context) {
-    final totalTasks = _interventions.length +
-        _savTickets.length +
-        _livraisons.length +
-        _billing.length +
-        _requisitions.length;
-    final dateStr = DateFormat('EEEE d MMMM', 'fr').format(DateTime.now());
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CupertinoActivityIndicator(color: Colors.white, radius: 20),
+              const SizedBox(height: 24),
+              Text("Préparation de votre briefing...",
+                  style: GoogleFonts.poppins(color: Colors.white70, fontSize: 16)),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      body: Stack(
-        children: [
-          // 1. Premium 4K iOS 2026 Background (Mesh Gradient Feel)
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFF0F172A), // Deep Slate
-                  Color(0xFF1E1B4B), // Deep Indigo
-                  Color(0xFF312E81), // Rich Purple
-                  Color(0xFF0F172A),
-                ],
-                stops: [0.0, 0.4, 0.8, 1.0],
-              ),
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTapUp: _onBackgroundTap,
+        child: Stack(
+          children: [
+            // 1. The main PageView
+            PageView.builder(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _stories.length,
+              itemBuilder: (context, index) {
+                return _buildStoryPage(_stories[index]);
+              },
             ),
-          ),
-          // Subtle glowing orbs in background
-          Positioned(
-            top: -100,
-            left: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF8B5CF6).withOpacity(0.3),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -50,
-            right: -50,
-            child: Container(
-              width: 400,
-              height: 400,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF3B82F6).withOpacity(0.2),
-              ),
-            ),
-          ),
-          // Blur layer over the orbs to create the "mesh" effect
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
-              child: Container(color: Colors.transparent),
-            ),
-          ),
 
-          // 2. Main Content (Adaptable for Web & Mobile)
-          SafeArea(
-            bottom: false,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800), // Web limit
-                child: _isLoading
-                    ? const Center(
-                  child: CupertinoActivityIndicator(
-                    color: Colors.white,
-                    radius: 20,
+            // 2. Top Progress Bars
+            SafeArea(
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                    child: Row(
+                      children: _stories.asMap().entries.map((entry) {
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                            child: _buildProgressBar(entry.key),
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
-                )
-                    : CustomScrollView(
-                  physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics()),
-                  slivers: [
-                    // Dynamic Glass Header
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 40, 24, 30),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              dateStr.toUpperCase(),
-                              style: GoogleFonts.poppins(
-                                color: Colors.white.withOpacity(0.6),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 1.5,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              "Briefing Matinal",
-                              style: GoogleFonts.poppins(
-                                color: Colors.white,
-                                fontSize: 34,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-                            _buildProgressCard(totalTasks),
-                          ],
-                        ),
-                      ),
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: IconButton(
+                      icon: const Icon(CupertinoIcons.clear, color: Colors.white, size: 28),
+                      onPressed: () => Navigator.of(context).pop(),
                     ),
-
-                    // Sections
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      sliver: SliverList(
-                        delegate: SliverChildListDelegate([
-                          if (totalTasks == 0) _buildEmptyState(),
-
-                          if (_interventions.isNotEmpty)
-                            _buildGlassSection(
-                              title: "Interventions",
-                              count: _interventions.length,
-                              color: const Color(0xFFF59E0B), // Amber
-                              icon: CupertinoIcons.wrench_fill,
-                              items: _interventions,
-                              itemBuilder: (doc) =>
-                                  _buildInterventionCard(doc),
-                            ),
-
-                          if (_savTickets.isNotEmpty)
-                            _buildGlassSection(
-                              title: "Tickets SAV",
-                              count: _savTickets.length,
-                              color: const Color(0xFFEF4444), // Red
-                              icon: CupertinoIcons.ticket_fill,
-                              items: _savTickets,
-                              itemBuilder: (doc) => _buildSavCard(doc),
-                            ),
-
-                          if (_livraisons.isNotEmpty)
-                            _buildGlassSection(
-                              title: "Livraisons",
-                              count: _livraisons.length,
-                              color: const Color(0xFF3B82F6), // Blue
-                              icon: CupertinoIcons.cube_box_fill,
-                              items: _livraisons,
-                              itemBuilder: (doc) =>
-                                  _buildLivraisonCard(doc),
-                            ),
-
-                          if (_requisitions.isNotEmpty)
-                            _buildGlassSection(
-                              title: "Achats (Réquisitions)",
-                              count: _requisitions.length,
-                              color: const Color(0xFF10B981), // Emerald
-                              icon: CupertinoIcons.cart_fill,
-                              items: _requisitions,
-                              itemBuilder: (doc) => _buildSimpleCard(
-                                  doc, "requisitionCode", "requestedBy"),
-                            ),
-
-                          if (_billing.isNotEmpty)
-                            _buildGlassSection(
-                              title: "Facturation (Terminé)",
-                              count: _billing.length,
-                              color: const Color(0xFF8B5CF6), // Purple
-                              icon: CupertinoIcons.doc_text_fill,
-                              items: _billing,
-                              itemBuilder: (doc) =>
-                                  _buildInterventionCard(doc),
-                            ),
-
-                          const SizedBox(height: 60),
-                        ]),
-                      ),
-                    ),
-                  ],
-                ),
+                  )
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  // --- PREMIUM WIDGETS ---
+  Widget _buildProgressBar(int index) {
+    return AnimatedBuilder(
+      animation: _animationController,
+      builder: (context, child) {
+        double value = 0.0;
+        if (index < _currentIndex) value = 1.0;
+        else if (index == _currentIndex) value = _animationController.value;
 
-  Widget _buildProgressCard(int totalTasks) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: value,
+            backgroundColor: Colors.white.withOpacity(0.3),
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+            minHeight: 3,
           ),
-          child: Row(
+        );
+      },
+    );
+  }
+
+  Widget _buildStoryPage(Map<String, dynamic> story) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [story['color'].withOpacity(0.9), const Color(0xFF0F172A)],
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 80, 24, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  color: totalTasks == 0
-                      ? const Color(0xFF10B981).withOpacity(0.2)
-                      : const Color(0xFFF59E0B).withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  totalTasks == 0
-                      ? CupertinoIcons.check_mark_circled_solid
-                      : CupertinoIcons.bolt_fill,
-                  color: totalTasks == 0
-                      ? const Color(0xFF34D399)
-                      : const Color(0xFFFCD34D),
-                  size: 28,
-                ),
+              Icon(story['icon'], color: Colors.white, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                story['title'],
+                style: GoogleFonts.poppins(fontSize: 34, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -1.0),
               ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      totalTasks == 0
-                          ? "Journée terminée"
-                          : "$totalTasks Tâches en attente",
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: totalTasks == 0 ? 1.0 : 0.3,
-                        backgroundColor: Colors.white.withOpacity(0.1),
-                        valueColor: AlwaysStoppedAnimation(
-                          totalTasks == 0
-                              ? const Color(0xFF34D399)
-                              : const Color(0xFF8B5CF6),
-                        ),
-                        minHeight: 6,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              const SizedBox(height: 24),
+              Expanded(child: story['content']),
             ],
           ),
         ),
@@ -402,136 +398,124 @@ class _MorningBriefingSummaryPageState
     );
   }
 
-  Widget _buildEmptyState() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 60),
-      alignment: Alignment.center,
+  // --- STORY CONTENT BUILDERS ---
+
+  Widget _buildWelcomeStory() {
+    final dateStr = DateFormat('EEEE d MMMM', 'fr').format(DateTime.now());
+    return Center(
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF10B981).withOpacity(0.1),
-              shape: BoxShape.circle,
-              border: Border.all(
-                  color: const Color(0xFF10B981).withOpacity(0.3), width: 1),
-            ),
-            child: const Icon(CupertinoIcons.checkmark_seal_fill,
-                size: 64, color: Color(0xFF34D399)),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            "Tout est à jour !",
-            style: GoogleFonts.poppins(
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            "Aucune tâche en attente pour votre rôle.\nProfitez de votre journée.",
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              color: Colors.white.withOpacity(0.6),
-              fontSize: 15,
-              height: 1.5,
-            ),
-          ),
+          Text(dateStr.toUpperCase(), style: GoogleFonts.poppins(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 2)),
+          const SizedBox(height: 20),
+          Text("Votre briefing est prêt.", textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeight.w600, color: Colors.white, height: 1.3)),
+          const SizedBox(height: 40),
+          const Icon(CupertinoIcons.chevron_right_2, color: Colors.white54, size: 40),
+          const SizedBox(height: 10),
+          Text("Appuyez à droite pour avancer", style: GoogleFonts.poppins(color: Colors.white54, fontSize: 14)),
         ],
       ),
     );
   }
 
-  Widget _buildGlassSection({
-    required String title,
-    required int count,
-    required Color color,
-    required IconData icon,
-    required List<DocumentSnapshot<Map<String, dynamic>>> items,
-    required Widget Function(DocumentSnapshot<Map<String, dynamic>>) itemBuilder,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
-            ),
-            child: Theme(
-              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                initiallyExpanded: true,
-                iconColor: Colors.white70,
-                collapsedIconColor: Colors.white70,
-                tilePadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: color.withOpacity(0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      )
-                    ],
-                  ),
-                  child: Icon(icon, color: color, size: 22),
-                ),
-                title: Text(
-                  title,
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 17,
-                    color: Colors.white,
-                  ),
-                ),
-                trailing: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    count.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
+  Widget _buildDepartmentList(Map<String, List<DocumentSnapshot>> dataMap) {
+    final activeSections = dataMap.entries.where((e) => e.value.isNotEmpty).toList();
+
+    if (activeSections.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(CupertinoIcons.checkmark_seal_fill, size: 64, color: Colors.white54),
+            const SizedBox(height: 24),
+            Text("Aucune tâche en attente !", style: GoogleFonts.poppins(fontSize: 22, color: Colors.white, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      );
+    }
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (scrollNotification) {
+        if (scrollNotification is ScrollStartNotification) _pauseTimer();
+        else if (scrollNotification is ScrollEndNotification) _resumeTimer();
+        return false;
+      },
+      child: ListView.builder(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 60),
+        itemCount: activeSections.length,
+        itemBuilder: (context, index) {
+          final sectionName = activeSections[index].key;
+          final docs = activeSections[index].value;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _buildGlassExpansionTile(sectionName, docs),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildGlassExpansionTile(String sectionName, List<DocumentSnapshot> docs) {
+    IconData sectionIcon;
+    switch (sectionName) {
+      case 'Installations': sectionIcon = CupertinoIcons.hammer; break;
+      case 'Interventions': case 'Facturation': sectionIcon = CupertinoIcons.wrench; break;
+      case 'Tickets SAV': sectionIcon = CupertinoIcons.ticket; break;
+      case 'Livraisons': sectionIcon = CupertinoIcons.cube_box; break;
+      case 'Missions': sectionIcon = CupertinoIcons.map_pin_ellipse; break;
+      case 'Projets': sectionIcon = CupertinoIcons.building_2_fill; break;
+      case 'Réquisitions': sectionIcon = CupertinoIcons.cart; break;
+      default: sectionIcon = CupertinoIcons.doc;
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
+          ),
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              onExpansionChanged: (expanded) {
+                if (expanded) {
+                  _pauseTimer();
+                  HapticFeedback.lightImpact();
+                } else {
+                  _resumeTimer();
+                }
+              },
+              iconColor: Colors.white,
+              collapsedIconColor: Colors.white70,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              title: Row(
                 children: [
-                  Container(
-                    height: 1,
-                    color: Colors.white.withOpacity(0.1),
-                    margin: const EdgeInsets.symmetric(horizontal: 20),
+                  Icon(sectionIcon, color: Colors.white, size: 20),
+                  const SizedBox(width: 12),
+                  Text(
+                      sectionName.toUpperCase(),
+                      style: GoogleFonts.poppins(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 1.0)
                   ),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: items.length,
-                    separatorBuilder: (ctx, i) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Divider(
-                        height: 1,
-                        color: Colors.white.withOpacity(0.05),
-                      ),
-                    ),
-                    itemBuilder: (ctx, i) => itemBuilder(items[i]),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                    child: Text("${docs.length}", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
+              children: docs.map((doc) => Column(
+                children: [
+                  Divider(color: Colors.white.withOpacity(0.1), height: 1),
+                  _buildItemTile(sectionName, doc),
+                ],
+              )).toList(),
             ),
           ),
         ),
@@ -539,168 +523,81 @@ class _MorningBriefingSummaryPageState
     );
   }
 
-  // --- GLASS LIST ITEMS ---
+// --- ITEM ROUTING & UI ---
 
-  Widget _buildInterventionCard(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
+  Widget _buildItemTile(String section, DocumentSnapshot doc) {
+    final typedDoc = doc as DocumentSnapshot<Map<String, dynamic>>;
+    final data = typedDoc.data() ?? {};
+
+    // Smart fallbacks for Title
+    String title = data['storeName'] ?? data['clientName'] ?? 'Inconnu';
+
+    // Smart fallbacks for Location (handles different collections)
+    String loc = data['storeLocation'] ?? data['clientCity'] ?? data['location'] ?? data['ville'] ?? '';
+    String locText = loc.isNotEmpty ? "$loc • " : ""; // Formats nicely with a bullet if it exists
+
+    String status = data['status'] ?? '';
+    String subtitle = status;
+    VoidCallback onTap;
+
+    switch (section) {
+      case 'Installations':
+        subtitle = "Inst. ${data['serviceType'] ?? ''} • $locText$status";
+        onTap = () => _navigateTo(InstallationDetailsPage(installationDoc: typedDoc, userRole: _userRole ?? ''));
+        break;
+
+      case 'Interventions':
+      case 'Facturation':
+        subtitle = "$locText$status";
+        onTap = () => _navigateTo(InterventionDetailsPage(interventionDoc: typedDoc));
+        break;
+
+      case 'Tickets SAV':
+        subtitle = "${data['productName'] ?? 'Produit'} • $locText$status";
+        onTap = () => _navigateTo(SavTicketDetailsPage(ticket: SavTicket.fromFirestore(typedDoc)));
+        break;
+
+      case 'Livraisons':
+        title = data['clientName'] ?? 'Inconnu'; // Override for livraisons
+        subtitle = "BL: ${data['bonLivraisonCode'] ?? 'N/A'} • $locText$status";
+        onTap = () => _navigateTo(LivraisonDetailsPage(livraisonId: typedDoc.id));
+        break;
+
+      case 'Missions':
+        title = data['title'] ?? 'Mission';
+        onTap = () => _navigateTo(MissionDetailsPage(mission: Mission.fromFirestore(typedDoc)));
+        break;
+
+      case 'Projets':
+        title = data['projectName'] ?? 'Projet';
+        subtitle = "$locText$status";
+        onTap = () => _navigateTo(ProjectDetailsPage(projectId: typedDoc.id, userRole: _userRole ?? ''));
+        break;
+
+      case 'Réquisitions':
+        title = data['title'] ?? data['requisitionCode'] ?? 'Achat';
+        subtitle = "Par: ${data['requestedBy'] ?? ''} • $status";
+        onTap = () => _navigateTo(RequisitionDetailsPage(requisitionId: typedDoc.id, userRole: _userRole ?? ''));
+        break;
+
+      default:
+        onTap = () {};
+    }
+
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      title: Text(
-        data['clientName'] ?? 'Client Inconnu',
-        style: GoogleFonts.poppins(
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-          fontSize: 15,
-        ),
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      title: Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white, fontSize: 14)),
       subtitle: Padding(
-        padding: const EdgeInsets.only(top: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "${data['storeName'] ?? ''} • ${data['serviceType'] ?? ''}",
-              style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(CupertinoIcons.clock, size: 14, color: Colors.white54),
-                const SizedBox(width: 4),
-                Text(
-                  data['createdAt'] != null
-                      ? DateFormat('dd MMM HH:mm')
-                      .format((data['createdAt'] as Timestamp).toDate())
-                      : "Date inconnue",
-                  style:
-                  GoogleFonts.poppins(fontSize: 12, color: Colors.white54),
-                ),
-              ],
-            ),
-          ],
-        ),
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(subtitle, style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
       ),
-      trailing:
-      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
-      onTap: () {
-        Navigator.push(
-          context,
-          CupertinoPageRoute(
-            builder: (_) => InterventionDetailsPage(interventionDoc: doc),
-          ),
-        );
-      },
+      trailing: const Icon(CupertinoIcons.chevron_right, color: Colors.white54, size: 16),
+      onTap: onTap,
     );
   }
 
-  Widget _buildSavCard(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      title: Text(
-        data['clientName'] ?? 'Client Inconnu',
-        style: GoogleFonts.poppins(
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-          fontSize: 15,
-        ),
-      ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Text(
-          "${data['productName'] ?? 'Produit'} • ${data['status']}",
-          style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
-        ),
-      ),
-      trailing:
-      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
-      onTap: () {
-        final ticket = SavTicket.fromFirestore(doc);
-        Navigator.push(
-          context,
-          CupertinoPageRoute(
-            builder: (_) => SavTicketDetailsPage(ticket: ticket),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildLivraisonCard(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(CupertinoIcons.cube_box, color: Colors.white70, size: 20),
-      ),
-      title: Text(
-        data['clientName'] ?? 'Client Inconnu',
-        style: GoogleFonts.poppins(
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-          fontSize: 15,
-        ),
-      ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Text(
-          "BL: ${data['bonLivraisonCode'] ?? 'N/A'}",
-          style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
-        ),
-      ),
-      trailing:
-      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
-      onTap: () {
-        Navigator.push(
-          context,
-          CupertinoPageRoute(
-            builder: (_) => LivraisonDetailsPage(livraisonId: doc.id),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSimpleCard(
-      DocumentSnapshot<Map<String, dynamic>> doc, String titleKey, String subKey) {
-    final data = doc.data()!;
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      title: Text(
-        data[titleKey] ?? 'Item',
-        style: GoogleFonts.poppins(
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-          fontSize: 15,
-        ),
-      ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Text(
-          data[subKey] ?? '',
-          style: GoogleFonts.poppins(color: Colors.white60, fontSize: 13),
-        ),
-      ),
-      trailing:
-      const Icon(CupertinoIcons.right_chevron, color: Colors.white30, size: 18),
-      onTap: () {
-        if (titleKey == 'requisitionCode') {
-          Navigator.push(
-            context,
-            CupertinoPageRoute(
-              builder: (_) => RequisitionDetailsPage(
-                requisitionId: doc.id,
-                userRole: _userRole ?? '',
-              ),
-            ),
-          );
-        }
-      },
-    );
+  void _navigateTo(Widget page) {
+    _pauseTimer();
+    Navigator.push(context, CupertinoPageRoute(builder: (_) => page)).then((_) => _resumeTimer());
   }
 }
