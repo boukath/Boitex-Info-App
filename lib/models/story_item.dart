@@ -10,8 +10,9 @@ class StoryItem {
   final String location;
   final String description;
   final String badgeText;
-  final List<String> mediaUrls; // 🚀 NEW: Added mediaUrls
+  final List<String> mediaUrls;
   final DateTime timestamp;
+  final String type; // 🚀 NEW: Added type to differentiate stories
 
   StoryItem({
     required this.id,
@@ -22,8 +23,9 @@ class StoryItem {
     required this.location,
     required this.description,
     required this.badgeText,
-    required this.mediaUrls, // 🚀 NEW
+    required this.mediaUrls,
     required this.timestamp,
+    required this.type, // 🚀 NEW
   });
 
   factory StoryItem.fromFirestore(DocumentSnapshot doc) {
@@ -37,9 +39,9 @@ class StoryItem {
       location: data['location'] ?? '',
       description: data['description'] ?? '',
       badgeText: data['badgeText'] ?? 'INFO',
-      // 🚀 NEW: Safely parse the mediaUrls array
       mediaUrls: data['mediaUrls'] != null ? List<String>.from(data['mediaUrls']) : [],
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      type: data['type'] ?? 'intervention', // 🚀 NEW: Read the actual type
     );
   }
 
@@ -52,9 +54,9 @@ class StoryItem {
       'location': location,
       'description': description,
       'badgeText': badgeText,
-      'mediaUrls': mediaUrls, // 🚀 NEW
+      'mediaUrls': mediaUrls,
       'timestamp': FieldValue.serverTimestamp(),
-      'type': 'intervention',
+      'type': type, // 🚀 FIX: No longer hardcoded!
     };
   }
 }

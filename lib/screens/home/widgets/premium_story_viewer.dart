@@ -357,23 +357,29 @@ class _PremiumStoryViewerState extends State<PremiumStoryViewer> with SingleTick
                       child: Divider(color: Colors.white24, height: 1),
                     ),
 
-                    // --- PROBLEM DESCRIPTION ---
+                    // --- PROBLEM DESCRIPTION / COMPLETION NOTES ---
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.4),
+                          color: Colors.black.withOpacity(0.5), // Slightly darker background for better reading
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.white.withOpacity(0.1))
                       ),
                       child: Text(
-                        "\"${story.description}\"",
+                        // 🚀 PRO UI TWEAK: Don't put quotes around the structured Completion reports
+                        story.type == 'intervention_completed'
+                            ? story.description
+                            : "\"${story.description}\"",
                         style: GoogleFonts.poppins(
                             color: Colors.white,
-                            fontSize: 16,
+                            fontSize: 15, // Slightly smaller to fit the rich text
                             height: 1.4,
-                            fontStyle: FontStyle.italic
+                            // 🚀 PRO UI TWEAK: Normal text for completion, Italic for problems
+                            fontStyle: story.type == 'intervention_completed'
+                                ? FontStyle.normal
+                                : FontStyle.italic
                         ),
-                        maxLines: 4,
+                        maxLines: 8, // 🚀 UPDATED: Increased from 4 to 8 so the 'Solution' text fits!
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

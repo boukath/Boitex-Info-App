@@ -245,6 +245,70 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
   }
 
   // ----------------------------------------------------------------------
+  // 🚀 NEW: Method to publish a story when the intervention is completed
+  // ----------------------------------------------------------------------
+  Future<void> _publishCompletionStory(String interventionId, Map<String, dynamic> data) async {
+    try {
+      // 1. Get the Technicians' names nicely formatted (e.g., "Athmane & Abderrahmane")
+      List<dynamic> techList = data['assignedTechnicians'] ?? [];
+      String techNames = techList.isNotEmpty
+          ? techList.join(' & ')
+          : (data['createdByName'] ?? 'Technicien');
+
+      // 2. Filter Media URLs to NOT repeat the first video/photo!
+      List<String> allMedia = [];
+      if (data['mediaUrls'] != null) {
+        allMedia = List<String>.from(data['mediaUrls']);
+      }
+
+      List<String> newMediaUrls = [];
+      if (allMedia.length > 1) {
+        // Skip the very first media item (index 0) because it was in the creation story
+        newMediaUrls = allMedia.sublist(1);
+      }
+
+      // 3. Format a perfect description using the rich data
+      String systemName = data['systemName'] ?? 'Équipement';
+      String diagnostic = data['diagnostic'] ?? 'Aucun diagnostic détaillé.';
+      String workDone = data['workDone'] ?? 'Intervention clôturée.';
+
+      String finalDescription = "⚙️ $systemName\n\n"
+          "🔍 Diag: $diagnostic\n\n"
+          "🛠️ Solution: $workDone";
+
+      // 4. Extract Store and Client info
+      String storeName = data['storeName'] ?? 'Magasin';
+      String clientName = data['clientName'] ?? 'Client';
+
+      String? storeLogoUrl;
+
+      // 5. Create the Story Document
+      final storyData = {
+        'userId': FirebaseAuth.instance.currentUser?.uid ?? data['createdByUid'],
+        'userName': techNames,
+        'storeName': storeName,
+        'storeLogoUrl': storeLogoUrl,
+        'location': clientName,
+        'description': finalDescription,
+        'badgeText': '✅ TERMINÉ',
+        'mediaUrls': newMediaUrls,
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'intervention_completed',
+      };
+
+      // Save it to the daily_stories collection with a unique ID
+      await FirebaseFirestore.instance
+          .collection('daily_stories')
+          .doc('${interventionId}_completed')
+          .set(storyData);
+
+      debugPrint("✅ Completion story published successfully!");
+    } catch (e) {
+      debugPrint("🚨 Error creating completion story: $e");
+    }
+  }
+
+  // ----------------------------------------------------------------------
   // 💾 DRAFT LOGIC
   // ----------------------------------------------------------------------
   void _onDataChanged() {
@@ -1721,6 +1785,17 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       }
 
       await widget.interventionDoc.reference.update(reportData);
+
+      // 👇 ADDED TRIGGER FOR COMPLETION STORY 👇
+      if (_currentStatus == 'Terminé' && prevStatus != 'Terminé') {
+        // Fetch the latest data snapshot so the story has the newest 'workDone' text
+        DocumentSnapshot updatedDoc = await widget.interventionDoc.reference.get();
+        await _publishCompletionStory(
+            widget.interventionDoc.id,
+            updatedDoc.data() as Map<String, dynamic>
+        );
+      }
+      // 👆 END OF NEW CODE 👆
 
       final String? clientId =
       (widget.interventionDoc.data() ?? {})['clientId'];

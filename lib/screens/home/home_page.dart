@@ -51,32 +51,45 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _syncOldInterventionsToStories() async {
     SensoryEngine.playHeavyClick();
     final yesterday = DateTime.now().subtract(const Duration(hours: 24));
+
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('interventions')
           .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(yesterday))
           .get();
 
+      if (snapshot.docs.isEmpty) return; // Exit early if nothing to sync
+
+      // 1. Create a WriteBatch
+      final batch = FirebaseFirestore.instance.batch();
       int count = 0;
+
       for (var doc in snapshot.docs) {
         final data = doc.data();
-
         String? logoUrl;
+
+        // Note: It's usually better to denormalize the logoUrl into the intervention
+        // document at creation time to avoid this lookup, but this works for now!
         try {
-          final storeDoc = await FirebaseFirestore.instance
-              .collection('clients').doc(data['clientId'])
-              .collection('stores').doc(data['storeId']).get();
-          logoUrl = storeDoc.data()?['logoUrl'];
+          if (data['clientId'] != null && data['storeId'] != null) {
+            final storeDoc = await FirebaseFirestore.instance
+                .collection('clients').doc(data['clientId'])
+                .collection('stores').doc(data['storeId']).get();
+            logoUrl = storeDoc.data()?['logoUrl'];
+          }
         } catch (_) {}
 
+        final storeName = data['storeName']?.toString() ?? 'Magasin';
+        final location = storeName.contains(' - ')
+            ? storeName.split(' - ').last
+            : 'Magasin';
+
         final storyData = {
-          'userId': data['createdByUid'],
-          'userName': data['createdByName'],
-          'storeName': data['storeName'],
+          'userId': data['createdByUid'] ?? 'unknown',
+          'userName': data['createdByName'] ?? 'Technicien',
+          'storeName': storeName,
           'storeLogoUrl': logoUrl,
-          'location': data['storeName'].toString().contains(' - ')
-              ? data['storeName'].toString().split(' - ').last
-              : 'Magasin',
+          'location': location,
           'description': data['requestDescription'] ?? 'Intervention',
           'badgeText': data['interventionCode'] ?? 'INFO',
           'mediaUrls': data['mediaUrls'] ?? [],
@@ -84,13 +97,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           'type': 'intervention',
         };
 
-        await FirebaseFirestore.instance.collection('daily_stories').doc(doc.id).set(storyData);
+        // 2. Add to batch instead of saving immediately
+        final storyRef = FirebaseFirestore.instance.collection('daily_stories').doc(doc.id);
+        batch.set(storyRef, storyData);
         count++;
       }
 
+      // 3. Commit all writes at once!
+      await batch.commit();
+
       if (mounted && count > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ $count interventions synchronisées en stories.'), backgroundColor: Colors.green),
+          SnackBar(content: Text('✅ $count interventions synchronisées.'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
