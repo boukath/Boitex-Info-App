@@ -9,6 +9,10 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:video_player/video_player.dart';
 import 'package:boitex_info_app/models/story_item.dart';
 
+// 🚀 NEW IMPORTS FOR FIRESTORE AND AUTH
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 class PremiumStoryViewer extends StatefulWidget {
   final List<StoryItem> stories;
 
@@ -28,7 +32,23 @@ class _PremiumStoryViewerState extends State<PremiumStoryViewer> with SingleTick
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+
+    // 🚀 1. SORT: Oldest first, newest last (Chronological order)
+    widget.stories.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // 🚀 2. FIND STARTING INDEX: Find the first story the user HAS NOT seen
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      int firstUnseenIndex = widget.stories.indexWhere((s) => !s.viewedBy.contains(currentUser.uid));
+      if (firstUnseenIndex != -1) {
+        _currentIndex = firstUnseenIndex; // Jump to first unseen
+      } else {
+        _currentIndex = 0; // If all viewed, start from the beginning
+      }
+    }
+
+    // 🚀 3. Initialize PageController exactly at the unseen story
+    _pageController = PageController(initialPage: _currentIndex);
 
     _animController = AnimationController(vsync: this, duration: const Duration(seconds: 5));
 
@@ -52,6 +72,25 @@ class _PremiumStoryViewerState extends State<PremiumStoryViewer> with SingleTick
     _videoController?.removeListener(_videoListener);
     _videoController?.dispose();
     super.dispose();
+  }
+
+  // 🚀 4. NEW METHOD: Update Firestore when a story is viewed
+  void _markAsSeen(int index) {
+    if (index < 0 || index >= widget.stories.length) return;
+
+    final story = widget.stories[index];
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser != null && !story.viewedBy.contains(currentUser.uid)) {
+      // Update local UI state immediately to prevent lag
+      setState(() {
+        story.viewedBy.add(currentUser.uid);
+      });
+      // Update Firestore silently in the background
+      FirebaseFirestore.instance.collection('daily_stories').doc(story.id).update({
+        'viewedBy': FieldValue.arrayUnion([currentUser.uid])
+      }).catchError((e) => debugPrint("Failed to update view status: $e"));
+    }
   }
 
   // 🚀 THE SMART VIDEO LISTENER
@@ -119,6 +158,9 @@ class _PremiumStoryViewerState extends State<PremiumStoryViewer> with SingleTick
     _videoController?.removeListener(_videoListener);
     _videoController?.dispose();
     _videoController = null;
+
+    // 🚀 Mark the current story as seen instantly
+    _markAsSeen(_currentIndex);
 
     if (animateToPage) {
       _pageController.animateToPage(

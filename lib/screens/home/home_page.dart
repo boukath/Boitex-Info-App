@@ -642,7 +642,7 @@ class _HoverableProfileChipState extends State<_HoverableProfileChip> {
 }
 
 // ============================================================================
-// 🌟 STEP 2: THE INSTAGRAM-STYLE STORY AVATAR RING
+// 🌟 STEP 2: THE INSTAGRAM-STYLE STORY AVATAR RING (CURRENT USER)
 // ============================================================================
 class _AnimatedStoryAvatar extends StatefulWidget {
   final String displayName;
@@ -673,7 +673,6 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
       PageRouteBuilder(
         opaque: false,
         pageBuilder: (context, animation, secondaryAnimation) {
-          // ✅ USE THE NEW PREMIUM VIEWER
           return PremiumStoryViewer(stories: stories);
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -705,32 +704,55 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
 
         final stories = snapshot.data!.docs.map((doc) => StoryItem.fromFirestore(doc)).toList();
 
+        // 🚀 NEW: Check if the user themselves has unseen stories
+        bool hasUnseen = false;
+        if (currentUser != null) {
+          hasUnseen = stories.any((s) => !s.viewedBy.contains(currentUser.uid));
+        }
+
         return GestureDetector(
           onTap: () => _openStories(context, stories),
           child: Stack(
             alignment: Alignment.center,
             children: [
-              RotationTransition(
-                turns: _spinController,
-                child: Container(
-                  height: 48,
-                  width: 48,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: SweepGradient(
-                      colors: [
-                        Color(0xFFFEDA75), Color(0xFFFA7E1E), Color(0xFFD62976),
-                        Color(0xFF962FBF), Color(0xFF4F5BD5), Color(0xFFFEDA75),
-                      ],
+              // 🚀 Conditional Glow
+              if (hasUnseen)
+                RotationTransition(
+                  turns: _spinController,
+                  child: Container(
+                    height: 48,
+                    width: 48,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: SweepGradient(
+                        colors: [
+                          Color(0xFFFEDA75), Color(0xFFFA7E1E), Color(0xFFD62976),
+                          Color(0xFF962FBF), Color(0xFF4F5BD5), Color(0xFFFEDA75),
+                        ],
+                      ),
                     ),
                   ),
+                )
+              else
+              // 🚀 Static Grey Ring if all stories are viewed
+                Container(
+                  height: 48,
+                  width: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white.withOpacity(0.3), width: 2.0),
+                  ),
                 ),
-              ),
+              // White spacing ring
               Container(
                 height: 42,
                 width: 42,
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                    color: hasUnseen ? Colors.white : Colors.transparent,
+                    shape: BoxShape.circle
+                ),
               ),
+              // Profile Picture
               Container(
                 height: 38,
                 width: 38,
@@ -1121,6 +1143,12 @@ class GlobalStoryFeed extends StatelessWidget {
               final userName = userStories.first.userName;
               final bool isMe = currentUser != null && userId == currentUser.uid;
 
+              // 🚀 NEW: Check if there are any unseen stories for this user
+              bool hasUnseen = false;
+              if (currentUser != null) {
+                hasUnseen = userStories.any((s) => !s.viewedBy.contains(currentUser.uid));
+              }
+
               return Padding(
                 padding: const EdgeInsets.only(right: 16.0),
                 child: _GlobalStoryAvatarRing(
@@ -1128,6 +1156,7 @@ class GlobalStoryFeed extends StatelessWidget {
                   stories: userStories,
                   isMe: isMe,
                   photoUrl: isMe ? currentUser.photoURL : null,
+                  hasUnseen: hasUnseen, // 🚀 Pass the variable down
                 ),
               );
             },
@@ -1143,12 +1172,14 @@ class _GlobalStoryAvatarRing extends StatefulWidget {
   final List<StoryItem> stories;
   final bool isMe;
   final String? photoUrl;
+  final bool hasUnseen; // 🚀 NEW PROPERTY
 
   const _GlobalStoryAvatarRing({
     required this.userName,
     required this.stories,
     required this.isMe,
     this.photoUrl,
+    this.hasUnseen = false, // 🚀 Default to false
   });
 
   @override
@@ -1203,26 +1234,42 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
           Stack(
             alignment: Alignment.center,
             children: [
-              RotationTransition(
-                turns: _spinController,
-                child: Container(
-                  height: 64,
-                  width: 64,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: SweepGradient(
-                      colors: [
-                        Color(0xFFFEDA75), Color(0xFFFA7E1E), Color(0xFFD62976),
-                        Color(0xFF962FBF), Color(0xFF4F5BD5), Color(0xFFFEDA75),
-                      ],
+              // 🚀 Show the spin ONLY if there are unseen stories
+              if (widget.hasUnseen)
+                RotationTransition(
+                  turns: _spinController,
+                  child: Container(
+                    height: 64,
+                    width: 64,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: SweepGradient(
+                        colors: [
+                          Color(0xFFFEDA75), Color(0xFFFA7E1E), Color(0xFFD62976),
+                          Color(0xFF962FBF), Color(0xFF4F5BD5), Color(0xFFFEDA75),
+                        ],
+                      ),
                     ),
                   ),
+                )
+              else
+              // 🚀 If all viewed, show a clean, static grey ring
+                Container(
+                  height: 64,
+                  width: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white.withOpacity(0.3), width: 2.5),
+                  ),
                 ),
-              ),
+              // White cutout ring
               Container(
                 height: 58,
                 width: 58,
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                    color: widget.hasUnseen ? Colors.white : Colors.transparent, // Only solid white if glowing
+                    shape: BoxShape.circle
+                ),
               ),
               Container(
                 height: 52,

@@ -1,4 +1,6 @@
 // lib/models/story_item.dart
+
+// 🚀 FIX: Added the missing Firestore import!
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StoryItem {
@@ -12,7 +14,8 @@ class StoryItem {
   final String badgeText;
   final List<String> mediaUrls;
   final DateTime timestamp;
-  final String type; // 🚀 NEW: Added type to differentiate stories
+  final String type;
+  final List<String> viewedBy; // 🚀 Tracks who has seen this story
 
   StoryItem({
     required this.id,
@@ -25,7 +28,8 @@ class StoryItem {
     required this.badgeText,
     required this.mediaUrls,
     required this.timestamp,
-    required this.type, // 🚀 NEW
+    required this.type,
+    required this.viewedBy,
   });
 
   factory StoryItem.fromFirestore(DocumentSnapshot doc) {
@@ -41,7 +45,9 @@ class StoryItem {
       badgeText: data['badgeText'] ?? 'INFO',
       mediaUrls: data['mediaUrls'] != null ? List<String>.from(data['mediaUrls']) : [],
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      type: data['type'] ?? 'intervention', // 🚀 NEW: Read the actual type
+      type: data['type'] ?? 'intervention',
+      // Safely parse the viewedBy list
+      viewedBy: data['viewedBy'] != null ? List<String>.from(data['viewedBy']) : [],
     );
   }
 
@@ -55,8 +61,9 @@ class StoryItem {
       'description': description,
       'badgeText': badgeText,
       'mediaUrls': mediaUrls,
-      'timestamp': FieldValue.serverTimestamp(),
-      'type': type, // 🚀 FIX: No longer hardcoded!
+      'timestamp': timestamp,
+      'type': type,
+      'viewedBy': viewedBy,
     };
   }
 }

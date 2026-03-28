@@ -276,21 +276,50 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
           "🔍 Diag: $diagnostic\n\n"
           "🛠️ Solution: $workDone";
 
-      // 4. Extract Store and Client info
+      // 4. Extract Store info
       String storeName = data['storeName'] ?? 'Magasin';
-      String clientName = data['clientName'] ?? 'Client';
+      String location = 'Lieu inconnu';
+
+      // Parse the location from the concatenated storeName (usually "Name - Location")
+      if (storeName.contains(' - ')) {
+        List<String> parts = storeName.split(' - ');
+        location = parts.sublist(1).join(' - ');
+      }
 
       String? storeLogoUrl;
+
+      // 🚀 FIX 1 & 2: Fetch the actual store logo and accurate location from Firestore
+      try {
+        final String? clientId = data['clientId'];
+        final String? storeId = data['storeId'];
+        if (clientId != null && storeId != null) {
+          final storeDoc = await FirebaseFirestore.instance
+              .collection('clients')
+              .doc(clientId)
+              .collection('stores')
+              .doc(storeId)
+              .get();
+          if (storeDoc.exists) {
+            storeLogoUrl = storeDoc.data()?['logoUrl'] ?? storeLogoUrl;
+            location = storeDoc.data()?['location'] ?? location;
+          }
+        }
+      } catch (e) {
+        debugPrint("Erreur lors de la récupération du logo du magasin: $e");
+      }
+
+      // 🚀 FIX 3: Keep the INT code in the badge!
+      String intCode = data['interventionCode'] ?? 'INT';
 
       // 5. Create the Story Document
       final storyData = {
         'userId': FirebaseAuth.instance.currentUser?.uid ?? data['createdByUid'],
         'userName': techNames,
         'storeName': storeName,
-        'storeLogoUrl': storeLogoUrl,
-        'location': clientName,
+        'storeLogoUrl': storeLogoUrl, // ✅ NOW HAS THE LOGO
+        'location': location, // ✅ FIXED: Now uses actual location instead of clientName
         'description': finalDescription,
-        'badgeText': '✅ TERMINÉ',
+        'badgeText': '$intCode - ✅ TERMINÉ', // ✅ FIXED: Keeps INT code and adds status!
         'mediaUrls': newMediaUrls,
         'timestamp': FieldValue.serverTimestamp(),
         'type': 'intervention_completed',
