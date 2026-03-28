@@ -47,57 +47,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late Timer _timeTimer;
   late DateTime _currentTime;
 
-  // 🚀 REFRESH / MIGRATION SCRIPT: Triggered by pulling down!
-  Future<void> _syncOldInterventionsToStories() async {
-    SensoryEngine.playHeavyClick();
-    final yesterday = DateTime.now().subtract(const Duration(hours: 24));
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('interventions')
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(yesterday))
-          .get();
-
-      int count = 0;
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-
-        String? logoUrl;
-        try {
-          final storeDoc = await FirebaseFirestore.instance
-              .collection('clients').doc(data['clientId'])
-              .collection('stores').doc(data['storeId']).get();
-          logoUrl = storeDoc.data()?['logoUrl'];
-        } catch (_) {}
-
-        final storyData = {
-          'userId': data['createdByUid'],
-          'userName': data['createdByName'],
-          'storeName': data['storeName'],
-          'storeLogoUrl': logoUrl,
-          'location': data['storeName'].toString().contains(' - ')
-              ? data['storeName'].toString().split(' - ').last
-              : 'Magasin',
-          'description': data['requestDescription'] ?? 'Intervention',
-          'badgeText': data['interventionCode'] ?? 'INFO',
-          'mediaUrls': data['mediaUrls'] ?? [],
-          'timestamp': data['createdAt'],
-          'type': 'intervention',
-        };
-
-        await FirebaseFirestore.instance.collection('daily_stories').doc(doc.id).set(storyData);
-        count++;
-      }
-
-      if (mounted && count > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ $count interventions synchronisées en stories.'), backgroundColor: Colors.green),
-        );
-      }
-    } catch (e) {
-      debugPrint("Migration Error: $e");
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -299,34 +248,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             physics: const BouncingScrollPhysics(),
             slivers: [
               _buildWebHeader(),
-
-              // 🚀 NEW: Added the Global Story Feed to the Web Layout!
-              // We add some dynamic padding so it aligns nicely with the web cards.
               SliverToBoxAdapter(
                 child: FadeTransition(
                   opacity: _fadeAnimation,
                   child: SlideTransition(
                     position: _slideAnimation,
                     child: Padding(
-                      padding: EdgeInsets.only(
-                        top: 40, // Space below the top header
-                        left: math.min((width - 1200) / 2, width * 0.05),
-                        right: math.min((width - 1200) / 2, width * 0.05),
-                      ),
-                      child: const GlobalStoryFeed(),
-                    ),
-                  ),
-                ),
-              ),
-
-              SliverToBoxAdapter(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: SlideTransition(
-                    position: _slideAnimation,
-                    child: Padding(
-                      // Reduced the top vertical padding from 60 to 20 because the story feed is above it now
-                      padding: EdgeInsets.symmetric(horizontal: math.min((width - 1200) / 2, width * 0.05), vertical: 20),
+                      padding: EdgeInsets.symmetric(horizontal: math.min((width - 1200) / 2, width * 0.05), vertical: 60),
                       child: _buildWebServiceCards(context),
                     ),
                   ),
@@ -390,69 +318,67 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         ),
         child: SafeArea(
-          // 🚀 HERE IS THE PULL-TO-REFRESH WRAPPER!
-          child: RefreshIndicator(
-            onRefresh: _syncOldInterventionsToStories,
-            color: const Color(0xFF667EEA),
-            backgroundColor: Colors.white,
-            child: CustomScrollView(
-              physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-              slivers: [
-                SliverToBoxAdapter(
-                  child: FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: SlideTransition(
-                      position: _slideAnimation,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+            slivers: [
+              SliverToBoxAdapter(
+                child: FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: SlideTransition(
+                    position: _slideAnimation,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Image.asset('assets/images/BOITEXINFOBLANC.png', width: 85, height: 85, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(CupertinoIcons.building_2_fill, size: 60, color: Colors.white)),
+
+                              // ⚠️ IMPORTANT: Change this back to the normal _HoverableProfileChip
+                              // You don't need the ring on the profile chip anymore since we have a dedicated bar!
+                              _HoverableProfileChip(displayName: widget.displayName, userRole: widget.userRole),
+                            ],
+                          ),
+                          const SizedBox(height: 32),
+                          _buildGlassContainer(
+                            borderRadius: 40,
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                            blur: 40,
+                            child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Image.asset('assets/images/BOITEXINFOBLANC.png', width: 85, height: 85, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(CupertinoIcons.building_2_fill, size: 60, color: Colors.white)),
-                                _HoverableProfileChip(displayName: widget.displayName, userRole: widget.userRole),
+                                _AnimatedGlassIconButton(icon: CupertinoIcons.sun_max, tooltip: 'Briefing', onPressed: () => Navigator.push(context, _premiumPageTransition(const MorningBriefingSummaryPage()))),
+                                _AnimatedGlassIconButton(icon: CupertinoIcons.car_detailed, tooltip: 'Garage', onPressed: () => Navigator.push(context, _premiumPageTransition(const FleetListPage()))),
+                                _buildNotificationBell(context),
+                                _AnimatedGlassIconButton(icon: CupertinoIcons.settings, tooltip: 'Paramètres', onPressed: () => Navigator.push(context, _premiumPageTransition(GlobalSettingsPage(userRole: widget.userRole)))),
+                                Container(width: 1, height: 30, color: Colors.white.withOpacity(0.3)),
+                                _AnimatedGlassIconButton(icon: CupertinoIcons.power, tooltip: 'Déconnexion', onPressed: () => _handleLogout(context)),
                               ],
                             ),
-                            const SizedBox(height: 32),
-                            _buildGlassContainer(
-                              borderRadius: 40,
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                              blur: 40,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  _AnimatedGlassIconButton(icon: CupertinoIcons.sun_max, tooltip: 'Briefing', onPressed: () => Navigator.push(context, _premiumPageTransition(const MorningBriefingSummaryPage()))),
-                                  _AnimatedGlassIconButton(icon: CupertinoIcons.car_detailed, tooltip: 'Garage', onPressed: () => Navigator.push(context, _premiumPageTransition(const FleetListPage()))),
-                                  _buildNotificationBell(context),
-                                  _AnimatedGlassIconButton(icon: CupertinoIcons.settings, tooltip: 'Paramètres', onPressed: () => Navigator.push(context, _premiumPageTransition(GlobalSettingsPage(userRole: widget.userRole)))),
-                                  Container(width: 1, height: 30, color: Colors.white.withOpacity(0.3)),
-                                  _AnimatedGlassIconButton(icon: CupertinoIcons.power, tooltip: 'Déconnexion', onPressed: () => _handleLogout(context)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
+              ),
 
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 24, bottom: 8),
-                    child: GlobalStoryFeed(),
-                  ),
+              // 🚀 NEW: THE HORIZONTAL INSTAGRAM STORY FEED GOES HERE!
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 24, bottom: 8),
+                  child: GlobalStoryFeed(),
                 ),
+              ),
 
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(24, 10, 24, 100),
-                  sliver: SliverList(delegate: SliverChildListDelegate(_buildMobileCards())),
-                ),
-              ],
-            ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(24, 10, 24, 100), // Adjusted top padding slightly
+                sliver: SliverList(delegate: SliverChildListDelegate(_buildMobileCards())),
+              ),
+            ],
           ),
         ),
       ),
@@ -612,6 +538,8 @@ class _HoverableProfileChipState extends State<_HoverableProfileChip> {
                     ],
                   ),
                   const SizedBox(width: 12),
+
+                  // 🚀 HERE IS THE NEW ANIMATED STORY AVATAR!
                   _AnimatedStoryAvatar(displayName: widget.displayName),
                 ],
               ),
@@ -640,6 +568,7 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
   @override
   void initState() {
     super.initState();
+    // 4 seconds to do a full 360 spin
     _spinController = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
   }
 
@@ -653,10 +582,9 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
     SensoryEngine.playHeavyClick();
     Navigator.of(context).push(
       PageRouteBuilder(
-        opaque: false,
+        opaque: false, // Allows background to peek through if needed
         pageBuilder: (context, animation, secondaryAnimation) {
-          // ✅ USE THE NEW PREMIUM VIEWER
-          return PremiumStoryViewer(stories: stories);
+          return StoryPageViewer(stories: stories);
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
@@ -671,9 +599,11 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
     final photoUrl = currentUser?.photoURL;
     if (currentUser == null) return _buildStaticAvatar(photoUrl);
 
+    // Get timestamp for exactly 24 hours ago
     final yesterday = DateTime.now().subtract(const Duration(hours: 24));
 
     return StreamBuilder<QuerySnapshot>(
+      // 📡 Listen for stories made by this user in the last 24h
       stream: FirebaseFirestore.instance
           .collection('daily_stories')
           .where('userId', isEqualTo: currentUser.uid)
@@ -682,9 +612,11 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          // No stories? Just show the normal boring avatar
           return _buildStaticAvatar(photoUrl);
         }
 
+        // 🌟 WE HAVE STORIES! Parse them.
         final stories = snapshot.data!.docs.map((doc) => StoryItem.fromFirestore(doc)).toList();
 
         return GestureDetector(
@@ -692,6 +624,7 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
           child: Stack(
             alignment: Alignment.center,
             children: [
+              // 1. THE SPINNING GRADIENT RING
               RotationTransition(
                 turns: _spinController,
                 child: Container(
@@ -701,18 +634,27 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
                     shape: BoxShape.circle,
                     gradient: SweepGradient(
                       colors: [
-                        Color(0xFFFEDA75), Color(0xFFFA7E1E), Color(0xFFD62976),
-                        Color(0xFF962FBF), Color(0xFF4F5BD5), Color(0xFFFEDA75),
+                        Color(0xFFFEDA75), // Insta Yellow
+                        Color(0xFFFA7E1E), // Insta Orange
+                        Color(0xFFD62976), // Insta Pink
+                        Color(0xFF962FBF), // Insta Purple
+                        Color(0xFF4F5BD5), // Insta Blue
+                        Color(0xFFFEDA75), // Back to Yellow to loop seamlessly
                       ],
                     ),
                   ),
                 ),
               ),
+              // 2. A WHITE BORDER (To separate ring from photo)
               Container(
                 height: 42,
                 width: 42,
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
               ),
+              // 3. THE ACTUAL AVATAR
               Container(
                 height: 38,
                 width: 38,
@@ -736,6 +678,7 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
     );
   }
 
+  // Fallback if no stories are active
   Widget _buildStaticAvatar(String? photoUrl) {
     return Container(
       height: 44,
@@ -761,6 +704,9 @@ class _AnimatedStoryAvatarState extends State<_AnimatedStoryAvatar> with SingleT
   }
 }
 
+// ============================================================================
+// 📱 STEP 2.5: THE STORY PAGE VIEWER (To swipe between multiple stories)
+// ============================================================================
 class StoryPageViewer extends StatelessWidget {
   final List<StoryItem> stories;
 
@@ -776,13 +722,15 @@ class StoryPageViewer extends StatelessWidget {
         controller: pageController,
         itemCount: stories.length,
         itemBuilder: (context, index) {
-
+          // This uses the Premium UI we built in Step 1!
+          return PremiumStoryViewer(story: stories[index]);
         },
       ),
     );
   }
 }
 
+// [Rest of your _AnimatedGlassIconButton, _HoverableServiceCard code remains EXACTLY the same...]
 class _AnimatedGlassIconButton extends StatefulWidget {
   final IconData icon;
   final String tooltip;
@@ -1038,9 +986,8 @@ class _HoverableMobileServiceCardState extends State<_HoverableMobileServiceCard
     );
   }
 }
-
 // ============================================================================
-// 🌟 THE INSTAGRAM-STYLE GLOBAL STORY FEED
+// 🌟 THE INSTAGRAM-STYLE GLOBAL STORY FEED (UPDATED WITH "VOUS")
 // ============================================================================
 class GlobalStoryFeed extends StatelessWidget {
   const GlobalStoryFeed({super.key});
@@ -1057,6 +1004,7 @@ class GlobalStoryFeed extends StatelessWidget {
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
+        // 🔴 STEP 1: CHANGE THIS ERROR BLOCK!
         if (snapshot.hasError) {
           return Container(
             margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
@@ -1066,14 +1014,19 @@ class GlobalStoryFeed extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.redAccent),
             ),
-            child: Text("🚨 Erreur Firebase: ${snapshot.error}", style: const TextStyle(color: Colors.white, fontSize: 12)),
+            child: Text(
+              "🚨 Erreur Firebase: ${snapshot.error}",
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
           );
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          // If you see this, the story never saved to the database!
           return const SizedBox.shrink();
         }
 
+        // 🧠 SMART GROUPING LOGIC
         final Map<String, List<StoryItem>> groupedStories = {};
         for (var doc in snapshot.data!.docs) {
           final story = StoryItem.fromFirestore(doc);
@@ -1085,9 +1038,10 @@ class GlobalStoryFeed extends StatelessWidget {
 
         List<String> uniqueUsers = groupedStories.keys.toList();
 
+        // 🚀 THE INSTAGRAM FIX: Move current user to the very front!
         if (currentUser != null && uniqueUsers.contains(currentUser.uid)) {
-          uniqueUsers.remove(currentUser.uid);
-          uniqueUsers.insert(0, currentUser.uid);
+          uniqueUsers.remove(currentUser.uid); // Remove from current position
+          uniqueUsers.insert(0, currentUser.uid); // Force to Index 0
         }
 
         return SizedBox(
@@ -1101,6 +1055,8 @@ class GlobalStoryFeed extends StatelessWidget {
               final userId = uniqueUsers[index];
               final userStories = groupedStories[userId]!;
               final userName = userStories.first.userName;
+
+              // Check if this circle belongs to the logged-in user
               final bool isMe = currentUser != null && userId == currentUser.uid;
 
               return Padding(
@@ -1108,8 +1064,8 @@ class GlobalStoryFeed extends StatelessWidget {
                 child: _GlobalStoryAvatarRing(
                   userName: userName,
                   stories: userStories,
-                  isMe: isMe,
-                  photoUrl: isMe ? currentUser.photoURL : null,
+                  isMe: isMe, // Pass the flag down
+                  photoUrl: isMe ? currentUser.photoURL : null, // Use their real photo if it's them!
                 ),
               );
             },
@@ -1158,8 +1114,7 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
       PageRouteBuilder(
         opaque: false,
         pageBuilder: (context, animation, secondaryAnimation) {
-          // ✅ USE THE NEW PREMIUM VIEWER
-          return PremiumStoryViewer(stories: widget.stories);
+          return StoryPageViewer(stories: widget.stories);
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
@@ -1173,8 +1128,81 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
     return colors[name.length % colors.length];
   }
 
+  // 🛠️ TEMPORARY MIGRATION SCRIPT: Run once, then delete!
+  Future<void> _syncOldInterventionsToStories() async {
+    SensoryEngine.playHeavyClick();
+
+    // 1. Look back 24 hours
+    final yesterday = DateTime.now().subtract(const Duration(hours: 24));
+
+    try {
+      // 2. Get all interventions from the last 24 hours
+      final snapshot = await FirebaseFirestore.instance
+          .collection('interventions')
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(yesterday))
+          .get();
+
+      int count = 0;
+
+      // 3. Loop through them and create stories
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+
+        // Let's get the logo URL from the store
+        String? logoUrl;
+        try {
+          final storeDoc = await FirebaseFirestore.instance
+              .collection('clients')
+              .doc(data['clientId'])
+              .collection('stores')
+              .doc(data['storeId'])
+              .get();
+          logoUrl = storeDoc.data()?['logoUrl'];
+        } catch (e) {
+          debugPrint("Could not fetch logo for store: $e");
+        }
+
+        // Create the story document
+        final storyData = {
+          'userId': data['createdByUid'],
+          'userName': data['createdByName'],
+          'storeName': data['storeName'],
+          'storeLogoUrl': logoUrl,
+          // Extract location from "StoreName - Location" format
+          'location': data['storeName'].toString().contains(' - ')
+              ? data['storeName'].toString().split(' - ').last
+              : 'Magasin',
+          'description': data['requestDescription'] ?? 'Intervention',
+          'badgeText': data['interventionCode'] ?? 'INFO',
+          'timestamp': data['createdAt'], // Use the original creation time!
+          'type': 'intervention',
+        };
+
+        // 4. Save to daily_stories (using intervention ID to prevent duplicates)
+        await FirebaseFirestore.instance
+            .collection('daily_stories')
+            .doc(doc.id)
+            .set(storyData);
+
+        count++;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Migration terminée! $count stories générées.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Migration Error: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 🚀 If it's me, show "Vous", otherwise show the first name
     final String displayTitle = widget.isMe ? "Vous" : widget.userName.split(' ').first;
 
     return GestureDetector(
@@ -1206,6 +1234,7 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
                 width: 58,
                 decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
               ),
+              // 🚀 If they have a profile photo, show it! Otherwise, show their initial.
               Container(
                 height: 52,
                 width: 52,
@@ -1231,12 +1260,12 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
           SizedBox(
             width: 70,
             child: Text(
-              displayTitle,
+              displayTitle, // Says "Vous" or "Billel"
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  color: widget.isMe ? Colors.white : Colors.white70,
+                  color: widget.isMe ? Colors.white : Colors.white70, // Make "Vous" slightly brighter
                   fontSize: 12,
                   fontWeight: widget.isMe ? FontWeight.bold : FontWeight.w600,
                   fontFamily: '.SF Pro Text'

@@ -42,14 +42,15 @@ class Client {
   int get hashCode => id.hashCode;
 }
 
-// ✅ UPDATED STORE MODEL: Now includes Contract
+// ✅ UPDATED STORE MODEL: Now includes Contract AND logoUrl for Stories
 class Store {
   final String id;
   final String name;
   final String location;
   final double? latitude;
   final double? longitude;
-  final MaintenanceContract? contract; // 👈 Added Contract
+  final MaintenanceContract? contract;
+  final String? logoUrl; // 👈 Added logoUrl for the Story background
 
   Store({
     required this.id,
@@ -58,6 +59,7 @@ class Store {
     this.latitude,
     this.longitude,
     this.contract,
+    this.logoUrl,
   });
 
   @override
@@ -72,7 +74,7 @@ class Equipment {
   final String id;
   final String name;
   final String serial;
-  final EquipmentWarranty? warranty; // 👈 Added Warranty
+  final EquipmentWarranty? warranty;
 
   Equipment({
     required this.id,
@@ -136,7 +138,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   bool _isResolvingLink = false;
 
   // Data and Loading States
-  // Note: _clients list removed as Omnibar handles it now
   List<Store> _stores = [];
   List<Equipment> _equipments = [];
   bool _isLoadingStores = false;
@@ -168,7 +169,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _scheduledDate ?? now,
-      firstDate: DateTime(2023), // Allow picking past dates for logging
+      firstDate: DateTime(2023),
       lastDate: now.add(const Duration(days: 365)),
     );
     if (picked != null) {
@@ -190,85 +191,38 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   // 💰 BILLING LOGIC ENGINE (THE GATEKEEPER)
   // ----------------------------------------------------------------------
   Map<String, dynamic> _calculateBillingStatus() {
-    // 1. Check Equipment Warranty (Highest Priority)
     if (_selectedEquipment != null && _selectedEquipment!.warranty != null) {
       if (_selectedEquipment!.warranty!.isValid) {
-        return {
-          'status': 'GRATUIT',
-          'reason': 'Sous Garantie Constructeur',
-          'color': Colors.green,
-          'icon': Icons.verified_user,
-        };
+        return {'status': 'GRATUIT', 'reason': 'Sous Garantie Constructeur', 'color': Colors.green, 'icon': Icons.verified_user};
       }
     }
 
-    // 2. Check Store Contract & Credits (Medium Priority)
     if (_selectedStore != null && _selectedStore!.contract != null) {
       final contract = _selectedStore!.contract!;
-
       if (contract.isValidNow) {
-        // 🧠 DECIDE WHICH WALLET TO USE
-        // If type is "Maintenance" or "Préventif" -> Use Preventive Credit
-        // If type is "Dépannage" (or anything else) -> Use Corrective Credit
-
-        // ✅ UPDATED LOGIC: Include 'Préventif'
         bool isPreventive = _selectedInterventionType == 'Maintenance' ||
-            _selectedInterventionType == 'Préventif' || // 👈 Added this
+            _selectedInterventionType == 'Préventif' ||
             _selectedInterventionType == 'Formation';
 
         if (isPreventive) {
-          // CHECK PREVENTIVE WALLET
           if (contract.hasCreditPreventive) {
-            return {
-              'status': 'INCLUS',
-              'reason': 'Crédit Maint.: ${contract.usedPreventive}/${contract.quotaPreventive} utilisés',
-              'color': Colors.teal,
-              'icon': Icons.shield,
-            };
+            return {'status': 'INCLUS', 'reason': 'Crédit Maint.: ${contract.usedPreventive}/${contract.quotaPreventive} utilisés', 'color': Colors.teal, 'icon': Icons.shield};
           } else {
-            return {
-              'status': 'HORS FORFAIT',
-              'reason': 'Quota Maintenance Épuisé',
-              'color': Colors.orange,
-              'icon': Icons.warning_amber,
-            };
+            return {'status': 'HORS FORFAIT', 'reason': 'Quota Maintenance Épuisé', 'color': Colors.orange, 'icon': Icons.warning_amber};
           }
         } else {
-          // CHECK CORRECTIVE WALLET (Default for repairs/other)
           if (contract.hasCreditCorrective) {
-            return {
-              'status': 'INCLUS',
-              'reason': 'Crédit Dépannage: ${contract.usedCorrective}/${contract.quotaCorrective} utilisés',
-              'color': Colors.teal,
-              'icon': Icons.build_circle,
-            };
+            return {'status': 'INCLUS', 'reason': 'Crédit Dépannage: ${contract.usedCorrective}/${contract.quotaCorrective} utilisés', 'color': Colors.teal, 'icon': Icons.build_circle};
           } else {
-            return {
-              'status': 'HORS FORFAIT',
-              'reason': 'Quota Dépannage Épuisé',
-              'color': Colors.orange,
-              'icon': Icons.money_off,
-            };
+            return {'status': 'HORS FORFAIT', 'reason': 'Quota Dépannage Épuisé', 'color': Colors.orange, 'icon': Icons.money_off};
           }
         }
-
       } else {
-        return {
-          'status': 'FACTURABLE',
-          'reason': 'Contrat Expiré',
-          'color': Colors.redAccent,
-          'icon': Icons.attach_money,
-        };
+        return {'status': 'FACTURABLE', 'reason': 'Contrat Expiré', 'color': Colors.redAccent, 'icon': Icons.attach_money};
       }
     }
 
-    // 3. Default (Billable / No Contract)
-    return {
-      'status': 'FACTURABLE',
-      'reason': 'Hors Garantie / Hors Contrat',
-      'color': Colors.deepOrange,
-      'icon': Icons.monetization_on_outlined,
-    };
+    return {'status': 'FACTURABLE', 'reason': 'Hors Garantie / Hors Contrat', 'color': Colors.deepOrange, 'icon': Icons.monetization_on_outlined};
   }
 
   // ----------------------------------------------------------------------
@@ -276,72 +230,44 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   // ----------------------------------------------------------------------
   Future<void> _checkContractAndSuggestMaintenance(Store store) async {
     final contract = store.contract;
-
-    // Safety Checks
     if (contract == null || !contract.isValidNow) return;
 
-    // We only interrupt if they have PREVENTIVE credits left
     if (contract.remainingPreventive > 0) {
-
-      // Show the Dialog
       bool? isPreventive = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Row(
-            children: [
-              Icon(Icons.star, color: Colors.teal),
-              SizedBox(width: 8),
-              Text("Contrat Détecté"),
-            ],
+            children: [Icon(Icons.star, color: Colors.teal), SizedBox(width: 8), Text("Contrat Détecté")],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                "Ce magasin dispose de ${contract.remainingPreventive} visite(s) préventive(s) restante(s) sur son contrat.",
-                style: const TextStyle(fontSize: 14),
-              ),
+              Text("Ce magasin dispose de ${contract.remainingPreventive} visite(s) préventive(s) restante(s) sur son contrat.", style: const TextStyle(fontSize: 14)),
               const SizedBox(height: 12),
-              const Text(
-                "S'agit-il d'une visite de maintenance planifiée ?",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              const Text("S'agit-il d'une visite de maintenance planifiée ?", style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("Non, Dépannage", style: TextStyle(color: Colors.grey)),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Non, Dépannage", style: TextStyle(color: Colors.grey))),
             ElevatedButton.icon(
               onPressed: () => Navigator.pop(ctx, true),
               icon: const Icon(Icons.check_circle_outline),
               label: const Text("Oui, Maintenance"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.white,
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
             ),
           ],
         ),
       );
 
-      // If user said YES, update the Type automatically AND LOCK IT
       if (isPreventive == true) {
         setState(() {
-          _selectedInterventionType = 'Préventif'; // 👈 Auto-select 'Préventif'
-          _isTypeLocked = true; // 🔒 LOCK THE FIELD
+          _selectedInterventionType = 'Préventif';
+          _isTypeLocked = true;
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("✅ Type verrouillé sur 'Préventif' (Crédit déduit)"),
-              backgroundColor: Colors.teal,
-              duration: Duration(seconds: 3),
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ Type verrouillé sur 'Préventif' (Crédit déduit)"), backgroundColor: Colors.teal, duration: Duration(seconds: 3)));
         }
       }
     }
@@ -353,14 +279,10 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   Future<void> _extractCoordinatesFromLink() async {
     String url = _gpsLinkController.text.trim();
     if (url.isEmpty) return;
-
     setState(() => _isResolvingLink = true);
 
     try {
-      // 1. Resolve Short Links (e.g. goo.gl, bit.ly)
-      if (url.contains('goo.gl') ||
-          url.contains('maps.app.goo.gl') ||
-          url.contains('bit.ly')) {
+      if (url.contains('goo.gl') || url.contains('maps.app.goo.gl') || url.contains('bit.ly')) {
         final client = http.Client();
         var request = http.Request('HEAD', Uri.parse(url));
         request.followRedirects = false;
@@ -370,8 +292,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         }
       }
 
-      // 2. Regex to find coordinates in the full URL
-      // Matches patterns like @36.75,3.04 or q=36.75,3.04
       RegExp regExp = RegExp(r'(@|q=)([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
       Match? match = regExp.firstMatch(url);
 
@@ -382,32 +302,16 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                  "✅ Coordonnées extraites ! Elles seront sauvegardées avec l'intervention."),
-              backgroundColor: Colors.green,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ Coordonnées extraites ! Elles seront sauvegardées avec l'intervention."), backgroundColor: Colors.green));
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("❌ Impossible de trouver les coordonnées dans ce lien."),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("❌ Impossible de trouver les coordonnées dans ce lien."), backgroundColor: Colors.orange));
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Erreur lors de l'analyse : $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur lors de l'analyse : $e"), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _isResolvingLink = false);
@@ -423,10 +327,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     try {
       final HttpsCallable callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('generateReportFromNotes');
-      final result = await callable.call<String>({
-        'rawNotes': rawNotes,
-        'context': 'problem_report',
-      });
+      final result = await callable.call<String>({'rawNotes': rawNotes, 'context': 'problem_report'});
       setState(() => _requestController.text = result.data);
     } catch (e) {
       // Handle Error
@@ -447,13 +348,11 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     }
   }
 
-  // ✅ UPDATED: B2 Upload for PlatformFile
   Future<String?> _uploadFileToB2(PlatformFile file, Map<String, dynamic> b2Creds) async {
     try {
       final fileName = file.name;
       final int length = file.size;
 
-      // Ensure proper reading of file bytes for both Web & Mobile
       final Uint8List bytes;
       if (kIsWeb) {
         bytes = file.bytes!;
@@ -493,13 +392,12 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     }
   }
 
-  // ✅ UPDATED: MEDIA PICKER (Single Button File Picker)
   Future<void> _pickFiles() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'mp4', 'mov', 'pdf'],
       allowMultiple: true,
-      withData: kIsWeb, // Required for Flutter Web to load file bytes
+      withData: kIsWeb,
     );
     if (result != null) {
       setState(() {
@@ -546,6 +444,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           latitude: lat,
           longitude: lng,
           contract: contract,
+          logoUrl: data['logoUrl'], // 👈 NOW PARSING THE LOGO URL
         );
       }).toList();
       if (mounted) {
@@ -579,7 +478,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         final data = doc.data();
         EquipmentWarranty? warranty;
 
-        // 1. Try to read explicit warranty map
         if (data['warranty'] != null) {
           try {
             final Map<String, dynamic> warrantyMap = Map<String, dynamic>.from(data['warranty'] as Map);
@@ -589,7 +487,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           }
         }
 
-        // 2. If no explicit warranty is found, fallback to 1-year default based on installationDate!
         if (warranty == null) {
           final Timestamp? installTs = data['installationDate'] ?? data['installDate'] ?? data['createdAt'];
           if (installTs != null) {
@@ -620,11 +517,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
   Future<void> _showAddClientDialog() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => AddClientPage(
-          preselectedServiceType: widget.serviceType,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => AddClientPage(preselectedServiceType: widget.serviceType)),
     );
   }
 
@@ -632,22 +525,18 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     if (_selectedClient == null) return;
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => AddStorePage(clientId: _selectedClient!.id),
-      ),
+      MaterialPageRoute(builder: (_) => AddStorePage(clientId: _selectedClient!.id)),
     );
     _fetchStores(_selectedClient!.id);
   }
 
-  // --- SAVE INTERVENTION ---
+  // --- SAVE INTERVENTION & GENERATE STORY ---
   Future<void> _saveIntervention() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
 
     if (_selectedClient == null || _selectedStore == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez sélectionner un client et un magasin.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez sélectionner un client et un magasin.')));
       return;
     }
 
@@ -687,8 +576,11 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     final storeRef = FirebaseFirestore.instance.collection('clients').doc(_selectedClient!.id).collection('stores').doc(_selectedStore!.id);
 
     try {
+      // 1. Fetch the real creator name dynamically!
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final creatorName = userDoc.data()?['displayName'] ?? 'Utilisateur inconnu';
+
+      String? generatedCode; // To capture the generated INT code for the story
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final counterDoc = await transaction.get(counterRef);
@@ -701,6 +593,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         }
 
         final finalInterventionCode = 'INT-$newCount/$currentYear';
+        generatedCode = finalInterventionCode;
+
         final double? finalLat = _parsedLat ?? _selectedStore!.latitude;
         final double? finalLng = _parsedLng ?? _selectedStore!.longitude;
 
@@ -710,17 +604,10 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
         final billingInfo = _calculateBillingStatus();
 
-        // 📅 Calculate Scheduled Date & Time (if set)
         DateTime? scheduledFullDate;
         if (_scheduledDate != null) {
-          final t = _scheduledTime ?? const TimeOfDay(hour: 9, minute: 0); // Default to 9:00 AM
-          scheduledFullDate = DateTime(
-            _scheduledDate!.year,
-            _scheduledDate!.month,
-            _scheduledDate!.day,
-            t.hour,
-            t.minute,
-          );
+          final t = _scheduledTime ?? const TimeOfDay(hour: 9, minute: 0);
+          scheduledFullDate = DateTime(_scheduledDate!.year, _scheduledDate!.month, _scheduledDate!.day, t.hour, t.minute);
         }
 
         transaction.set(interventionRef, {
@@ -752,6 +639,27 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         transaction.set(counterRef, {'count': newCount, 'lastReset': currentYear});
       });
 
+      // 🌟 STEP 2 (NEW): CREATE THE STORY AFTER SUCCESSFUL SAVE
+      try {
+        final newStory = {
+          'userId': user.uid,
+          'userName': creatorName, // e.g., "Athmane" or "Billel"
+          'storeName': '${_selectedStore!.name} - ${_selectedStore!.location}',
+          'storeLogoUrl': _selectedStore!.logoUrl, // Fetched from our updated Store model!
+          'location': _selectedStore!.location,
+          'description': _requestController.text.trim(),
+          'badgeText': generatedCode ?? 'Nouvelle Demande',
+          'mediaUrls': _uploadedMediaUrls,
+          'timestamp': FieldValue.serverTimestamp(),
+          'type': 'intervention',
+        };
+
+        await FirebaseFirestore.instance.collection('daily_stories').add(newStory);
+      } catch (storyError) {
+        debugPrint("Failed to create story: $storyError");
+        // We catch this so it doesn't break the main save flow if the story fails
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Intervention créée avec succès!'), backgroundColor: Colors.green),
@@ -772,33 +680,13 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
     final base = Theme.of(context);
     return base.copyWith(
       scaffoldBackgroundColor: Colors.transparent,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-      ),
-      cardTheme: CardThemeData(
-        color: Colors.white.withOpacity(0.95),
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF667EEA),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-        ),
-      ),
+      appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0, foregroundColor: Colors.white),
+      cardTheme: CardThemeData(color: Colors.white.withOpacity(0.95), elevation: 8, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24))),
+      inputDecorationTheme: InputDecorationTheme(filled: true, fillColor: const Color(0xFFF8FAFC), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none)),
+      elevatedButtonTheme: ElevatedButtonThemeData(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF667EEA), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), padding: const EdgeInsets.symmetric(vertical: 16))),
     );
   }
 
-  // ✅ UPDATED: Single Button UI & Web/Mobile Safe Images
   Widget _buildMediaSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -806,7 +694,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
         const Text('FICHIERS & MÉDIAS DE SUPPORT', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
 
-        // Show thumbnails if any files are picked
         if (_localFilesToUpload.isNotEmpty) ...[
           Wrap(
             spacing: 12,
@@ -821,20 +708,10 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                   Container(
                     width: 80,
                     height: 80,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
-                      color: Colors.grey.shade100,
-                    ),
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300), color: Colors.grey.shade100),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: isPdf
-                          ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red)
-                          : isVid
-                          ? const Icon(Icons.videocam, size: 40, color: Colors.blue)
-                          : (kIsWeb
-                          ? Image.memory(file.bytes!, fit: BoxFit.cover)
-                          : Image.file(File(file.path!), fit: BoxFit.cover)),
+                      child: isPdf ? const Icon(Icons.picture_as_pdf, size: 40, color: Colors.red) : isVid ? const Icon(Icons.videocam, size: 40, color: Colors.blue) : (kIsWeb ? Image.memory(file.bytes!, fit: BoxFit.cover) : Image.file(File(file.path!), fit: BoxFit.cover)),
                     ),
                   ),
                   Positioned(
@@ -842,13 +719,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                     top: -8,
                     child: GestureDetector(
                       onTap: () => setState(() => _localFilesToUpload.remove(file)),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.cancel, color: Colors.redAccent, size: 24),
-                      ),
+                      child: Container(decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: const Icon(Icons.cancel, color: Colors.redAccent, size: 24)),
                     ),
                   ),
                 ],
@@ -858,18 +729,13 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           const SizedBox(height: 16),
         ],
 
-        // Single Upload Button
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: _isUploadingMedia ? null : _pickFiles,
             icon: const Icon(Icons.attach_file),
             label: const Text('Sélectionner des fichiers'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: const Color(0xFF667EEA),
-              side: const BorderSide(color: Color(0xFF667EEA)),
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFF667EEA), side: const BorderSide(color: Color(0xFF667EEA))),
           ),
         ),
       ],
@@ -887,22 +753,12 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Nouvelle Intervention'),
-          flexibleSpace: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]),
-            ),
-          ),
+          flexibleSpace: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]))),
         ),
         body: Container(
           width: double.infinity,
           height: double.infinity,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Colors.blue.shade50, Colors.purple.shade50, Colors.pink.shade50],
-            ),
-          ),
+          decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.blue.shade50, Colors.purple.shade50, Colors.pink.shade50])),
           child: SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
@@ -919,7 +775,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
 
-                            // 🚀 REPLACED: CLIENT AUTOCOMPLETE WITH OMNIBAR
                             Padding(
                               padding: const EdgeInsets.only(bottom: 16),
                               child: Row(
@@ -927,14 +782,11 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                   Expanded(
                                     child: InterventionOmnibar(
                                       onItemSelected: (result) {
-                                        // Handle Selection (Always Client for now)
                                         setState(() {
                                           _selectedClient = Client(id: result.id, name: result.title);
-                                          // Reset Store when Client changes
                                           _selectedStore = null;
                                           _stores = [];
                                         });
-                                        // Fetch stores for this client
                                         _fetchStores(result.id);
                                       },
                                       onClear: () {
@@ -947,16 +799,11 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  IconButton(
-                                    onPressed: _showAddClientDialog,
-                                    icon: const Icon(Icons.add_circle, size: 32, color: Color(0xFF667EEA)),
-                                    tooltip: "Nouveau Client",
-                                  ),
+                                  IconButton(onPressed: _showAddClientDialog, icon: const Icon(Icons.add_circle, size: 32, color: Color(0xFF667EEA)), tooltip: "Nouveau Client"),
                                 ],
                               ),
                             ),
 
-                            // STORE SELECTION (Visible only after Client selected)
                             if (_selectedClient != null)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 16),
@@ -988,26 +835,18 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                           return TextFormField(
                                             controller: controller,
                                             focusNode: focusNode,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Magasin *',
-                                              suffixIcon: Icon(Icons.arrow_drop_down),
-                                            ),
+                                            decoration: const InputDecoration(labelText: 'Magasin *', suffixIcon: Icon(Icons.arrow_drop_down)),
                                             validator: (value) => _selectedStore == null ? 'Veuillez sélectionner un magasin' : null,
                                           );
                                         },
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    IconButton(
-                                      onPressed: _showAddStoreDialog,
-                                      icon: const Icon(Icons.add_circle, size: 32, color: Color(0xFF667EEA)),
-                                      tooltip: "Nouveau Magasin",
-                                    ),
+                                    IconButton(onPressed: _showAddStoreDialog, icon: const Icon(Icons.add_circle, size: 32, color: Color(0xFF667EEA)), tooltip: "Nouveau Magasin"),
                                   ],
                                 ),
                               ),
 
-                            // EQUIPMENT SELECTION
                             if (_selectedStore != null)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 16),
@@ -1025,33 +864,20 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                     return TextFormField(
                                       controller: controller,
                                       focusNode: focusNode,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Machine / Équipement (Optionnel)',
-                                        prefixIcon: Icon(Icons.settings_input_component),
-                                        suffixIcon: Icon(Icons.arrow_drop_down),
-                                      ),
+                                      decoration: const InputDecoration(labelText: 'Machine / Équipement (Optionnel)', prefixIcon: Icon(Icons.settings_input_component), suffixIcon: Icon(Icons.arrow_drop_down)),
                                     );
                                   },
                                 ),
                               ),
 
-                            // BILLING INFO
                             if (_selectedStore != null)
                               Container(
                                 margin: const EdgeInsets.only(bottom: 24),
                                 padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: (billingInfo['color'] as Color).withOpacity(0.1),
-                                  border: Border.all(color: billingInfo['color'] as Color),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
+                                decoration: BoxDecoration(color: (billingInfo['color'] as Color).withOpacity(0.1), border: Border.all(color: billingInfo['color'] as Color), borderRadius: BorderRadius.circular(16)),
                                 child: Row(
                                   children: [
-                                    CircleAvatar(
-                                      backgroundColor: billingInfo['color'] as Color,
-                                      radius: 24,
-                                      child: Icon(billingInfo['icon'] as IconData, color: Colors.white, size: 28),
-                                    ),
+                                    CircleAvatar(backgroundColor: billingInfo['color'] as Color, radius: 24, child: Icon(billingInfo['icon'] as IconData, color: Colors.white, size: 28)),
                                     const SizedBox(width: 16),
                                     Expanded(
                                       child: Column(
@@ -1066,31 +892,18 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                 ),
                               ),
 
-                            // GPS SECTION
                             if (_selectedStore != null)
                               Container(
                                 margin: const EdgeInsets.only(bottom: 20),
                                 padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.blueGrey.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.blueGrey.shade100),
-                                ),
+                                decoration: BoxDecoration(color: Colors.blueGrey.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blueGrey.shade100)),
                                 child: Column(
                                   children: [
                                     Row(
                                       children: [
-                                        Icon(
-                                          (_selectedStore!.latitude != null || _parsedLat != null) ? Icons.check_circle : Icons.warning_amber_rounded,
-                                          color: (_selectedStore!.latitude != null || _parsedLat != null) ? Colors.green : Colors.orange,
-                                        ),
+                                        Icon((_selectedStore!.latitude != null || _parsedLat != null) ? Icons.check_circle : Icons.warning_amber_rounded, color: (_selectedStore!.latitude != null || _parsedLat != null) ? Colors.green : Colors.orange),
                                         const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            (_selectedStore!.latitude != null) ? "Position Magasin Synchronisée" : (_parsedLat != null) ? "Position prête à être sauvegardée" : "Position GPS manquante",
-                                            style: TextStyle(fontWeight: FontWeight.bold, color: (_selectedStore!.latitude != null || _parsedLat != null) ? Colors.green.shade700 : Colors.orange.shade800),
-                                          ),
-                                        ),
+                                        Expanded(child: Text((_selectedStore!.latitude != null) ? "Position Magasin Synchronisée" : (_parsedLat != null) ? "Position prête à être sauvegardée" : "Position GPS manquante", style: TextStyle(fontWeight: FontWeight.bold, color: (_selectedStore!.latitude != null || _parsedLat != null) ? Colors.green.shade700 : Colors.orange.shade800))),
                                       ],
                                     ),
                                     if (_selectedStore!.latitude == null || _parsedLat != null) ...[
@@ -1099,18 +912,9 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                       const SizedBox(height: 8),
                                       Row(
                                         children: [
-                                          Expanded(
-                                            child: TextFormField(
-                                              controller: _gpsLinkController,
-                                              decoration: const InputDecoration(labelText: 'Coller un lien Google Maps ici', hintText: 'https://goo.gl/maps/...', prefixIcon: Icon(Icons.link)),
-                                            ),
-                                          ),
+                                          Expanded(child: TextFormField(controller: _gpsLinkController, decoration: const InputDecoration(labelText: 'Coller un lien Google Maps ici', hintText: 'https://goo.gl/maps/...', prefixIcon: Icon(Icons.link)))),
                                           const SizedBox(width: 8),
-                                          ElevatedButton(
-                                            onPressed: _isResolvingLink ? null : _extractCoordinatesFromLink,
-                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                                            child: _isResolvingLink ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.search),
-                                          ),
+                                          ElevatedButton(onPressed: _isResolvingLink ? null : _extractCoordinatesFromLink, style: ElevatedButton.styleFrom(backgroundColor: Colors.teal), child: _isResolvingLink ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.search)),
                                         ],
                                       ),
                                     ],
@@ -1118,7 +922,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                 ),
                               ),
 
-                            // INTERVENTION DETAILS
                             Padding(
                               padding: const EdgeInsets.only(bottom: 16),
                               child: DropdownButtonFormField<String>(
@@ -1141,7 +944,6 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                               ),
                             ),
 
-                            // 📅 Scheduled Date & Time Pickers
                             Padding(
                               padding: const EdgeInsets.only(bottom: 16),
                               child: Row(
@@ -1150,17 +952,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                     child: InkWell(
                                       onTap: _pickDate,
                                       child: InputDecorator(
-                                        decoration: const InputDecoration(
-                                          labelText: 'Date d\'Intervention',
-                                          prefixIcon: Icon(Icons.calendar_today),
-                                        ),
-                                        child: Text(
-                                          _scheduledDate != null
-                                              ? DateFormat('dd/MM/yyyy').format(_scheduledDate!)
-                                              : 'Sélectionner Date',
-                                          style: TextStyle(
-                                              color: _scheduledDate != null ? Colors.black87 : Colors.grey.shade600),
-                                        ),
+                                        decoration: const InputDecoration(labelText: 'Date d\'Intervention', prefixIcon: Icon(Icons.calendar_today)),
+                                        child: Text(_scheduledDate != null ? DateFormat('dd/MM/yyyy').format(_scheduledDate!) : 'Sélectionner Date', style: TextStyle(color: _scheduledDate != null ? Colors.black87 : Colors.grey.shade600)),
                                       ),
                                     ),
                                   ),
@@ -1169,17 +962,8 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                     child: InkWell(
                                       onTap: _pickTime,
                                       child: InputDecorator(
-                                        decoration: const InputDecoration(
-                                          labelText: 'Heure',
-                                          prefixIcon: Icon(Icons.access_time),
-                                        ),
-                                        child: Text(
-                                          _scheduledTime != null
-                                              ? _scheduledTime!.format(context)
-                                              : '--:--',
-                                          style: TextStyle(
-                                              color: _scheduledTime != null ? Colors.black87 : Colors.grey.shade600),
-                                        ),
+                                        decoration: const InputDecoration(labelText: 'Heure', prefixIcon: Icon(Icons.access_time)),
+                                        child: Text(_scheduledTime != null ? _scheduledTime!.format(context) : '--:--', style: TextStyle(color: _scheduledTime != null ? Colors.black87 : Colors.grey.shade600)),
                                       ),
                                     ),
                                   ),
@@ -1189,11 +973,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
 
                             Padding(
                               padding: const EdgeInsets.only(bottom: 16),
-                              child: TextFormField(
-                                controller: _clientPhoneController,
-                                decoration: const InputDecoration(labelText: 'Numéro de Téléphone (Optionnel)'),
-                                keyboardType: TextInputType.phone,
-                              ),
+                              child: TextFormField(controller: _clientPhoneController, decoration: const InputDecoration(labelText: 'Numéro de Téléphone (Optionnel)'), keyboardType: TextInputType.phone),
                             ),
 
                             Padding(
@@ -1204,12 +984,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                                 decoration: InputDecoration(
                                   labelText: 'Description de la Demande *',
                                   alignLabelWithHint: true,
-                                  suffixIcon: IconButton(
-                                    icon: const Icon(Icons.auto_awesome),
-                                    color: Colors.grey.shade600,
-                                    tooltip: 'IA: Améliorer le texte',
-                                    onPressed: _generateReportFromKeywords,
-                                  ),
+                                  suffixIcon: IconButton(icon: const Icon(Icons.auto_awesome), color: Colors.grey.shade600, tooltip: 'IA: Améliorer le texte', onPressed: _generateReportFromKeywords),
                                 ),
                                 validator: (v) => v!.isEmpty ? 'Requis' : null,
                               ),
@@ -1222,9 +997,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
                               width: double.infinity,
                               child: ElevatedButton(
                                 onPressed: (_isLoading || _isUploadingMedia) ? null : _saveIntervention,
-                                child: _isLoading
-                                    ? const CircularProgressIndicator(color: Colors.white)
-                                    : Text(_isUploadingMedia ? 'Envoi Média...' : 'Créer Intervention', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : Text(_isUploadingMedia ? 'Envoi Média...' : 'Créer Intervention', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                               ),
                             ),
                           ],
