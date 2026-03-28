@@ -7,8 +7,9 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:boitex_info_app/screens/commercial/add_prospect_page.dart';
 import 'package:boitex_info_app/screens/commercial/prospect_details_page.dart';
 import 'package:boitex_info_app/models/prospect.dart';
-// ✅ Added Import for Leaderboard
 import 'package:boitex_info_app/screens/commercial/commercial_leaderboard_page.dart';
+// ✅ ADDED: Async import for Timer
+import 'dart:async';
 
 class CommercialDashboardPage extends StatefulWidget {
   const CommercialDashboardPage({super.key});
@@ -25,8 +26,10 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
   String? _selectedCommune;
   DateTime? _selectedDate;
 
-  // ⚡ IMPROVEMENT: Hardcoded lists ensures filters are always available
-  // (Copied from AddProspectPage to ensure consistency)
+  // ✅ ADDED: Time Tracking State for Adaptive Colors
+  late Timer _timeTimer;
+  late DateTime _currentTime;
+
   final List<String> _communesAlger = [
     'Alger-Centre', "Sidi M'Hamed", 'El Madania', 'Belouizdad', 'Bab El Oued',
     'Bologhine', 'Casbah', 'Oued Koriche', 'Bir Mourad Raïs', 'El Biar',
@@ -52,6 +55,41 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
     'Autre',
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    // ✅ ADDED: Initialize Time Tracker
+    _currentTime = DateTime.now();
+    _timeTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() => _currentTime = DateTime.now());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    // ✅ ADDED: Cancel timer to prevent memory leaks
+    _timeTimer.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // ✅ ADDED: Adaptive Color Logic
+  List<Color> _getTimeBasedGradientColors() {
+    final hour = _currentTime.hour;
+    if (hour >= 6 && hour < 12) {
+      // Morning
+      return const [Color(0xFF8CA6DB), Color(0xFFFFB347), Color(0xFFFF7B54)];
+    } else if (hour >= 12 && hour < 18) {
+      // Afternoon
+      return const [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)];
+    } else {
+      // Evening/Night
+      return const [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2A0845)];
+    }
+  }
+
   // Helper to extract Commune from address string (Fallback for old data)
   String _getCommuneLegacy(String address) {
     return address.contains('-') ? address.split('-')[0].trim() : address;
@@ -76,79 +114,68 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
   }
 
   // ⚡ KEY IMPROVEMENT: Database-Level Filtering
-  // This builds a specific query for Firestore instead of reading everything
   Stream<QuerySnapshot> _getFilteredStream() {
     Query query = FirebaseFirestore.instance.collection('prospects');
 
-    // 1. Apply Database Filters (Efficient)
     if (_selectedActivity != null) {
       query = query.where('serviceType', isEqualTo: _selectedActivity);
     }
 
     if (_selectedCommune != null) {
-      // Note: This relies on the new 'commune' field we added in Step 2 & 3.
-      // Old docs without this field won't show up when filtering by commune.
       query = query.where('commune', isEqualTo: _selectedCommune);
     }
 
-    // 2. Ordering
     query = query.orderBy('createdAt', descending: true);
-
-    // 3. Limit (Scalability)
-    // We fetch 50 items max to prevent "Read All" billing spikes.
-    // If you need pagination (infinite scroll), that's a future step.
     return query.limit(50).snapshots();
   }
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Commercial"),
-        backgroundColor: const Color(0xFFFF9966),
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          // 🏆 LEADERBOARD BUTTON
-          IconButton(
-            icon: const Icon(Icons.emoji_events),
-            tooltip: "Classement",
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const CommercialLeaderboardPage()),
-              );
-            },
-          ),
-
-          // Filter Reset Action
-          if (_selectedActivity != null || _selectedCommune != null || _selectedDate != null || _searchText.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.filter_alt_off),
-              tooltip: "Réinitialiser les filtres",
-              onPressed: _resetFilters,
-            ),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(0xFFFF9966).withOpacity(0.1),
-              Colors.white,
-            ],
-          ),
+    // ✅ CHANGED: Wrapped Scaffold in AnimatedContainer for full-screen adaptive gradient
+    return AnimatedContainer(
+      duration: const Duration(seconds: 4),
+      curve: Curves.easeInOut,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: _getTimeBasedGradientColors(),
+          stops: const [0.0, 0.5, 1.0],
         ),
-        child: Column(
+      ),
+      child: Scaffold(
+        // ✅ CHANGED: Made Scaffold transparent to show the gradient underneath
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text("Commercial"),
+          // ✅ CHANGED: Made AppBar transparent
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          centerTitle: true,
+          elevation: 0,
+          actions: [
+            // 🏆 LEADERBOARD BUTTON
+            IconButton(
+              icon: const Icon(Icons.emoji_events),
+              tooltip: "Classement",
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const CommercialLeaderboardPage()),
+                );
+              },
+            ),
+
+            // Filter Reset Action
+            if (_selectedActivity != null || _selectedCommune != null || _selectedDate != null || _searchText.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.filter_alt_off),
+                tooltip: "Réinitialiser les filtres",
+                onPressed: _resetFilters,
+              ),
+          ],
+        ),
+        body: Column(
           children: [
             // --- SEARCH & FILTER BAR ---
             Container(
@@ -255,26 +282,24 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
                 builder: (context, snapshot) {
                   // 1. Loading State
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(child: CircularProgressIndicator(color: Colors.white));
                   }
 
                   // 2. Error State
                   if (snapshot.hasError) {
-                    return Center(child: Text("Erreur: ${snapshot.error}"));
+                    return Center(child: Text("Erreur: ${snapshot.error}", style: const TextStyle(color: Colors.white)));
                   }
 
                   // 3. Data Processing & Client-Side Filtering (Search Text)
                   final rawDocs = snapshot.data?.docs ?? [];
 
-                  // We still filter by Text and Date in memory because Firestore
-                  // doesn't support "contains" or complex mixed range queries easily.
                   final filteredDocs = rawDocs.where((doc) {
                     final data = doc.data() as Map<String, dynamic>;
 
                     // A. Text Search
                     final company = (data['companyName'] ?? '').toString().toLowerCase();
                     final contact = (data['contactName'] ?? '').toString().toLowerCase();
-                    final author = (data['authorName'] ?? '').toString().toLowerCase(); // Search by author too
+                    final author = (data['authorName'] ?? '').toString().toLowerCase();
                     final search = _searchText.toLowerCase();
 
                     final matchesText = search.isEmpty ||
@@ -295,23 +320,28 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.filter_list_off, size: 60, color: Colors.grey.withOpacity(0.4)),
+                          Icon(Icons.filter_list_off, size: 60, color: Colors.white.withOpacity(0.6)),
                           const SizedBox(height: 16),
-                          Text(
+                          const Text(
                             "Aucun résultat",
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                           ),
                           if (_selectedActivity != null || _selectedCommune != null)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 8.0),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
                               child: Text(
                                 "(Vérifiez vos filtres Activité/Commune)",
-                                style: TextStyle(color: Colors.orange, fontSize: 12),
+                                style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
                               ),
                             ),
+                          const SizedBox(height: 12),
                           TextButton(
                             onPressed: _resetFilters,
-                            child: const Text("Réinitialiser tout", style: TextStyle(color: Color(0xFFFF9966))),
+                            style: TextButton.styleFrom(
+                                backgroundColor: Colors.white.withOpacity(0.2),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))
+                            ),
+                            child: const Text("Réinitialiser tout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                           )
                         ],
                       ),
@@ -325,14 +355,13 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
                       final doc = filteredDocs[index];
                       final data = doc.data() as Map<String, dynamic>;
 
-                      // ⚡ Use the helper to process data safely
                       final prospectObj = Prospect.fromMap({
                         ...data,
                         'id': doc.id,
                       });
 
                       return Card(
-                        elevation: 2,
+                        elevation: 4,
                         margin: const EdgeInsets.only(bottom: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
@@ -439,7 +468,6 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
                                               const SizedBox(width: 4),
                                               Expanded(
                                                 child: Text(
-                                                  // Use the new field if available, otherwise extraction logic is in the Model now
                                                   prospectObj.commune.isNotEmpty
                                                       ? prospectObj.commune
                                                       : _getCommuneLegacy(prospectObj.address),
@@ -468,19 +496,19 @@ class _CommercialDashboardPageState extends State<CommercialDashboardPage> {
             ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const AddProspectPage(),
-            ),
-          );
-        },
-        backgroundColor: const Color(0xFFFF9966),
-        icon: const Icon(Icons.add_business),
-        label: const Text("Nouveau Prospect"),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const AddProspectPage(),
+              ),
+            );
+          },
+          backgroundColor: const Color(0xFFFF9966),
+          icon: const Icon(Icons.add_business),
+          label: const Text("Nouveau Prospect"),
+        ),
       ),
     );
   }

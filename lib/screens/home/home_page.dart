@@ -459,6 +459,39 @@ class _HoverableProfileChipState extends State<_HoverableProfileChip> {
     return 'Bonsoir,';
   }
 
+  // Smart function specifically mapped to your exact roles
+  String _getSmartRole(String role) {
+    // We convert it to uppercase to ensure it matches regardless of how it was typed in the database
+    final normalizedRole = role.trim().toUpperCase();
+
+    switch (normalizedRole) {
+      case 'RESPONSABLE ADMINISTRATIF':
+        return 'RESP. ADMIN';
+      case 'RESPONSABLE COMMERCIAL':
+        return 'RESP. COM';
+      case 'RESPONSABLE TECHNIQUE':
+        return 'RESP. TECH';
+      case 'RESPONSABLE IT':
+        return 'RESP. IT';
+      case 'CHEF DE PROJET':
+        return 'CHEF PROJET'; // Slightly shortened
+      case 'TECHNICIEN ST':
+        return 'TECH ST';
+      case 'TECHNICIEN IT':
+        return 'TECH IT';
+      case 'ADMIN':
+        return 'ADMIN';
+      case 'PDG':
+        return 'PDG';
+      default:
+      // Fallback: If a new role gets added later and it's too long, cut it off safely
+        if (role.length > 14) {
+          return '${role.substring(0, 12).toUpperCase()}...';
+        }
+        return role.toUpperCase();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -496,12 +529,30 @@ class _HoverableProfileChipState extends State<_HoverableProfileChip> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(_getGreeting(), style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.7), fontFamily: '.SF Pro Text', letterSpacing: 0.2)),
-                      Text(widget.displayName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, fontFamily: '.SF Pro Display', letterSpacing: -0.3)),
+
+                      // Constrained Box for User Name
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 140),
+                        child: Text(
+                            widget.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, fontFamily: '.SF Pro Display', letterSpacing: -0.3)
+                        ),
+                      ),
                       const SizedBox(height: 2),
+
+                      // Constrained Box for the User Role
                       Container(
+                        constraints: const BoxConstraints(maxWidth: 140),
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
-                        child: Text(widget.userRole.toUpperCase(), style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF64D2FF), letterSpacing: 1.0, fontFamily: '.SF Pro Text')),
+                        child: Text(
+                            _getSmartRole(widget.userRole), // Using your custom list!
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF64D2FF), letterSpacing: 1.0, fontFamily: '.SF Pro Text')
+                        ),
                       ),
                     ],
                   ),

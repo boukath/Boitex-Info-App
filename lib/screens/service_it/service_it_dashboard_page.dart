@@ -1,3 +1,5 @@
+// lib/screens/service_it/service_it_dashboard_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 // ✅ ADDED: To detect Web platform for resizing
@@ -6,7 +8,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:ui';
 // ✅ ADDED: For premium 4K fonts
 import 'package:google_fonts/google_fonts.dart';
-
+import 'dart:async'; // Needed for the Timer
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_list_page.dart';
@@ -40,27 +42,51 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  late Timer _timeTimer;
+  late DateTime _currentTime;
 
   @override
   void initState() {
     super.initState();
+    _currentTime = DateTime.now();
+    _timeTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() => _currentTime = DateTime.now());
+      }
+    });
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
     _fadeAnimation =
         CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
-        .animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
+          CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+        );
     _controller.forward();
   }
 
   @override
   void dispose() {
+    _timeTimer.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  // ✅ ADDED: Adaptive Color Logic
+  List<Color> _getTimeBasedGradientColors() {
+    final hour = _currentTime.hour;
+    if (hour >= 6 && hour < 12) {
+      // Morning
+      return const [Color(0xFF8CA6DB), Color(0xFFFFB347), Color(0xFFFF7B54)];
+    } else if (hour >= 12 && hour < 18) {
+      // Afternoon
+      return const [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)];
+    } else {
+      // Evening/Night
+      return const [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2A0845)];
+    }
   }
 
   @override
@@ -80,14 +106,17 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   Widget _buildWebDashboard(BuildContext context, double width) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
+      // ✅ CHANGED: Container is now AnimatedContainer to sync with global time
+      body: AnimatedContainer(
+        duration: const Duration(seconds: 4),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            // Keeping your IT gradient
-            colors: [Color(0xFF06B6D4), Color(0xFF0891B2), Color(0xFF0E7490)],
-            stops: [0.0, 0.5, 1.0],
+            // ✅ CHANGED: Now using our dynamic color function
+            colors: _getTimeBasedGradientColors(),
+            stops: const [0.0, 0.5, 1.0],
           ),
         ),
         child: SafeArea(
@@ -103,7 +132,8 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                     child: Padding(
                       // ✅ FIX: Fixed padding calculation so it never becomes negative when resizing web windows
                       padding: EdgeInsets.symmetric(
-                        horizontal: width > 1200 ? (width - 1200) / 2 : width * 0.05,
+                        horizontal:
+                        width > 1200 ? (width - 1200) / 2 : width * 0.05,
                       ),
                       child: _buildGlassCard(
                         // ✅ Pass the width down to dynamically calculate grid columns
@@ -252,14 +282,17 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
 
   Widget _buildMobileDashboard(BuildContext context, double width) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
+      // ✅ CHANGED: Container is now AnimatedContainer to sync with global time
+      body: AnimatedContainer(
+        duration: const Duration(seconds: 4),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            // Keeping your IT gradient
-            colors: [Color(0xFF06B6D4), Color(0xFF0891B2), Color(0xFF0E7490)],
-            stops: [0.0, 0.5, 1.0],
+            // ✅ CHANGED: Now using our dynamic color function
+            colors: _getTimeBasedGradientColors(),
+            stops: const [0.0, 0.5, 1.0],
           ),
         ),
         child: SafeArea(
@@ -275,7 +308,8 @@ class _ServiceItDashboardPageState extends State<ServiceItDashboardPage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildGlassCard(child: _buildActionsGrid(context, width)),
+                        _buildGlassCard(
+                            child: _buildActionsGrid(context, width)),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -719,7 +753,8 @@ class _ActionCard extends StatelessWidget {
                     highlightColor: Colors.white.withOpacity(0.1),
                     child: Padding(
                       // ✅ ADAPTIVE PADDING based on screen width
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: isWide ? 20 : 12),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 12, vertical: isWide ? 20 : 12),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -793,7 +828,6 @@ class _ActionCard extends StatelessWidget {
             ),
           ),
         ),
-
         if (count > 0)
           Positioned(
             top: -2,

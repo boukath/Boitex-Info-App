@@ -8,7 +8,7 @@ import 'dart:ui';
 import 'package:google_fonts/google_fonts.dart';
 // ✅ ADDED: For Android Home Screen Widget
 import 'package:home_widget/home_widget.dart';
-
+import 'dart:async'; // Needed for the Timer
 import 'package:boitex_info_app/screens/service_technique/intervention_list_page.dart';
 import 'package:boitex_info_app/screens/service_technique/historic_interventions_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_list_page.dart';
@@ -44,10 +44,18 @@ class _ServiceTechniqueDashboardPageState
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  late Timer _timeTimer;
+  late DateTime _currentTime;
 
   @override
   void initState() {
     super.initState();
+    _currentTime = DateTime.now();
+    _timeTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() => _currentTime = DateTime.now());
+      }
+    });
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -67,8 +75,24 @@ class _ServiceTechniqueDashboardPageState
 
   @override
   void dispose() {
+    _timeTimer.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  // ✅ ADDED: Adaptive Color Logic
+  List<Color> _getTimeBasedGradientColors() {
+    final hour = _currentTime.hour;
+    if (hour >= 6 && hour < 12) {
+      // Morning
+      return const [Color(0xFF8CA6DB), Color(0xFFFFB347), Color(0xFFFF7B54)];
+    } else if (hour >= 12 && hour < 18) {
+      // Afternoon
+      return const [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)];
+    } else {
+      // Evening/Night
+      return const [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2A0845)];
+    }
   }
 
   // ✅ UPDATED FUNCTION: Update the Android Home Screen Widget
@@ -105,10 +129,14 @@ class _ServiceTechniqueDashboardPageState
           .get(const GetOptions(source: Source.serverAndCache));
 
       // 3. Save the new counts
-      await HomeWidget.saveWidgetData<String>('interventions_count', interventionsSnap.docs.length.toString());
-      await HomeWidget.saveWidgetData<String>('installations_count', installationsSnap.docs.length.toString());
-      await HomeWidget.saveWidgetData<String>('sav_count', savSnap.docs.length.toString());
-      await HomeWidget.saveWidgetData<String>('missions_count', missionsSnap.docs.length.toString());
+      await HomeWidget.saveWidgetData<String>(
+          'interventions_count', interventionsSnap.docs.length.toString());
+      await HomeWidget.saveWidgetData<String>(
+          'installations_count', installationsSnap.docs.length.toString());
+      await HomeWidget.saveWidgetData<String>(
+          'sav_count', savSnap.docs.length.toString());
+      await HomeWidget.saveWidgetData<String>(
+          'missions_count', missionsSnap.docs.length.toString());
 
       // 4. 🔥 EXPLICIT ANDROID TARGETING: Wake up the native Android code
       await HomeWidget.updateWidget(
@@ -124,12 +152,12 @@ class _ServiceTechniqueDashboardPageState
 
   @override
   Widget build(BuildContext context) {
+    // ✅ CLEANED UP: Only routes to the correct layout without dead code
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
       if (width > 900) {
         return _buildWebDashboard(context, width);
       } else {
-        // ✅ Passed width to mobile dashboard for dynamic adaptability
         return _buildMobileDashboard(context, width);
       }
     });
@@ -139,13 +167,16 @@ class _ServiceTechniqueDashboardPageState
 
   Widget _buildWebDashboard(BuildContext context, double width) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
+      // ✅ APPLIED: AnimatedContainer with dynamic time-based colors
+      body: AnimatedContainer(
+        duration: const Duration(seconds: 4),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
-            stops: [0.0, 0.5, 1.0],
+            colors: _getTimeBasedGradientColors(),
+            stops: const [0.0, 0.5, 1.0],
           ),
         ),
         child: SafeArea(
@@ -159,12 +190,11 @@ class _ServiceTechniqueDashboardPageState
                   child: SlideTransition(
                     position: _slideAnimation,
                     child: Padding(
-                      // ✅ FIX: Fixed padding calculation so it never becomes negative when resizing web windows
                       padding: EdgeInsets.symmetric(
-                        horizontal: width > 1200 ? (width - 1200) / 2 : width * 0.05,
+                        horizontal:
+                        width > 1200 ? (width - 1200) / 2 : width * 0.05,
                       ),
                       child: _buildGlassCard(
-                        // ✅ Pass the width down to dynamically calculate grid columns
                         child: _buildWebActionsGrid(context, width),
                       ),
                     ),
@@ -276,7 +306,6 @@ class _ServiceTechniqueDashboardPageState
   }
 
   Widget _buildWebActionsGrid(BuildContext context, double width) {
-    // ✅ ADAPTABLE GRID FOR WEB: Adjust columns based on actual screen space
     int crossAxisCount = width > 1100 ? 4 : 3;
     double aspectRatio = width > 1100 ? 1.3 : 1.2;
 
@@ -310,13 +339,16 @@ class _ServiceTechniqueDashboardPageState
 
   Widget _buildMobileDashboard(BuildContext context, double width) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
+      // ✅ APPLIED: AnimatedContainer with dynamic time-based colors
+      body: AnimatedContainer(
+        duration: const Duration(seconds: 4),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
-            stops: [0.0, 0.5, 1.0],
+            colors: _getTimeBasedGradientColors(),
+            stops: const [0.0, 0.5, 1.0],
           ),
         ),
         child: SafeArea(
@@ -332,7 +364,8 @@ class _ServiceTechniqueDashboardPageState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildGlassCard(child: _buildActionsGrid(context, width)),
+                        _buildGlassCard(
+                            child: _buildActionsGrid(context, width)),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -488,7 +521,6 @@ class _ServiceTechniqueDashboardPageState
   // ========================= ACTIONS GRID =========================
 
   Widget _buildActionsGrid(BuildContext context, double width) {
-    // ✅ ADAPTABLE GRID FOR MOBILE/TABLET: Adapts columns for smaller screens
     int crossAxisCount = width > 600 ? 3 : 2;
     double aspectRatio = width > 600 ? 1.0 : 0.78;
 
@@ -708,8 +740,6 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ TRUE ADAPTABILITY: We don't just rely on kIsWeb anymore.
-    // We check the exact screen width to ensure perfect scaling regardless of platform!
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isWide = screenWidth > 900;
 
@@ -765,13 +795,12 @@ class _ActionCard extends StatelessWidget {
                         splashColor: Colors.white.withOpacity(0.2),
                         highlightColor: Colors.white.withOpacity(0.1),
                         child: Padding(
-                          // ✅ ADAPTIVE PADDING based on screen width
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: isWide ? 20 : 12),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: isWide ? 20 : 12),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Container(
-                                // ✅ ADAPTIVE ICON BOX
                                 padding: EdgeInsets.all(isWide ? 18 : 12),
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
@@ -804,16 +833,11 @@ class _ActionCard extends StatelessWidget {
                                 child: Icon(
                                   icon,
                                   color: Colors.white,
-                                  // ✅ ADAPTIVE ICON SIZE
                                   size: isWide ? 42 : 28,
                                 ),
                               ),
-
-                              // ✅ ADAPTIVE SPACING
                               SizedBox(height: isWide ? 16 : 8),
-
                               Container(
-                                // ✅ ADAPTIVE CONTAINER HEIGHT
                                 height: isWide ? 54.0 : 40.0,
                                 alignment: Alignment.center,
                                 child: Text(
@@ -822,7 +846,6 @@ class _ActionCard extends StatelessWidget {
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: GoogleFonts.poppins(
-                                    // ✅ ADAPTIVE FONT SIZE
                                     fontSize: isWide ? 16 : 12,
                                     fontWeight: FontWeight.w600,
                                     color: Colors.white,
@@ -840,13 +863,13 @@ class _ActionCard extends StatelessWidget {
                 ),
               ),
             ),
-
             if (count > 0)
               Positioned(
                 top: -2,
                 right: -2,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,

@@ -10,7 +10,7 @@ import 'dart:ui';
 import 'package:google_fonts/google_fonts.dart';
 // ✅ ADDED: To detect Web platform easily if needed
 import 'package:flutter/foundation.dart' show kIsWeb;
-
+import 'dart:async'; // Needed for the Timer
 // SCREEN IMPORTS
 import 'package:boitex_info_app/screens/administration/manage_clients_page.dart';
 import 'package:boitex_info_app/screens/administration/add_project_page.dart';
@@ -51,6 +51,10 @@ class _AdministrationDashboardPageState
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+  // ✅ STATE: For Adaptive Background
+  late Timer _timeTimer;
+  late DateTime _currentTime;
+
   // ✅ STATE: The Ordered List of Action IDs
   List<String> _orderedIds = [];
   bool _isLoadingPrefs = true;
@@ -59,6 +63,15 @@ class _AdministrationDashboardPageState
   @override
   void initState() {
     super.initState();
+
+    // Initialize Time Tracker
+    _currentTime = DateTime.now();
+    _timeTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() => _currentTime = DateTime.now());
+      }
+    });
+
     // Animations
     _controller = AnimationController(
       vsync: this,
@@ -74,6 +87,21 @@ class _AdministrationDashboardPageState
 
     // Load Data
     _loadUserLayout();
+  }
+
+  // ✅ ADAPTIVE COLOR LOGIC
+  List<Color> _getTimeBasedGradientColors() {
+    final hour = _currentTime.hour;
+    if (hour >= 6 && hour < 12) {
+      // Morning
+      return const [Color(0xFF8CA6DB), Color(0xFFFFB347), Color(0xFFFF7B54)];
+    } else if (hour >= 12 && hour < 18) {
+      // Afternoon
+      return const [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)];
+    } else {
+      // Evening/Night
+      return const [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2A0845)];
+    }
   }
 
   // 🔄 LOAD LAYOUT FROM FIRESTORE
@@ -146,6 +174,7 @@ class _AdministrationDashboardPageState
 
   @override
   void dispose() {
+    _timeTimer.cancel(); // Don't forget to cancel the timer!
     _controller.dispose();
     super.dispose();
   }
@@ -157,13 +186,17 @@ class _AdministrationDashboardPageState
       final isWeb = width > 900;
 
       return Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
+        // ✅ CHANGED: Container is now AnimatedContainer
+        body: AnimatedContainer(
+          duration: const Duration(seconds: 4),
+          curve: Curves.easeInOut,
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF667EEA), Color(0xFF764BA2), Color(0xFFF093FB)],
-              stops: [0.0, 0.5, 1.0],
+              // ✅ CHANGED: Now using our dynamic color function
+              colors: _getTimeBasedGradientColors(),
+              stops: const [0.0, 0.5, 1.0],
             ),
           ),
           child: SafeArea(
