@@ -652,6 +652,7 @@ class _AddInterventionPageState extends State<AddInterventionPage> {
           'mediaUrls': _uploadedMediaUrls,
           'timestamp': FieldValue.serverTimestamp(),
           'type': 'intervention',
+          'viewedBy': [user.uid],
         };
 
         await FirebaseFirestore.instance.collection('daily_stories').add(newStory);

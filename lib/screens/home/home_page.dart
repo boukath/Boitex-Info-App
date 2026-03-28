@@ -84,8 +84,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ? storeName.split(' - ').last
             : 'Magasin';
 
+        // 🚀 Extract author UID here
+        final String authorUid = data['createdByUid'] ?? 'unknown';
+
         final storyData = {
-          'userId': data['createdByUid'] ?? 'unknown',
+          'userId': authorUid,
           'userName': data['createdByName'] ?? 'Technicien',
           'storeName': storeName,
           'storeLogoUrl': logoUrl,
@@ -95,6 +98,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           'mediaUrls': data['mediaUrls'] ?? [],
           'timestamp': data['createdAt'],
           'type': 'intervention',
+          // 🚀 FIX: The author has automatically "viewed" their own story!
+          'viewedBy': [authorUid],
         };
 
         // 2. Add to batch instead of saving immediately
@@ -1098,22 +1103,14 @@ class GlobalStoryFeed extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Container(
-            margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.redAccent),
-            ),
-            child: Text("🚨 Erreur Firebase: ${snapshot.error}", style: const TextStyle(color: Colors.white, fontSize: 12)),
-          );
+          return Center(child: Text("🚨 Erreur Firebase: ${snapshot.error}", style: const TextStyle(color: Colors.white)));
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const SizedBox.shrink();
         }
 
+        // 1. Group stories by user
         final Map<String, List<StoryItem>> groupedStories = {};
         for (var doc in snapshot.data!.docs) {
           final story = StoryItem.fromFirestore(doc);
@@ -1125,9 +1122,22 @@ class GlobalStoryFeed extends StatelessWidget {
 
         List<String> uniqueUsers = groupedStories.keys.toList();
 
-        if (currentUser != null && uniqueUsers.contains(currentUser.uid)) {
-          uniqueUsers.remove(currentUser.uid);
-          uniqueUsers.insert(0, currentUser.uid);
+        // 🚀 2. THE MAGIC SORTING LOGIC: Push unseen stories to the front!
+        if (currentUser != null) {
+          uniqueUsers.sort((userA, userB) {
+            bool aHasUnseen = groupedStories[userA]!.any((s) => !s.viewedBy.contains(currentUser.uid));
+            bool bHasUnseen = groupedStories[userB]!.any((s) => !s.viewedBy.contains(currentUser.uid));
+
+            if (aHasUnseen && !bHasUnseen) return -1; // userA has new stories, push left
+            if (!aHasUnseen && bHasUnseen) return 1;  // userB has new stories, push left
+            return 0; // Both seen or both unseen, keep chronological order
+          });
+
+          // 3. Keep "Me" (current user) at the very front always
+          if (uniqueUsers.contains(currentUser.uid)) {
+            uniqueUsers.remove(currentUser.uid);
+            uniqueUsers.insert(0, currentUser.uid);
+          }
         }
 
         return SizedBox(
@@ -1143,7 +1153,7 @@ class GlobalStoryFeed extends StatelessWidget {
               final userName = userStories.first.userName;
               final bool isMe = currentUser != null && userId == currentUser.uid;
 
-              // 🚀 NEW: Check if there are any unseen stories for this user
+              // 🚀 Check if there are any unseen stories for this specific user
               bool hasUnseen = false;
               if (currentUser != null) {
                 hasUnseen = userStories.any((s) => !s.viewedBy.contains(currentUser.uid));
@@ -1155,8 +1165,8 @@ class GlobalStoryFeed extends StatelessWidget {
                   userName: userName,
                   stories: userStories,
                   isMe: isMe,
-                  photoUrl: isMe ? currentUser.photoURL : null,
-                  hasUnseen: hasUnseen, // 🚀 Pass the variable down
+                  photoUrl: isMe ? currentUser?.photoURL : null,
+                  hasUnseen: hasUnseen, // This controls the glow!
                 ),
               );
             },

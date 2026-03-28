@@ -74,22 +74,35 @@ class _PremiumStoryViewerState extends State<PremiumStoryViewer> with SingleTick
     super.dispose();
   }
 
-  // 🚀 4. NEW METHOD: Update Firestore when a story is viewed
-  void _markAsSeen(int index) {
+  // 🚀 4. AGGRESSIVE FIRESTORE SAVE
+  Future<void> _markAsSeen(int index) async {
     if (index < 0 || index >= widget.stories.length) return;
 
     final story = widget.stories[index];
     final currentUser = FirebaseAuth.instance.currentUser;
 
-    if (currentUser != null && !story.viewedBy.contains(currentUser.uid)) {
-      // Update local UI state immediately to prevent lag
+    // If no user, or user already saw it, do nothing
+    if (currentUser == null || story.viewedBy.contains(currentUser.uid)) return;
+
+    // 1. Optimistic UI Update (Stops glow instantly on local device)
+    if (mounted) {
       setState(() {
         story.viewedBy.add(currentUser.uid);
       });
-      // Update Firestore silently in the background
-      FirebaseFirestore.instance.collection('daily_stories').doc(story.id).update({
+    }
+
+    // 2. Force Merge in Firestore
+    try {
+      final docRef = FirebaseFirestore.instance.collection('daily_stories').doc(story.id);
+
+      // Using 'set' with merge: true guarantees it works even if the field was totally missing
+      await docRef.set({
         'viewedBy': FieldValue.arrayUnion([currentUser.uid])
-      }).catchError((e) => debugPrint("Failed to update view status: $e"));
+      }, SetOptions(merge: true));
+
+      debugPrint("✅ View aggressively saved to Firestore for story: ${story.id}");
+    } catch (e) {
+      debugPrint("🚨 FIREBASE WRITE ERROR (Check Security Rules!): $e");
     }
   }
 

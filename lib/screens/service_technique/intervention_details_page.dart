@@ -312,8 +312,11 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       String intCode = data['interventionCode'] ?? 'INT';
 
       // 5. Create the Story Document
+      // 🚀 Get the current user UID (fallback to creator if something goes wrong)
+      final String currentUserUid = FirebaseAuth.instance.currentUser?.uid ?? data['createdByUid'];
+
       final storyData = {
-        'userId': FirebaseAuth.instance.currentUser?.uid ?? data['createdByUid'],
+        'userId': currentUserUid,
         'userName': techNames,
         'storeName': storeName,
         'storeLogoUrl': storeLogoUrl, // ✅ NOW HAS THE LOGO
@@ -323,6 +326,8 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
         'mediaUrls': newMediaUrls,
         'timestamp': FieldValue.serverTimestamp(),
         'type': 'intervention_completed',
+        // 🚀 THE FIX: Automatically mark this completion story as viewed by the person who clicked "Terminer"
+        'viewedBy': [currentUserUid],
       };
 
       // Save it to the daily_stories collection with a unique ID

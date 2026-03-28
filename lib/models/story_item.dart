@@ -34,6 +34,14 @@ class StoryItem {
 
   factory StoryItem.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
+
+    // 🚀 Ensure viewedBy is ALWAYS a mutable, growable list.
+    List<String> parsedViewedBy = [];
+    if (data['viewedBy'] != null) {
+      // Create a brand new, growable list from the dynamic list
+      parsedViewedBy = List<String>.from(data['viewedBy']).toList();
+    }
+
     return StoryItem(
       id: doc.id,
       userId: data['userId'] ?? '',
@@ -46,8 +54,7 @@ class StoryItem {
       mediaUrls: data['mediaUrls'] != null ? List<String>.from(data['mediaUrls']) : [],
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
       type: data['type'] ?? 'intervention',
-      // Safely parse the viewedBy list
-      viewedBy: data['viewedBy'] != null ? List<String>.from(data['viewedBy']) : [],
+      viewedBy: parsedViewedBy, // 🚀 Use the new mutable list
     );
   }
 
