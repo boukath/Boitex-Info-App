@@ -24,7 +24,7 @@ class ActivityLogger {
 
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final userName = userDoc.data()?['displayName'] ?? user.email;
-
+      final expirationDate = DateTime.now().add(const Duration(days: 90));
       await FirebaseFirestore.instance.collection('global_activity_log').add({
         'message': message,
         'category': category,
@@ -41,6 +41,7 @@ class ActivityLogger {
         'userEmail': user.email,
         'userName': userName,
         'timestamp': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(expirationDate),
       });
     } catch (e) {
       print('Error logging activity: $e');

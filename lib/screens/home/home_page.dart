@@ -87,7 +87,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // 🚀 Extract author UID here
         final String authorUid = data['createdByUid'] ?? 'unknown';
 
+        // --- 1. SAVE MAIN INTERVENTION ---
         final storyData = {
+          'interventionId': doc.id,
           'userId': authorUid,
           'userName': data['createdByName'] ?? 'Technicien',
           'storeName': storeName,
@@ -97,6 +99,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           'badgeText': data['interventionCode'] ?? 'INFO',
           'mediaUrls': data['mediaUrls'] ?? [],
           'timestamp': data['createdAt'],
+          'expiresAt': Timestamp.fromDate((data['createdAt'] as Timestamp).toDate().add(const Duration(hours: 48))),
           'type': 'intervention',
           // 🚀 FIX: The author has automatically "viewed" their own story!
           'viewedBy': [authorUid],
@@ -106,6 +109,40 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final storyRef = FirebaseFirestore.instance.collection('daily_stories').doc(doc.id);
         batch.set(storyRef, storyData);
         count++;
+
+        // 🚀 PRO FIX: MULTI-VISIT (JOURNAL ENTRIES) LOGIC
+        // If the intervention is extended, let's fetch the journal entries too!
+        if (data['isExtended'] == true) {
+          final journalSnapshot = await FirebaseFirestore.instance
+              .collection('interventions')
+              .doc(doc.id)
+              .collection('journal_entries')
+              .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(yesterday))
+              .get();
+
+          for (var journalDoc in journalSnapshot.docs) {
+            final journalData = journalDoc.data();
+
+            final journalStoryData = {
+              'interventionId': doc.id,
+              'userId': journalData['technicianId'] ?? authorUid,
+              'userName': journalData['technicianName'] ?? 'Technicien',
+              'storeName': storeName, // Inherit store name from parent
+              'storeLogoUrl': logoUrl,
+              'location': location,
+              'description': journalData['workDone'] ?? 'Mise à jour multi-visite', // Long text goes here!
+              'badgeText': 'MULTI-VISITE', // Custom badge
+              'mediaUrls': journalData['mediaUrls'] ?? [], // Mixed array of photos/videos
+              'timestamp': journalData['date'],
+              'type': 'intervention_completed', // Uses the normal, non-italic text style
+              'viewedBy': [journalData['technicianId'] ?? authorUid],
+            };
+
+            final journalStoryRef = FirebaseFirestore.instance.collection('daily_stories').doc(journalDoc.id);
+            batch.set(journalStoryRef, journalStoryData);
+            count++;
+          }
+        }
       }
 
       // 3. Commit all writes at once!
@@ -113,7 +150,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
       if (mounted && count > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ $count interventions synchronisées.'), backgroundColor: Colors.green),
+          SnackBar(content: Text('✅ $count stories synced (including multi-visits).'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {

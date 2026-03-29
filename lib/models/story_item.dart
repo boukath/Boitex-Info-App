@@ -5,6 +5,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StoryItem {
   final String id;
+
+  // 🚀 NEW: Add interventionId for deep linking
+  final String? interventionId;
+
   final String userId;
   final String userName;
   final String storeName;
@@ -19,6 +23,7 @@ class StoryItem {
 
   StoryItem({
     required this.id,
+    this.interventionId, // 🚀 NEW: Add to constructor
     required this.userId,
     required this.userName,
     required this.storeName,
@@ -44,6 +49,8 @@ class StoryItem {
 
     return StoryItem(
       id: doc.id,
+      // 🚀 NEW: Parse it directly from Firestore
+      interventionId: data['interventionId'],
       userId: data['userId'] ?? '',
       userName: data['userName'] ?? 'Technicien',
       storeName: data['storeName'] ?? 'Boutique',
@@ -60,6 +67,8 @@ class StoryItem {
 
   Map<String, dynamic> toMap() {
     return {
+      // 🚀 NEW: Save it back to Firestore if we ever write the object directly
+      'interventionId': interventionId,
       'userId': userId,
       'userName': userName,
       'storeName': storeName,
