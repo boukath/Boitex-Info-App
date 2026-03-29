@@ -1,12 +1,11 @@
 // lib/screens/administration/add_mission_page.dart
 
-// ✨ BEAUTIFUL COLORFUL MISSION CREATION PAGE
-// Features: Multi-destinations, Vehicle selection, Equipment, Shopping list, Per-person budgets
-
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart'; // 🚀 REQUIRED FOR IOS WIDGETS
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:multi_select_flutter/multi_select_flutter.dart';
+import 'package:google_fonts/google_fonts.dart'; // 🚀 PREMIUM FONTS
 import 'package:boitex_info_app/models/mission.dart';
 import 'package:boitex_info_app/models/vehicle.dart';
 
@@ -18,40 +17,182 @@ class UserViewModel {
   UserViewModel({required this.id, required this.name, required this.role});
 }
 
-class AddMissionPage extends StatefulWidget {
-  // ✅ MODIFIED: Optional parameter for editing an existing mission
-  final Mission? missionToEdit;
+// --- GLASSMORPHISM HELPER WIDGET ---
+class GlassCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final double borderRadius;
+  final double opacity;
 
-  const AddMissionPage({super.key, this.missionToEdit}); // ✅ MODIFIED
+  const GlassCard({
+    super.key,
+    required this.child,
+    this.padding,
+    this.borderRadius = 24.0,
+    this.opacity = 0.65,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: padding ?? const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(opacity),
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 20,
+                spreadRadius: -5,
+              )
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+// 🚀 NEW: CUSTOM ANIMATED GRADIENT SEGMENTED CONTROL 🚀
+class AnimatedGradientSegmentedControl extends StatelessWidget {
+  final String value;
+  final Map<String, String> items;
+  final ValueChanged<String> onChanged;
+  final List<Color> activeGradient;
+
+  const AnimatedGradientSegmentedControl({
+    Key? key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    required this.activeGradient,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final keys = items.keys.toList();
+    final selectedIndex = keys.indexOf(value);
+
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final itemWidth = constraints.maxWidth / keys.length;
+
+          return Stack(
+            children: [
+              // Animated Gradient Thumb
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.fastLinearToSlowEaseIn,
+                left: selectedIndex * itemWidth,
+                top: 0,
+                bottom: 0,
+                width: itemWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: activeGradient,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: activeGradient.first.withOpacity(0.4),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // Clickable Text Areas
+              Row(
+                children: keys.map((key) {
+                  final isSelected = value == key;
+                  return Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onChanged(key),
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 300),
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                            color: isSelected ? Colors.white : Colors.black54,
+                            letterSpacing: 0.3,
+                          ),
+                          child: Text(items[key]!),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class AddMissionPage extends StatefulWidget {
+  final Mission? missionToEdit;
+  const AddMissionPage({super.key, this.missionToEdit});
 
   @override
   State<AddMissionPage> createState() => _AddMissionPageState();
 }
 
-class _AddMissionPageState extends State<AddMissionPage> {
+class _AddMissionPageState extends State<AddMissionPage> with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
 
-  // ✨ COLORS
-  static const gradientColors = [Color(0xFF9C27B0), Color(0xFF00BCD4)];
-  static const sectionColors = {
-    'mission': Color(0xFFF3E5F5),
-    'team': Color(0xFFE3F2FD),
-    'budget': Color(0xFFE8F5E9),
-    'resources': Color(0xFFFFF3E0),
-    'tasks': Color(0xFFFCE4EC),
-  };
+  // ✨ PREMIUM COLORS
+  static const Color kPrimaryColor = Color(0xFF9C27B0); // Purple
+  static const Color kSecondaryColor = Color(0xFF00BCD4); // Cyan
+  static const Color kTextPrimary = Color(0xFF1E293B);
+  static const Color kTextSecondary = Color(0xFF64748B);
+
   static const roleBadgeColors = {
-    'Technicien': Colors.blue,
-    'Manager': Colors.purple,
-    'Admin': Colors.green
+    'Technicien': CupertinoColors.activeBlue,
+    'Manager': CupertinoColors.systemPurple,
+    'Admin': CupertinoColors.activeGreen
   };
 
+  // 🇩🇿 ALGERIA WILAYAS (UPDATED WITH ALL 58)
+  final List<String> _wilayas = [
+    "01 Adrar", "02 Chlef", "03 Laghouat", "04 Oum El Bouaghi", "05 Batna", "06 Béjaïa", "07 Biskra",
+    "08 Béchar", "09 Blida", "10 Bouira", "11 Tamanrasset", "12 Tébessa", "13 Tlemcen", "14 Tiaret",
+    "15 Tizi Ouzou", "16 Alger", "17 Djelfa", "18 Jijel", "19 Sétif", "20 Saïda", "21 Skikda",
+    "22 Sidi Bel Abbès", "23 Annaba", "24 Guelma", "25 Constantine", "26 Médéa", "27 Mostaganem",
+    "28 M'Sila", "29 Mascara", "30 Ouargla", "31 Oran", "32 El Bayadh", "33 Illizi", "34 Bordj Bou Arréridj",
+    "35 Boumerdès", "36 El Tarf", "37 Tindouf", "38 Tissemsilt", "39 El Oued", "40 Khenchela",
+    "41 Souk Ahras", "42 Tipaza", "43 Mila", "44 Aïn Defla", "45 Naâma", "46 Aïn Témouchent",
+    "47 Ghardaïa", "48 Relizane", "49 Timimoun", "50 Bordj Badji Mokhtar", "51 Ouled Djellal",
+    "52 Béni Abbès", "53 In Salah", "54 In Guezzam", "55 Touggourt", "56 Djanet", "57 El M'Ghair",
+    "58 El Meniaa", "59 Aflou", "60 El Abiodh Sidi Cheikh", "61 El Aricha", "62 El Kantara", "63 Barika",
+    "64 Bou Saâda", "65 Bir el-Ater", "66 Ksar El Boukhari", "67 Ksar Chellala", "68 Aïn Oussera", "69 Messaad"
+  ];
+
   // STATE
-  String? _selectedServiceType;
+  String? _selectedServiceType = 'Service Technique';
   final _titleController = TextEditingController();
   final List<String> _destinations = [];
-  final _destinationController = TextEditingController();
   DateTime? _startDate, _endDate;
   List<UserViewModel> _selectedTechnicians = [], _allUsers = [];
   final _taskController = TextEditingController();
@@ -59,7 +200,6 @@ class _AddMissionPageState extends State<AddMissionPage> {
   final Map<String, TextEditingController> _perPersonBudgetControllers = {};
   final _fuelBudgetController = TextEditingController(text: '0');
   final _hotelBudgetController = TextEditingController(text: '0');
-  // ✅ ADDED: Controller for Purchase Budget
   final _purchaseBudgetController = TextEditingController(text: '0');
   Vehicle? _selectedVehicle;
   List<Vehicle> _availableVehicles = [];
@@ -69,23 +209,24 @@ class _AddMissionPageState extends State<AddMissionPage> {
   final List<PurchaseItem> _preMissionPurchases = [];
   final _purchaseNotesController = TextEditingController();
 
-  // ✅ OPTIMIZED: Async initialization
   late Future<void> _loadDataFuture;
+  late AnimationController _bgAnimationController;
 
-  // ✅ NEW: Getter for edit mode
   bool get _isEditMode => widget.missionToEdit != null;
 
   @override
   void initState() {
     super.initState();
     _loadDataFuture = _loadData();
-    // ✅ NEW: Initialize form fields if in edit mode
     if (_isEditMode) {
       _initializeForEdit();
     }
+    _bgAnimationController = AnimationController(
+      duration: const Duration(seconds: 12),
+      vsync: this,
+    )..repeat(reverse: true);
   }
 
-  // ✅ NEW: Function to pre-fill all fields when in edit mode
   void _initializeForEdit() {
     final mission = widget.missionToEdit!;
     _selectedServiceType = mission.serviceType;
@@ -95,28 +236,19 @@ class _AddMissionPageState extends State<AddMissionPage> {
     _startDate = mission.startDate;
     _endDate = mission.endDate;
 
-    // Load tasks. Must create new objects as MissionTasks are final in the list.
     _tasks.addAll(mission.tasks.map((t) => MissionTask.fromJson(t.toJson())));
 
-    // Set budgets in controllers. We rely on _loadData to set per-person controllers after fetching users.
     _fuelBudgetController.text = mission.expenseReport.fuel.budget.toString();
     _hotelBudgetController.text = mission.expenseReport.hotel.budget.toString();
     _purchaseBudgetController.text = mission.expenseReport.purchases.budget.toString();
 
-    // Load resources
     if (mission.resources != null) {
       _equipment.addAll(mission.resources!.equipment);
-
-      // Load pre-mission purchases. Must create new objects for mutability.
       _preMissionPurchases.addAll(mission.resources!.preMissionPurchases.map((p) => PurchaseItem.fromJson(p.toJson())));
       _purchaseNotesController.text = mission.resources!.purchaseNotes;
-
-      // Note: _selectedVehicle is set after _fetchVehicles() completes in _loadData()
     }
   }
 
-
-  // ✅ MODIFIED: Load data now handles post-load initialization for edit mode
   Future<void> _loadData() async {
     try {
       await Future.wait([
@@ -124,21 +256,16 @@ class _AddMissionPageState extends State<AddMissionPage> {
         _fetchVehicles(),
       ]);
 
-      // ✅ POST-LOAD INITIALIZATION FOR EDIT MODE (depends on fetched lists)
       if (_isEditMode) {
         final mission = widget.missionToEdit!;
-
-        // Reconstruct selected technicians and initialize their budget controllers
         if (mounted) {
           setState(() {
             _selectedTechnicians = _allUsers
                 .where((u) => mission.assignedTechniciansIds.contains(u.id))
                 .toList();
 
-            // Initialize per-person budget controllers with saved values
             for (var tech in _selectedTechnicians) {
               final savedBudget = mission.expenseReport.dailyAllowancesPerTechnician[tech.name]?.budget.toString() ?? '0';
-              // Check if controller already exists (shouldn't, but safe check)
               if (!_perPersonBudgetControllers.containsKey(tech.id)) {
                 _perPersonBudgetControllers[tech.id] = TextEditingController(text: savedBudget);
               } else {
@@ -146,24 +273,20 @@ class _AddMissionPageState extends State<AddMissionPage> {
               }
             }
 
-            // Select the assigned vehicle
             if (mission.resources?.vehicleId != null) {
               try {
                 _selectedVehicle = _availableVehicles.firstWhere(
                       (v) => v.id == mission.resources!.vehicleId,
                 );
-              } catch (_) {
-                // Vehicle not found (e.g., deleted or status changed to unavailable). Keep _selectedVehicle null.
-              }
+              } catch (_) {}
             }
-
             _checkVehicleAvailability();
           });
         }
       }
     } catch (e) {
       debugPrint('Error loading data: $e');
-      rethrow; // Allow FutureBuilder to catch error
+      rethrow;
     }
   }
 
@@ -216,7 +339,6 @@ class _AddMissionPageState extends State<AddMissionPage> {
       return;
     }
 
-    // Exclude the current mission if in edit mode
     final currentMissionId = _isEditMode ? widget.missionToEdit!.id : null;
 
     final conflicting = await FirebaseFirestore.instance
@@ -227,10 +349,7 @@ class _AddMissionPageState extends State<AddMissionPage> {
 
     bool hasConflict = false;
     for (var mission in conflicting.docs) {
-      // Skip the current mission when checking for conflicts
-      if (currentMissionId != null && mission.id == currentMissionId) {
-        continue;
-      }
+      if (currentMissionId != null && mission.id == currentMissionId) continue;
 
       final data = mission.data();
       final existingStart = (data['startDate'] as Timestamp).toDate();
@@ -241,18 +360,10 @@ class _AddMissionPageState extends State<AddMissionPage> {
         break;
       }
     }
-    setState(() =>
-    _vehicleAvailabilityStatus = hasConflict ? 'conflict' : 'available');
+    setState(() => _vehicleAvailabilityStatus = hasConflict ? 'conflict' : 'available');
   }
 
-  // ACTIONS
-  void _addDestination() {
-    if (_destinationController.text.trim().isEmpty) return;
-    setState(() {
-      _destinations.add(_destinationController.text.trim());
-      _destinationController.clear();
-    });
-  }
+  // --- ACTIONS ---
 
   void _addTask() {
     if (_taskController.text.trim().isEmpty) return;
@@ -279,63 +390,33 @@ class _AddMissionPageState extends State<AddMissionPage> {
     });
   }
 
-  void _onTeamSelected(List<UserViewModel> selected) {
-    setState(() {
-      _selectedTechnicians = selected;
-      // Create budget controllers for new members
-      for (var tech in selected) {
-        if (!_perPersonBudgetControllers.containsKey(tech.id)) {
-          _perPersonBudgetControllers[tech.id] =
-              TextEditingController(text: '2000');
-        }
-      }
-    });
-  }
-
+  // --- SUBMIT ---
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
     if (_destinations.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ajoutez au moins une destination')),
-      );
+      _showSnack('Ajoutez au moins une destination', Colors.orange);
       return;
     }
     if (_startDate == null || _endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sélectionnez les dates')),
-      );
+      _showSnack('Sélectionnez les dates', Colors.orange);
       return;
     }
     if (_selectedTechnicians.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sélectionnez au moins un membre')),
-      );
+      _showSnack('Sélectionnez au moins un membre', Colors.orange);
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-
-      // --- 1. BUILD COMMON MISSION OBJECTS (EXPENSE REPORT & RESOURCES) ---
       final dailyAllowances = <String, ExpenseCategory>{};
-
-      // Preserve existing 'spent' data and bill URLs in edit mode
       final existingExpenseReport = _isEditMode ? widget.missionToEdit!.expenseReport : null;
 
       for (var tech in _selectedTechnicians) {
-        final budget = double.tryParse(
-            _perPersonBudgetControllers[tech.id]?.text ?? '0') ??
-            0.0;
-
-        // Use existing 'spent' and 'billUrls' if updating
+        final budget = double.tryParse(_perPersonBudgetControllers[tech.id]?.text ?? '0') ?? 0.0;
         final spent = existingExpenseReport?.dailyAllowancesPerTechnician[tech.name]?.spent ?? 0.0;
         final billUrls = existingExpenseReport?.dailyAllowancesPerTechnician[tech.name]?.billUrls;
 
-        dailyAllowances[tech.name] = ExpenseCategory(
-          budget: budget,
-          spent: spent,
-          billUrls: billUrls,
-        );
+        dailyAllowances[tech.name] = ExpenseCategory(budget: budget, spent: spent, billUrls: billUrls);
       }
 
       final expenseReport = ExpenseReport(
@@ -357,7 +438,6 @@ class _AddMissionPageState extends State<AddMissionPage> {
         ),
       );
 
-      // Build resources
       final resources = MissionResources(
         vehicleId: _selectedVehicle?.id,
         vehicleModel: _selectedVehicle?.model,
@@ -367,17 +447,11 @@ class _AddMissionPageState extends State<AddMissionPage> {
         purchaseNotes: _purchaseNotesController.text.trim(),
       );
 
-      // --- 2. HANDLE CREATION VS. UPDATE ---
       if (_isEditMode) {
-        // ✅ EDIT MODE: UPDATE EXISTING DOCUMENT
-        if (widget.missionToEdit!.id == null) {
-          throw Exception("Mission ID is missing for update.");
-        }
-
+        if (widget.missionToEdit!.id == null) throw Exception("Mission ID is missing for update.");
         final missionId = widget.missionToEdit!.id!;
 
         final updatedData = {
-          // Fields that can be modified
           'serviceType': _selectedServiceType!,
           'title': _titleController.text.trim(),
           'destinations': _destinations,
@@ -391,29 +465,19 @@ class _AddMissionPageState extends State<AddMissionPage> {
           'resources': resources.toJson(),
         };
 
-        await FirebaseFirestore.instance
-            .collection('missions')
-            .doc(missionId)
-            .update(updatedData);
+        await FirebaseFirestore.instance.collection('missions').doc(missionId).update(updatedData);
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Mission mise à jour avec succès!')),
-          );
-          Navigator.pop(context); // Close the edit page
+          _showSnack('Mission mise à jour avec succès!', Colors.green);
+          Navigator.pop(context);
         }
       } else {
-        // ✅ CREATION MODE: ORIGINAL LOGIC INSIDE TRANSACTION
         await FirebaseFirestore.instance.runTransaction((transaction) async {
           final currentYear = DateTime.now().year;
-          final counterRef = FirebaseFirestore.instance
-              .collection('counters')
-              .doc('mission_counter_$currentYear');
+          final counterRef = FirebaseFirestore.instance.collection('counters').doc('mission_counter_$currentYear');
           final counterSnap = await transaction.get(counterRef);
           final newCount = ((counterSnap.data()?['count'] as int?) ?? 0) + 1;
           final missionCode = 'MISS-$newCount/$currentYear';
-
-          // Build expense report with per-person budgets (using the one defined above which defaults to 0 spent)
 
           final mission = Mission(
             missionCode: missionCode,
@@ -423,10 +487,8 @@ class _AddMissionPageState extends State<AddMissionPage> {
             startDate: _startDate!,
             endDate: _endDate!,
             assignedTechniciansIds: _selectedTechnicians.map((t) => t.id).toList(),
-            assignedTechniciansNames:
-            _selectedTechnicians.map((t) => t.name).toList(),
-            assignedTechniciansRoles:
-            _selectedTechnicians.map((t) => t.role).toList(),
+            assignedTechniciansNames: _selectedTechnicians.map((t) => t.name).toList(),
+            assignedTechniciansRoles: _selectedTechnicians.map((t) => t.role).toList(),
             tasks: _tasks,
             status: 'Planifiée',
             expenseReport: expenseReport,
@@ -441,162 +503,488 @@ class _AddMissionPageState extends State<AddMissionPage> {
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Mission créée avec succès!')),
-          );
+          _showSnack('Mission créée avec succès!', Colors.green);
           Navigator.pop(context);
         }
       }
-
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
-      }
+      if (mounted) _showSnack('Erreur: $e', Colors.redAccent);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        // ✅ MODIFIED: Dynamic title based on mode
-        title: Text(_isEditMode ? '✏️ Modifier Mission' : '✨ Créer une Mission'),
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: gradientColors,
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
+  void _showSnack(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
+        backgroundColor: color,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        behavior: SnackBarBehavior.floating,
       ),
-      body: FutureBuilder<void>(
-        future: _loadDataFuture,
-        builder: (context, snapshot) {
-          // ✅ LOADING STATE
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.purple),
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // 🚀 IOS NATIVE SHEETS & PICKERS
+  // ----------------------------------------------------------------------
+
+  // 🇩🇿 NEW: IOS DESTINATION SELECTOR
+  void _openIOSDestinationSelector() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (context, setStateSB) {
+            final filteredItems = _wilayas.where((w) {
+              return w.toLowerCase().contains(searchQuery.toLowerCase());
+            }).toList();
+
+            return FractionallySizedBox(
+              heightFactor: 0.88,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 12, bottom: 8),
+                          width: 40, height: 5,
+                          decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10)),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Text('Sélectionner une Wilaya', style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.bold, color: kTextPrimary)),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: CupertinoSearchTextField(
+                            placeholder: 'Rechercher une Wilaya ou Ville...',
+                            onChanged: (val) => setStateSB(() => searchQuery = val),
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.separated(
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: filteredItems.length + 1,
+                            separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+                            itemBuilder: (context, index) {
+                              if (index == filteredItems.length) {
+                                return ListTile(
+                                  leading: const Icon(CupertinoIcons.location_solid, color: kPrimaryColor),
+                                  title: Text('Autre destination : "$searchQuery"', style: const TextStyle(color: kPrimaryColor, fontWeight: FontWeight.bold)),
+                                  onTap: () {
+                                    if (searchQuery.trim().isNotEmpty) {
+                                      setState(() => _destinations.add(searchQuery.trim()));
+                                      Navigator.pop(context);
+                                    }
+                                  },
+                                );
+                              }
+                              final item = filteredItems[index];
+                              return ListTile(
+                                title: Text(item, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+                                trailing: const Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
+                                onTap: () {
+                                  setState(() => _destinations.add(item));
+                                  Navigator.pop(context);
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Chargement des données...',
-                    style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                  ),
-                ],
+                ),
               ),
             );
-          }
+          },
+        );
+      },
+    );
+  }
 
-          // ✅ ERROR STATE
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
+  Future<void> _selectDate({required bool isStart}) async {
+    DateTime initialDate = (isStart ? _startDate : _endDate) ?? DateTime.now();
+    DateTime firstDate = isStart
+        ? (_isEditMode ? DateTime(initialDate.year - 1) : DateTime.now())
+        : (_startDate ?? DateTime.now());
+
+    if (initialDate.isBefore(firstDate)) initialDate = firstDate;
+
+    DateTime tempPickedDate = initialDate;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext builder) {
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          child: Container(
+            height: 320,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.85),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+              border: Border.all(color: Colors.white, width: 1.5),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.black12))),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Annuler', style: TextStyle(color: Colors.redAccent, fontSize: 16)),
+                      ),
+                      Text(isStart ? 'Date de Début' : 'Date de Fin', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: kTextPrimary)),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            if (isStart) {
+                              _startDate = tempPickedDate;
+                              if (_endDate != null && _endDate!.isBefore(_startDate!)) {
+                                _endDate = _startDate;
+                              }
+                            } else {
+                              _endDate = tempPickedDate;
+                            }
+                          });
+                          _checkVehicleAvailability();
+                          Navigator.of(context).pop();
+                        },
+                        child: const Text('Confirmer', style: TextStyle(color: CupertinoColors.activeBlue, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: CupertinoDatePicker(
+                    mode: CupertinoDatePickerMode.date,
+                    initialDateTime: tempPickedDate,
+                    minimumDate: firstDate,
+                    maximumDate: DateTime(2030),
+                    onDateTimeChanged: (DateTime newDate) {
+                      tempPickedDate = newDate;
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _openIOSTechnicianSelector() {
+    List<UserViewModel> tempSelected = List.from(_selectedTechnicians);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setStateSB) {
+            return FractionallySizedBox(
+              heightFactor: 0.75,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 12, bottom: 8),
+                          width: 40, height: 5,
+                          decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10)),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler', style: TextStyle(color: Colors.redAccent, fontSize: 16))),
+                              Text('Équipe Mission', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: kTextPrimary)),
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedTechnicians = tempSelected;
+                                    for (var tech in _selectedTechnicians) {
+                                      if (!_perPersonBudgetControllers.containsKey(tech.id)) {
+                                        _perPersonBudgetControllers[tech.id] = TextEditingController(text: '2000');
+                                      }
+                                    }
+                                  });
+                                  Navigator.pop(context);
+                                },
+                                child: const Text('Valider', style: TextStyle(color: CupertinoColors.activeBlue, fontWeight: FontWeight.bold, fontSize: 16)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        Expanded(
+                          child: ListView.separated(
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: _allUsers.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+                            itemBuilder: (context, index) {
+                              final tech = _allUsers[index];
+                              final isSelected = tempSelected.any((t) => t.id == tech.id);
+
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: (roleBadgeColors[tech.role] ?? Colors.grey).withOpacity(0.1),
+                                  child: Icon(CupertinoIcons.person_fill, color: roleBadgeColors[tech.role] ?? Colors.grey),
+                                ),
+                                title: Text(tech.name, style: TextStyle(color: isSelected ? kPrimaryColor : kTextPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.w600)),
+                                subtitle: Text(tech.role, style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                                trailing: isSelected ? const Icon(CupertinoIcons.checkmark_alt, color: kPrimaryColor) : null,
+                                onTap: () {
+                                  setStateSB(() {
+                                    if (isSelected) {
+                                      tempSelected.removeWhere((t) => t.id == tech.id);
+                                    } else {
+                                      tempSelected.add(tech);
+                                    }
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _openIOSVehicleSelector() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return FractionallySizedBox(
+          heightFactor: 0.6,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                ),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Erreur de chargement',
-                      style:
-                      TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    Container(
+                      margin: const EdgeInsets.only(top: 12, bottom: 8),
+                      width: 40, height: 5,
+                      decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10)),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${snapshot.error}',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey[600]),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text('Sélectionner un Véhicule', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: kTextPrimary)),
                     ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() => _loadDataFuture = _loadData());
-                      },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Réessayer'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.purple,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 32, vertical: 16),
+                    Expanded(
+                      child: ListView.separated(
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: _availableVehicles.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+                        itemBuilder: (context, index) {
+                          final v = _availableVehicles[index];
+                          final isSelected = _selectedVehicle?.id == v.id;
+                          return ListTile(
+                            leading: const Icon(CupertinoIcons.car_detailed, color: CupertinoColors.activeBlue),
+                            title: Text(v.displayName, style: TextStyle(color: isSelected ? CupertinoColors.activeBlue : kTextPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.w600)),
+                            trailing: isSelected ? const Icon(CupertinoIcons.checkmark_alt, color: CupertinoColors.activeBlue) : null,
+                            onTap: () {
+                              setState(() {
+                                _selectedVehicle = v;
+                              });
+                              _checkVehicleAvailability();
+                              Navigator.pop(context);
+                            },
+                          );
+                        },
                       ),
                     ),
                   ],
                 ),
               ),
-            );
-          }
-
-          // ✅ SUCCESS - SHOW FORM
-          return _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Form(
-            key: _formKey,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _buildMissionInfoSection(),
-                const SizedBox(height: 16),
-                _buildTeamSection(),
-                const SizedBox(height: 16),
-                _buildBudgetSection(),
-                const SizedBox(height: 16),
-                _buildResourcesSection(),
-                const SizedBox(height: 16),
-                _buildTasksSection(),
-                const SizedBox(height: 24),
-                _buildSubmitButton(),
-              ],
             ),
-          );
-        },
+          ),
+        );
+      },
+    );
+  }
+
+
+  // ----------------------------------------------------------------------
+  // 🖥️ UI BUILDERS
+  // ----------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(color: Colors.white.withOpacity(0.4)),
+          ),
+        ),
+        foregroundColor: kTextPrimary,
+        centerTitle: true,
+        title: Text(
+          _isEditMode ? 'Modifier Mission' : 'Créer une Mission',
+          style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 22, letterSpacing: -0.5),
+        ),
+      ),
+      body: Stack(
+        children: [
+          // 🚀 4K ANIMATED GRADIENT BACKGROUND
+          AnimatedBuilder(
+            animation: _bgAnimationController,
+            builder: (context, child) {
+              return Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.lerp(const Color(0xFFF3E5F5), const Color(0xFFE0F7FA), _bgAnimationController.value)!,
+                      Color.lerp(const Color(0xFFE0F7FA), const Color(0xFFFCE4EC), _bgAnimationController.value)!,
+                      Color.lerp(const Color(0xFFFCE4EC), const Color(0xFFF3E5F5), _bgAnimationController.value)!,
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          SafeArea(
+            child: FutureBuilder<void>(
+              future: _loadDataFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(color: kPrimaryColor));
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Erreur: ${snapshot.error}'));
+                }
+
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 850),
+                    child: Form(
+                      key: _formKey,
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.all(20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildSectionTitle("Informations Générales", CupertinoIcons.doc_text_fill),
+                            _buildMissionInfoSection(),
+                            const SizedBox(height: 24),
+
+                            _buildSectionTitle("Équipe & Assignations", CupertinoIcons.person_2_fill),
+                            _buildTeamSection(),
+                            const SizedBox(height: 24),
+
+                            _buildSectionTitle("Budget Prévisionnel", CupertinoIcons.money_euro_circle_fill),
+                            _buildBudgetSection(),
+                            const SizedBox(height: 24),
+
+                            _buildSectionTitle("Ressources & Logistique", CupertinoIcons.car_detailed),
+                            _buildResourcesSection(),
+                            const SizedBox(height: 24),
+
+                            _buildSectionTitle("Tâches à Réaliser", CupertinoIcons.check_mark_circled_solid),
+                            _buildTasksSection(),
+                            const SizedBox(height: 40),
+
+                            _buildSubmitButton(),
+                            const SizedBox(height: 60),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  // SECTION BUILDERS
-  Widget _buildMissionInfoSection() {
-    return _buildSection(
-      title: '📋 INFORMATIONS MISSION',
-      color: sectionColors['mission']!,
-      child: Column(
+  // --- SECTION WIDGETS ---
+
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 8),
+      child: Row(
         children: [
-          DropdownButtonFormField<String>(
-            value: _selectedServiceType,
-            decoration: const InputDecoration(
-              labelText: 'Type de Service',
-              border: OutlineInputBorder(),
-            ),
-            items: ['Service Technique', 'Service IT']
-                .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                .toList(),
-            onChanged: (val) => setState(() => _selectedServiceType = val),
-            validator: (v) => v == null ? 'Requis' : null,
+          Icon(icon, color: kPrimaryColor, size: 20),
+          const SizedBox(width: 10),
+          Text(title, style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: kTextPrimary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMissionInfoSection() {
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedGradientSegmentedControl(
+            value: _selectedServiceType ?? 'Service Technique',
+            items: const {
+              'Service Technique': 'Technique',
+              'Service IT': 'IT',
+            },
+            activeGradient: const [Color(0xFF9C27B0), Color(0xFF00BCD4)], // Purple to Cyan
+            onChanged: (value) {
+              setState(() => _selectedServiceType = value);
+            },
           ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _titleController,
-            decoration: const InputDecoration(
-              labelText: 'Titre de la Mission',
-              border: OutlineInputBorder(),
-            ),
-            validator: (v) => v == null || v.isEmpty ? 'Requis' : null,
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'DESTINATIONS (glissez pour réordonner):',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
+          const SizedBox(height: 16),
+          _buildGlassTextField(controller: _titleController, labelText: 'Titre de la Mission', icon: CupertinoIcons.tag, isRequired: true),
+          const SizedBox(height: 20),
+
+          Text('Destinations', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kTextPrimary)),
           const SizedBox(height: 8),
           if (_destinations.isNotEmpty)
             ReorderableListView.builder(
@@ -611,84 +999,118 @@ class _AddMissionPageState extends State<AddMissionPage> {
                 });
               },
               itemBuilder: (context, index) {
-                return Card(
+                return Container(
                   key: ValueKey(_destinations[index]),
                   margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: ListTile(
                     leading: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.drag_handle, color: Colors.grey),
+                        const Icon(CupertinoIcons.bars, color: Colors.black26),
                         const SizedBox(width: 8),
-                        CircleAvatar(
-                          child: Text('${index + 1}'),
-                          backgroundColor: Colors.purple.shade100,
-                        ),
+                        CircleAvatar(radius: 14, backgroundColor: kPrimaryColor.withOpacity(0.2), child: Text('${index + 1}', style: const TextStyle(color: kPrimaryColor, fontSize: 12, fontWeight: FontWeight.bold))),
                       ],
                     ),
-                    title: Text(_destinations[index]),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.red),
-                      onPressed: () =>
-                          setState(() => _destinations.removeAt(index)),
-                    ),
+                    title: Text(_destinations[index], style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                    trailing: IconButton(icon: const Icon(CupertinoIcons.minus_circle_fill, color: Colors.redAccent), onPressed: () => setState(() => _destinations.removeAt(index))),
                   ),
                 );
               },
             ),
+
+          // 🚀 FIX: iOS Wilaya Auto-Complete Input
+          GestureDetector(
+            onTap: _openIOSDestinationSelector,
+            child: Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+              child: Row(
+                children: [
+                  const Icon(CupertinoIcons.location_solid, color: Colors.black54),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      'Ajouter une Wilaya ou Destination',
+                      style: GoogleFonts.inter(color: kTextSecondary, fontSize: 16),
+                    ),
+                  ),
+                  const Icon(CupertinoIcons.add_circled_solid, color: kPrimaryColor, size: 22),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: _destinationController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nouvelle destination',
-                    border: OutlineInputBorder(),
+                child: GestureDetector(
+                  onTap: () => _selectDate(isStart: true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Départ', style: GoogleFonts.inter(color: kTextSecondary, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(CupertinoIcons.calendar, size: 18, color: kPrimaryColor),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                _startDate == null ? 'Sélectionner' : DateFormat("EEEE dd MMMM", "fr").format(_startDate!),
+                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.add_circle, color: Colors.purple),
-                onPressed: _addDestination,
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _selectDate(isStart: false),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Retour', style: GoogleFonts.inter(color: kTextSecondary, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(CupertinoIcons.calendar, size: 18, color: kSecondaryColor),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                _endDate == null ? 'Sélectionner' : DateFormat("EEEE dd MMMM", "fr").format(_endDate!),
+                                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          ListTile(
-            title: Text(_startDate == null
-                ? 'Date de Début'
-                : 'Début: ${DateFormat("dd/MM/yyyy").format(_startDate!)}'),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: () async {
-              final date = await showDatePicker(
-                context: context,
-                initialDate: _startDate ?? DateTime.now(), // Use existing date if editing
-                firstDate: _isEditMode ? DateTime(_startDate!.year - 1) : DateTime.now(), // Allow past dates for editing
-                lastDate: DateTime(2030),
-              );
-              if (date != null) {
-                setState(() => _startDate = date);
-                _checkVehicleAvailability();
-              }
-            },
-          ),
-          ListTile(
-            title: Text(_endDate == null
-                ? 'Date de Fin'
-                : 'Fin: ${DateFormat("dd/MM/yyyy").format(_endDate!)}'),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: () async {
-              final date = await showDatePicker(
-                context: context,
-                initialDate: _endDate ?? _startDate ?? DateTime.now(), // Use existing date
-                firstDate: _startDate ?? DateTime.now(),
-                lastDate: DateTime(2030),
-              );
-              if (date != null) {
-                setState(() => _endDate = date);
-                _checkVehicleAvailability();
-              }
-            },
           ),
         ],
       ),
@@ -696,281 +1118,217 @@ class _AddMissionPageState extends State<AddMissionPage> {
   }
 
   Widget _buildTeamSection() {
-    return _buildSection(
-      title: '👥 ÉQUIPE MISSION',
-      color: sectionColors['team']!,
+    return GlassCard(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          MultiSelectDialogField<UserViewModel>(
-            items: _allUsers.map((u) => MultiSelectItem(u, u.name)).toList(),
-            title: const Text('Sélectionner Membres'),
-            selectedColor: Colors.purple,
-            buttonText: const Text('Sélectionner Techniciens'),
-            // ✅ MODIFIED: Pre-select items if in edit mode
-            initialValue: _selectedTechnicians,
-            onConfirm: _onTeamSelected,
-            chipDisplay: MultiSelectChipDisplay.none(),
-          ),
-          if (_selectedTechnicians.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            const Text('Membres sélectionnés:',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            ..._selectedTechnicians.map(
-                  (tech) => ListTile(
-                leading: Icon(Icons.person,
-                    color: roleBadgeColors[tech.role] ?? Colors.grey),
-                title: Text(tech.name),
-                trailing: Chip(
-                  label: Text(tech.role,
-                      style:
-                      const TextStyle(color: Colors.white, fontSize: 11)),
-                  backgroundColor: roleBadgeColors[tech.role] ?? Colors.grey,
-                ),
+          GestureDetector(
+            onTap: _openIOSTechnicianSelector,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+              child: Row(
+                children: [
+                  const Icon(CupertinoIcons.person_2_fill, color: kPrimaryColor),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      _selectedTechnicians.isEmpty ? 'Assigner des Membres' : '${_selectedTechnicians.length} Membre(s) Assigné(s)',
+                      style: GoogleFonts.inter(color: _selectedTechnicians.isEmpty ? kTextSecondary : kPrimaryColor, fontSize: 16, fontWeight: _selectedTechnicians.isEmpty ? FontWeight.normal : FontWeight.bold),
+                    ),
+                  ),
+                  const Icon(CupertinoIcons.chevron_down, color: Colors.black54, size: 18),
+                ],
               ),
             ),
-          ],
+          ),
+          if (_selectedTechnicians.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _selectedTechnicians.map((tech) {
+                return Chip(
+                  avatar: const Icon(CupertinoIcons.person_fill, size: 16, color: Colors.white),
+                  label: Text(tech.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  backgroundColor: roleBadgeColors[tech.role] ?? Colors.grey,
+                  deleteIcon: const Icon(CupertinoIcons.clear_circled_solid, color: Colors.white, size: 18),
+                  onDeleted: () => setState(() => _selectedTechnicians.remove(tech)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide.none),
+                );
+              }).toList(),
+            ),
+          ]
         ],
       ),
     );
   }
 
   Widget _buildBudgetSection() {
-    return _buildSection(
-      title: '💰 BUDGET PRÉVISIONNEL',
-      color: sectionColors['budget']!,
+    return GlassCard(
       child: Column(
         children: [
-          if (_selectedTechnicians.isNotEmpty)
-            ..._selectedTechnicians.map(
-                  (tech) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: TextFormField(
-                  controller: _perPersonBudgetControllers[tech.id],
-                  decoration: InputDecoration(
-                    labelText: 'Frais Mission - ${tech.name} (DZD)',
-                    border: const OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
+          if (_selectedTechnicians.isNotEmpty) ...[
+            ..._selectedTechnicians.map((tech) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildGlassTextField(
+                  controller: _perPersonBudgetControllers[tech.id]!,
+                  labelText: 'Frais Mission - ${tech.name} (DZD)',
+                  icon: CupertinoIcons.money_dollar,
+                  keyboardType: TextInputType.number
               ),
-            ),
-          TextFormField(
-            controller: _fuelBudgetController,
-            decoration: const InputDecoration(
-              labelText: 'Budget Carburant (DZD)',
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.number,
-          ),
+            )),
+            const Divider(height: 24),
+          ],
+          _buildGlassTextField(controller: _fuelBudgetController, labelText: 'Budget Carburant (DZD)', icon: CupertinoIcons.drop_fill, keyboardType: TextInputType.number),
           const SizedBox(height: 12),
-          TextFormField(
-            controller: _hotelBudgetController,
-            decoration: const InputDecoration(
-              labelText: 'Budget Hôtel (DZD)',
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.number,
-          ),
-          // ✅ ADDED: New TextFormField for Purchase Budget
+          _buildGlassTextField(controller: _hotelBudgetController, labelText: 'Budget Hôtel (DZD)', icon: CupertinoIcons.bed_double_fill, keyboardType: TextInputType.number),
           const SizedBox(height: 12),
-          TextFormField(
-            controller: _purchaseBudgetController,
-            decoration: const InputDecoration(
-              labelText: 'Budget Achats (DZD)',
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.number,
-          ),
+          _buildGlassTextField(controller: _purchaseBudgetController, labelText: 'Budget Achats (DZD)', icon: CupertinoIcons.cart_fill, keyboardType: TextInputType.number),
         ],
       ),
     );
   }
 
   Widget _buildResourcesSection() {
-    return _buildSection(
-      title: '🚗 RESSOURCES REQUISES',
-      color: sectionColors['resources']!,
+    return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('── VÉHICULE ──',
-              style: TextStyle(fontWeight: FontWeight.bold)),
+          Text('Véhicule', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kTextPrimary)),
           const SizedBox(height: 8),
-          DropdownButtonFormField<Vehicle>(
-            value: _selectedVehicle,
-            decoration: const InputDecoration(
-              labelText: 'Sélectionner Véhicule',
-              border: OutlineInputBorder(),
+          GestureDetector(
+            onTap: _openIOSVehicleSelector,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
+              child: Row(
+                children: [
+                  const Icon(CupertinoIcons.car_detailed, color: CupertinoColors.activeBlue),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      _selectedVehicle == null ? 'Sélectionner un Véhicule' : _selectedVehicle!.displayName,
+                      style: GoogleFonts.inter(color: _selectedVehicle == null ? kTextSecondary : CupertinoColors.activeBlue, fontSize: 16, fontWeight: _selectedVehicle == null ? FontWeight.normal : FontWeight.bold),
+                    ),
+                  ),
+                  const Icon(CupertinoIcons.chevron_down, color: Colors.black54, size: 18),
+                ],
+              ),
             ),
-            items: _availableVehicles
-                .map((v) => DropdownMenuItem(value: v, child: Text(v.displayName)))
-                .toList(),
-            onChanged: (val) {
-              setState(() => _selectedVehicle = val);
-              _checkVehicleAvailability();
-            },
           ),
           if (_vehicleAvailabilityStatus != null) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(
-                  _vehicleAvailabilityStatus == 'available'
-                      ? Icons.check_circle
-                      : Icons.warning,
-                  color: _vehicleAvailabilityStatus == 'available'
-                      ? Colors.green
-                      : Colors.orange,
-                ),
+                Icon(_vehicleAvailabilityStatus == 'available' ? CupertinoIcons.check_mark_circled_solid : CupertinoIcons.exclamationmark_triangle_fill,
+                    color: _vehicleAvailabilityStatus == 'available' ? CupertinoColors.activeGreen : CupertinoColors.systemOrange, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  _vehicleAvailabilityStatus == 'available'
-                      ? 'Disponible ✓'
-                      : 'Conflit de dates ⚠',
-                  style: TextStyle(
-                    color: _vehicleAvailabilityStatus == 'available'
-                        ? Colors.green
-                        : Colors.orange,
-                  ),
+                  _vehicleAvailabilityStatus == 'available' ? 'Disponible pour ces dates' : 'Conflit de dates possible',
+                  style: GoogleFonts.inter(color: _vehicleAvailabilityStatus == 'available' ? CupertinoColors.activeGreen : CupertinoColors.systemOrange, fontSize: 13, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
           ],
-          const SizedBox(height: 16),
-          const Text('── ÉQUIPEMENT ──',
-              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+
+          Text('Équipement Requis', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kTextPrimary)),
+          const SizedBox(height: 8),
           if (_equipment.isNotEmpty)
-            ..._equipment.map(
-                  (eq) => ListTile(
-                leading: const Icon(Icons.check_box, color: Colors.green),
-                title: Text(eq),
-                trailing: IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => setState(() => _equipment.remove(eq)),
-                ),
+            ..._equipment.map((eq) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                leading: const Icon(CupertinoIcons.cube_box_fill, color: Colors.teal),
+                title: Text(eq, style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                trailing: IconButton(icon: const Icon(CupertinoIcons.minus_circle_fill, color: Colors.redAccent), onPressed: () => setState(() => _equipment.remove(eq))),
               ),
-            ),
+            )),
           Row(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _equipmentController,
-                  decoration: const InputDecoration(
-                    labelText: 'Ajouter équipement',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle, color: Colors.orange),
-                onPressed: _addEquipment,
-              ),
+              Expanded(child: _buildGlassTextField(controller: _equipmentController, labelText: 'Ajouter équipement', icon: CupertinoIcons.cube_box)),
+              const SizedBox(width: 8),
+              Container(decoration: BoxDecoration(color: Colors.teal, borderRadius: BorderRadius.circular(16)), child: IconButton(icon: const Icon(CupertinoIcons.add, color: Colors.white), onPressed: _addEquipment)),
             ],
           ),
-          const SizedBox(height: 16),
-          const Text('── ACHATS PRÉ-MISSION ──',
-              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+
+          Text('Achats Pré-Mission', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kTextPrimary)),
+          const SizedBox(height: 8),
           ..._preMissionPurchases.asMap().entries.map((entry) {
             final index = entry.key;
             final item = entry.value;
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  children: [
-                    TextFormField(
-                      initialValue: item.item,
-                      decoration: const InputDecoration(
-                        labelText: 'Article',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (val) => item.item = val,
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      initialValue: item.description,
-                      decoration: const InputDecoration(
-                        labelText: 'Description',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (val) => item.description = val,
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      initialValue: item.estimatedBudget.toString(),
-                      decoration: const InputDecoration(
-                        labelText: 'Budget estimé (DZD)',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.number,
-                      onChanged: (val) =>
-                      item.estimatedBudget = double.tryParse(val) ?? 0,
-                    ),
-                    Align(
-                      alignment: Alignment.topRight,
-                      child: IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () =>
-                            setState(() => _preMissionPurchases.removeAt(index)),
-                      ),
-                    ),
-                  ],
-                ),
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.black12)),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Article #${index + 1}', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: kPrimaryColor)),
+                      GestureDetector(onTap: () => setState(() => _preMissionPurchases.removeAt(index)), child: const Icon(CupertinoIcons.delete_solid, color: Colors.redAccent, size: 20)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    initialValue: item.item,
+                    decoration: const InputDecoration(labelText: 'Nom de l\'article', border: UnderlineInputBorder(), isDense: true),
+                    onChanged: (val) => item.item = val,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    initialValue: item.estimatedBudget.toString(),
+                    decoration: const InputDecoration(labelText: 'Budget estimé (DZD)', border: UnderlineInputBorder(), isDense: true),
+                    keyboardType: TextInputType.number,
+                    onChanged: (val) => item.estimatedBudget = double.tryParse(val) ?? 0,
+                  ),
+                ],
               ),
             );
           }),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.add),
-            label: const Text('Ajouter achat'),
-            onPressed: _addPurchaseItem,
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _addPurchaseItem,
+              icon: const Icon(CupertinoIcons.add, size: 18),
+              label: const Text('Ajouter un achat'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: kPrimaryColor,
+                side: const BorderSide(color: kPrimaryColor),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _purchaseNotesController,
-            decoration: const InputDecoration(
-              labelText: 'Notes d\'achat',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 3,
-          ),
+          _buildGlassTextField(controller: _purchaseNotesController, labelText: 'Notes pour les achats', icon: CupertinoIcons.text_alignleft),
         ],
       ),
     );
   }
 
   Widget _buildTasksSection() {
-    return _buildSection(
-      title: '✅ TÂCHES MISSION',
-      color: sectionColors['tasks']!,
+    return GlassCard(
       child: Column(
         children: [
           if (_tasks.isNotEmpty)
-            ..._tasks.map(
-                  (task) => ListTile(
-                leading: const Icon(Icons.task_alt, color: Colors.pink),
-                title: Text(task.description),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () => setState(() => _tasks.remove(task)),
-                ),
+            ..._tasks.map((task) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(12)),
+              child: ListTile(
+                leading: const Icon(CupertinoIcons.check_mark_circled_solid, color: kSecondaryColor),
+                title: Text(task.description, style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                trailing: IconButton(icon: const Icon(CupertinoIcons.minus_circle_fill, color: Colors.redAccent), onPressed: () => setState(() => _tasks.remove(task))),
               ),
-            ),
+            )),
           Row(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _taskController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nouvelle tâche',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle, color: Colors.pink),
-                onPressed: _addTask,
-              ),
+              Expanded(child: _buildGlassTextField(controller: _taskController, labelText: 'Nouvelle tâche', icon: CupertinoIcons.pencil)),
+              const SizedBox(width: 8),
+              Container(decoration: BoxDecoration(color: kSecondaryColor, borderRadius: BorderRadius.circular(16)), child: IconButton(icon: const Icon(CupertinoIcons.add, color: Colors.white), onPressed: _addTask)),
             ],
           ),
         ],
@@ -980,75 +1338,65 @@ class _AddMissionPageState extends State<AddMissionPage> {
 
   Widget _buildSubmitButton() {
     return Container(
+      width: double.infinity,
+      height: 65,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple, Colors.pink],
+        borderRadius: BorderRadius.circular(20),
+        gradient: const LinearGradient(
+          colors: [kPrimaryColor, kSecondaryColor],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
-        borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(color: kPrimaryColor.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 10))
+        ],
       ),
-      child: ElevatedButton(
-        onPressed: _submitForm,
+      child: ElevatedButton.icon(
+        onPressed: _isLoading ? null : _submitForm,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
-        child: Text(
-          // ✅ MODIFIED: Dynamic button text
-          _isEditMode ? '💾 Enregistrer les Modifications' : '✨ Créer la Mission ✨',
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        icon: _isLoading ? const SizedBox.shrink() : const Icon(CupertinoIcons.paperplane_fill, size: 28, color: Colors.white),
+        label: _isLoading
+            ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+            : Flexible(
+          child: Text(
+            _isEditMode ? "ENREGISTRER LES MODIFICATIONS" : "CRÉER LA MISSION",
+            style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildSection({
-    required String title,
-    required Color color,
-    required Widget child,
+  Widget _buildGlassTextField({
+    required TextEditingController controller,
+    required String labelText,
+    required IconData icon,
+    TextInputType? keyboardType,
+    bool isRequired = false,
   }) {
-    return Card(
-      color: color,
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const Divider(),
-            const SizedBox(height: 8),
-            child,
-          ],
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        style: GoogleFonts.inter(color: Colors.black87, fontSize: 16),
+        validator: isRequired ? (v) => v!.isEmpty ? 'Requis' : null : null,
+        decoration: InputDecoration(
+          labelText: labelText,
+          labelStyle: GoogleFonts.inter(color: Colors.black54),
+          prefixIcon: Icon(icon, color: Colors.black54),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+          contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _destinationController.dispose();
-    _taskController.dispose();
-    _fuelBudgetController.dispose();
-    _hotelBudgetController.dispose();
-    // ✅ ADDED: Dispose the new controller
-    _purchaseBudgetController.dispose();
-    _equipmentController.dispose();
-    _purchaseNotesController.dispose();
-    for (var controller in _perPersonBudgetControllers.values) {
-      controller.dispose();
-    }
-    super.dispose();
   }
 }

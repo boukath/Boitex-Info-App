@@ -2,15 +2,14 @@
 
 import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui'; // ✅ Required for ImageFilter.blur
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:boitex_info_app/models/sav_ticket.dart';
-// ✅ CHANGED: Now importing the pro product_scanner_page
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
 import 'package:signature/signature.dart';
-import 'package:multi_select_flutter/multi_select_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -22,6 +21,9 @@ import 'package:boitex_info_app/services/sav_draft_service.dart';
 import 'package:boitex_info_app/screens/service_technique/sav_drafts_list_page.dart';
 import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
 import 'package:boitex_info_app/models/selection_models.dart';
+
+// 🚀 IMPORT THE OMNIBAR
+import 'package:boitex_info_app/widgets/intervention_omnibar.dart';
 
 // --- GLASSMORPHISM HELPER WIDGET (LIGHT THEME) ---
 class GlassCard extends StatelessWidget {
@@ -35,7 +37,7 @@ class GlassCard extends StatelessWidget {
     required this.child,
     this.padding,
     this.borderRadius = 24.0,
-    this.opacity = 0.6, // Higher opacity for light glass
+    this.opacity = 0.6,
   }) : super(key: key);
 
   @override
@@ -52,7 +54,7 @@ class GlassCard extends StatelessWidget {
             border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04), // Very soft shadow
+                color: Colors.black.withOpacity(0.04),
                 blurRadius: 20,
                 spreadRadius: -5,
               )
@@ -60,6 +62,97 @@ class GlassCard extends StatelessWidget {
           ),
           child: child,
         ),
+      ),
+    );
+  }
+}
+
+// 🚀 NEW: CUSTOM ANIMATED GRADIENT SEGMENTED CONTROL 🚀
+class AnimatedGradientSegmentedControl extends StatelessWidget {
+  final String value;
+  final Map<String, String> items;
+  final ValueChanged<String> onChanged;
+  final List<Color> activeGradient;
+
+  const AnimatedGradientSegmentedControl({
+    Key? key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    required this.activeGradient,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final keys = items.keys.toList();
+    final selectedIndex = keys.indexOf(value);
+
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final itemWidth = constraints.maxWidth / keys.length;
+
+          return Stack(
+            children: [
+              // Animated Gradient Thumb
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.fastLinearToSlowEaseIn, // Snappy Apple-style bounce
+                left: selectedIndex * itemWidth,
+                top: 0,
+                bottom: 0,
+                width: itemWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: activeGradient,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: activeGradient.first.withOpacity(0.4),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // Clickable Text Areas
+              Row(
+                children: keys.map((key) {
+                  final isSelected = value == key;
+                  return Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onChanged(key),
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 300),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                            color: isSelected ? Colors.white : Colors.black54,
+                            letterSpacing: 0.3,
+                          ),
+                          child: Text(items[key]!),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -128,9 +221,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     exportBackgroundColor: Colors.white,
   );
 
-  // ✅ UNIFIED ATTACHMENTS LIST
   List<File> _attachedFiles = [];
-
   bool _isLoading = false;
 
   final List<TicketItemEditor> _itemEditors = [];
@@ -252,17 +343,18 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // --- UI HELPER: PREMIUM DIALOG (LIGHT) ---
-  void _openSearchDialog({
+  // 🚀 IOS FULL-SCREEN SEARCH SHEET
+  void _openIOSSearchSheet({
     required String title,
     required List<SelectableItem> items,
     required Function(SelectableItem) onSelected,
     required VoidCallback onAddPressed,
     required String addButtonLabel,
   }) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.3),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         String searchQuery = '';
         return StatefulBuilder(
@@ -273,79 +365,156 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               return nameLower.contains(queryLower);
             }).toList();
 
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              child: GlassCard(
-                opacity: 0.9,
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
-                    const SizedBox(height: 16),
-                    TextField(
-                      autofocus: true,
-                      style: const TextStyle(color: Colors.black87),
-                      decoration: InputDecoration(
-                        hintText: 'Rechercher...',
-                        hintStyle: const TextStyle(color: Colors.black45),
-                        prefixIcon: const Icon(Icons.search, color: Colors.black54),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.7),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                      ),
-                      onChanged: (val) {
-                        setStateSB(() => searchQuery = val);
-                      },
+            return FractionallySizedBox(
+              heightFactor: 0.88,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                     ),
-                    const SizedBox(height: 16),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: MediaQuery.of(context).size.height * 0.4,
-                      ),
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: filteredItems.length + 1,
-                        separatorBuilder: (_, __) => const Divider(color: Colors.black12, height: 1),
-                        itemBuilder: (context, index) {
-                          if (index == filteredItems.length) {
-                            return ListTile(
-                              leading: const Icon(Icons.add_circle, color: Colors.blueAccent),
-                              title: Text(addButtonLabel, style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
-                              onTap: () {
-                                Navigator.pop(context);
-                                onAddPressed();
-                              },
-                            );
-                          }
-                          final item = filteredItems[index];
-                          final subtitle = item.data != null && item.data!.containsKey('location') ? item.data!['location'] : null;
-                          return ListTile(
-                            title: Text(item.name, style: const TextStyle(color: Colors.black87)),
-                            subtitle: subtitle != null ? Text(subtitle, style: const TextStyle(color: Colors.black54)) : null,
-                            onTap: () {
-                              onSelected(item);
-                              Navigator.pop(context);
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.black87,
-                          backgroundColor: Colors.white.withOpacity(0.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 12, bottom: 8),
+                          width: 40,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.black26,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                        onPressed: () => Navigator.pop(context),
-                        child: const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text("Fermer")),
-                      ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: CupertinoSearchTextField(
+                            placeholder: 'Rechercher...',
+                            onChanged: (val) => setStateSB(() => searchQuery = val),
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.separated(
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: filteredItems.length + 1,
+                            separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+                            itemBuilder: (context, index) {
+                              if (index == filteredItems.length) {
+                                return ListTile(
+                                  leading: const Icon(CupertinoIcons.add_circled_solid, color: Colors.blueAccent),
+                                  title: Text(addButtonLabel, style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    onAddPressed();
+                                  },
+                                );
+                              }
+                              final item = filteredItems[index];
+                              final subtitle = item.data != null && item.data!.containsKey('location') ? item.data!['location'] : null;
+                              return ListTile(
+                                title: Text(item.name, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+                                subtitle: subtitle != null ? Text(subtitle, style: const TextStyle(color: Colors.black54)) : null,
+                                trailing: const Icon(CupertinoIcons.chevron_forward, color: Colors.black26, size: 18),
+                                onTap: () {
+                                  onSelected(item);
+                                  Navigator.pop(context);
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // 🚀 IOS TECHNICIAN SELECTOR
+  void _openIOSTechnicianSelector() {
+    List<UserViewModel> tempSelected = List.from(_selectedTechnicians);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setStateSB) {
+            return FractionallySizedBox(
+              heightFactor: 0.75,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: const BoxDecoration(
+                            border: Border(bottom: BorderSide(color: Colors.black12)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Annuler', style: TextStyle(color: Colors.redAccent, fontSize: 16)),
+                              ),
+                              const Text('Techniciens', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                              TextButton(
+                                onPressed: () {
+                                  setState(() => _selectedTechnicians = tempSelected);
+                                  Navigator.pop(context);
+                                },
+                                child: const Text('Valider', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 16)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.separated(
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: _availableTechnicians.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+                            itemBuilder: (context, index) {
+                              final tech = _availableTechnicians[index];
+                              final isSelected = tempSelected.any((t) => t.id == tech.id);
+
+                              return ListTile(
+                                title: Text(tech.name, style: TextStyle(color: isSelected ? Colors.blueAccent : Colors.black87, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                                trailing: isSelected ? const Icon(CupertinoIcons.checkmark_alt, color: Colors.blueAccent) : null,
+                                onTap: () {
+                                  setStateSB(() {
+                                    if (isSelected) {
+                                      tempSelected.removeWhere((t) => t.id == tech.id);
+                                    } else {
+                                      tempSelected.add(tech);
+                                    }
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             );
@@ -502,7 +671,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     });
   }
 
-  // ✅ CHANGED: Now pushing ProductScannerPage instead of ScannerPage
   Future<void> _scanSerialForEditor(int index) async {
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(
@@ -510,7 +678,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       ),
     );
 
-    // If the scanner returns a result, populate the text field
     if (result != null && result.isNotEmpty) {
       setState(() {
         _itemEditors[index].serialController.text = result;
@@ -519,18 +686,72 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
   }
 
   Future<void> _selectDate() async {
-    final picked = await showDatePicker(
+    final now = DateTime.now();
+    DateTime tempPickedDate = _pickupDate ?? now;
+
+    await showModalBottomSheet(
       context: context,
-      initialDate: _pickupDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext builder) {
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          child: Container(
+            height: 320,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.85),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+              border: Border.all(color: Colors.white, width: 1.5),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, -5))
+              ],
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Colors.black.withOpacity(0.05), width: 1)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Annuler', style: TextStyle(color: Colors.redAccent, fontSize: 16, fontWeight: FontWeight.w600)),
+                      ),
+                      const Text(
+                        'Date de Récupération',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() => _pickupDate = tempPickedDate);
+                          Navigator.of(context).pop();
+                        },
+                        child: const Text('Confirmer', style: TextStyle(color: Colors.blueAccent, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: CupertinoDatePicker(
+                    mode: CupertinoDatePickerMode.date,
+                    initialDateTime: tempPickedDate,
+                    minimumDate: DateTime(2020),
+                    maximumDate: now,
+                    onDateTimeChanged: (DateTime newDate) {
+                      tempPickedDate = newDate;
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
-    if (picked != null && picked != _pickupDate) {
-      setState(() => _pickupDate = picked);
-    }
   }
 
-  // ✅ UNIFIED FILE PICKER
   Future<void> _pickFiles() async {
     final result = await FilePicker.platform.pickFiles(
         type: FileType.any,
@@ -540,7 +761,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
       setState(() {
         final newFiles = result.files.where((f) => f.path != null).map((f) => File(f.path!));
         for (var file in newFiles) {
-          // Avoid exact path duplicates
           if (!_attachedFiles.any((e) => e.path == file.path)) {
             _attachedFiles.add(file);
           }
@@ -549,14 +769,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     }
   }
 
-  // ✅ REMOVE FILE
   void _removeFile(int index) {
     setState(() {
       _attachedFiles.removeAt(index);
     });
   }
 
-  // File Type Checkers
   bool _isVideoPath(String filePath) {
     final p = filePath.toLowerCase();
     return p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.avi') || p.endsWith('.mkv');
@@ -567,8 +785,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
     return p.endsWith('.jpg') || p.endsWith('.jpeg') || p.endsWith('.png') || p.endsWith('.gif') || p.endsWith('.webp');
   }
 
-
-  // --- SAVE LOGIC (B2) ---
   Future<Map<String, dynamic>?> _getB2UploadCredentials() async {
     try {
       final response = await http.get(Uri.parse(_getB2UploadUrlCloudFunctionUrl));
@@ -683,7 +899,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         }
       }
 
-      // ✅ ROUTE FILES BASED ON EXTENSION
       List<String> mediaUrls = [];
       String? attachedFileUrl;
 
@@ -694,7 +909,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
             if (_isImagePath(file.path) || _isVideoPath(file.path)) {
               mediaUrls.add(url);
             } else {
-              attachedFileUrl = url; // Documents map to uploadedFileUrl
+              attachedFileUrl = url;
             }
           }
         }
@@ -848,7 +1063,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
           ));
         }
 
-        // ✅ RECOVER ALL SAVED DRAFT PATHS
         _attachedFiles = draft.mediaPaths
             .map((path) => File(path))
             .where((file) => file.existsSync())
@@ -882,7 +1096,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
         'serialNumber': editor.serialController.text,
         'problemDescription': editor.problemController.text,
       }).toList(),
-      mediaPaths: _attachedFiles.map((f) => f.path).toList(), // ✅ Save all file paths to draft
+      mediaPaths: _attachedFiles.map((f) => f.path).toList(),
       technicianIds: _selectedTechnicians.map((u) => u.id).toList(),
     );
 
@@ -951,65 +1165,10 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
               prefixIcon: Icon(icon, color: Colors.black54),
               suffixIcon: (value != null && onClear != null)
                   ? IconButton(icon: const Icon(Icons.clear, color: Colors.redAccent), onPressed: onClear)
-                  : const Icon(Icons.keyboard_arrow_down, color: Colors.black54),
+                  : const Icon(CupertinoIcons.chevron_down, color: Colors.black54),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
               contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModeSegmentedControl() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          _buildModeButton('Individuel', 'individual', Icons.grid_view_rounded),
-          _buildModeButton('Groupé', 'grouped', Icons.folder_copy_rounded),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModeButton(String label, String value, IconData icon) {
-    final isSelected = _creationMode == value;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _creationMode = value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOutBack,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            gradient: isSelected
-                ? const LinearGradient(colors: [Color(0xFF007AFF), Color(0xFF0056D6)])
-                : null,
-            color: isSelected ? null : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: isSelected
-                ? [BoxShadow(color: const Color(0xFF007AFF).withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2))]
-                : [],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: isSelected ? Colors.white : Colors.black54, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.black54,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -1070,32 +1229,49 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                       GlassCard(
                         child: Column(
                           children: [
-                            _buildSearchableDropdown(
-                              label: 'Sélectionner le Client',
-                              value: _selectedClient,
-                              icon: Icons.business_rounded,
-                              onClear: () {
-                                setState(() {
-                                  _selectedClient = null;
-                                  _selectedStore = null;
-                                  _stores = [];
-                                });
-                              },
-                              onTap: () => _openSearchDialog(
-                                title: 'Rechercher un Client',
-                                items: _clients,
-                                onSelected: (item) {
-                                  setState(() {
-                                    _selectedClient = item;
-                                    _selectedStore = null;
-                                    _stores = [];
-                                  });
-                                  _fetchStoresForClient(item.id);
-                                },
-                                onAddPressed: _addNewClient,
-                                addButtonLabel: '+ Nouveau Client',
-                              ),
+
+                            // 🚀 THE OMNIBAR FOR CLIENT SELECTION
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: InterventionOmnibar(
+                                    onItemSelected: (result) {
+                                      setState(() {
+                                        _selectedClient = SelectableItem(id: result.id, name: result.title);
+                                        _selectedStore = null;
+                                        _stores = [];
+                                      });
+                                      _fetchStoresForClient(result.id);
+                                    },
+                                    onClear: () {
+                                      setState(() {
+                                        _selectedClient = null;
+                                        _selectedStore = null;
+                                        _stores = [];
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Container(
+                                  height: 56,
+                                  width: 56,
+                                  decoration: BoxDecoration(
+                                      color: Colors.blueAccent,
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))
+                                      ]
+                                  ),
+                                  child: IconButton(
+                                    icon: const Icon(CupertinoIcons.add, color: Colors.white, size: 26),
+                                    tooltip: 'Nouveau Client',
+                                    onPressed: _addNewClient,
+                                  ),
+                                ),
+                              ],
                             ),
+
                             const SizedBox(height: 16),
                             if (_selectedClient != null) ...[
                               _buildSearchableDropdown(
@@ -1103,12 +1279,12 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                 value: _selectedStore,
                                 icon: Icons.store_mall_directory_rounded,
                                 onClear: () => setState(() => _selectedStore = null),
-                                onTap: () => _openSearchDialog(
+                                onTap: () => _openIOSSearchSheet(
                                   title: 'Rechercher un Magasin',
                                   items: _stores,
                                   onSelected: (item) => setState(() => _selectedStore = item),
                                   onAddPressed: _addNewStore,
-                                  addButtonLabel: '+ Nouveau Magasin',
+                                  addButtonLabel: 'Nouveau Magasin',
                                 ),
                               ),
                               const SizedBox(height: 16),
@@ -1136,31 +1312,32 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                       GlassCard(
                         child: Column(
                           children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.5),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: _selectedTicketType,
-                                  isExpanded: true,
-                                  dropdownColor: Colors.white,
-                                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.black54),
-                                  style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w500),
-                                  items: const [
-                                    DropdownMenuItem(value: 'standard', child: Text('Réparation Standard (Atelier)')),
-                                    DropdownMenuItem(value: 'removal', child: Text('Dépose Matériel (Laissé sur site)')),
-                                  ],
-                                  onChanged: (value) {
-                                    if (value != null) setState(() => _selectedTicketType = value);
-                                  },
-                                ),
-                              ),
+                            // 🚀 THE ANIMATED CUSTOM APPLE GRADIENT TOGGLE (TYPE) 🚀
+                            AnimatedGradientSegmentedControl(
+                              value: _selectedTicketType,
+                              items: const {
+                                'standard': 'Atelier',
+                                'removal': 'Sur site',
+                              },
+                              activeGradient: const [Color(0xFF007AFF), Color(0xFF5AC8FA)], // Apple Blue to Cyan
+                              onChanged: (value) {
+                                setState(() => _selectedTicketType = value);
+                              },
                             ),
                             const SizedBox(height: 16),
-                            _buildModeSegmentedControl(),
+
+                            // 🚀 THE ANIMATED CUSTOM APPLE GRADIENT TOGGLE (MODE) 🚀
+                            AnimatedGradientSegmentedControl(
+                              value: _creationMode,
+                              items: const {
+                                'individual': 'Individuel',
+                                'grouped': 'Groupé',
+                              },
+                              activeGradient: const [Color(0xFFAF52DE), Color(0xFFFF2D55)], // Apple Purple to Pink
+                              onChanged: (value) {
+                                setState(() => _creationMode = value);
+                              },
+                            ),
                           ],
                         ),
                       ),
@@ -1170,7 +1347,9 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Appareils à Récupérer', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          const Expanded(
+                            child: Text('Appareils à Récupérer', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87), overflow: TextOverflow.ellipsis),
+                          ),
                           IconButton(
                             onPressed: _openProductSearch,
                             icon: Container(
@@ -1195,13 +1374,13 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                             child: Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(vertical: 30),
-                              child: Column(
+                              child: const Column(
                                 children: [
-                                  const Icon(Icons.inventory_2_rounded, size: 60, color: Colors.black26),
-                                  const SizedBox(height: 12),
-                                  const Text("Aucun appareil ajouté", style: TextStyle(color: Colors.black54, fontSize: 16)),
-                                  const SizedBox(height: 8),
-                                  const Text("Appuyez pour ajouter", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                                  Icon(Icons.inventory_2_rounded, size: 60, color: Colors.black26),
+                                  SizedBox(height: 12),
+                                  Text("Aucun appareil ajouté", style: TextStyle(color: Colors.black54, fontSize: 16)),
+                                  SizedBox(height: 8),
+                                  Text("Appuyez pour ajouter", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
                                 ],
                               ),
                             ),
@@ -1231,10 +1410,14 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                         ),
                                         const SizedBox(width: 12),
                                         Expanded(
-                                          child: Text(editor.productName, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18)),
+                                          child: Text(
+                                            editor.productName,
+                                            style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
                                         IconButton(
-                                          icon: const Icon(Icons.remove_circle, color: Colors.redAccent, size: 28),
+                                          icon: const Icon(CupertinoIcons.minus_circle_fill, color: Colors.redAccent, size: 28),
                                           onPressed: () => _removeEditor(index),
                                         ),
                                       ],
@@ -1251,7 +1434,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                                           suffixIcon: IconButton(
-                                            icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.blueAccent),
+                                            icon: const Icon(CupertinoIcons.barcode_viewfinder, color: Colors.blueAccent),
                                             onPressed: () => _scanSerialForEditor(index),
                                           ),
                                         ),
@@ -1293,35 +1476,45 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                 decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
                                 child: Row(
                                   children: [
-                                    const Icon(Icons.calendar_month_rounded, color: Colors.black54),
+                                    const Icon(CupertinoIcons.calendar, color: Colors.black54),
                                     const SizedBox(width: 16),
-                                    Text(
-                                      _pickupDate == null ? 'Sélectionner la Date' : DateFormat('dd MMMM yyyy', 'fr_FR').format(_pickupDate!),
-                                      style: TextStyle(color: _pickupDate == null ? Colors.black54 : Colors.black87, fontSize: 16),
+                                    Expanded(
+                                      child: Text(
+                                        _pickupDate == null ? 'Sélectionner la Date' : DateFormat('dd MMMM yyyy', 'fr_FR').format(_pickupDate!),
+                                        style: TextStyle(color: _pickupDate == null ? Colors.black54 : Colors.black87, fontSize: 16),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   ],
                                 ),
                               ),
                             ),
                             const SizedBox(height: 16),
-                            Theme(
-                              data: Theme.of(context).copyWith(canvasColor: Colors.white),
-                              child: MultiSelectDialogField<UserViewModel>(
-                                items: _availableTechnicians.map((u) => MultiSelectItem<UserViewModel>(u, u.name)).toList(),
-                                title: const Text('Techniciens', style: TextStyle(color: Colors.black87)),
-                                buttonText: Text(_isLoadingTechnicians ? 'Chargement...' : 'Assigner les Techniciens', style: const TextStyle(color: Colors.black54, fontSize: 16)),
-                                buttonIcon: const Icon(Icons.engineering_rounded, color: Colors.black54),
-                                unselectedColor: Colors.black54,
-                                selectedColor: Colors.blueAccent,
-                                itemsTextStyle: const TextStyle(color: Colors.black87),
-                                selectedItemsTextStyle: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
-                                onConfirm: (results) => setState(() => _selectedTechnicians = results),
-                                chipDisplay: MultiSelectChipDisplay(
-                                  chipColor: Colors.blueAccent.withOpacity(0.1),
-                                  textStyle: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
-                                ),
+                            GestureDetector(
+                              onTap: _openIOSTechnicianSelector,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
                                 decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(16)),
-                                validator: (vals) => vals == null || vals.isEmpty ? 'Assigner au moins un technicien' : null,
+                                child: Row(
+                                  children: [
+                                    const Icon(CupertinoIcons.person_3_fill, color: Colors.black54),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Text(
+                                        _selectedTechnicians.isEmpty
+                                            ? 'Assigner les Techniciens'
+                                            : _selectedTechnicians.map((t) => t.name).join(', '),
+                                        style: TextStyle(
+                                            color: _selectedTechnicians.isEmpty ? Colors.black54 : Colors.blueAccent,
+                                            fontSize: 16,
+                                            fontWeight: _selectedTechnicians.isEmpty ? FontWeight.normal : FontWeight.bold
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const Icon(CupertinoIcons.chevron_down, color: Colors.black54, size: 18),
+                                  ],
+                                ),
                               ),
                             ),
                           ],
@@ -1329,7 +1522,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                       ),
                       const SizedBox(height: 32),
 
-                      // ✅ --- UNIFIED MEDIA & DOCUMENTS ATTACHMENTS ---
+                      // --- UNIFIED MEDIA & DOCUMENTS ATTACHMENTS ---
                       const Text('Fichiers & Médias', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
                       const SizedBox(height: 16),
                       GlassCard(
@@ -1346,12 +1539,11 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                 ),
                                 onPressed: _pickFiles,
-                                icon: const Icon(Icons.upload_file_rounded),
+                                icon: const Icon(CupertinoIcons.cloud_upload),
                                 label: const Text('Ajouter des Fichiers', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                               ),
                             ),
 
-                            // File Preview Grid
                             if (_attachedFiles.isNotEmpty) ...[
                               const SizedBox(height: 16),
                               Wrap(
@@ -1398,7 +1590,6 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                                           ),
                                         ),
                                       ),
-                                      // Remove File Button
                                       Positioned(
                                         top: -6,
                                         right: -6,
@@ -1443,7 +1634,7 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                               alignment: Alignment.centerRight,
                               child: TextButton.icon(
                                 onPressed: () => _signatureController.clear(),
-                                icon: const Icon(Icons.layers_clear_rounded, color: Colors.redAccent, size: 18),
+                                icon: const Icon(CupertinoIcons.clear_thick, color: Colors.redAccent, size: 18),
                                 label: const Text('Effacer', style: TextStyle(color: Colors.redAccent)),
                               ),
                             ),
@@ -1474,12 +1665,15 @@ class _AddSavTicketPageState extends State<AddSavTicketPage> {
                             shadowColor: Colors.transparent,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                           ),
-                          icon: _isLoading ? const SizedBox.shrink() : const Icon(Icons.check_circle_rounded, size: 28, color: Colors.white),
+                          icon: _isLoading ? const SizedBox.shrink() : const Icon(CupertinoIcons.check_mark_circled_solid, size: 28, color: Colors.white),
                           label: _isLoading
                               ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                              : Text(
-                            _creationMode == 'grouped' ? 'VALIDER LE SAV GROUPÉ' : 'VALIDER ${_itemEditors.length} SAV',
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
+                              : Flexible(
+                            child: Text(
+                              _creationMode == 'grouped' ? 'VALIDER LE SAV GROUPÉ' : 'VALIDER ${_itemEditors.length} SAV',
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
                       ),

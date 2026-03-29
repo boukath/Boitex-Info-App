@@ -414,17 +414,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               blur: 40,
               child: Row(
                 children: [
-                  _AnimatedGlassIconButton(icon: CupertinoIcons.sun_max, tooltip: 'Briefing', onPressed: () => Navigator.push(context, _premiumPageTransition(const MorningBriefingSummaryPage()))),
+                  _AnimatedGlassIconButton(icon: Icons.wb_sunny_rounded, tooltip: 'Briefing', onPressed: () => Navigator.push(context, _premiumPageTransition(const MorningBriefingSummaryPage()))),
                   const SizedBox(width: 8),
-                  _AnimatedGlassIconButton(icon: CupertinoIcons.car_detailed, tooltip: 'Garage', onPressed: () => Navigator.push(context, _premiumPageTransition(const FleetListPage()))),
+                  _AnimatedGlassIconButton(icon: Icons.directions_car_rounded, tooltip: 'Garage', onPressed: () => Navigator.push(context, _premiumPageTransition(const FleetListPage()))),
                   const SizedBox(width: 8),
                   _buildNotificationBell(context),
                   const SizedBox(width: 8),
-                  _AnimatedGlassIconButton(icon: CupertinoIcons.settings, tooltip: 'Paramètres', onPressed: () => Navigator.push(context, _premiumPageTransition(GlobalSettingsPage(userRole: widget.userRole)))),
+                  _AnimatedGlassIconButton(icon: Icons.settings_rounded, tooltip: 'Paramètres', onPressed: () => Navigator.push(context, _premiumPageTransition(GlobalSettingsPage(userRole: widget.userRole)))),
                   const SizedBox(width: 8),
                   Container(width: 1, height: 30, color: Colors.white.withOpacity(0.3)),
                   const SizedBox(width: 8),
-                  _AnimatedGlassIconButton(icon: CupertinoIcons.power, tooltip: 'Déconnexion', onPressed: () => _handleLogout(context)),
+                  _AnimatedGlassIconButton(icon: Icons.power_settings_new_rounded, tooltip: 'Déconnexion', onPressed: () => _handleLogout(context)),
                 ],
               ),
             ),
@@ -525,25 +525,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     if (RolePermissions.canSeeAdminCard(widget.userRole)) {
       cards.add(buildExpandedCard(
-        _HoverableServiceCard(title: 'Administration', icon: CupertinoIcons.shield_fill, gradient: const LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]), onTap: () => Navigator.push(context, _premiumPageTransition(AdministrationDashboardPage(displayName: widget.displayName, userRole: widget.userRole)))),
+        _HoverableServiceCard(title: 'Administration', icon: Icons.security_rounded, gradient: const LinearGradient(colors: [Color(0xFF667EEA), Color(0xFF764BA2)]), onTap: () => Navigator.push(context, _premiumPageTransition(AdministrationDashboardPage(displayName: widget.displayName, userRole: widget.userRole)))),
       ));
     }
     if (RolePermissions.canSeeCommercialCard(widget.userRole)) {
       if (cards.isNotEmpty) cards.add(const SizedBox(width: 24));
       cards.add(buildExpandedCard(
-        _HoverableServiceCard(title: 'Commercial', icon: CupertinoIcons.briefcase_fill, gradient: const LinearGradient(colors: [Color(0xFFFF9966), Color(0xFFFF5E62)]), onTap: () => Navigator.push(context, _premiumPageTransition(const CommercialDashboardPage()))),
+        _HoverableServiceCard(title: 'Commercial', icon: Icons.business_center_rounded, gradient: const LinearGradient(colors: [Color(0xFFFF9966), Color(0xFFFF5E62)]), onTap: () => Navigator.push(context, _premiumPageTransition(const CommercialDashboardPage()))),
       ));
     }
     if (RolePermissions.canSeeTechServiceCard(widget.userRole)) {
       if (cards.isNotEmpty) cards.add(const SizedBox(width: 24));
       cards.add(buildExpandedCard(
-        _HoverableServiceCard(title: 'Service Technique', icon: CupertinoIcons.wrench_fill, gradient: const LinearGradient(colors: [Color(0xFF34C759), Color(0xFF009624)]), onTap: () => Navigator.push(context, _premiumPageTransition(ServiceTechniqueDashboardPage(displayName: widget.displayName, userRole: widget.userRole)))),
+        _HoverableServiceCard(title: 'Service Technique', icon: Icons.handyman_rounded, gradient: const LinearGradient(colors: [Color(0xFF34C759), Color(0xFF009624)]), onTap: () => Navigator.push(context, _premiumPageTransition(ServiceTechniqueDashboardPage(displayName: widget.displayName, userRole: widget.userRole)))),
       ));
     }
     if (RolePermissions.canSeeITServiceCard(widget.userRole)) {
       if (cards.isNotEmpty) cards.add(const SizedBox(width: 24));
       cards.add(buildExpandedCard(
-        _HoverableServiceCard(title: 'Service IT', icon: CupertinoIcons.device_laptop, gradient: const LinearGradient(colors: [Color(0xFF32ADE6), Color(0xFF007AFF)]), onTap: () => Navigator.push(context, _premiumPageTransition(ServiceItDashboardPage(displayName: widget.displayName, userRole: widget.userRole)))),
+        _HoverableServiceCard(title: 'Service IT', icon: Icons.laptop_mac_rounded, gradient: const LinearGradient(colors: [Color(0xFF32ADE6), Color(0xFF007AFF)]), onTap: () => Navigator.push(context, _premiumPageTransition(ServiceItDashboardPage(displayName: widget.displayName, userRole: widget.userRole)))),
       ));
     }
 

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_fonts/google_fonts.dart'; // ✅ 2026 Typography
+import 'package:google_fonts/google_fonts.dart';
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/services/activity_logger.dart';
 import 'package:file_picker/file_picker.dart';
@@ -30,10 +30,14 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   final _clientPhoneController = TextEditingController();
   final _clientEmailController = TextEditingController();
 
+  // 🚀 NEW: State variables for Technician Selection
+  String? _selectedTechnicianId;
+  String? _selectedTechnicianName;
+
   // Signature setup
   final _signatureController = SignatureController(
-    penStrokeWidth: 3, // Slightly thicker for a premium feel
-    penColor: const Color(0xFF111827), // Pitch Black
+    penStrokeWidth: 3,
+    penColor: const Color(0xFF111827),
     exportBackgroundColor: Colors.white,
   );
 
@@ -54,7 +58,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   }
 
   // ===========================================================================
-  // LOGIC (Unchanged)
+  // LOGIC
   // ===========================================================================
 
   Future<void> _pickMedia() async {
@@ -170,14 +174,19 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
 
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
+
     if (_signatureController.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La signature du client est requise.'), backgroundColor: Colors.red));
       return;
     }
-    if (_proofMediaFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Une photo ou vidéo de preuve est requise.'), backgroundColor: Colors.red));
+
+    // 🚀 NEW: Ensure Technician is selected
+    if (_selectedTechnicianId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Veuillez sélectionner le technicien qui effectue le retour.'), backgroundColor: Colors.red));
       return;
     }
+
+    // 🚀 REMOVED: Mandatory _proofMediaFile check (it is now optional)
 
     setState(() => _isSaving = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -190,28 +199,45 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
       final b2Credentials = await _getB2UploadCredentials();
       if (b2Credentials == null) throw Exception('Impossible de récupérer les accès B2.');
 
+      // 1. Upload Signature (Mandatory)
       final signatureFileName = 'sav_returns/signatures/${widget.ticket.savCode}-$timestamp.png';
       final signatureUrl = await _uploadBytesToB2(signatureBytes!, signatureFileName, b2Credentials);
+      if (signatureUrl == null) throw Exception('Échec de l\'upload de la signature.');
 
-      final fileExtension = path.extension(_proofMediaFile!.path);
-      final mediaFolder = _isVideo ? 'videos' : 'photos';
-      final mediaFileName = 'sav_returns/$mediaFolder/${widget.ticket.savCode}-$timestamp$fileExtension';
-      final mediaUrl = await _uploadFileToB2(_proofMediaFile!, b2Credentials, mediaFileName);
+      // 2. Upload Media (Optional)
+      String? mediaUrl;
+      if (_proofMediaFile != null) {
+        final fileExtension = path.extension(_proofMediaFile!.path);
+        final mediaFolder = _isVideo ? 'videos' : 'photos';
+        final mediaFileName = 'sav_returns/$mediaFolder/${widget.ticket.savCode}-$timestamp$fileExtension';
+        mediaUrl = await _uploadFileToB2(_proofMediaFile!, b2Credentials, mediaFileName);
 
-      if (signatureUrl == null || mediaUrl == null) throw Exception('Échec de l\'upload d\'un ou plusieurs fichiers.');
+        if (mediaUrl == null) throw Exception('Échec de l\'upload de la photo/vidéo.');
+      }
 
-      await FirebaseFirestore.instance.collection('sav_tickets').doc(widget.ticket.id).update({
+      // 3. Prepare Firestore Update Payload
+      Map<String, dynamic> updateData = {
         'status': 'Retourné',
         'returnClientName': _clientNameController.text.trim(),
         'returnClientPhone': _clientPhoneController.text.trim(),
         'returnClientEmail': _clientEmailController.text.trim(),
         'returnSignatureUrl': signatureUrl,
-        'returnPhotoUrl': mediaUrl,
+        'returnTechnicianId': _selectedTechnicianId,       // 🚀 Saves Technician ID
+        'returnTechnicianName': _selectedTechnicianName,   // 🚀 Saves Technician Name
         'closedAt': FieldValue.serverTimestamp(),
-      });
+      };
 
+      // Only add media URL if one was successfully uploaded
+      if (mediaUrl != null) {
+        updateData['returnPhotoUrl'] = mediaUrl;
+      }
+
+      // 4. Update Database
+      await FirebaseFirestore.instance.collection('sav_tickets').doc(widget.ticket.id).update(updateData);
+
+      // 5. Log Activity
       await ActivityLogger.logActivity(
-        message: "Le ticket SAV ${widget.ticket.savCode} a été finalisé et retourné au client.",
+        message: "Le ticket SAV ${widget.ticket.savCode} a été finalisé et retourné au client par $_selectedTechnicianName.",
         interventionId: widget.ticket.id,
         category: 'SAV',
       );
@@ -246,7 +272,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0xFF10B981), width: 2), // Emerald Green Focus
+        borderSide: const BorderSide(color: Color(0xFF10B981), width: 2),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -263,7 +289,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB), // Clean off-white background
+      backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -290,6 +316,45 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
               _buildProductVerificationCard(),
               const SizedBox(height: 32),
 
+              // 🚀 NEW: Technician Dropdown Section
+              Text(
+                'Technicien de Restitution',
+                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF374151)),
+              ),
+              const SizedBox(height: 16),
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('users').orderBy('displayName').snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
+                  }
+
+                  final users = snapshot.data!.docs;
+
+                  return DropdownButtonFormField<String>(
+                    decoration: _premiumInputDecoration('Sélectionner le technicien', Icons.badge_outlined),
+                    value: _selectedTechnicianId,
+                    items: users.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final name = data['displayName'] ?? 'Utilisateur inconnu';
+                      return DropdownMenuItem(
+                        value: doc.id,
+                        child: Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      setState(() {
+                        _selectedTechnicianId = val;
+                        final selectedDoc = users.firstWhere((doc) => doc.id == val);
+                        _selectedTechnicianName = (selectedDoc.data() as Map<String, dynamic>)['displayName'];
+                      });
+                    },
+                    validator: (value) => value == null ? 'Veuillez sélectionner un technicien.' : null,
+                  );
+                },
+              ),
+              const SizedBox(height: 32),
+
               Text(
                 'Informations du Client',
                 style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF374151)),
@@ -298,7 +363,6 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
 
               TextFormField(
                 controller: _clientNameController,
-                // ✅ FIXED: Changed 500 to FontWeight.w500
                 style: GoogleFonts.inter(fontWeight: FontWeight.w500, color: const Color(0xFF111827)),
                 decoration: _premiumInputDecoration('Nom et Prénom / Gérant', Icons.person_outline_rounded),
                 validator: (value) => value == null || value.isEmpty ? 'Veuillez entrer un nom.' : null,
@@ -308,7 +372,6 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
               TextFormField(
                 controller: _clientPhoneController,
                 keyboardType: TextInputType.phone,
-                // ✅ FIXED: Changed 500 to FontWeight.w500
                 style: GoogleFonts.inter(fontWeight: FontWeight.w500, color: const Color(0xFF111827)),
                 decoration: _premiumInputDecoration('Numéro de téléphone', Icons.phone_outlined),
               ),
@@ -317,7 +380,6 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
               TextFormField(
                 controller: _clientEmailController,
                 keyboardType: TextInputType.emailAddress,
-                // ✅ FIXED: Changed 500 to FontWeight.w500
                 style: GoogleFonts.inter(fontWeight: FontWeight.w500, color: const Color(0xFF111827)),
                 decoration: _premiumInputDecoration('Email (Optionnel)', Icons.email_outlined),
               ),
@@ -326,7 +388,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
 
               // --- MEDIA SECTION ---
               Text(
-                'Preuve Visuelle',
+                'Preuve Visuelle (Optionnel)', // 🚀 UPDATED TEXT
                 style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF374151)),
               ),
               const SizedBox(height: 16),
@@ -428,7 +490,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
                 child: ElevatedButton(
                   onPressed: _isSaving ? null : _submitForm,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981), // Emerald Green
+                    backgroundColor: const Color(0xFF10B981),
                     disabledBackgroundColor: const Color(0xFF10B981).withOpacity(0.5),
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -449,7 +511,7 @@ class _FinalizeSavReturnPageState extends State<FinalizeSavReturnPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 40), // Bottom padding
+              const SizedBox(height: 40),
             ],
           ),
         ),
