@@ -1,14 +1,11 @@
 // lib/models/story_item.dart
 
-// 🚀 FIX: Added the missing Firestore import!
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StoryItem {
   final String id;
-
-  // 🚀 NEW: Add interventionId for deep linking
   final String? interventionId;
-
+  final String? installationId; // 🚀 NEW: Added for installations
   final String userId;
   final String userName;
   final String storeName;
@@ -19,11 +16,18 @@ class StoryItem {
   final List<String> mediaUrls;
   final DateTime timestamp;
   final String type;
-  final List<String> viewedBy; // 🚀 Tracks who has seen this story
+  final List<String> viewedBy;
+
+  // 🚀 Tracks all reactions [{'uid': '123', 'name': 'Jean', 'emoji': '❤️'}, ...]
+  final List<Map<String, dynamic>> reactions;
+
+  // 💬 🚀 NEW: Tracks all comments [{'uid': '...', 'name': '...', 'text': '...', 'timestamp': '...'}, ...]
+  final List<Map<String, dynamic>> comments;
 
   StoryItem({
     required this.id,
-    this.interventionId, // 🚀 NEW: Add to constructor
+    this.interventionId,
+    this.installationId, // 🚀 NEW
     required this.userId,
     required this.userName,
     required this.storeName,
@@ -35,22 +39,38 @@ class StoryItem {
     required this.timestamp,
     required this.type,
     required this.viewedBy,
+    required this.reactions,
+    required this.comments, // 🚀 NEW
   });
 
   factory StoryItem.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
-    // 🚀 Ensure viewedBy is ALWAYS a mutable, growable list.
     List<String> parsedViewedBy = [];
     if (data['viewedBy'] != null) {
-      // Create a brand new, growable list from the dynamic list
       parsedViewedBy = List<String>.from(data['viewedBy']).toList();
+    }
+
+    // 🚀 Safely parse the reactions list
+    List<Map<String, dynamic>> parsedReactions = [];
+    if (data['reactions'] != null) {
+      parsedReactions = List<Map<String, dynamic>>.from(
+          (data['reactions'] as List).map((e) => Map<String, dynamic>.from(e))
+      );
+    }
+
+    // 💬 🚀 NEW: Safely parse the comments list
+    List<Map<String, dynamic>> parsedComments = [];
+    if (data['comments'] != null) {
+      parsedComments = List<Map<String, dynamic>>.from(
+          (data['comments'] as List).map((e) => Map<String, dynamic>.from(e))
+      );
     }
 
     return StoryItem(
       id: doc.id,
-      // 🚀 NEW: Parse it directly from Firestore
       interventionId: data['interventionId'],
+      installationId: data['installationId'], // 🚀 NEW
       userId: data['userId'] ?? '',
       userName: data['userName'] ?? 'Technicien',
       storeName: data['storeName'] ?? 'Boutique',
@@ -61,14 +81,16 @@ class StoryItem {
       mediaUrls: data['mediaUrls'] != null ? List<String>.from(data['mediaUrls']) : [],
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
       type: data['type'] ?? 'intervention',
-      viewedBy: parsedViewedBy, // 🚀 Use the new mutable list
+      viewedBy: parsedViewedBy,
+      reactions: parsedReactions,
+      comments: parsedComments, // 🚀 NEW
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      // 🚀 NEW: Save it back to Firestore if we ever write the object directly
       'interventionId': interventionId,
+      'installationId': installationId, // 🚀 NEW
       'userId': userId,
       'userName': userName,
       'storeName': storeName,
@@ -80,6 +102,8 @@ class StoryItem {
       'timestamp': timestamp,
       'type': type,
       'viewedBy': viewedBy,
+      'reactions': reactions,
+      'comments': comments, // 🚀 NEW
     };
   }
 }

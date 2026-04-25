@@ -8,7 +8,7 @@
   <meta name="description" content="The official Boitex Info app.">
 
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="boitex_info_app">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
@@ -18,19 +18,25 @@
   <link rel="manifest" href="manifest.json">
 
   <style>
-    /* Reset and Base Font setup (Apple System Font) */
+    /* ========================================== */
+    /* 1. BASE SYSTEM & 4K CANVAS                 */
+    /* ========================================== */
     body, html {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
-      background-color: #0f172a; /* Deep elegant dark background */
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      overflow: hidden; /* Prevent scrolling during load */
+      background-color: #030305; /* Pitch black OLED background */
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    /* 1. Dynamic Colorful Ambient Background */
-    .ambient-bg {
+    /* ========================================== */
+    /* 2. NEXT-GEN AURORA MESH GRADIENT           */
+    /* ========================================== */
+    .aurora-bg {
       position: fixed;
       top: 0;
       left: 0;
@@ -38,40 +44,49 @@
       height: 100vh;
       z-index: 1;
       overflow: hidden;
-      background: #0f172a;
+      background: #030305;
     }
 
-    /* Colorful moving orbs */
-    .orb {
+    .aurora {
       position: absolute;
       border-radius: 50%;
-      filter: blur(100px); /* Massive blur for the ambient effect */
-      opacity: 0.7;
-      animation: drift 15s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+      filter: blur(90px); /* Massive smooth blur */
+      opacity: 0.8;
+      mix-blend-mode: screen;
+      animation: fluid-rotate 20s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    .orb-1 {
-      top: -10%; left: -10%;
-      width: 50vw; height: 50vw;
-      background: #4f46e5; /* Deep Blue/Purple */
+    .aurora-1 {
+      top: -20%; left: -10%;
+      width: 60vw; height: 60vw;
+      background: radial-gradient(circle, #5e1fb7 0%, transparent 70%);
       animation-delay: 0s;
     }
 
-    .orb-2 {
-      bottom: -20%; right: -10%;
-      width: 60vw; height: 60vw;
-      background: #c026d3; /* Vibrant Fuchsia */
-      animation-delay: -5s; /* Start halfway through animation */
+    .aurora-2 {
+      bottom: -20%; right: -20%;
+      width: 70vw; height: 70vw;
+      background: radial-gradient(circle, #ec4899 0%, transparent 70%);
+      animation-delay: -5s;
     }
 
-    .orb-3 {
-      top: 40%; left: 30%;
-      width: 45vw; height: 45vw;
-      background: #0ea5e9; /* Cyan/Light Blue */
+    .aurora-3 {
+      top: 30%; left: 40%;
+      width: 55vw; height: 55vw;
+      background: radial-gradient(circle, #0ea5e9 0%, transparent 70%);
       animation-delay: -10s;
     }
 
-    /* 2. The Splash Screen Container */
+    .aurora-4 {
+      bottom: 10%; left: -10%;
+      width: 50vw; height: 50vw;
+      background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
+      animation-delay: -15s;
+    }
+
+    /* ========================================== */
+    /* 3. PREMIUM HYPER-GLASS CARD                */
+    /* ========================================== */
     #splash-screen {
       position: fixed;
       top: 0;
@@ -82,54 +97,70 @@
       justify-content: center;
       align-items: center;
       z-index: 9999;
-      transition: opacity 0.8s cubic-bezier(0.25, 1, 0.5, 1); /* Smooth exit */
+      transition: opacity 1s cubic-bezier(0.25, 1, 0.5, 1);
+      perspective: 1000px;
     }
 
-    /* 3. The Frosted Glass Card */
-    .glass-card {
-      /* The core glassmorphism effect */
-      background: rgba(255, 255, 255, 0.03); /* Barely visible white */
-      backdrop-filter: blur(24px); /* Blur the elements behind it */
-      -webkit-backdrop-filter: blur(24px); /* Safari support */
+    .premium-glass-card {
+      position: relative;
+      /* Ultra-Glassmorphism values */
+      background: rgba(255, 255, 255, 0.015);
+      backdrop-filter: blur(60px) saturate(160%);
+      -webkit-backdrop-filter: blur(60px) saturate(160%);
 
-      /* Subtle borders and shadow for depth */
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      /* Apple-style physical glass edges */
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-top: 1px solid rgba(255, 255, 255, 0.2);
-      border-left: 1px solid rgba(255, 255, 255, 0.2);
-      box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      border-left: 1px solid rgba(255, 255, 255, 0.15);
 
-      /* Card shaping and layout */
-      border-radius: 32px;
-      padding: 60px 40px;
+      /* Deep multidimensional shadow */
+      box-shadow:
+        0 40px 80px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 0 0 20px rgba(255, 255, 255, 0.02);
+
+      /* "Squircle" border radius */
+      border-radius: 44px;
+      padding: 60px 40px 50px 40px;
       display: flex;
       flex-direction: column;
       align-items: center;
 
-      /* Responsive sizing: Looks great on Web and Mobile */
+      /* Adaptable scaling for Mobile and 4K Web */
       width: 85%;
-      max-width: 340px;
+      max-width: 360px;
 
-      /* Entrance animation */
-      animation: card-appear 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      /* Smooth Entrance */
+      animation: card-appear 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
-    /* Logo Image Styling */
-    .glass-card img {
-      width: 160px;
+    /* ========================================== */
+    /* 4. LOGO & TYPOGRAPHY                       */
+    /* ========================================== */
+    .logo-container {
+      position: relative;
+      margin-bottom: 45px;
+    }
+
+    .premium-glass-card img {
+      width: 150px;
       height: auto;
-      margin-bottom: 35px;
-      filter: drop-shadow(0 15px 25px rgba(0,0,0,0.3)); /* Shadow strictly on the logo */
-      animation: float 6s ease-in-out infinite; /* Gentle floating */
+      filter: drop-shadow(0 20px 30px rgba(0,0,0,0.4));
+      animation: float 6s ease-in-out infinite;
+      position: relative;
+      z-index: 2;
     }
 
-    /* Sleek Loading Typography */
-    .loading-text {
-      font-size: 1.1rem;
-      font-weight: 500;
-      letter-spacing: 2px;
+    /* Shimmering Text */
+    .shimmer-text {
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 4px;
       text-transform: uppercase;
-      /* Animated gradient text (Apple style) */
-      background: linear-gradient(90deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.4) 100%);
+      margin-bottom: 20px;
+
+      /* Dynamic Gradient Apple-style text */
+      background: linear-gradient(90deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,1) 50%, rgba(255,255,255,0.3) 100%);
       background-size: 200% auto;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
@@ -137,49 +168,100 @@
     }
 
     /* ========================================== */
-    /* KEYFRAME ANIMATIONS                        */
+    /* 5. MODERN PROGRESS BAR                     */
     /* ========================================== */
+    .loader-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
 
-    @keyframes drift {
-      0% { transform: translate(0px, 0px) scale(1); }
-      100% { transform: translate(40px, -60px) scale(1.15); }
+    .sleek-progress-bar {
+      width: 160px;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-glow {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 40%;
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(255,255,255,0.8);
+      animation: loading-bar 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    /* ========================================== */
+    /* 6. KEYFRAME ANIMATIONS                     */
+    /* ========================================== */
+    @keyframes fluid-rotate {
+      0% { transform: rotate(0deg) scale(1) translate(0, 0); }
+      50% { transform: rotate(180deg) scale(1.2) translate(5%, 10%); }
+      100% { transform: rotate(360deg) scale(1) translate(-5%, -5%); }
     }
 
     @keyframes float {
-      0% { transform: translateY(0px); }
-      50% { transform: translateY(-12px); }
-      100% { transform: translateY(0px); }
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
     }
 
     @keyframes text-shine {
       to { background-position: 200% center; }
     }
 
+    @keyframes loading-bar {
+      0% { left: -40%; width: 30%; }
+      50% { left: 20%; width: 80%; }
+      100% { left: 100%; width: 30%; }
+    }
+
     @keyframes card-appear {
-      0% { opacity: 0; transform: translateY(30px) scale(0.95); }
-      100% { opacity: 1; transform: translateY(0) scale(1); }
+      0% {
+        opacity: 0;
+        transform: translateY(40px) scale(0.9) rotateX(10deg);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1) rotateX(0deg);
+      }
     }
   </style>
 </head>
 <body>
 
-<div class="ambient-bg">
-  <div class="orb orb-1"></div>
-  <div class="orb orb-2"></div>
-  <div class="orb orb-3"></div>
+<div class="aurora-bg">
+  <div class="aurora aurora-1"></div>
+  <div class="aurora aurora-2"></div>
+  <div class="aurora aurora-3"></div>
+  <div class="aurora aurora-4"></div>
 </div>
 
 <div id="splash-screen">
-  <div class="glass-card">
-    <img src="assets/assets/images/logo.png" alt="Boitex Info Logo">
-    <div class="loading-text">Loading Workspace</div>
+  <div class="premium-glass-card">
+    <div class="logo-container">
+      <img src="assets/assets/images/logo.png" alt="Boitex Info Logo">
+    </div>
+
+    <div class="loader-container">
+      <div class="shimmer-text">Boitex Workspace</div>
+      <div class="sleek-progress-bar">
+        <div class="progress-glow"></div>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      // We explicitly register the SW here to ensure it's ACTIVE before Flutter asks for a token
+      // Keep your exact Firebase registration logic
       navigator.serviceWorker.register('firebase-messaging-sw.js')
         .then(function(registration) {
           console.log('✅ Service Worker pre-registered with scope:', registration.scope);
@@ -189,17 +271,20 @@
     });
   }
 
-  // Fade out and remove the Splash Screen when Flutter renders the first frame
+  // Fade out smoothly when Flutter is ready
   window.addEventListener('flutter-first-frame', function() {
     var splash = document.getElementById('splash-screen');
-    var ambient = document.querySelector('.ambient-bg');
+    var ambient = document.querySelector('.aurora-bg');
     if (splash && ambient) {
+      // Trigger the CSS transition
       splash.style.opacity = '0';
       ambient.style.opacity = '0';
+
+      // Remove elements from DOM after transition finishes (1 second)
       setTimeout(function() {
         splash.remove();
         ambient.remove();
-      }, 800); // Matches the 0.8s transition time in CSS
+      }, 1000);
     }
   });
 </script>

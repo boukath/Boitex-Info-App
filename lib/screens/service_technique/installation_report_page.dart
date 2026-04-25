@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // ✅ ADDED: Needed for Story User ID
 import 'package:image_picker/image_picker.dart';
 import 'package:signature/signature.dart';
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
@@ -24,6 +25,9 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 // Imports for product search & scan
 import 'package:boitex_info_app/screens/administration/global_product_search_page.dart';
 import 'package:boitex_info_app/screens/administration/product_scanner_page.dart';
+
+// ✅ ADDED: Import for Story creation
+import 'package:boitex_info_app/models/story_item.dart';
 
 class InstallationReportPage extends StatefulWidget {
   final String installationId;
@@ -895,6 +899,46 @@ class _InstallationReportPageState extends State<InstallationReportPage> {
 
       // Close Progress Dialog
       if (mounted) Navigator.of(context).pop();
+
+      // 🚀 --- CREATE THE STORY --- 🚀
+      try {
+        if (uploadedMediaUrls.isNotEmpty) {
+          // Get the original doc data for store info
+          final docData = _installationDoc?.data() as Map<String, dynamic>? ?? {};
+
+          String storeName = docData['storeName'] ?? docData['clientName'] ?? 'Client';
+          String location = docData['storeLocation'] ?? '';
+          String userName = selectedNames.isNotEmpty ? selectedNames.join(', ') : 'Équipe Technique';
+          String description = _notesController.text.trim().isNotEmpty
+              ? _notesController.text.trim()
+              : 'Installation terminée avec succès.';
+
+          final newStory = StoryItem(
+            id: '', // Firestore will generate this
+            installationId: widget.installationId,
+            userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+            userName: userName,
+            storeName: storeName,
+            storeLogoUrl: null, // Add if you have store logos
+            location: location,
+            description: description,
+            badgeText: 'INSTALLATION', // Distinguishes it from INT-
+            mediaUrls: uploadedMediaUrls,
+            timestamp: DateTime.now(),
+            type: 'installation', // 🚀 Crucial for routing in the viewer!
+            viewedBy: [],
+            reactions: [],
+            comments: [],
+          );
+
+          // NOTE: Saving to 'daily_stories' because that is what your PremiumStoryViewer uses!
+          await FirebaseFirestore.instance.collection('daily_stories').add(newStory.toMap());
+          debugPrint("✅ Story Installation créée avec succès!");
+        }
+      } catch (e) {
+        debugPrint("❌ Erreur lors de la création de la story: $e");
+      }
+      // 🚀 --- END OF STORY CREATION --- 🚀
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

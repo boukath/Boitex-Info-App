@@ -21,7 +21,7 @@ import 'package:boitex_info_app/screens/fleet/fleet_list_page.dart';
 import 'package:boitex_info_app/screens/dashboard/morning_briefing_summary_page.dart';
 import 'package:flutter/services.dart';
 
-// ✅ IMPORT THE STORY FILES FROM STEP 1
+// ✅ IMPORT THE STORY FILES
 import 'package:boitex_info_app/models/story_item.dart';
 import 'package:boitex_info_app/screens/home/widgets/premium_story_viewer.dart';
 
@@ -1199,11 +1199,12 @@ class GlobalStoryFeed extends StatelessWidget {
               return Padding(
                 padding: const EdgeInsets.only(right: 16.0),
                 child: _GlobalStoryAvatarRing(
+                  userId: userId, // 🚀 Passed to fetch profile pic
                   userName: userName,
                   stories: userStories,
                   isMe: isMe,
                   photoUrl: isMe ? currentUser?.photoURL : null,
-                  hasUnseen: hasUnseen, // This controls the glow!
+                  hasUnseen: hasUnseen,
                 ),
               );
             },
@@ -1215,18 +1216,20 @@ class GlobalStoryFeed extends StatelessWidget {
 }
 
 class _GlobalStoryAvatarRing extends StatefulWidget {
+  final String userId; // 🚀 ADDED TO FETCH USER PROFILE
   final String userName;
   final List<StoryItem> stories;
   final bool isMe;
   final String? photoUrl;
-  final bool hasUnseen; // 🚀 NEW PROPERTY
+  final bool hasUnseen;
 
   const _GlobalStoryAvatarRing({
+    required this.userId,
     required this.userName,
     required this.stories,
     required this.isMe,
     this.photoUrl,
-    this.hasUnseen = false, // 🚀 Default to false
+    this.hasUnseen = false,
   });
 
   @override
@@ -1254,7 +1257,6 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
       PageRouteBuilder(
         opaque: false,
         pageBuilder: (context, animation, secondaryAnimation) {
-          // ✅ USE THE NEW PREMIUM VIEWER
           return PremiumStoryViewer(stories: widget.stories);
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -1267,6 +1269,29 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
   Color _getAvatarColor(String name) {
     final colors = [Colors.blueAccent, Colors.purpleAccent, Colors.teal, Colors.orangeAccent, Colors.pinkAccent];
     return colors[name.length % colors.length];
+  }
+
+  // 🚀 Helper widget to actually draw the avatar content once we have the URL
+  Widget _buildAvatarContent(String? finalUrl) {
+    return Container(
+      height: 52,
+      width: 52,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: finalUrl == null ? _getAvatarColor(widget.userName) : Colors.black,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(50),
+        child: finalUrl != null && finalUrl.isNotEmpty
+            ? CachedNetworkImage(imageUrl: finalUrl, fit: BoxFit.cover)
+            : Center(
+          child: Text(
+            widget.userName.isNotEmpty ? widget.userName[0].toUpperCase() : '?',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 24),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1318,24 +1343,21 @@ class _GlobalStoryAvatarRingState extends State<_GlobalStoryAvatarRing> with Sin
                     shape: BoxShape.circle
                 ),
               ),
-              Container(
-                height: 52,
-                width: 52,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: widget.photoUrl == null ? _getAvatarColor(widget.userName) : Colors.black,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(50),
-                  child: widget.photoUrl != null && widget.photoUrl!.isNotEmpty
-                      ? CachedNetworkImage(imageUrl: widget.photoUrl!, fit: BoxFit.cover)
-                      : Center(
-                    child: Text(
-                      widget.userName.isNotEmpty ? widget.userName[0].toUpperCase() : '?',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 24),
-                    ),
-                  ),
-                ),
+
+              // 🚀 THE MAGIC: Fetch their profile picture if it's not you
+              widget.isMe || widget.photoUrl != null
+                  ? _buildAvatarContent(widget.photoUrl)
+                  : FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance.collection('users').doc(widget.userId).get(),
+                builder: (context, snapshot) {
+                  String? fetchedUrl;
+                  if (snapshot.hasData && snapshot.data!.exists) {
+                    final data = snapshot.data!.data() as Map<String, dynamic>?;
+                    // We check common keys that hold the image URL
+                    fetchedUrl = data?['photoUrl'] ?? data?['photoURL'] ?? data?['avatarUrl'];
+                  }
+                  return _buildAvatarContent(fetchedUrl);
+                },
               ),
             ],
           ),

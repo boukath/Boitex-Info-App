@@ -316,6 +316,7 @@ class _InterventionDetailsPageState extends State<InterventionDetailsPage> {
       final String currentUserUid = FirebaseAuth.instance.currentUser?.uid ?? data['createdByUid'];
 
       final storyData = {
+        'interventionId': interventionId,
         'userId': currentUserUid,
         'userName': techNames,
         'storeName': storeName,

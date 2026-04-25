@@ -14,13 +14,13 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:timeline_tile/timeline_tile.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:boitex_info_app/screens/administration/add_store_equipment_page.dart';
 import 'package:boitex_info_app/screens/administration/store_equipment_details_page.dart';
 import 'package:boitex_info_app/screens/administration/add_store_page.dart';
 import 'package:boitex_info_app/models/service_contracts.dart';
 
-// ✅ Imports for the detailed history pages & models
 import 'package:boitex_info_app/screens/administration/livraison_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/intervention_details_page.dart';
 import 'package:boitex_info_app/screens/service_technique/installation_details_page.dart';
@@ -28,11 +28,9 @@ import 'package:boitex_info_app/screens/service_technique/sav_ticket_details_pag
 import 'package:boitex_info_app/models/sav_ticket.dart';
 import 'package:boitex_info_app/utils/user_roles.dart';
 
-// ✅ Import Image Gallery for Full Screen Images
 import 'package:boitex_info_app/widgets/image_gallery_page.dart';
-
-// ✅ NEW: Import the PDF Export Service
 import 'package:boitex_info_app/services/store_pdf_export_service.dart';
+import 'package:boitex_info_app/services/store_transfer_service.dart';
 
 class StoreEquipmentPage extends StatefulWidget {
   final String clientId;
@@ -60,7 +58,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
   late Future<List<Map<String, String>>> _contactsFuture;
 
-  // B2 UPLOAD STATE VARIABLES
   bool _isUploading = false;
   String? _localLogoUrl;
   String? _localCoverUrl;
@@ -73,14 +70,12 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     super.initState();
     _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
     _searchController.addListener(() {
-      setState(() {
-        _searchQuery = _searchController.text.toLowerCase();
-      });
+      setState(() => _searchQuery = _searchController.text.toLowerCase());
     });
 
     _contactsFuture = _fetchStoreContacts();
-
     _localLogoUrl = widget.logoUrl;
+
     _storeSubscription = FirebaseFirestore.instance
         .collection('clients')
         .doc(widget.clientId)
@@ -107,6 +102,91 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     _searchController.dispose();
     _storeSubscription?.cancel();
     super.dispose();
+  }
+
+  // ==============================================================================
+  // 💎 2026 PREMIUM APPLE GLASS TRANSFER DIALOG
+  // ==============================================================================
+  Future<void> _showTransferDialog() async {
+    final clientsSnapshot = await FirebaseFirestore.instance.collection('clients').get();
+    final otherClients = clientsSnapshot.docs.where((doc) => doc.id != widget.clientId).toList();
+
+    if (!mounted) return;
+
+    final result = await showGeneralDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, animation, secondaryAnimation) => const SizedBox.shrink(),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+
+        final curvedAnimation = CurvedAnimation(parent: animation, curve: Curves.easeOutQuart);
+        final scale = Tween<double>(begin: 0.85, end: 1.0).animate(curvedAnimation);
+        final fade = Tween<double>(begin: 0.0, end: 1.0).animate(curvedAnimation);
+
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15 * animation.value, sigmaY: 15 * animation.value),
+          child: ScaleTransition(
+            scale: scale,
+            child: FadeTransition(
+              opacity: fade,
+              child: Center(
+                child: _PremiumTransferDialogUI(
+                  storeName: widget.storeName,
+                  clients: otherClients,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (result != null && result.isNotEmpty) {
+      _triggerStoreTransfer(result);
+    }
+  }
+
+  Future<void> _triggerStoreTransfer(String newClientId) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator.adaptive()),
+    );
+
+    try {
+      final transferService = StoreTransferService();
+      await transferService.transferStore(
+        oldClientId: widget.clientId,
+        newClientId: newClientId,
+        storeId: widget.storeId,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading
+      Navigator.pop(context); // ⚠️ Close the store page
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Magasin transféré avec succès !", style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: const Color(0xFF34C759),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur: $e", style: GoogleFonts.inter(color: Colors.white)),
+          backgroundColor: const Color(0xFFFF3B30),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   // ==============================================================================
@@ -170,9 +250,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     }
   }
 
-  // ==============================================================================
-  // 🔄 AUTO-IMPORT LOGIC (The Lazy Sync)
-  // ==============================================================================
   Future<void> _syncFromDeliveries() async {
     try {
       final deliveriesSnapshot = await FirebaseFirestore.instance
@@ -348,14 +425,11 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     return contacts;
   }
 
-  // ==============================================================================
-  // 🕒 HISTORY LOGIC (FULL AUDIT TRAIL)
-  // ==============================================================================
   Future<List<Map<String, dynamic>>> _fetchStoreHistory() async {
     List<Map<String, dynamic>> history = [];
 
     try {
-      // 1. Fetch Interventions (Only 'Terminé' or 'Clôturé')
+      // 1. Fetch Interventions
       final interventions = await FirebaseFirestore.instance
           .collection('interventions')
           .where('storeId', isEqualTo: widget.storeId)
@@ -364,9 +438,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
       for (var doc in interventions.docs) {
         final data = doc.data();
-        List<String> techs = List<String>.from(data['assignedTechnicians'] ?? []);
-        List<String> media = List<String>.from(data['mediaUrls'] ?? []);
-
         history.add({
           'id': doc.id,
           'doc': doc,
@@ -374,12 +445,12 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
           'code': data['interventionCode'] ?? 'N/A',
           'date': data['scheduledAt'] ?? data['createdAt'],
           'status': data['status'],
-          'technicians': techs,
+          'technicians': List<String>.from(data['assignedTechnicians'] ?? []),
           'primaryDescTitle': 'Diagnostic',
           'primaryDesc': data['diagnostic'] ?? 'Aucun diagnostic',
           'secondaryDescTitle': 'Travail Effectué',
           'secondaryDesc': data['workDone'] ?? 'Aucun détail',
-          'mediaUrls': media,
+          'mediaUrls': List<String>.from(data['mediaUrls'] ?? []),
           'signatureUrl': data['signatureUrl'],
           'icon': Icons.build_circle_outlined,
           'color': Colors.blueAccent,
@@ -394,10 +465,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
       for (var doc in installations.docs) {
         final data = doc.data();
-        List<String> techs = List<String>.from(data['assignedTechnicianNames'] ?? []);
-        List<String> media = List<String>.from(data['mediaUrls'] ?? []);
-        final products = data['orderedProducts'] as List? ?? [];
-
         history.add({
           'id': doc.id,
           'doc': doc,
@@ -405,13 +472,13 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
           'code': data['installationCode'] ?? 'N/A',
           'date': data['completedAt'] ?? data['installationDate'] ?? data['createdAt'],
           'status': data['status'] ?? 'Inconnu',
-          'technicians': techs,
+          'technicians': List<String>.from(data['assignedTechnicianNames'] ?? []),
           'primaryDescTitle': 'Demande Initiale',
           'primaryDesc': data['initialRequest'] ?? 'Aucune demande',
           'secondaryDescTitle': 'Notes',
           'secondaryDesc': data['notes'] ?? 'Aucune note',
-          'extraInfo': '${products.length} produit(s) installé(s)',
-          'mediaUrls': media,
+          'extraInfo': '${(data['orderedProducts'] as List? ?? []).length} produit(s) installé(s)',
+          'mediaUrls': List<String>.from(data['mediaUrls'] ?? []),
           'signatureUrl': data['signatureUrl'],
           'icon': Icons.handyman_outlined,
           'color': Colors.teal,
@@ -435,8 +502,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
           techs.add(data['technicianName']);
         }
 
-        final products = data['products'] as List? ?? [];
-
         history.add({
           'id': doc.id,
           'type': 'Livraison',
@@ -445,7 +510,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
           'status': data['status'] ?? 'Inconnu',
           'technicians': techs,
           'primaryDescTitle': 'Détails',
-          'primaryDesc': 'Livraison de ${products.length} référence(s).',
+          'primaryDesc': 'Livraison de ${(data['products'] as List? ?? []).length} référence(s).',
           'signatureUrl': data['signatureUrl'],
           'icon': Icons.local_shipping_outlined,
           'color': Colors.green,
@@ -460,22 +525,19 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
       for (var doc in savs.docs) {
         final data = doc.data();
-        List<String> techs = List<String>.from(data['pickupTechnicianNames'] ?? []);
         List<String> media = List<String>.from(data['itemPhotoUrls'] ?? []);
         if (data['returnPhotoUrl'] != null && data['returnPhotoUrl'].toString().isNotEmpty) {
           media.add(data['returnPhotoUrl']);
         }
 
-        final ticket = SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>);
-
         history.add({
           'id': doc.id,
-          'ticket': ticket,
+          'ticket': SavTicket.fromFirestore(doc as DocumentSnapshot<Map<String, dynamic>>),
           'type': 'SAV',
           'code': data['savCode'] ?? 'N/A',
           'date': data['pickupDate'] ?? data['createdAt'],
           'status': data['status'] ?? 'Inconnu',
-          'technicians': techs,
+          'technicians': List<String>.from(data['pickupTechnicianNames'] ?? []),
           'primaryDescTitle': 'Problème Signalé',
           'primaryDesc': data['problemDescription'] ?? 'Non spécifié',
           'secondaryDescTitle': 'Rapport Technicien',
@@ -551,7 +613,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
-  // ✅ SMART LAYOUT - NO TRANSFORM.TRANSLATE OVERFLOWS
   Widget _buildHeroHeader() {
     return SliverToBoxAdapter(
       child: Container(
@@ -566,7 +627,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
                   Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      // 📸 CLICKABLE LOGO IMAGE
                       GestureDetector(
                         onTap: () {
                           if (_localLogoUrl != null) {
@@ -588,7 +648,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
                           child: _localLogoUrl == null ? const Icon(Icons.storefront, size: 40, color: Colors.grey) : null,
                         ),
                       ),
-                      // Edit Logo Button
                       Positioned(
                         bottom: 0,
                         right: -4,
@@ -632,29 +691,32 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
             const SizedBox(height: 24),
 
-            // Quick Actions (✅ ADDED PDF BUTTON HERE)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildActionCircle(Icons.phone_outlined, "Appeler", () {}),
-                _buildActionCircle(Icons.map_outlined, "Itinéraire", () {}),
-                _buildActionCircle(Icons.edit_outlined, "Éditer", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStorePage(clientId: widget.clientId, storeId: widget.storeId, initialData: _storeData)))),
-                _buildActionCircle(Icons.add_box_outlined, "Ajouter", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStoreEquipmentPage(clientId: widget.clientId, storeId: widget.storeId)))),
-                _buildActionCircle(Icons.picture_as_pdf, "Dossier", () {
-                  StorePdfExportService.generateAndShareStoreDashboard(
-                    context: context,
-                    clientId: widget.clientId,
-                    storeId: widget.storeId,
-                    storeName: widget.storeName,
-                    logoUrl: _localLogoUrl,
-                  );
-                }),
-              ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 16,
+                alignment: WrapAlignment.spaceEvenly,
+                children: [
+                  _buildActionCircle(Icons.phone_outlined, "Appeler", () {}),
+                  _buildActionCircle(Icons.map_outlined, "Itinéraire", () {}),
+                  _buildActionCircle(Icons.edit_outlined, "Éditer", () => Navigator.push(context, MaterialPageRoute(builder: (_) => AddStorePage(clientId: widget.clientId, storeId: widget.storeId, initialData: _storeData)))),
+                  _buildActionCircle(Icons.swap_horiz_outlined, "Transférer", _showTransferDialog),
+                  _buildActionCircle(Icons.picture_as_pdf, "Dossier", () {
+                    StorePdfExportService.generateAndShareStoreDashboard(
+                      context: context,
+                      clientId: widget.clientId,
+                      storeId: widget.storeId,
+                      storeName: widget.storeName,
+                      logoUrl: _localLogoUrl,
+                    );
+                  }),
+                ],
+              ),
             ),
 
             const SizedBox(height: 24),
 
-            // Live KPI Cards
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: StreamBuilder<QuerySnapshot>(
@@ -691,9 +753,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
-  // ==============================================================================
-  // 🏢 APERÇU TAB (OVERVIEW)
-  // ==============================================================================
   Widget _buildOverviewTab() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -709,11 +768,9 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
             Future<void> openGoogleMaps() async {
               Uri mapUrl;
               if (lat != null && lng != null) {
-                // ✅ FIXED: Official Google Maps coordinate search
                 mapUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
               } else {
                 final String searchQuery = Uri.encodeComponent('${widget.storeName} $address');
-                // ✅ FIXED: Official Google Maps text search
                 mapUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$searchQuery');
               }
 
@@ -727,7 +784,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 📍 1. LOCALISATION CARD
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -790,7 +846,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
                   ),
                 ),
 
-                // 🛡️ 2. MAINTENANCE CONTRACT CARD (NEW)
                 if (data['maintenance_contract'] != null) ...[
                   const SizedBox(height: 24),
                   _buildMaintenanceContractCard(data['maintenance_contract'] as Map<String, dynamic>),
@@ -802,7 +857,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
         const SizedBox(height: 24),
 
-        // 📞 3. CONTACTS SECTION
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 12),
           child: Text("Répertoire (Contacts Historiques)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
@@ -862,9 +916,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
-  // ==============================================================================
-  // 🛡️ MAINTENANCE CONTRACT WIDGETS
-  // ==============================================================================
   Widget _buildMaintenanceContractCard(Map<String, dynamic> contract) {
     final DateTime? start = (contract['startDate'] as Timestamp?)?.toDate();
     final DateTime? end = (contract['endDate'] as Timestamp?)?.toDate();
@@ -964,6 +1015,7 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
       ],
     );
   }
+
   Widget _buildContactRow(IconData icon, String value, String label, {bool isLink = false}) {
     return Row(
       children: [
@@ -1037,7 +1089,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
             if (snapshot.connectionState == ConnectionState.waiting) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return SliverFillRemaining(child: _buildEmptyState("Aucun équipement installé", Icons.inventory_2_outlined));
 
-            // 1. Filter and Sort
             var docs = snapshot.data!.docs.where((doc) {
               final data = doc.data() as Map<String, dynamic>;
               final serial = (data['serialNumber'] ?? '').toString().toLowerCase();
@@ -1062,11 +1113,9 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
             if (docs.isEmpty) return SliverFillRemaining(child: _buildEmptyState("Aucun résultat pour cette recherche.", Icons.search_off));
 
-            // 2. Group by Product
             Map<String, List<QueryDocumentSnapshot>> groupedEquipment = {};
             for (var doc in docs) {
               final data = doc.data() as Map<String, dynamic>;
-              // Group by Product ID if available, otherwise fallback to Name
               String key = data['productId']?.toString() ?? data['nom']?.toString() ?? data['name']?.toString() ?? 'Inconnu';
               if (!groupedEquipment.containsKey(key)) {
                 groupedEquipment[key] = [];
@@ -1076,7 +1125,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
 
             final groupKeys = groupedEquipment.keys.toList();
 
-            // 3. Render Grouped List
             return SliverPadding(
               padding: const EdgeInsets.only(left: 16, right: 16, bottom: 80),
               sliver: SliverList(
@@ -1104,27 +1152,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
-  Widget _buildPremiumWarrantyBadge(EquipmentWarranty? warranty) {
-    if (warranty == null) return const SizedBox.shrink();
-    Color color = Colors.redAccent;
-    String text = "Expirée";
-    if (warranty.isValid) {
-      if (warranty.isExpiringSoon) {
-        color = Colors.orange;
-        text = "Expire bientôt";
-      } else {
-        color = Colors.green;
-        text = "Sous Garantie";
-      }
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
-      child: Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
-    );
-  }
-
-  // ✅ FULLY REWRITTEN - NO EXPANSION TILE, NO OVERFLOWS
   Widget _buildHistoryTab() {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _fetchStoreHistory(),
@@ -1170,7 +1197,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
                   border: Border.all(color: Colors.grey.shade200),
                   boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
                 ),
-                // ✅ Using the robust custom widget here!
                 child: _ExpandableHistoryCard(
                   item: item,
                   formattedDate: formattedDate,
@@ -1199,10 +1225,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
     );
   }
 
-  // ==============================================================================
-  // 🏗 MAIN BUILD
-  // ==============================================================================
-
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -1221,7 +1243,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
                     background: Stack(
                       fit: StackFit.expand,
                       children: [
-                        // ✅ CLICKABLE COVER IMAGE
                         GestureDetector(
                           onTap: () {
                             if (_localCoverUrl != null) {
@@ -1317,7 +1338,6 @@ class _StoreEquipmentPageState extends State<StoreEquipmentPage> with SingleTick
           ),
         ),
 
-        // 🔄 Uploading Overlay
         if (_isUploading)
           Container(
             color: Colors.black54,
@@ -1368,7 +1388,7 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 }
 
 // ==============================================================================
-// 🚀 NEW: CUSTOM EXPANDABLE HISTORY CARD (Replaces Flawed ExpansionTile)
+// 🚀 CUSTOM EXPANDABLE HISTORY CARD
 // ==============================================================================
 class _ExpandableHistoryCard extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -1396,9 +1416,8 @@ class _ExpandableHistoryCardState extends State<_ExpandableHistoryCard> {
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min, // Crucial to prevent internal overflow
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // --- Always Visible Header ---
         InkWell(
           onTap: () => setState(() => _isExpanded = !_isExpanded),
           borderRadius: BorderRadius.circular(16),
@@ -1456,8 +1475,6 @@ class _ExpandableHistoryCardState extends State<_ExpandableHistoryCard> {
             ),
           ),
         ),
-
-        // --- Expandable Content Body ---
         AnimatedCrossFade(
           firstChild: const SizedBox(width: double.infinity, height: 0),
           secondChild: Padding(
@@ -1491,7 +1508,6 @@ class _ExpandableHistoryCardState extends State<_ExpandableHistoryCard> {
                   ),
                 ],
 
-                // Attachments Row
                 if (widget.mediaUrls.isNotEmpty || widget.signatureUrl != null) ...[
                   const SizedBox(height: 16),
                   const Text('Pièces Jointes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
@@ -1531,7 +1547,6 @@ class _ExpandableHistoryCardState extends State<_ExpandableHistoryCard> {
                   )
                 ],
 
-                // Navigation Button
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
@@ -1580,8 +1595,9 @@ class _ExpandableHistoryCardState extends State<_ExpandableHistoryCard> {
     );
   }
 }
+
 // ==============================================================================
-// 🚀 NEW: CUSTOM GROUPED EQUIPMENT CARD
+// 🚀 CUSTOM GROUPED EQUIPMENT CARD
 // ==============================================================================
 class _GroupedEquipmentCard extends StatefulWidget {
   final List<QueryDocumentSnapshot> docs;
@@ -1613,7 +1629,6 @@ class _GroupedEquipmentCardState extends State<_GroupedEquipmentCard> {
     final firstData = widget.docs.first.data() as Map<String, dynamic>;
     final String? imageUrl = firstData['image'];
 
-    // Calculate warranty stats
     int validWarrantyCount = 0;
     for (var doc in widget.docs) {
       final warranty = widget.getWarranty(doc.data() as Map<String, dynamic>);
@@ -1637,7 +1652,6 @@ class _GroupedEquipmentCardState extends State<_GroupedEquipmentCard> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // HEADER (Product Summary)
           InkWell(
             onTap: () => setState(() => _isExpanded = !_isExpanded),
             borderRadius: BorderRadius.circular(16),
@@ -1700,7 +1714,6 @@ class _GroupedEquipmentCardState extends State<_GroupedEquipmentCard> {
             ),
           ),
 
-          // EXPANDED LIST OF ITEMS (Serial numbers)
           AnimatedCrossFade(
             firstChild: const SizedBox(width: double.infinity, height: 0),
             secondChild: Column(
@@ -1789,6 +1802,320 @@ class _GroupedEquipmentCardState extends State<_GroupedEquipmentCard> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
       child: Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+    );
+  }
+}
+
+// ==============================================================================
+// 💎 PREMIUM GLASS DIALOG WIDGET (VISION OS / iOS 18 STYLE) - KEYBOARD FIXED
+// ==============================================================================
+class _PremiumTransferDialogUI extends StatefulWidget {
+  final String storeName;
+  final List<DocumentSnapshot> clients;
+
+  const _PremiumTransferDialogUI({
+    required this.storeName,
+    required this.clients,
+  });
+
+  @override
+  State<_PremiumTransferDialogUI> createState() => _PremiumTransferDialogUIState();
+}
+
+class _PremiumTransferDialogUIState extends State<_PremiumTransferDialogUI> {
+  String? _selectedClientId;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 1. Filter clients based on search query
+    List<DocumentSnapshot> filteredClients = widget.clients.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final name = (data['name'] ?? '').toString().toLowerCase();
+      return name.contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    // 2. Sort clients alphabetically
+    filteredClients.sort((a, b) {
+      final nameA = ((a.data() as Map<String, dynamic>)['name'] ?? '').toString().toLowerCase();
+      final nameB = ((b.data() as Map<String, dynamic>)['name'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
+
+    // Screen Dimensions
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double screenHeight = MediaQuery.of(context).size.height;
+    final double dialogWidth = screenWidth > 600 ? 450 : screenWidth * 0.9;
+    final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    // Calculate maximum safe height for the dialog when keyboard is open
+    final double maxDialogHeight = screenHeight - bottomInset - 40; // 40px safe margin
+
+    return Material(
+      color: Colors.transparent,
+      child: Center(
+        // Use AnimatedContainer to smoothly shrink the dialog when keyboard opens
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          width: dialogWidth,
+          // Constrain the height so it never goes under the keyboard
+          constraints: BoxConstraints(
+            maxHeight: maxDialogHeight > 0 ? maxDialogHeight : screenHeight * 0.8,
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.antiAlias,
+            children: [
+              // 🎨 BACKGROUND MESH GRADIENTS
+              Positioned(
+                top: -50, left: -50,
+                child: Container(
+                  width: 200, height: 200,
+                  decoration: BoxDecoration(color: const Color(0xFF007AFF).withOpacity(0.35), shape: BoxShape.circle),
+                ),
+              ),
+              Positioned(
+                bottom: -50, right: -50,
+                child: Container(
+                  width: 200, height: 200,
+                  decoration: BoxDecoration(color: const Color(0xFFAF52DE).withOpacity(0.35), shape: BoxShape.circle),
+                ),
+              ),
+
+              // 🪟 THE FROSTED GLASS LAYER
+              ClipRRect(
+                borderRadius: BorderRadius.circular(32),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.65),
+                      borderRadius: BorderRadius.circular(32),
+                      border: Border.all(color: Colors.white.withOpacity(0.7), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 40, offset: const Offset(0, 10)),
+                      ],
+                    ),
+                    // We use a Column to keep Header/Footer fixed and only scroll the list
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min, // Wrap content if small
+                      children: [
+
+                        // ==========================================
+                        // 1. FIXED HEADER (Title + Search)
+                        // ==========================================
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+                          child: Column(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF007AFF).withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF007AFF), size: 24),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Transférer ${widget.storeName}',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF1D1D1F), letterSpacing: -0.5),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                "Sélectionnez le nouveau client pour ce magasin.",
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF86868B), height: 1.4),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Search Bar
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                          child: Container(
+                            height: 44, // Fixed compact height
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white.withOpacity(0.5), width: 1),
+                            ),
+                            child: TextField(
+                              controller: _searchController,
+                              focusNode: _searchFocusNode, // Track focus
+                              onChanged: (val) => setState(() => _searchQuery = val),
+                              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1D1D1F), fontWeight: FontWeight.w500),
+                              decoration: InputDecoration(
+                                hintText: "Rechercher un client...",
+                                hintStyle: GoogleFonts.inter(color: const Color(0xFF86868B)),
+                                prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF86868B), size: 18),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 12), // Center text
+                                suffixIcon: _searchQuery.isNotEmpty
+                                    ? GestureDetector(
+                                  onTap: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                    _searchFocusNode.unfocus(); // Drop keyboard on clear
+                                  },
+                                  child: const Icon(Icons.cancel_rounded, color: Color(0xFF86868B), size: 18),
+                                )
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // ==========================================
+                        // 2. SCROLLABLE LIST OF CLIENTS
+                        // ==========================================
+                        Flexible(
+                          child: GestureDetector(
+                            // Drop keyboard if user touches the list area
+                            onPanDown: (_) => _searchFocusNode.unfocus(),
+                            child: filteredClients.isEmpty
+                                ? Padding(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Text(
+                                "Aucun client trouvé.",
+                                style: GoogleFonts.inter(color: const Color(0xFF86868B), fontSize: 14),
+                              ),
+                            )
+                                : ListView.separated(
+                              shrinkWrap: true, // Wrap to content size if list is small
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              physics: const BouncingScrollPhysics(), // Scrollable again!
+                              itemCount: filteredClients.length,
+                              separatorBuilder: (context, index) => const SizedBox(height: 6),
+                              itemBuilder: (context, index) {
+                                final doc = filteredClients[index];
+                                final data = doc.data() as Map<String, dynamic>;
+                                final String name = data['name'] ?? 'Client Inconnu';
+                                final bool isSelected = _selectedClientId == doc.id;
+
+                                return GestureDetector(
+                                  onTap: () {
+                                    _searchFocusNode.unfocus(); // Instantly hide keyboard
+                                    setState(() => _selectedClientId = doc.id);
+                                  },
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    curve: Curves.easeOutQuart,
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? const Color(0xFF007AFF).withOpacity(0.08) : Colors.white.withOpacity(0.5),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: isSelected ? const Color(0xFF007AFF) : Colors.white.withOpacity(0.5),
+                                        width: isSelected ? 2 : 1,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        // Avatar
+                                        Container(
+                                          width: 36, height: 36,
+                                          decoration: BoxDecoration(
+                                            color: isSelected ? const Color(0xFF007AFF).withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                              style: GoogleFonts.inter(
+                                                color: isSelected ? const Color(0xFF007AFF) : const Color(0xFF1D1D1F),
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        // Client Name
+                                        Expanded(
+                                          child: Text(
+                                            name,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 15,
+                                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                              color: const Color(0xFF1D1D1F),
+                                            ),
+                                          ),
+                                        ),
+                                        // Checkmark
+                                        if (isSelected)
+                                          const Icon(Icons.check_circle_rounded, color: Color(0xFF007AFF), size: 22)
+                                        else
+                                          Icon(Icons.circle_outlined, color: Colors.grey.withOpacity(0.3), size: 22),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+
+                        // ==========================================
+                        // 3. FIXED FOOTER (Action Buttons)
+                        // ==========================================
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  ),
+                                  child: Text('Annuler', style: GoogleFonts.inter(fontSize: 15, color: const Color(0xFF86868B), fontWeight: FontWeight.w600)),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 200),
+                                  opacity: _selectedClientId == null ? 0.5 : 1.0,
+                                  child: ElevatedButton(
+                                    onPressed: _selectedClientId == null ? null : () => Navigator.pop(context, _selectedClientId),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF007AFF),
+                                      foregroundColor: Colors.white,
+                                      elevation: 0,
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                    ),
+                                    child: Text('Confirmer', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
